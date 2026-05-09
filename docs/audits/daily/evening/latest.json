@@ -2,45 +2,45 @@
   "audit_cli": {
     "attempts": [
       {
-        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/9763/Codexify/scripts/audit_platform_readiness.py --json",
-        "exit_code": 1,
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py --json",
+        "exit_code": 0,
         "stderr": "",
         "stdout_is_json": false
       },
       {
-        "command": "/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/venv/bin/python /Users/resonant_jones/.codex/worktrees/9763/Codexify/scripts/audit_platform_readiness.py",
-        "exit_code": 1,
+        "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/scripts/audit_platform_readiness.py",
+        "exit_code": 0,
         "stderr": ""
       }
     ],
     "parsed_text": {
       "strongest_domains": [
+        "Extension Boundary",
         "Core Loop Integrity",
-        "Primitive Stability",
-        "Observability"
+        "Primitive Stability"
       ],
       "suggested_score_bands": {
         "Alternate Surface Readiness": "manual review required",
         "Core Loop Integrity": "1-2 likely",
         "Durability & Recovery": "1-2 likely",
-        "Extension Boundary": "0-1 likely",
+        "Extension Boundary": "1-2 likely",
         "Federation Readiness": "0-1 likely",
         "Governance Readiness": "manual review required",
         "Observability": "1-2 likely",
         "Primitive Stability": "1-2 likely"
       },
       "summary_counts": {
-        "fail": 1,
-        "pass": 38,
+        "fail": 0,
+        "pass": 42,
         "warn": 12
       },
       "weakest_domains": [
-        "Extension Boundary",
         "Federation Readiness",
-        "Governance Readiness"
+        "Governance Readiness",
+        "Alternate Surface Readiness"
       ]
     },
-    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/.codex/worktrees/9763/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/roadmap-signals.md contains 'tool execution unification'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [FAIL] Tools route present: missing expected path(s): guardian/routes/tools.py\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [WARN] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md did not match expected text: 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 38\n  WARN: 12\n  FAIL: 1\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Observability\n  Clearest structural weakness signals: Extension Boundary, Federation Readiness, Governance Readiness\n",
+    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/roadmap-signals.md contains 'tool execution unification'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Command bus route present: guardian/routes/command_bus.py exists\n  [PASS] Command bus contracts present: guardian/command_bus/contracts.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Guardian intent spine route present: guardian/routes/agent_orchestration.py exists\n  [PASS] Agent orchestration persistence seams present: guardian/agents/store.py exists\n  [PASS] Guardian-mediated coding worker seam present: guardian/workers/coding_worker.py exists\n  [WARN] Architecture docs describe command bus, cron, and coding-agent seams: docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'\n  [WARN] Legacy /tools compatibility route status: docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced\nEvidence summary:\n  Command bus, cron execution, Guardian intent-orchestration seams, and the Guardian-mediated coding result path provide the current extension boundary evidence. This remains a cautionary domain because extension governance and cross-surface maturity still require manual review.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths continue to prefer durable command-bus and cron lanes over ad hoc process-local behavior?\n  - Manual review required: do Guardian intent-spine and coding-agent return-path seams stay policy-governed across chat, automation, and future plugin entrypoints?\n  - Manual review required: is self-extending plugin governance explicit enough to prevent capability drift at install and runtime binding boundaries?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 42\n  WARN: 12\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Extension Boundary, Core Loop Integrity, Primitive Stability\n  Clearest structural weakness signals: Federation Readiness, Governance Readiness, Alternate Surface Readiness\n",
     "selected_mode": "text_fallback"
   },
   "baseline": {
@@ -63,220 +63,285 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 16,
+    "commit_count": 19,
     "commits": [
       {
         "files": [
-          "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
+          "guardian/core/chat_completion_service.py",
+          "tests/core/test_chat_completion_service_model_selection_trace.py"
+        ],
+        "sha": "6e0fca808c3e48d8d543da2499cdb181c4107de4",
+        "subject": "fix(chat): repair model selection trace helper invocation on main"
+      },
+      {
+        "files": [
+          "docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md"
+        ],
+        "sha": "135d7ed64cdd3292aeb19a4d50e0051ddc7e998b",
+        "subject": "docs(proof): re-run neo4j graph backend live proof after runtime boundary fix"
+      },
+      {
+        "files": [
+          "docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md",
+          "guardian/core/chat_completion_service.py",
+          "guardian/routes/chat.py"
+        ],
+        "sha": "8654bcc22d18ce77279e9a759a4c1cb641e06b22",
+        "subject": "docs(proof): re-run neo4j graph backend live proof after runtime boundary fix"
+      },
+      {
+        "files": [
+          "guardian/memory_graph/graph_backend.py",
+          "tests/memory_graph/test_graph_backend_adapter.py"
+        ],
+        "sha": "f947a407201d3a8c1d170607cbf5cb8abb850199",
+        "subject": "fix: repair graph backend syntax errors and merge conflicts"
+      },
+      {
+        "files": [
+          "guardian/memory_graph/graph_backend.py"
+        ],
+        "sha": "ba47588bd3fec304c5b6f7f1e70c841f2ad43156",
+        "subject": "Merge remote-tracking branch 'origin/main' into main"
+      },
+      {
+        "files": [
           "frontend/src/components/persona/layout/AppShell.tsx",
-          "frontend/src/components/sidebar/ThreadList.tsx"
+          "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+          "frontend/src/hooks/useUploader.ts"
         ],
-        "sha": "e20f3aacd0f01126ff33c77ed524b477fad11ba8",
-        "subject": "Remove nested card layer from Guardian surfaces"
+        "sha": "dd8fd19233a4393ce0c0199139852c95aa6a38e6",
+        "subject": "Harden stored general project context"
       },
       {
         "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
+          "docs/audits/daily/evening/2026-05-08-audit.json",
+          "docs/audits/daily/evening/2026-05-08-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
         ],
-        "sha": "e63d3a6583de27210e6a4dcb9a48711637670954",
-        "subject": "Finish Guardian thread rail visual cleanup"
+        "sha": "8b6eb383909f74f59879e04c7148f52931f43fdf",
+        "subject": "docs: capture fresh platform readiness audit"
       },
       {
         "files": [
-          "guardian/core/graph_write_inspection_store.py",
-          "tests/routes/test_graph_write_inspection.py"
-        ],
-        "sha": "39077c784321d5e2781b6ee938f0f2381938eb5a",
-        "subject": "Bound graph-write adapter failure messages at store boundary"
-      },
-      {
-        "files": [
-          "docs/proofs/2026-05-04-image-turn-containment-proof.md"
-        ],
-        "sha": "18908e99ba600f8de2b91981571a81cc24c6fc7c",
-        "subject": "docs: rerun image-turn containment proof after origin bridge"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
-        ],
-        "sha": "cd7521264c30e5c707d9c3e93d105757587ef089",
-        "subject": "Finish Guardian thread rail visual cleanup"
-      },
-      {
-        "files": [
-          "guardian/routes/health.py",
-          "guardian/server/app.py",
-          "tests/server/test_core_route_wiring.py"
-        ],
-        "sha": "25c2ca5f631bb93cd9380fd4b7387a36cc2a78cc",
-        "subject": "Restore health and media routes in server app"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx"
-        ],
-        "sha": "0334761d700ed8c4f55f33166db6a4ca7bd7763e",
-        "subject": "Restore compact Guardian thread rail tiles"
-      },
-      {
-        "files": [
-          ".playwright-mcp/page-2026-05-06T16-49-35-311Z.yml",
-          ".playwright-mcp/page-2026-05-06T17-15-15-134Z.yml",
-          "docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05",
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
-        ],
-        "sha": "1e53ba27649a620738527e6bb0ac92f60ca97885",
-        "subject": "Repair Guardian thread rail tile regression"
-      },
-      {
-        "files": [
-          "docs/proofs/2026-05-04-image-turn-containment-proof.md",
-          "guardian/core/chat_completion_service.py",
-          "guardian/core/llm_catalog.py",
-          "guardian/routes/chat.py",
-          "tests/core/test_chat_completion_service_image_routing.py",
-          "tests/providers/test_vision_capability_validation.py",
-          "tests/routes/test_chat_profile_trace.py",
-          "tests/routes/test_image_turn_live_trace_contract.py"
-        ],
-        "sha": "aa6a76b2d0b2476292db3ea6150d8bf291dd8588",
-        "subject": "runtime: propagate image routing truth on live turns"
-      },
-      {
-        "files": [
-          "frontend/src/components/sidebar/ThreadList.tsx",
-          "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-          "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
-        ],
-        "sha": "81181082010cb8949a76eb3221387465059d1f71",
-        "subject": "Remove nested card layer from Guardian surfaces"
-      },
-      {
-        "files": [
-          "docs/proofs/2026-05-04-image-turn-containment-proof.md"
-        ],
-        "sha": "1174a32c5e597df60a347757fdcec5a208ef4f48",
-        "subject": "docs: rerun image-turn containment proof after native routing truth"
-      },
-      {
-        "files": [
-          "guardian/core/provider_truth.py",
-          "guardian/routes/health.py",
-          "guardian/tests/core/test_provider_truth.py",
-          "guardian/tests/test_health_endpoints.py"
-        ],
-        "sha": "ee3f2adf02e5fb03a05f9fcecf3012dfa9c3119a",
-        "subject": "Exclude default cloud bases from release-hold checks"
-      },
-      {
-        "files": [
-          "docs/architecture/runtime-protocol-token-contract.md",
-          "docs/proofs/2026-05-04-image-turn-containment-proof.md",
-          "guardian/core/ai_router.py",
-          "guardian/core/chat_completion_service.py",
-          "guardian/protocol_tokens.py",
-          "tests/contracts/test_protocol_tokens.py",
-          "tests/core/test_chat_completion_service_image_routing.py",
-          "tests/providers/test_vision_capability_validation.py",
-          "tests/routes/test_image_turn_live_trace_contract.py"
-        ],
-        "sha": "a10c11b5eb85d51d664f6d744adee16083e248cd",
-        "subject": "runtime: stamp native image routing truth"
-      },
-      {
-        "files": [
-          "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md",
           "docs/architecture/00-current-state.md",
-          "docs/architecture/2026-05-05-coding-result-return-path-live-proof.md"
+          "docs/architecture/2026-05-08-supported-profile-live-proof.md"
         ],
-        "sha": "be0f09f6624fa90a40e6640d04aca0169e81ba23",
-        "subject": "docs(proof): capture coding-result return path proof status"
+        "sha": "a5881aefa3b89709b7a4cfad071a8ae8be5e0d32",
+        "subject": "docs: add 2026-05-08 supported profile live proof (PARTIAL)"
       },
       {
         "files": [
-          "docs/proofs/2026-05-04-image-turn-containment-proof.md"
+          "docker-compose.yml",
+          "docs/architecture/README.md",
+          "docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md",
+          "docs/architecture/adr/adr-index.md",
+          "docs/architecture/candidate-ingest-pipeline.md",
+          "docs/architecture/config-and-ops.md",
+          "docs/architecture/memory-graph-indexing-plan.md",
+          "guardian/core/config.py",
+          "guardian/memory_graph/graph_backend_factory.py",
+          "guardian/workers/graph_write_worker.py",
+          "tests/memory_graph/test_graph_backend_factory.py",
+          "tests/workers/test_graph_write_worker.py"
         ],
-        "sha": "dec45fb563e78f6ed4f4e3ceddd8fbb2b48a74ef",
-        "subject": "docs: rerun image-turn containment proof after promotion fix"
+        "sha": "9ca4caf569734ee9d92963227d81e41c8295bc73",
+        "subject": "fix: enforce default-off graph write runtime boundary on compose path"
       },
       {
         "files": [
-          "docs/architecture/completion_pipeline.md",
+          "docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md"
+        ],
+        "sha": "8cbf733c96dd72a55e35f513334ef4c2f8c265b5",
+        "subject": "docs(proof): capture live neo4j graph backend proof behind explicit flag"
+      },
+      {
+        "files": [
+          "docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md",
+          "scripts/audit_platform_readiness.py",
+          "tests/scripts/test_audit_platform_readiness.py"
+        ],
+        "sha": "ae1ee8f9f5b8827ef9df9a151af1946789207cd3",
+        "subject": "fix: align readiness audit extension boundary checks"
+      },
+      {
+        "files": [
+          "docs/architecture/README.md",
+          "docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md",
+          "docs/architecture/adr/adr-index.md",
+          "docs/architecture/candidate-ingest-pipeline.md",
+          "docs/architecture/config-and-ops.md",
+          "docs/architecture/memory-graph-indexing-plan.md",
+          "guardian/core/config.py",
+          "guardian/memory_graph/graph_backend.py",
+          "guardian/memory_graph/graph_backend_factory.py",
+          "guardian/memory_graph/neo4j_graph_backend.py",
+          "guardian/memory_graph/noop_graph_backend.py",
+          "guardian/workers/graph_write_worker.py",
+          "tests/memory_graph/test_graph_backend_adapter.py",
+          "tests/memory_graph/test_graph_backend_factory.py",
+          "tests/memory_graph/test_neo4j_graph_backend.py",
+          "tests/workers/test_graph_write_worker.py"
+        ],
+        "sha": "1ae2bcb31c7e1621c9c886759ff063618303f106",
+        "subject": "feat: add feature-flagged neo4j graph backend behind adapter seam"
+      },
+      {
+        "files": [
+          "docs/architecture/self-extending-agent-plugin-system.md",
+          "guardian/core/chat_completion_service.py",
+          "guardian/extensions/contracts.py",
+          "guardian/extensions/reentry.py",
+          "guardian/extensions/tokens.py",
+          "tests/extensions/test_capability_one_turn_reentry.py"
+        ],
+        "sha": "c9427bb2f8152af00176d94e7152ed7fa7def8b9",
+        "subject": "feat: add one-turn assistant reentry seam"
+      },
+      {
+        "files": [
+          "guardian/routes/chat.py"
+        ],
+        "sha": "dffb8f66a49da57a0ecd34f8b2f9ca511a8c0d50",
+        "subject": "fix: repair chat route trace evidence block"
+      },
+      {
+        "files": [
+          "docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07"
+        ],
+        "sha": "f2dc2d93e2a67dbf974f198143584783e05d3688",
+        "subject": "Capture workspace obsidian e2e proof"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
           "docs/architecture/flows.md",
-          "docs/architecture/runtime-protocol-token-contract.md",
+          "docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md"
+        ],
+        "sha": "09a6ceeca9439b3dee30a5d1ab8e453c6bf40c82",
+        "subject": "docs(proof): capture workspace obsidian e2e proof"
+      },
+      {
+        "files": [
           "docs/proofs/2026-05-04-image-turn-containment-proof.md",
           "guardian/core/chat_completion_service.py",
-          "guardian/protocol_tokens.py",
           "guardian/routes/chat.py",
+          "tests/context/test_retrieval_trace_provenance.py",
           "tests/contracts/test_protocol_tokens.py",
-          "tests/core/test_chat_completion_service_image_routing.py",
           "tests/routes/test_chat_profile_trace.py",
           "tests/routes/test_image_turn_live_trace_contract.py"
         ],
-        "sha": "1d9fc88f800954cb2c4a26228027fd81a153bb22",
-        "subject": "runtime: promote containment trace and image routing absence"
+        "sha": "b04f9ec52bd30d80ca549fa24bc70794f363c95f",
+        "subject": "tests: repair image-turn regression syntax gate"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/flows.md",
+          "docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md"
+        ],
+        "sha": "09d849af87ae2167a0a2314eaecda43053a7242e",
+        "subject": "docs(proof): capture workspace obsidian e2e proof"
+      },
+      {
+        "files": [
+          "guardian/context/broker.py"
+        ],
+        "sha": "9f083c7141c64cc12faa4bbde4114992f6fd19c3",
+        "subject": "fix: repair context broker result filtering block"
       }
     ],
     "files_changed": [
-      "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
-      "frontend/src/components/persona/layout/AppShell.tsx",
-      "frontend/src/components/sidebar/ThreadList.tsx",
-      "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-      "guardian/core/graph_write_inspection_store.py",
-      "tests/routes/test_graph_write_inspection.py",
-      "docs/proofs/2026-05-04-image-turn-containment-proof.md",
-      "guardian/routes/health.py",
-      "guardian/server/app.py",
-      "tests/server/test_core_route_wiring.py",
-      ".playwright-mcp/page-2026-05-06T16-49-35-311Z.yml",
-      ".playwright-mcp/page-2026-05-06T17-15-15-134Z.yml",
-      "docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05",
-      "frontend/src/features/workspace/components/WorkspaceDrawer.tsx",
       "guardian/core/chat_completion_service.py",
-      "guardian/core/llm_catalog.py",
+      "tests/core/test_chat_completion_service_model_selection_trace.py",
+      "docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md",
       "guardian/routes/chat.py",
-      "tests/core/test_chat_completion_service_image_routing.py",
-      "tests/providers/test_vision_capability_validation.py",
+      "guardian/memory_graph/graph_backend.py",
+      "tests/memory_graph/test_graph_backend_adapter.py",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "frontend/src/hooks/useUploader.ts",
+      "docs/audits/daily/evening/2026-05-08-audit.json",
+      "docs/audits/daily/evening/2026-05-08-audit.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/2026-05-08-supported-profile-live-proof.md",
+      "docker-compose.yml",
+      "docs/architecture/README.md",
+      "docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md",
+      "docs/architecture/adr/adr-index.md",
+      "docs/architecture/candidate-ingest-pipeline.md",
+      "docs/architecture/config-and-ops.md",
+      "docs/architecture/memory-graph-indexing-plan.md",
+      "guardian/core/config.py",
+      "guardian/memory_graph/graph_backend_factory.py",
+      "guardian/workers/graph_write_worker.py",
+      "tests/memory_graph/test_graph_backend_factory.py",
+      "tests/workers/test_graph_write_worker.py",
+      "docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md",
+      "docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md",
+      "scripts/audit_platform_readiness.py",
+      "tests/scripts/test_audit_platform_readiness.py",
+      "docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md",
+      "guardian/memory_graph/neo4j_graph_backend.py",
+      "guardian/memory_graph/noop_graph_backend.py",
+      "tests/memory_graph/test_neo4j_graph_backend.py",
+      "docs/architecture/self-extending-agent-plugin-system.md",
+      "guardian/extensions/contracts.py",
+      "guardian/extensions/reentry.py",
+      "guardian/extensions/tokens.py",
+      "tests/extensions/test_capability_one_turn_reentry.py",
+      "docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07",
+      "docs/architecture/flows.md",
+      "docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md",
+      "docs/proofs/2026-05-04-image-turn-containment-proof.md",
+      "tests/context/test_retrieval_trace_provenance.py",
+      "tests/contracts/test_protocol_tokens.py",
       "tests/routes/test_chat_profile_trace.py",
       "tests/routes/test_image_turn_live_trace_contract.py",
-      "guardian/core/provider_truth.py",
-      "guardian/tests/core/test_provider_truth.py",
-      "guardian/tests/test_health_endpoints.py",
-      "docs/architecture/runtime-protocol-token-contract.md",
-      "guardian/core/ai_router.py",
-      "guardian/protocol_tokens.py",
-      "tests/contracts/test_protocol_tokens.py",
-      "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md",
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/2026-05-05-coding-result-return-path-live-proof.md",
-      "docs/architecture/completion_pipeline.md",
-      "docs/architecture/flows.md"
+      "guardian/context/broker.py"
     ],
-    "window_end": "2026-05-06T21:19:39.171912-04:00",
+    "window_end": "2026-05-08T12:06:36.211568-04:00",
     "window_hours": 24,
-    "window_start": "2026-05-05T21:19:39.171912-04:00"
+    "window_start": "2026-05-07T12:06:36.211568-04:00"
   },
-  "date": "2026-05-06",
-  "generated_at": "2026-05-06T21:19:39.171912-04:00",
+  "date": "2026-05-08",
+  "generated_at": "2026-05-08T12:06:36.211568-04:00",
   "manual_notes": {
-    "blocked": "",
-    "finished_today": "",
-    "next_priority": ""
+    "blocked": "scripts/audit_platform_readiness.py --json returned non-JSON text output; JSON capture remains via fallback schema.",
+    "finished_today": "Captured fresh 2026-05-08 evening readiness artifacts after Extension Boundary audit repair and updated latest pointers.",
+    "next_priority": "Keep current-state/release truth synchronized with future readiness deltas, especially if any new FAIL appears."
+  },
+  "notable_change": {
+    "extension_boundary_legacy_tools_fail_cleared": true,
+    "json_mode_supported": false,
+    "release_truth_changed": false,
+    "summary": "Extension Boundary no longer fails solely due to missing legacy guardian/routes/tools.py; audit remains text_fallback for --json probe."
   },
   "phase": "evening",
   "repo": {
-    "branch": "detached@e20f3aa",
-    "date": "2026-05-06",
-    "dirty": false,
-    "head": "e20f3aacd0f01126ff33c77ed524b477fad11ba8",
+    "branch": "codex/run-readiness-audit",
+    "date": "2026-05-08",
+    "dirty": true,
+    "head": "6e0fca808c3e48d8d543da2499cdb181c4107de4",
     "status_error": "",
-    "status_lines": []
+    "status_lines": [
+      "M  docs/architecture/2026-05-08-supported-profile-live-proof.md",
+      "M  docs/architecture/flows.md",
+      "MM guardian/db/models.py",
+      "M  guardian/routes/documents.py",
+      "M  guardian/routes/media.py",
+      "M  guardian/workers/document_embed_worker.py",
+      "M  tests/proofs/test_supported_profile_live_proof_contract.py",
+      "M  tests/routes/test_documents.py",
+      "M  tests/routes/test_media_upload.py"
+    ]
   },
   "risk_flags": [
     {
@@ -332,67 +397,100 @@
     }
   ],
   "subsystems_touched": {
+    "audit": {
+      "count": 8,
+      "files": [
+        "docs/audits/daily/evening/2026-05-08-audit.json",
+        "docs/audits/daily/evening/2026-05-08-audit.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md",
+        "scripts/audit_platform_readiness.py",
+        "tests/scripts/test_audit_platform_readiness.py"
+      ]
+    },
     "chat": {
       "count": 1,
       "files": [
         "guardian/routes/chat.py"
       ]
     },
-    "docs": {
-      "count": 8,
+    "config": {
+      "count": 1,
       "files": [
-        "docs/proofs/2026-05-04-image-turn-containment-proof.md",
-        "docs/DEV_LOG/2026-05-05/Dev Log - 2026-05-05",
-        "docs/architecture/runtime-protocol-token-contract.md",
-        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md",
+        "guardian/core/config.py"
+      ]
+    },
+    "docs": {
+      "count": 16,
+      "files": [
+        "docs/proofs/2026-05-08-neo4j-graph-backend-live-proof-after-runtime-boundary-fix.md",
         "docs/architecture/00-current-state.md",
-        "docs/architecture/2026-05-05-coding-result-return-path-live-proof.md",
-        "docs/architecture/completion_pipeline.md",
-        "docs/architecture/flows.md"
+        "docs/architecture/2026-05-08-supported-profile-live-proof.md",
+        "docs/architecture/README.md",
+        "docs/architecture/adr/026-graph-write-runtime-flag-boundary-on-supported-compose-path.md",
+        "docs/architecture/adr/adr-index.md",
+        "docs/architecture/config-and-ops.md",
+        "docs/architecture/memory-graph-indexing-plan.md",
+        "docs/proofs/2026-05-07-neo4j-graph-backend-live-proof.md",
+        "docs/proofs/2026-05-07-platform-readiness-audit-extension-boundary-proof.md",
+        "docs/architecture/adr/025-neo4j-graph-backend-adapter-flagged-off-by-default.md",
+        "docs/architecture/self-extending-agent-plugin-system.md",
+        "docs/DEV_LOG/2026-05-07/Dev Log - 2026-05-07",
+        "docs/architecture/flows.md",
+        "docs/proofs/2026-05-07-workspace-obsidian-e2e-proof.md",
+        "docs/proofs/2026-05-04-image-turn-containment-proof.md"
       ]
     },
     "frontend": {
-      "count": 5,
+      "count": 3,
       "files": [
-        "frontend/src/components/persona/layout/AppShell.runtimeHealth.test.tsx",
         "frontend/src/components/persona/layout/AppShell.tsx",
-        "frontend/src/components/sidebar/ThreadList.tsx",
-        "frontend/src/components/sidebar/__tests__/ThreadList.test.tsx",
-        "frontend/src/features/workspace/components/WorkspaceDrawer.tsx"
+        "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+        "frontend/src/hooks/useUploader.ts"
       ]
     },
-    "providers": {
-      "count": 5,
+    "infra": {
+      "count": 1,
       "files": [
-        "guardian/core/llm_catalog.py",
-        "tests/providers/test_vision_capability_validation.py",
-        "guardian/core/provider_truth.py",
-        "guardian/tests/core/test_provider_truth.py",
-        "guardian/core/ai_router.py"
+        "docker-compose.yml"
+      ]
+    },
+    "ingestion": {
+      "count": 1,
+      "files": [
+        "docs/architecture/candidate-ingest-pipeline.md"
       ]
     },
     "tests": {
-      "count": 7,
+      "count": 10,
       "files": [
-        "tests/routes/test_graph_write_inspection.py",
-        "tests/server/test_core_route_wiring.py",
-        "tests/core/test_chat_completion_service_image_routing.py",
+        "tests/core/test_chat_completion_service_model_selection_trace.py",
+        "tests/memory_graph/test_graph_backend_adapter.py",
+        "tests/memory_graph/test_graph_backend_factory.py",
+        "tests/workers/test_graph_write_worker.py",
+        "tests/memory_graph/test_neo4j_graph_backend.py",
+        "tests/extensions/test_capability_one_turn_reentry.py",
+        "tests/context/test_retrieval_trace_provenance.py",
+        "tests/contracts/test_protocol_tokens.py",
         "tests/routes/test_chat_profile_trace.py",
-        "tests/routes/test_image_turn_live_trace_contract.py",
-        "guardian/tests/test_health_endpoints.py",
-        "tests/contracts/test_protocol_tokens.py"
+        "tests/routes/test_image_turn_live_trace_contract.py"
       ]
     },
     "unknown": {
-      "count": 7,
+      "count": 10,
       "files": [
-        "guardian/core/graph_write_inspection_store.py",
-        "guardian/routes/health.py",
-        "guardian/server/app.py",
-        ".playwright-mcp/page-2026-05-06T16-49-35-311Z.yml",
-        ".playwright-mcp/page-2026-05-06T17-15-15-134Z.yml",
         "guardian/core/chat_completion_service.py",
-        "guardian/protocol_tokens.py"
+        "guardian/memory_graph/graph_backend.py",
+        "guardian/memory_graph/graph_backend_factory.py",
+        "guardian/workers/graph_write_worker.py",
+        "guardian/memory_graph/neo4j_graph_backend.py",
+        "guardian/memory_graph/noop_graph_backend.py",
+        "guardian/extensions/contracts.py",
+        "guardian/extensions/reentry.py",
+        "guardian/extensions/tokens.py",
+        "guardian/context/broker.py"
       ]
     }
   }

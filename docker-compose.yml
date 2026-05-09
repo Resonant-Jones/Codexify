@@ -304,13 +304,21 @@ services:
       # Values: enforce | warn | off
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Resolve core/legacy env drift when both LLM_PROVIDER and AI_BACKEND are present.
-      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
+      # Local smoke tests should start from the canonical core settings path so
+      # the backend does not inherit the legacy Groq default unless it is
+      # explicitly requested.
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
+      # --- Graph-write runtime boundary (default-off) ---
+      # Neo4j container presence does NOT imply graph-write enablement.
+      # Both flags must be explicitly set to enable graph persistence.
+      CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
+      CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
       # Supported provider ids (backend): "local", "groq", "openai", "minimax"
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
@@ -441,6 +449,9 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
+      # --- Graph-write runtime boundary (default-off) ---
+      CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
+      CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -500,6 +511,9 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
+      # --- Graph-write runtime boundary (default-off) ---
+      CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
+      CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -537,6 +551,9 @@ services:
       GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      # --- Graph-write runtime boundary (default-off) ---
+      CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
+      CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
@@ -807,6 +824,9 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /models
+      # --- Graph-write runtime boundary (default-off) ---
+      CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
+      CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian

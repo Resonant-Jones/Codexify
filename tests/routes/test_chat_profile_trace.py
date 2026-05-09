@@ -119,6 +119,51 @@ def test_rag_trace_exposes_payload_summary(monkeypatch):
     chat._rag_traces.pop(77, None)
 
 
+def test_rag_trace_exposes_outer_execution_and_additive_tool_loop_execution(
+    monkeypatch,
+):
+    chat._thread_latest_task[782] = "task-782"
+
+    outer_execution = {
+        "attempted_provider": "groq",
+        "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": True,
+    }
+    tool_loop_execution = {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "execution": outer_execution,
+                "tool_loop_execution": tool_loop_execution,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["payload_summary"]["execution"] == outer_execution
+    assert trace["payload_summary"]["tool_loop_execution"] == (
+        tool_loop_execution
+    )
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
+
+
 def test_rag_trace_exposes_retrieval_provenance(monkeypatch):
     chat._thread_latest_task[781] = "task-781"
 
@@ -191,6 +236,30 @@ def test_rag_trace_exposes_retrieval_suppression(monkeypatch):
             }
         ],
     }
+
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda _task_id: {
+            "trace": {"documents": [], "graph": []},
+            "payload_summary": {
+                "payload_char_count": 10,
+                "message_count": 2,
+                "retrieval_suppression": retrieval_suppression,
+            },
+        },
+    )
+
+    trace = chat.get_latest_rag_trace(782, api_key="test-key")
+    assert trace["payload_summary"]["retrieval_suppression"] == (
+        retrieval_suppression
+    )
+    assert trace["retrieval_suppression"] == retrieval_suppression
+
+    chat._thread_latest_task.pop(782, None)
+    chat._rag_traces.pop(782, None)
+
+
 def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     chat._thread_latest_task[782] = "task-782"
 
@@ -204,11 +273,6 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
         chat,
         "_get_task_completed_payload",
         lambda _task_id: {
-            "trace": {"documents": [], "graph": []},
-            "payload_summary": {
-                "payload_char_count": 10,
-                "message_count": 2,
-                "retrieval_suppression": retrieval_suppression,
             "trace": {
                 "documents": [],
                 "graph": [],
@@ -225,10 +289,6 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     )
 
     trace = chat.get_latest_rag_trace(782, api_key="test-key")
-    assert trace["payload_summary"]["retrieval_suppression"] == (
-        retrieval_suppression
-    )
-    assert trace["retrieval_suppression"] == retrieval_suppression
     assert trace["image_routing_path"] is None
     assert trace["image_routing_absence_reason"] == absence_reason
     assert trace["payload_summary"]["image_routing_absence_reason"] == (

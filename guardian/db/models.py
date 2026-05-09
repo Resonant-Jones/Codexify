@@ -480,7 +480,9 @@ class ChatMessage(Base):
     extra_meta: Mapped[dict] = mapped_column(
         # Assistant-side coding_result rows use this JSONB blob for durable
         # source-thread / source-message / attempt lineage and capture flags.
-        JSONB, nullable=False, server_default="{}"
+        JSONB,
+        nullable=False,
+        server_default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -1798,7 +1800,9 @@ class UploadedDocument(Base):
 
     __tablename__ = "uploaded_documents"
 
+    # Origin identity for document-centric APIs (for example GET /api/documents/{id}).
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    # Canonical media-asset linkage used for dedupe/provenance.
     asset_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("media_assets.id", ondelete="SET NULL")
     )
@@ -3202,7 +3206,10 @@ class AgentEvent(Base):
     payload_json: Mapped[dict] = mapped_column(
         # Agent orchestration events can carry source thread/message lineage
         # and attempt metadata without widening the relational schema.
-        "payload", JSONB, nullable=False, server_default="{}"
+        "payload",
+        JSONB,
+        nullable=False,
+        server_default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
