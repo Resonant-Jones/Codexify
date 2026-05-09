@@ -15,7 +15,6 @@ from scripts.proofs.prove_image_turn_containment_runtime_provenance import (
     emit_report,
 )
 
-
 EXPECTED_COMMIT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 EXPECTED_COMMIT_TS = "2026-05-07T10:00:00+00:00"
 REQUIRED_FIX_COMMIT = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -110,7 +109,9 @@ def _healthy_payloads(
         "worker_heartbeat_status": completion_worker_status,
     }
     if completion_worker_age is not None:
-        completion_payload["worker_heartbeat_age_seconds"] = completion_worker_age
+        completion_payload[
+            "worker_heartbeat_age_seconds"
+        ] = completion_worker_age
 
     health_chat = {
         "status": "healthy",
@@ -152,7 +153,12 @@ def _healthy_command_outputs(
     )
     return {
         ("git", "rev-parse", "HEAD"): f"{head}\n",
-        ("git", "rev-parse", "--verify", EXPECTED_COMMIT): f"{EXPECTED_COMMIT}\n",
+        (
+            "git",
+            "rev-parse",
+            "--verify",
+            EXPECTED_COMMIT,
+        ): f"{EXPECTED_COMMIT}\n",
         (
             "git",
             "show",
@@ -259,10 +265,16 @@ def test_untrusted_log_hint_mismatch_does_not_fail_when_stronger_evidence_passes
     )
 
     assert report["proof_ready"] is True
-    assert report["backend"]["runtime_commit_source"] == RUNTIME_COMMIT_SOURCE_UNTRUSTED
+    assert (
+        report["backend"]["runtime_commit_source"]
+        == RUNTIME_COMMIT_SOURCE_UNTRUSTED
+    )
     assert report["backend"]["runtime_commit"] == "7a6b5c4d3e2f"
     assert report["errors"] == []
-    assert any("runtime commit hint 7a6b5c4d3e2f" in warning for warning in report["warnings"])
+    assert any(
+        "runtime commit hint 7a6b5c4d3e2f" in warning
+        for warning in report["warnings"]
+    )
 
 
 def test_missing_runtime_commit_source_is_reported_honestly():
@@ -273,8 +285,14 @@ def test_missing_runtime_commit_source_is_reported_honestly():
 
     assert report["proof_ready"] is True
     assert report["runtime_commit_source"] == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
-    assert report["backend"]["runtime_commit_source"] == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
-    assert report["worker"]["runtime_commit_source"] == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    assert (
+        report["backend"]["runtime_commit_source"]
+        == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    )
+    assert (
+        report["worker"]["runtime_commit_source"]
+        == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    )
 
 
 @pytest.mark.parametrize(
@@ -308,7 +326,10 @@ def test_worker_commit_unavailable_still_requires_fresh_worker_heartbeat(
         payloads=_healthy_payloads(endpoint_commit=None, **payload_kwargs),
     )
 
-    assert report["worker"]["runtime_commit_source"] == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    assert (
+        report["worker"]["runtime_commit_source"]
+        == RUNTIME_COMMIT_SOURCE_UNAVAILABLE
+    )
     assert report["proof_ready"] is False
     assert any(expected_error_fragment in error for error in report["errors"])
 
@@ -321,7 +342,10 @@ def test_local_head_missing_required_fix_commit_fails_readiness():
 
     assert report["proof_ready"] is False
     assert report["local_head_contains_required_lineage_commit"] is False
-    assert any("does not contain required lineage commit" in error for error in report["errors"])
+    assert any(
+        "does not contain required lineage commit" in error
+        for error in report["errors"]
+    )
 
 
 def test_local_head_containing_required_fix_commit_passes_lineage_check():
@@ -351,7 +375,8 @@ def test_container_created_before_expected_commit_timestamp_fails():
 
     assert report["proof_ready"] is False
     assert any(
-        "backend container was created before expected commit timestamp" in error
+        "backend container was created before expected commit timestamp"
+        in error
         for error in report["errors"]
     )
 
@@ -393,7 +418,11 @@ def test_emit_report_writes_human_text_and_json(capsys):
         },
         "health": {"/health": {"status_code": 200, "body": {"status": "ok"}}},
         "checks": [
-            {"name": "local_git_head_matches_expected", "ok": True, "detail": "match"}
+            {
+                "name": "local_git_head_matches_expected",
+                "ok": True,
+                "detail": "match",
+            }
         ],
         "warnings": [],
         "errors": [],

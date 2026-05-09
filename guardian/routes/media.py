@@ -378,10 +378,7 @@ def _get_project_record(db, project_id: int) -> dict[str, Any] | None:
         try:
             with db.get_session() as session:
                 rows = session.query(Project).all()
-                projects = [
-                    _normalize_project_row(row)
-                    for row in rows
-                ]
+                projects = [_normalize_project_row(row) for row in rows]
         except Exception:
             projects = []
 

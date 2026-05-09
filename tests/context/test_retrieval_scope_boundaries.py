@@ -94,7 +94,9 @@ async def test_default_project_bound_turn_stays_thread_first_and_keeps_project_d
             if namespace == "thread:1":
                 return _semantic_hits("thread", user_id)
             if namespace == "thread:2":
-                pytest.fail("thread widening should not happen for ordinary direct QA")
+                pytest.fail(
+                    "thread widening should not happen for ordinary direct QA"
+                )
             return []
 
     broker = _make_broker(chatlog, _VectorStore())
@@ -134,7 +136,9 @@ async def test_default_project_bound_turn_stays_thread_first_and_keeps_project_d
             "global": [],
         }
 
-    monkeypatch.setattr(broker, "get_scoped_documents", _fake_get_scoped_documents)
+    monkeypatch.setattr(
+        broker, "get_scoped_documents", _fake_get_scoped_documents
+    )
 
     context, trace = await broker.assemble(
         1,
@@ -159,7 +163,9 @@ async def test_default_project_bound_turn_stays_thread_first_and_keeps_project_d
 
 
 @pytest.mark.asyncio
-async def test_unbound_thread_does_not_pull_project_docs_by_default(monkeypatch):
+async def test_unbound_thread_does_not_pull_project_docs_by_default(
+    monkeypatch,
+):
     user_id = get_test_user_id()
     chatlog = _Chatlog(user_id=user_id, project_id=None)
     vector_calls: list[str | None] = []
@@ -208,7 +214,9 @@ async def test_unbound_thread_does_not_pull_project_docs_by_default(monkeypatch)
             "global": [],
         }
 
-    monkeypatch.setattr(broker, "get_scoped_documents", _fake_get_scoped_documents)
+    monkeypatch.setattr(
+        broker, "get_scoped_documents", _fake_get_scoped_documents
+    )
 
     context, trace = await broker.assemble(
         1,
@@ -266,7 +274,9 @@ async def test_workspace_source_mode_can_widen_across_threads_when_supported(
         "_retrieve_obsidian_documents",
         _fake_retrieve_obsidian_documents,
     )
-    monkeypatch.setattr(broker, "get_scoped_documents", _fake_get_scoped_documents)
+    monkeypatch.setattr(
+        broker, "get_scoped_documents", _fake_get_scoped_documents
+    )
 
     context, trace = await broker.assemble(
         1,

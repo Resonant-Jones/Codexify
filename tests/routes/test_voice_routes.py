@@ -131,6 +131,7 @@ def test_get_dedupe_hit_keeps_in_flight_task_record(monkeypatch):
         "status": "in_flight",
     }
 
+
 def test_voice_capabilities_contract(test_client, monkeypatch):
     monkeypatch.setattr(
         "guardian.routes.voice.get_voice_runtime_config",

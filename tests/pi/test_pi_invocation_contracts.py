@@ -3,22 +3,26 @@ from __future__ import annotations
 import inspect
 
 from guardian.pi.contracts import (
-import builtins
-from copy import deepcopy
-from dataclasses import replace
-from typing import Any
-
-import pytest
-
-from guardian.pi.contracts import (
+    Any,
     PiCommandBusLinkage,
     PiGuardianBoundary,
     PiHarnessResult,
     PiInvocationArtifact,
     PiInvocationEnvelope,
     PiInvocationReceipt,
+    builtins,
+    copy,
+    dataclasses,
+    deepcopy,
+    from,
+    guardian.pi.contracts,
+    import,
+    pytest,
+    replace,
+    typing,
 )
 from guardian.pi.tokens import PiValidationFailureReason
+
     PiPermissionGrant,
     PiProviderLane,
 )

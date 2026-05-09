@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+
 """Typed contracts for the Pi invocation boundary.
 
 This module is intentionally dependency-light and does not execute adapters.
@@ -16,11 +17,11 @@ from typing import Any, Mapping, Sequence
 
 from guardian.pi.tokens import (
     PiHarnessResultClass,
+    PiInvocationEnvelopeStatus,
+    PiInvocationReceiptStatus,
     PiInvocationValidationOutcome,
     PiReceiptStatus,
     normalize_pi_validation_outcome,
-    PiInvocationEnvelopeStatus,
-    PiInvocationReceiptStatus,
 )
 
 

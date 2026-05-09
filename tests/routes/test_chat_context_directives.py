@@ -267,7 +267,9 @@ def test_chat_complete_rejects_unsupported_directive_before_enqueue(
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
     def _enqueue_should_not_run(*_args, **_kwargs):
-        raise AssertionError("enqueue should not run for unsupported directives")
+        raise AssertionError(
+            "enqueue should not run for unsupported directives"
+        )
 
     monkeypatch.setattr("guardian.routes.chat.enqueue", _enqueue_should_not_run)
 
@@ -294,7 +296,9 @@ def test_chat_complete_without_context_directives_remains_accepted(
 ):
     captured = _configure_chat_complete_route(mock_db, monkeypatch)
 
-    response = test_client.post("/chat/1/complete", json={"depth_mode": "normal"})
+    response = test_client.post(
+        "/chat/1/complete", json={"depth_mode": "normal"}
+    )
 
     assert response.status_code == 200
     origin = getattr(captured["task"], "origin")
@@ -341,7 +345,9 @@ def test_chat_complete_returns_400_when_resolver_plan_classification_fails(
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "invalid_context_directive_plan"
+    assert (
+        response.json()["detail"]["error"] == "invalid_context_directive_plan"
+    )
 
 
 def test_chat_complete_context_directive_validation_does_not_execute_completion_service(
@@ -350,7 +356,9 @@ def test_chat_complete_context_directive_validation_does_not_execute_completion_
     captured = _configure_chat_complete_route(mock_db, monkeypatch)
 
     def _boom(*_args, **_kwargs):
-        raise AssertionError("completion service must not run at route acceptance")
+        raise AssertionError(
+            "completion service must not run at route acceptance"
+        )
 
     monkeypatch.setattr(
         "guardian.core.chat_completion_service.run_chat_completion_task", _boom

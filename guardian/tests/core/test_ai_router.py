@@ -227,7 +227,9 @@ def test_chat_with_ai_minimax_anthropic_rejects_non_vision_image_blocks(
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {"url": "https://example.test/image.png"},
+                            "image_url": {
+                                "url": "https://example.test/image.png"
+                            },
                         },
                         {"type": "text", "text": "Describe the image."},
                     ],
@@ -440,9 +442,7 @@ def test_call_local_routes_multimodal_payload_to_ollama_chat(monkeypatch):
                     {"type": "text", "text": "Describe this image."},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": "https://example.test/scene.png"
-                        },
+                        "image_url": {"url": "https://example.test/scene.png"},
                     },
                 ],
             }
@@ -502,7 +502,7 @@ def test_stream_local_routes_multimodal_payload_to_ollama_chat(monkeypatch):
                         },
                     ],
                 }
-                ],
+            ],
             "medgemma:4b-it-q8_0",
             settings=settings,
         )
