@@ -683,6 +683,9 @@ async def _apply_context_request_plans(
             )
             continue
 
+        query_text = str(
+            plan.get("query_text") or plan.get("queryText") or ""
+        ).strip()
         normalized_plan = {
             "request_kind": SUPPORTED_CONTEXT_REQUEST_KIND,
             "connector_id": SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
