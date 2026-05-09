@@ -51,9 +51,17 @@ Use this note as the local map for all ADRs.
 15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
+18. [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live-proof harness for the `retrievalSource="workspace"` seam on the supported local Compose path; release-evidence tool only.
+19. [[025-neo4j-graph-backend-adapter-flagged-off-by-default|ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default]] — first real graph persistence adapter behind explicit default-off backend selection.
 18. [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] — latest-per-thread graph-lane inspection snapshots for operator/debug visibility without promoting graph truth.
 19. [[019-Graph-Backend-Adapter-Contract|ADR-019 Graph Backend Adapter Contract]] — typed graph backend seam with a default no-op implementation mounted after inspection.
 20. [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] — Guardian-owned contract for coding-agent execution attempts, future Pi SDK adapters, and result ingestion before user-visible output.
+21. [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] — governed external retrieval and interaction boundary with separate search, read, extract, browser, and service-connector modes.
+22. [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]] — canonical cross-surface intent control plane for chat, voice, automations, CLI, and future plugin surfaces.
+23. [[023-workspace-e2e-proof-harness-contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live proof harness for the supported local Compose path that validates workspace-scoped Obsidian-backed note retrieval end to end.
+24. [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] — governing ADR for Context Commands, active connector semantics, slash-command connector invocation, and connector/tool boundary doctrine.
+24. [[025-workspace-obsidian-selection-and-injection-contract|ADR-024 Workspace Obsidian Selection and Injection Contract]] — canonical contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
+25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 
 ---
 
@@ -223,6 +231,25 @@ Primary companion notes:
   * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 
+* [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] links to:
+
+  * [[016-workspace-retrieval-source-for-local-knowledge|ADR-016 Workspace Retrieval Source for Local Knowledge]]
+  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
+  * [[flows|Critical Flows]]
+  * [[config-and-ops|Config and Ops]]
+  * [[00-current-state]]
+  * [[scripts/proofs/README.md Proof Harness README]]
+
+* [[025-neo4j-graph-backend-adapter-flagged-off-by-default|ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default]] links to:
+
+  * [[007-Memory-Graph-Derived-Write-Hook|Memory Graph Derived Write Hook]]
+  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
+  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+  * [[config-and-ops|Config and Ops]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
 * [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] links to:
 
   * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
@@ -250,6 +277,53 @@ Primary companion notes:
   * [[modules-and-ownership|Modules and Ownership]]
   * [[modules-and-ownership|Modules and Ownership]]
   * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[00-current-state]]
+
+* [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] links to:
+
+  * [[web-agent-spec|Web Agent Spec v1]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[config-and-ops|Config and Ops]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+
+* [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]] links to:
+
+  * [[003-Message-Identity-vs-Request-Identity|Message Identity vs Request Identity]]
+  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
+  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|Flow Builder Thread, Draft, and Receipts Contract]]
+  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|Guardian Mediated Coding Agent Execution Contract]]
+  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
+  * [[00-current-state]]
+  * [[system-overview|System Overview]]
+  * [[flows|Critical Flows]]
+  * [[command-bus-auth-cli-automations|Command Bus, Auth, Tool Calls, and Automations]]
+  * [[delegation-runtime|Delegation Runtime Contract]]
+  * [[persona-studio|Persona Studio Architecture]]
+
+* [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] links to:
+
+  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|Guardian Intent Spine and Cross-Surface Control Plane]]
+  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
+  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[flows|Critical Flows]]
+  * [[config-and-ops|Config and Ops]]
+
+* [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] links to:
+
+  * [[019-Graph-Backend-Adapter-Contract|Graph Backend Adapter Contract]]
+  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
+  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
+  * [[018-Graph-Write-Inspection-Surface|Graph Write Inspection Surface]]
+  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
+  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
+  * [[data-and-storage|Data and Storage]]
+  * [[config-and-ops|Config and Ops]]
   * [[00-current-state]]
 ---
 
