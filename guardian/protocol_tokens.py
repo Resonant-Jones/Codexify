@@ -25,7 +25,10 @@ class TaskEventType(str, Enum):
     TASK_CANCELLED = "task.cancelled"
     TASK_EVENT = "task.event"
     TASK_ATTEMPT_STARTED = "task.attempt_started"
+    TASK_VALIDATION_STARTED = "task.validation_started"
     TASK_VALIDATION_FAILED = "task.validation_failed"
+    TASK_VALIDATION_PASSED = "task.validation_passed"
+    TASK_VALIDATION_RETRYING = "task.validation_retrying"
     TASK_RETRYING = "task.retrying"
 
 

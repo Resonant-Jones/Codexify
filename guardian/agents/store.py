@@ -918,6 +918,14 @@ class AgentStore:
         errors: list[str] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        validation_results: Any | None = None,
+        validation_attempt_count: Any | None = None,
+        validation_attempts: Any | None = None,
+        validation_stop_reason: Any | None = None,
+        final_validation_status: Any | None = None,
+        final_fail_signature: Any | None = None,
+        best_validation_result: Any | None = None,
+        max_validation_attempts: Any | None = None,
     ) -> dict[str, Any]:
         """Store coding result and inject into source thread.
 
@@ -979,6 +987,9 @@ class AgentStore:
         validation_results = None
         validation_attempt_count = None
         validation_attempts = None
+        validation_stop_reason = None
+        final_validation_status = None
+        final_fail_signature = None
         best_validation_result = None
         max_validation_attempts = None
         for artifact in artifact_rows:
@@ -1006,6 +1017,23 @@ class AgentStore:
             ):
                 validation_attempts = artifact.get("validation_attempts")
             if (
+                validation_stop_reason is None
+                and artifact.get("validation_stop_reason") is not None
+            ):
+                validation_stop_reason = artifact.get("validation_stop_reason")
+            if (
+                final_validation_status is None
+                and artifact.get("final_validation_status") is not None
+            ):
+                final_validation_status = artifact.get(
+                    "final_validation_status"
+                )
+            if (
+                final_fail_signature is None
+                and artifact.get("final_fail_signature") is not None
+            ):
+                final_fail_signature = artifact.get("final_fail_signature")
+            if (
                 best_validation_result is None
                 and artifact.get("best_validation_result") is not None
             ):
@@ -1017,6 +1045,38 @@ class AgentStore:
                 max_validation_attempts = artifact.get(
                     "max_validation_attempts"
                 )
+
+            result_payload = {
+                "run_id": run_id,
+                "coding_task_id": coding_task_id,
+                "attempt_id": attempt_id,
+                "request_id": request_id,
+                "thread_id": expected_thread_id,
+                "source_message_id": expected_source_message_id,
+                "adapter_kind": adapter_kind,
+                "user_id": expected_user_id,
+                "project_id": expected_project_id,
+                "status": normalized_status,
+                "coding_result_status": normalized_status,
+                "summary": result_summary,
+                "files_changed": normalized_files_changed,
+                "artifacts": artifact_rows,
+                "errors": errors or [],
+                "error_code": error_code,
+                "error_message": error_message,
+                "commit_hash": commit_hash,
+                "validation_results": validation_results,
+                "validation_result": validation_results,
+                "validation_attempt_count": validation_attempt_count,
+                "validation_attempts": validation_attempts,
+                "validation_stop_reason": validation_stop_reason,
+                "final_validation_status": final_validation_status,
+                "final_fail_signature": final_fail_signature,
+                "best_validation_result": best_validation_result,
+                "max_validation_attempts": max_validation_attempts,
+                "adapter_session_ref": adapter_session_ref,
+                "result_captured_by_guardian": True,
+            }
 
         result_payload = {
             "run_id": run_id,
@@ -1038,8 +1098,12 @@ class AgentStore:
             "error_message": error_message,
             "commit_hash": commit_hash,
             "validation_results": validation_results,
+            "validation_result": validation_results,
             "validation_attempt_count": validation_attempt_count,
             "validation_attempts": validation_attempts,
+            "validation_stop_reason": validation_stop_reason,
+            "final_validation_status": final_validation_status,
+            "final_fail_signature": final_fail_signature,
             "best_validation_result": best_validation_result,
             "max_validation_attempts": max_validation_attempts,
             "adapter_session_ref": adapter_session_ref,
@@ -1076,6 +1140,9 @@ class AgentStore:
                 validation_results=validation_results,
                 validation_attempt_count=validation_attempt_count,
                 validation_attempts=validation_attempts,
+                validation_stop_reason=validation_stop_reason,
+                final_validation_status=final_validation_status,
+                final_fail_signature=final_fail_signature,
                 best_validation_result=best_validation_result,
                 max_validation_attempts=max_validation_attempts,
                 adapter_session_ref=adapter_session_ref,
@@ -1166,6 +1233,9 @@ class AgentStore:
         validation_results: Any | None = None,
         validation_attempt_count: Any | None = None,
         validation_attempts: Any | None = None,
+        validation_stop_reason: Any | None = None,
+        final_validation_status: Any | None = None,
+        final_fail_signature: Any | None = None,
         best_validation_result: Any | None = None,
         max_validation_attempts: Any | None = None,
         adapter_session_ref: str | None = None,
@@ -1242,12 +1312,19 @@ class AgentStore:
                 extra_meta["commit_hash"] = commit_hash
             if validation_results is not None:
                 extra_meta["validation_results"] = validation_results
+                extra_meta["validation_result"] = validation_results
             if validation_attempt_count is not None:
                 extra_meta[
                     "validation_attempt_count"
                 ] = validation_attempt_count
             if validation_attempts is not None:
                 extra_meta["validation_attempts"] = validation_attempts
+            if validation_stop_reason is not None:
+                extra_meta["validation_stop_reason"] = validation_stop_reason
+            if final_validation_status is not None:
+                extra_meta["final_validation_status"] = final_validation_status
+            if final_fail_signature is not None:
+                extra_meta["final_fail_signature"] = final_fail_signature
             if best_validation_result is not None:
                 extra_meta["best_validation_result"] = best_validation_result
             if max_validation_attempts is not None:
@@ -1278,6 +1355,18 @@ class AgentStore:
             if max_validation_attempts is not None:
                 content_parts.append(
                     f"**Max Validation Attempts**: {max_validation_attempts}\n\n"
+                )
+            if validation_stop_reason is not None:
+                content_parts.append(
+                    f"**Validation Stop Reason**: `{validation_stop_reason}`\n\n"
+                )
+            if final_validation_status is not None:
+                content_parts.append(
+                    f"**Final Validation Status**: `{final_validation_status}`\n\n"
+                )
+            if final_fail_signature is not None:
+                content_parts.append(
+                    f"**Final Fail Signature**: `{final_fail_signature}`\n\n"
                 )
 
             if artifacts:

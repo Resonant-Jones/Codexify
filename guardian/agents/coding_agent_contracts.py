@@ -43,7 +43,7 @@ class CodingAgentTaskEnvelope:
     context_summary: str | None
     permission_policy: CodingAgentPermissionPolicy
     validation_command: str | None = None
-    max_validation_attempts: int | None = None
+    max_validation_attempts: int = 1
 
 
 @dataclass(frozen=True)

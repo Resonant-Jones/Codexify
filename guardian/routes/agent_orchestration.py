@@ -102,7 +102,7 @@ class CodingExecutionRequest(BaseModel):
     context_summary: str | None = None
     permission_policy: dict[str, Any] = Field(default_factory=dict)
     validation_command: str | None = None
-    max_validation_attempts: int | None = Field(default=None, ge=1, le=10)
+    max_validation_attempts: int = Field(default=1, ge=1, le=3)
 
     model_config = ConfigDict(extra="forbid")
 
