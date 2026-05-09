@@ -159,6 +159,9 @@ def _make_store(db: _TestDB) -> AgentStore:
     return AgentStore(db=db)
 
 
+_MISSING = object()
+
+
 def _seed_execution_run(
     store: AgentStore,
     *,
@@ -167,18 +170,20 @@ def _seed_execution_run(
     user_id: str | None,
     project_id: int | None,
     runtime_target: str = "container",
-    adapter_kind: str = "pi_sdk",
+    adapter_kind: Any = "pi_sdk",
 ) -> tuple[str, str]:
+    spec_json = {
+        "source_thread_id": thread_id,
+        "source_message_id": source_message_id,
+        "user_id": user_id,
+        "project_id": project_id,
+    }
+    if adapter_kind is not _MISSING:
+        spec_json["adapter_kind"] = adapter_kind
     deployment = store.create_deployment(
         flow_id="coding_return_path",
         thread_id=thread_id,
-        spec_json={
-            "adapter_kind": adapter_kind,
-            "source_thread_id": thread_id,
-            "source_message_id": source_message_id,
-            "user_id": user_id,
-            "project_id": project_id,
-        },
+        spec_json=spec_json,
         spec_hash="spec-hash",
         trust_state="supervised",
     )
@@ -217,7 +222,12 @@ def _build_task(
     )
 
 
-def _install_fake_adapter(monkeypatch, result: Any) -> list[SimpleNamespace]:
+def _install_fake_adapter(
+    monkeypatch,
+    result: Any,
+    *,
+    adapter_kind: str = "pi_codex_runner",
+) -> list[SimpleNamespace]:
     calls: list[SimpleNamespace] = []
 
     class _FakeAdapter:
@@ -226,7 +236,7 @@ def _install_fake_adapter(monkeypatch, result: Any) -> list[SimpleNamespace]:
             return result
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"pi_codex_runner": _FakeAdapter()}
+        coding_worker, "ADAPTERS", {adapter_kind: _FakeAdapter()}
     )
     return calls
 
@@ -246,7 +256,8 @@ def _capture_task_events(monkeypatch) -> list[tuple[str, str, dict[str, Any]]]:
             "visibility_scope": "terminal"
             if event_type in {"task.completed", "task.failed"}
             else "progress",
-            "terminal_visibility": event_type in {
+            "terminal_visibility": event_type
+            in {
                 "task.completed",
                 "task.failed",
             },
@@ -279,8 +290,184 @@ def _fetch_run_state(store: AgentStore, run_id: str) -> dict[str, Any] | None:
     return store.get_run(run_id)
 
 
-def _fetch_coding_result_artifacts(store: AgentStore, run_id: str) -> list[dict[str, Any]]:
+def _fetch_coding_result_artifacts(
+    store: AgentStore, run_id: str
+) -> list[dict[str, Any]]:
     return store.list_artifacts(run_id=run_id, artifact_type="coding_result")
+
+
+def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="codex-user", project_name="codex"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Codex adapter completed.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-codex",
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.completed",
+    ]
+    assert [payload["adapter_kind"] for _, _, payload in published] == [
+        "codex",
+        "codex",
+    ]
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].extra_meta["adapter_kind"] == "codex"
+
+
+def test_pi_sdk_adapter_kind_resolves_to_pi_codex_runner(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="pi-user", project_name="pi")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi_sdk",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Pi adapter completed."),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-pi-sdk",
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [payload["adapter_kind"] for _, _, payload in published] == [
+        "pi_codex_runner",
+        "pi_codex_runner",
+    ]
+
+
+@pytest.mark.parametrize("adapter_kind", [_MISSING, "", "   "])
+def test_missing_or_blank_adapter_kind_defaults_to_pi_codex_runner(
+    db,
+    monkeypatch,
+    adapter_kind,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id=f"default-user-{id(adapter_kind)}"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind=adapter_kind,
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Default adapter completed."),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id=f"coding-task-default-{len(published)}",
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [payload["adapter_kind"] for _, _, payload in published] == [
+        "pi_codex_runner",
+        "pi_codex_runner",
+    ]
+
+
+def test_unknown_adapter_kind_fails_closed_with_adapter_not_found(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="unknown-adapter-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="mystery_adapter",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"pi_codex_runner": object()}
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-unknown-adapter",
+    )
+    worker._process_task(task)
+
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.failed",
+    ]
+    failure_payload = published[-1][2]
+    assert failure_payload["adapter_kind"] == "mystery_adapter"
+    assert failure_payload["error_code"] == "ADAPTER_NOT_FOUND"
+    assert "mystery_adapter" in failure_payload["error_message"]
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+    assert _fetch_coding_result_artifacts(store, run_id) == []
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
 
 
 def test_successful_completion_writes_one_result_message_with_lineage(
@@ -340,9 +527,11 @@ def test_successful_completion_writes_one_result_message_with_lineage(
     assert message.extra_meta["run_id"] == run_id
     assert message.extra_meta["coding_task_id"] == task.coding_task_id
     assert message.extra_meta["attempt_id"] == task.attempt_id
-    assert message.extra_meta["adapter_kind"] == "pi_sdk"
+    assert message.extra_meta["adapter_kind"] == "pi_codex_runner"
     assert message.extra_meta["source_thread_id"] == seeded["thread_id"]
-    assert message.extra_meta["source_message_id"] == seeded["source_message_id"]
+    assert (
+        message.extra_meta["source_message_id"] == seeded["source_message_id"]
+    )
     assert message.extra_meta["user_id"] == seeded["user_id"]
     assert message.extra_meta["project_id"] == seeded["project_id"]
     assert message.extra_meta["coding_result_status"] == "ok"
@@ -384,7 +573,9 @@ def test_duplicate_finalization_does_not_duplicate_return_messages(
     db,
     monkeypatch,
 ) -> None:
-    seeded = _seed_source_context(db, user_id="user-2", project_name="project-2")
+    seeded = _seed_source_context(
+        db, user_id="user-2", project_name="project-2"
+    )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
         store,
@@ -426,7 +617,9 @@ def test_partial_success_still_persists_a_result_message(
     db,
     monkeypatch,
 ) -> None:
-    seeded = _seed_source_context(db, user_id="user-1b", project_name="project-1b")
+    seeded = _seed_source_context(
+        db, user_id="user-1b", project_name="project-1b"
+    )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
         store,
@@ -531,7 +724,9 @@ def test_adapter_failure_does_not_create_a_success_result_message(
     db,
     monkeypatch,
 ) -> None:
-    seeded = _seed_source_context(db, user_id="user-5", project_name="project-5")
+    seeded = _seed_source_context(
+        db, user_id="user-5", project_name="project-5"
+    )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
         store,
@@ -644,7 +839,9 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
     db,
     monkeypatch,
 ) -> None:
-    seeded = _seed_source_context(db, user_id="user-4", project_name="project-4")
+    seeded = _seed_source_context(
+        db, user_id="user-4", project_name="project-4"
+    )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
         store,
@@ -691,4 +888,7 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(artifacts) == 1
     assert artifacts[0]["content_json"]["delivery_ok"] is False
-    assert artifacts[0]["content_json"]["delivery_reason"] == "delivery_database_unavailable"
+    assert (
+        artifacts[0]["content_json"]["delivery_reason"]
+        == "delivery_database_unavailable"
+    )
