@@ -75,6 +75,34 @@ class AgentRunStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CodingExecutionRequest(BaseModel):
+    run_id: str = Field(min_length=1)
+    coding_task_id: str = Field(min_length=1)
+    thread_id: str = Field(min_length=1)
+    source_message_id: str = Field(min_length=1)
+    attempt_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1)
+    project_id: int | None = None
+    adapter_kind: str = Field(default="mock", min_length=1)
+    instructions: str = Field(min_length=1)
+    repo_root: str | None = None
+    context_summary: str | None = None
+    permission_policy: dict[str, Any] = Field(default_factory=dict)
+    validation_command: str | None = None
+    max_validation_attempts: int | None = Field(default=None, ge=1, le=10)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+def build_coding_execution_task_payload(
+    body: CodingExecutionRequest,
+) -> dict[str, Any]:
+    payload = body.model_dump(exclude_none=True)
+    if "permission_policy" not in payload:
+        payload["permission_policy"] = {}
+    return payload
+
+
 @router.post("/plans")
 async def create_plan(body: AgentPlanRequest) -> dict[str, Any]:
     spec = {

@@ -13,6 +13,7 @@ from guardian.agents.events import AgentEventPublisher
 from guardian.agents.store import AgentStore
 from guardian.db.models import AgentEvent, AgentRun
 from guardian.routes import agent_orchestration
+from guardian.tasks.types import CodingExecutionTask
 from guardian.workers.agent_worker import (
     AttemptEvaluation,
     process_mutating_step,
@@ -428,3 +429,53 @@ def test_agent_run_migration_runtime_target_constraint_includes_terminal() -> (
     )
     text = migration_path.read_text(encoding="utf-8")
     assert "runtime_target IN ('container', 'terminal')" in text
+
+
+def test_coding_execution_payload_carries_optional_retry_field() -> None:
+    body = agent_orchestration.CodingExecutionRequest(
+        run_id="run-123",
+        coding_task_id="coding-123",
+        thread_id="thread-123",
+        source_message_id="message-123",
+        attempt_id="attempt-123",
+        user_id="local",
+        adapter_kind="mock",
+        instructions="Fix the parser.",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 300,
+        },
+    )
+
+    payload = agent_orchestration.build_coding_execution_task_payload(body)
+    task = CodingExecutionTask.from_dict(payload)
+
+    assert "max_validation_attempts" not in payload
+    assert task.run_id == "run-123"
+    assert task.max_validation_attempts is None
+    assert task.permission_policy.allow_shell is True
+
+
+def test_coding_execution_payload_round_trips_retry_field() -> None:
+    body = agent_orchestration.CodingExecutionRequest(
+        run_id="run-456",
+        coding_task_id="coding-456",
+        thread_id="thread-456",
+        source_message_id="message-456",
+        attempt_id="attempt-456",
+        user_id="local",
+        adapter_kind="codex",
+        instructions="Fix the failing test.",
+        validation_command="pytest -q",
+        max_validation_attempts=4,
+    )
+
+    payload = agent_orchestration.build_coding_execution_task_payload(body)
+    task = CodingExecutionTask.from_dict(payload)
+
+    assert payload["max_validation_attempts"] == 4
+    assert task.max_validation_attempts == 4
+    assert task.validation_command == "pytest -q"
