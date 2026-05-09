@@ -101,6 +101,7 @@ class CodingExecutionRequest(BaseModel):
     repo_root: str | None = None
     context_summary: str | None = None
     permission_policy: dict[str, Any] = Field(default_factory=dict)
+    # Optional single validation command; the worker runs it once if allowed.
     validation_command: str | None = None
     max_validation_attempts: int | None = Field(default=None, ge=1, le=10)
 
