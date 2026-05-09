@@ -19,6 +19,7 @@ from guardian.agents.test_results import (
     not_run_test_result,
 )
 from guardian.core import dependencies
+from guardian.protocol_tokens import ErrorCode, TaskEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
 from guardian.tasks.types import CodingExecutionTask, task_from_dict
@@ -51,6 +52,9 @@ _ADAPTER_KIND_ALIASES = {
 }
 
 _VALIDATION_TIMEOUT_CAP_SECONDS = 120
+_VALIDATION_ATTEMPTS_DEFAULT = 3
+_VALIDATION_ATTEMPTS_MIN = 1
+_VALIDATION_ATTEMPTS_MAX = 10
 
 
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
@@ -158,6 +162,24 @@ def _resolve_validation_command(
     return value or None
 
 
+def _resolve_max_validation_attempts(
+    task: CodingExecutionTask, deployment_spec: dict[str, Any]
+) -> int:
+    raw_candidates: tuple[Any, ...] = (
+        task.max_validation_attempts,
+        deployment_spec.get("max_validation_attempts"),
+        os.getenv("CODING_WORKER_MAX_VALIDATION_ATTEMPTS"),
+    )
+    for raw in raw_candidates:
+        value = _coerce_optional_positive_int(raw)
+        if value is not None:
+            return max(
+                _VALIDATION_ATTEMPTS_MIN,
+                min(value, _VALIDATION_ATTEMPTS_MAX),
+            )
+    return _VALIDATION_ATTEMPTS_DEFAULT
+
+
 def _validation_permissions(
     task: CodingExecutionTask, deployment_spec: dict[str, Any]
 ) -> dict[str, Any]:
@@ -222,6 +244,72 @@ def _run_validation_command(
     )
 
 
+def _validation_attempt_better(
+    candidate: NormalizedTestResult,
+    current_best: NormalizedTestResult | None,
+) -> NormalizedTestResult:
+    if current_best is None:
+        return candidate
+    if candidate.status == "passed" and current_best.status != "passed":
+        return candidate
+    if current_best.status == "passed":
+        return current_best
+    if (
+        candidate.tests_failed is not None
+        and current_best.tests_failed is not None
+        and candidate.tests_failed < current_best.tests_failed
+    ):
+        return candidate
+    return current_best
+
+
+def _validation_feedback_block(
+    *,
+    validation_command: str,
+    validation_result: NormalizedTestResult,
+    validation_attempt_count: int,
+    max_validation_attempts: int,
+    best_validation_result: NormalizedTestResult | None,
+) -> str:
+    lines = [
+        "Validation feedback:",
+        (
+            f"- Attempt {validation_attempt_count}/{max_validation_attempts} "
+            f"failed for command: {validation_command}"
+        ),
+        f"- Status: {validation_result.status}",
+    ]
+    if validation_result.exit_code is not None:
+        lines.append(f"- Exit code: {validation_result.exit_code}")
+    if validation_result.fail_signature:
+        lines.append(f"- Fail signature: {validation_result.fail_signature}")
+    if validation_result.tests_failed is not None:
+        lines.append(f"- Tests failed: {validation_result.tests_failed}")
+    if validation_result.stdout_preview:
+        lines.append(f"- Stdout: {validation_result.stdout_preview}")
+    if validation_result.stderr_preview:
+        lines.append(f"- Stderr: {validation_result.stderr_preview}")
+    if best_validation_result is not None:
+        lines.append(
+            "- Best so far: "
+            f"{best_validation_result.status}"
+            f" (failed={best_validation_result.tests_failed}, "
+            f"signature={best_validation_result.fail_signature or 'n/a'})"
+        )
+    lines.append("- Fix only the original task scope and retry.")
+    return "\n".join(lines)
+
+
+def _append_retry_feedback(prompt: str, feedback_blocks: list[str]) -> str:
+    base = str(prompt or "").rstrip()
+    feedback = "\n\n".join(block for block in feedback_blocks if block.strip())
+    if not feedback:
+        return base
+    if not base:
+        return feedback
+    return f"{base}\n\n{feedback}"
+
+
 def configure_db(db: Any | None) -> None:
     """Bind the worker to a database-backed agent store."""
     global _store
@@ -277,6 +365,14 @@ class CodingWorker:
         adapter_kind = _resolve_adapter_kind(
             deployment_spec.get("adapter_kind")
         )
+        validation_command = _resolve_validation_command(task, deployment_spec)
+        permission_policy = _validation_permissions(task, deployment_spec)
+        max_validation_attempts = _resolve_max_validation_attempts(
+            task, deployment_spec
+        )
+        validation_attempt_budget = (
+            max_validation_attempts if validation_command else 1
+        )
 
         # Emit running event
         self._emit_running(task, adapter_kind=adapter_kind)
@@ -293,158 +389,299 @@ class CodingWorker:
             return
 
         # Build execution request
-        request = AgentExecutionRequest(
-            prompt=task.instructions,
-            cwd=task.cwd,
-            timeout_seconds=task.timeout_seconds,
-            metadata={
-                "coding_task_id": task.coding_task_id,
-                "attempt_id": task.attempt_id,
-            },
-        )
+        validation_attempts: list[dict[str, Any]] = []
+        best_validation_result: NormalizedTestResult | None = None
 
-        # Execute
-        result = adapter.execute(request)
-        result_status = _normalize_coding_result_status(
-            getattr(result, "status", "")
-        )
-        success_like = _is_success_like_coding_result(result_status)
-        result_artifacts = _normalize_artifacts(
-            getattr(result, "artifacts", [])
-        )
-        files_changed = _normalize_files_changed(
-            getattr(result, "files_changed", None),
-            result_artifacts,
-        )
-        adapter_session_ref = getattr(result, "adapter_session_ref", None)
-        error_code = getattr(result, "error_code", None)
-        error_message = getattr(result, "error_message", None)
-        if not error_message and not success_like:
-            error_message = getattr(result, "summary", None)
-
-        validation_result: NormalizedTestResult | None = None
-        validation_command = _resolve_validation_command(task, deployment_spec)
-        permission_policy = _validation_permissions(task, deployment_spec)
-        if success_like and validation_command:
-            if not permission_policy.get("allow_shell"):
-                validation_result = not_run_test_result(
-                    reason="validation_shell_not_allowed",
-                    command=validation_command,
-                )
-            elif not task.cwd:
-                validation_result = not_run_test_result(
-                    reason="validation_cwd_missing",
-                    command=validation_command,
-                )
-            else:
-                validation_result = _run_validation_command(
-                    command=validation_command,
-                    cwd=task.cwd,
-                    timeout_seconds=_validation_timeout_seconds(
-                        task.timeout_seconds
-                    ),
-                )
-
-        final_result_status = result_status
-        final_summary = getattr(result, "summary", "")
-        final_error_code = error_code
-        final_error_message = error_message
-        final_errors = list(getattr(result, "errors", []) or [])
-        if validation_result is not None:
-            result_artifacts = [
-                {"validation_results": validation_result.model_dump()},
-                *result_artifacts,
-            ]
-            if validation_result.status == "failed":
-                final_result_status = "failed"
-                final_summary = (
-                    f"{final_summary} | validation failed"
-                    if final_summary
-                    else "validation failed"
-                )
-                final_error_message = (
-                    validation_result.error_message
-                    or "validation command failed"
-                )
-                final_errors = [
-                    *final_errors,
-                    "validation_failed",
-                ]
-            elif validation_result.status == "error":
-                final_result_status = "failed"
-                final_summary = (
-                    f"{final_summary} | validation error"
-                    if final_summary
-                    else "validation error"
-                )
-                final_error_message = (
-                    validation_result.error_message
-                    or "validation command error"
-                )
-                final_errors = [
-                    *final_errors,
-                    "validation_error",
+        def _persist_and_emit_terminal(
+            *,
+            result: Any,
+            result_status: str,
+            summary: str,
+            files_changed: list[str],
+            artifacts: list[dict[str, Any]],
+            adapter_session_ref: str | None,
+            errors: list[str],
+            error_code: str | None,
+            error_message: str | None,
+            validation_result: NormalizedTestResult | None = None,
+            validation_attempt_count: int | None = None,
+        ) -> None:
+            result_artifact_payload = list(artifacts)
+            if validation_result is not None:
+                result_artifact_payload = [
+                    {
+                        "validation_results": validation_result.model_dump(),
+                        "validation_attempt_count": validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_command": validation_command,
+                        "best_validation_result": (
+                            best_validation_result.model_dump()
+                            if best_validation_result is not None
+                            else None
+                        ),
+                        "validation_attempts": list(validation_attempts),
+                    },
+                    *result_artifact_payload,
                 ]
 
-        # Store result and inject into thread (per ADR-020)
-        delivery = self.store.store_coding_result(
-            run_id=task.run_id,
-            coding_task_id=task.coding_task_id,
-            attempt_id=task.attempt_id,
-            request_id=task.request_id or None,
-            thread_id=task.thread_id,
-            source_message_id=task.source_message_id,
-            adapter_kind=adapter_kind,
-            adapter_session_ref=adapter_session_ref,
-            files_changed=files_changed,
-            result_status=final_result_status,
-            result_summary=final_summary,
-            artifacts=result_artifacts,
-            errors=final_errors,
-            error_code=final_error_code,
-            error_message=final_error_message,
-        )
-
-        if (
-            success_like
-            and _is_success_like_coding_result(final_result_status)
-            and not bool(delivery.get("delivery_ok", False))
-        ):
-            self._emit_failure(
-                task,
+            delivery = self.store.store_coding_result(
+                run_id=task.run_id,
+                coding_task_id=task.coding_task_id,
+                attempt_id=task.attempt_id,
+                request_id=task.request_id or None,
+                thread_id=task.thread_id,
+                source_message_id=task.source_message_id,
                 adapter_kind=adapter_kind,
-                error_message=str(
-                    delivery.get("delivery_reason")
-                    or "coding result delivery failed"
+                adapter_session_ref=adapter_session_ref,
+                files_changed=files_changed,
+                result_status=result_status,
+                result_summary=summary,
+                artifacts=result_artifact_payload,
+                errors=errors,
+                error_code=error_code,
+                error_message=error_message,
+            )
+
+            if _is_success_like_coding_result(result_status) and not bool(
+                delivery.get("delivery_ok", False)
+            ):
+                self._emit_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_message=str(
+                        delivery.get("delivery_reason")
+                        or "coding result delivery failed"
+                    ),
+                    error_code="RESULT_DELIVERY_FAILED",
+                )
+                return
+
+            terminal_event = (
+                "completed"
+                if _is_success_like_coding_result(result_status)
+                else "failed"
+            )
+            self._emit_terminal(
+                task,
+                event_type=terminal_event,
+                result=result,
+                adapter_kind=adapter_kind,
+                result_status=result_status,
+                summary=summary,
+                files_changed=files_changed,
+                artifacts=result_artifact_payload,
+                adapter_session_ref=adapter_session_ref,
+                delivery=delivery,
+                errors=errors,
+                error_code=error_code,
+                error_message=error_message,
+                validation_result=(
+                    validation_result.model_dump()
+                    if validation_result
+                    else None
                 ),
-                error_code="RESULT_DELIVERY_FAILED",
+                validation_attempt_count=validation_attempt_count,
+                validation_attempts=list(validation_attempts),
+                best_validation_result=(
+                    best_validation_result.model_dump()
+                    if best_validation_result is not None
+                    else None
+                ),
+            )
+
+        attempt_budget = validation_attempt_budget
+        prompt_blocks: list[str] = []
+        for attempt_index in range(1, attempt_budget + 1):
+            if is_cancelled(task.task_id):
+                self._emit_cancelled(task)
+                return
+
+            attempt_prompt = (
+                _append_retry_feedback(task.instructions, prompt_blocks)
+                if prompt_blocks
+                else task.instructions
+            )
+
+            if validation_command:
+                self._emit_attempt_started(
+                    task,
+                    adapter_kind=adapter_kind,
+                    validation_command=validation_command,
+                    validation_attempt_count=attempt_index,
+                    max_validation_attempts=attempt_budget,
+                )
+
+            request = AgentExecutionRequest(
+                prompt=attempt_prompt,
+                cwd=task.cwd,
+                timeout_seconds=task.timeout_seconds,
+                metadata={
+                    "coding_task_id": task.coding_task_id,
+                    "attempt_id": task.attempt_id,
+                    "attempt_index": attempt_index,
+                    "max_validation_attempts": attempt_budget,
+                },
+            )
+
+            result = adapter.execute(request)
+            result_status = _normalize_coding_result_status(
+                getattr(result, "status", "")
+            )
+            success_like = _is_success_like_coding_result(result_status)
+            result_artifacts = _normalize_artifacts(
+                getattr(result, "artifacts", [])
+            )
+            files_changed = _normalize_files_changed(
+                getattr(result, "files_changed", None),
+                result_artifacts,
+            )
+            adapter_session_ref = getattr(result, "adapter_session_ref", None)
+            error_code = getattr(result, "error_code", None)
+            error_message = getattr(result, "error_message", None)
+            if not error_message and not success_like:
+                error_message = getattr(result, "summary", None)
+
+            if not success_like:
+                final_summary = getattr(result, "summary", "")
+                final_errors = list(getattr(result, "errors", []) or [])
+                _persist_and_emit_terminal(
+                    result=result,
+                    result_status=result_status,
+                    summary=final_summary,
+                    files_changed=files_changed,
+                    artifacts=result_artifacts,
+                    adapter_session_ref=adapter_session_ref,
+                    errors=final_errors,
+                    error_code=error_code,
+                    error_message=error_message
+                    or "coding adapter execution failed",
+                )
+                return
+
+            final_summary = getattr(result, "summary", "")
+            final_errors = list(getattr(result, "errors", []) or [])
+            final_error_code = error_code
+            final_error_message = error_message
+            validation_result: NormalizedTestResult | None = None
+            validation_attempt_count: int | None = None
+
+            if validation_command:
+                if not permission_policy.get("allow_shell"):
+                    validation_result = not_run_test_result(
+                        reason="validation_shell_not_allowed",
+                        command=validation_command,
+                    )
+                elif not task.cwd:
+                    validation_result = not_run_test_result(
+                        reason="validation_cwd_missing",
+                        command=validation_command,
+                    )
+                else:
+                    validation_result = _run_validation_command(
+                        command=validation_command,
+                        cwd=task.cwd,
+                        timeout_seconds=_validation_timeout_seconds(
+                            task.timeout_seconds
+                        ),
+                    )
+
+                validation_attempt_count = attempt_index
+                validation_attempts.append(
+                    {
+                        "attempt_index": attempt_index,
+                        "validation_result": validation_result.model_dump(),
+                    }
+                )
+                best_validation_result = _validation_attempt_better(
+                    validation_result,
+                    best_validation_result,
+                )
+
+                if validation_result.status in {"passed", "not_run"}:
+                    _persist_and_emit_terminal(
+                        result=result,
+                        result_status=result_status,
+                        summary=final_summary,
+                        files_changed=files_changed,
+                        artifacts=result_artifacts,
+                        adapter_session_ref=adapter_session_ref,
+                        errors=final_errors,
+                        error_code=final_error_code,
+                        error_message=final_error_message,
+                        validation_result=validation_result,
+                        validation_attempt_count=validation_attempt_count,
+                    )
+                    return
+
+                validation_feedback = _validation_feedback_block(
+                    validation_command=validation_command,
+                    validation_result=validation_result,
+                    validation_attempt_count=attempt_index,
+                    max_validation_attempts=attempt_budget,
+                    best_validation_result=best_validation_result,
+                )
+                self._emit_validation_failed(
+                    task,
+                    adapter_kind=adapter_kind,
+                    validation_result=validation_result,
+                    validation_attempt_count=validation_attempt_count,
+                    max_validation_attempts=attempt_budget,
+                    best_validation_result=best_validation_result,
+                )
+
+                if attempt_index < attempt_budget:
+                    prompt_blocks.append(validation_feedback)
+                    self._emit_retrying(
+                        task,
+                        adapter_kind=adapter_kind,
+                        validation_result=validation_result,
+                        validation_attempt_count=validation_attempt_count,
+                        next_validation_attempt_count=attempt_index + 1,
+                        max_validation_attempts=attempt_budget,
+                        best_validation_result=best_validation_result,
+                        retry_feedback=validation_feedback,
+                    )
+                    continue
+
+                final_result_status = "failed"
+                final_summary = (
+                    f"{final_summary} | validation failed after {attempt_budget} attempt(s)"
+                    if final_summary
+                    else f"validation failed after {attempt_budget} attempt(s)"
+                )
+                final_error_code = ErrorCode.VALIDATION_FAILED.value
+                final_error_message = (
+                    validation_result.error_message
+                    or f"validation failed after {attempt_budget} attempt(s)"
+                )
+                final_errors = [*final_errors, "validation_failed"]
+                _persist_and_emit_terminal(
+                    result=result,
+                    result_status=final_result_status,
+                    summary=final_summary,
+                    files_changed=files_changed,
+                    artifacts=result_artifacts,
+                    adapter_session_ref=adapter_session_ref,
+                    errors=final_errors,
+                    error_code=final_error_code,
+                    error_message=final_error_message,
+                    validation_result=validation_result,
+                    validation_attempt_count=validation_attempt_count,
+                )
+                return
+
+            _persist_and_emit_terminal(
+                result=result,
+                result_status=result_status,
+                summary=final_summary,
+                files_changed=files_changed,
+                artifacts=result_artifacts,
+                adapter_session_ref=adapter_session_ref,
+                errors=final_errors,
+                error_code=final_error_code,
+                error_message=final_error_message,
             )
             return
-
-        # Emit terminal event
-        terminal_event = (
-            "completed"
-            if _is_success_like_coding_result(final_result_status)
-            else "failed"
-        )
-        self._emit_terminal(
-            task,
-            event_type=terminal_event,
-            result=result,
-            adapter_kind=adapter_kind,
-            result_status=final_result_status,
-            summary=final_summary,
-            files_changed=files_changed,
-            artifacts=result_artifacts,
-            adapter_session_ref=adapter_session_ref,
-            delivery=delivery,
-            errors=final_errors,
-            error_code=final_error_code,
-            error_message=final_error_message,
-            validation_result=(
-                validation_result.model_dump() if validation_result else None
-            ),
-        )
 
     def _emit_running(
         self,
@@ -479,6 +716,139 @@ class CodingWorker:
                 exc,
             )
 
+    def _emit_attempt_started(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        validation_command: str,
+        validation_attempt_count: int,
+        max_validation_attempts: int,
+    ) -> None:
+        """Emit task.attempt_started for a validation-bearing attempt."""
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_ATTEMPT_STARTED.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "running",
+                    "validation_attempt_count": validation_attempt_count,
+                    "max_validation_attempts": max_validation_attempts,
+                    "validation_command": validation_command,
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit attempt started event: %s",
+                exc,
+            )
+
+    def _emit_validation_failed(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        validation_result: NormalizedTestResult,
+        validation_attempt_count: int,
+        max_validation_attempts: int,
+        best_validation_result: NormalizedTestResult | None,
+    ) -> None:
+        """Emit task.validation_failed for a failed validation attempt."""
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_VALIDATION_FAILED.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "validation_failed",
+                    "validation_attempt_count": validation_attempt_count,
+                    "max_validation_attempts": max_validation_attempts,
+                    "validation_result": validation_result.model_dump(),
+                    "best_validation_result": (
+                        best_validation_result.model_dump()
+                        if best_validation_result is not None
+                        else None
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit validation failed event: %s",
+                exc,
+            )
+
+    def _emit_retrying(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        validation_result: NormalizedTestResult,
+        validation_attempt_count: int,
+        next_validation_attempt_count: int,
+        max_validation_attempts: int,
+        best_validation_result: NormalizedTestResult | None,
+        retry_feedback: str,
+    ) -> None:
+        """Emit task.retrying with bounded retry feedback."""
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_RETRYING.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "retrying",
+                    "validation_attempt_count": validation_attempt_count,
+                    "next_validation_attempt_count": next_validation_attempt_count,
+                    "max_validation_attempts": max_validation_attempts,
+                    "validation_result": validation_result.model_dump(),
+                    "best_validation_result": (
+                        best_validation_result.model_dump()
+                        if best_validation_result is not None
+                        else None
+                    ),
+                    "retry_feedback": retry_feedback,
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit retrying event: %s",
+                exc,
+            )
+
     def _emit_terminal(
         self,
         task: CodingExecutionTask,
@@ -496,6 +866,9 @@ class CodingWorker:
         error_code: str | None,
         error_message: str | None,
         validation_result: dict[str, Any] | None = None,
+        validation_attempt_count: int | None = None,
+        validation_attempts: list[dict[str, Any]] | None = None,
+        best_validation_result: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
         try:
@@ -529,6 +902,9 @@ class CodingWorker:
                     "error_code": error_code,
                     "error_message": error_message,
                     "validation_result": validation_result,
+                    "validation_attempt_count": validation_attempt_count,
+                    "validation_attempts": validation_attempts,
+                    "best_validation_result": best_validation_result,
                 },
             )
         except Exception as exc:

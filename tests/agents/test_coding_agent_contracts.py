@@ -35,6 +35,7 @@ def test_valid_coding_agent_task_envelope_can_be_constructed() -> None:
         repo_root="/workspace/repo",
         context_summary="Guardian-supplied summary of the active thread and files.",
         validation_command="pytest -q",
+        max_validation_attempts=4,
         permission_policy=policy,
     )
 
@@ -42,6 +43,7 @@ def test_valid_coding_agent_task_envelope_can_be_constructed() -> None:
     assert envelope.permission_policy == policy
     assert envelope.adapter_kind == "pi_sdk"
     assert envelope.validation_command == "pytest -q"
+    assert envelope.max_validation_attempts == 4
 
 
 def test_valid_coding_agent_result_can_be_constructed() -> None:

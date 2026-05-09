@@ -78,6 +78,34 @@ tests-pass behavior, worktree isolation, or commit behavior. Future convergence
 work should consume the normalized validation result instead of parsing raw
 stdout or stderr directly.
 
+### Bounded Validation Retry
+
+The worker can now retry a coding attempt when the adapter succeeds but the
+validation command fails. Retry boundaries are controlled by
+`CODING_WORKER_MAX_VALIDATION_ATTEMPTS`, with a default of `3` and a safe clamp
+between `1` and `10`. Per-task `max_validation_attempts` may also be carried in
+the task envelope and deployment spec; missing values fall back to the worker
+default.
+
+Retries happen only when all of the following are true:
+
+- the adapter returned a success-like result,
+- a validation command is configured,
+- shell execution is allowed by policy,
+- the task has a working directory, and
+- the validation result is `failed` or `error`.
+
+Retries do not happen when validation is `not_run`, when shell execution is
+blocked, when no validation command is configured, or when the adapter itself
+fails before validation can run. Final validation failure emits `task.failed`
+with `VALIDATION_FAILED` and includes bounded normalized evidence plus the best
+result seen so far.
+
+This is still not autonomous commit/merge behavior. MiniMax can run behind the
+`codex` adapter, and Guardian will feed it structured validation feedback across
+the bounded attempts, but Guardian still owns the loop boundary and stops when
+attempts are exhausted.
+
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
 API_KEY="${GUARDIAN_API_KEY:-}"

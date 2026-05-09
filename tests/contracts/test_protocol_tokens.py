@@ -73,6 +73,19 @@ def test_context_request_status_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+    assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
+    assert TaskEventType.TASK_VALIDATION_FAILED.value == (
+        "task.validation_failed"
+    )
+    assert TaskEventType.TASK_RETRYING.value == "task.retrying"
+    assert TASK_EVENT_TYPES.issuperset(
+        {
+            "task.created",
+            "task.attempt_started",
+            "task.validation_failed",
+            "task.retrying",
+        }
+    )
 
 
 def test_test_result_status_tokens() -> None:
@@ -353,6 +366,7 @@ def test_error_code_tokens() -> None:
     assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
+    assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
@@ -389,6 +403,7 @@ def test_error_code_tokens() -> None:
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
+        "VALIDATION_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED",
         "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING",
