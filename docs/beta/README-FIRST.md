@@ -8,6 +8,8 @@ Both paths use the same local backend runtime.
 
 Start with [2026-04-30 local beta release evidence](./2026-04-30-local-beta-release-evidence.md) for the validation commands, digests, and proof notes behind this private beta handoff.
 
+The public WebUI zip also includes `Codexify-Beta/AUTHORIZATION.md` for first-launch key setup, browser auth recovery, and health troubleshooting.
+
 ## Choose Your Path
 
 - macOS desktop app: choose this if you want the Tauri shell on a Mac.
@@ -72,6 +74,8 @@ In particular, do not edit:
 This is the browser-first beta path.
 
 Use it when you want the browser UI without the Tauri shell.
+This is the low-friction webUI Docker path.
+For the small-folder handoff bundle, open `Codexify-Beta/README.md`.
 
 You will need:
 
@@ -79,11 +83,15 @@ You will need:
 - Ollama installed and running if you are testing the local model path
 - The required local model available in Ollama if you stay on the default local path
 
-GHCR access note:
+Normal path:
 
-- The webUI bundle is published through GHCR.
-- Before install, confirm you can authenticate to `ghcr.io` with a GitHub account that has access to the `codexify-webui` package, or with a GitHub personal access token that includes `read:packages`.
-- If `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta` returns `unauthorized` or `403 Forbidden`, you need GHCR access before the Docker bundle will install cleanly.
+- `docker pull ghcr.io/resonant-jones/codexify-webui:local-beta` should work from a clean shell without GHCR login.
+- `docker pull ghcr.io/resonant-jones/codexify-runtime:local-beta` should also work from a clean shell.
+
+Troubleshooting note:
+
+- If anonymous pulls fail because of GitHub rate limits, stale Docker cache state, or a private fork/mirror, authenticate to `ghcr.io` and retry.
+- GHCR login is a fallback for those edge cases, not the normal beta handoff path.
 
 Start the bundle with:
 
@@ -92,6 +100,8 @@ Start the bundle with:
 Open:
 
 - `http://localhost:3000`
+
+The default public handoff bundle in `Codexify-Beta/README.md` starts without requiring Neo4j health. Graph context is optional and should only be enabled when you are explicitly validating graph behavior.
 
 Quick smoke test:
 

@@ -122,6 +122,7 @@ UI
 10. Turn lock release happens in `finally`.
    - The worker releases the turn lock owned by the task regardless of terminal outcome.
    - This reduces lock leakage, but stale-lock recovery still exists because process death, Redis faults, or missing terminal visibility can leave ambiguous state behind.
+   - The persisted trace snapshot now carries containment-grade retrieval and image-routing fields, including explicit absence reasons, so the debug routes can promote the same truth surface after completion.
 
 ## Acceptance Semantics
 
