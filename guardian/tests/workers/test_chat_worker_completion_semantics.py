@@ -407,15 +407,10 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         else None,
     )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *a, **k: "rescued locally",
     )
 
     def _chat_with_ai(_messages, *, model=None, provider=None, **_kwargs):
@@ -458,6 +453,14 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         "final_model": "qwen3.5:27b",
         "fallback_triggered": True,
     }
+    assert result["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
     assert result["completion_truth"] == {
         "accepted": True,
         "attempted": True,
@@ -474,6 +477,31 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
         "final_provider": "local",
         "final_model": "qwen3.5:27b",
         "fallback_triggered": True,
+    }
+    assert persisted_extra_meta["payload"]["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
+    assert persisted_extra_meta["payload"]["payload_summary"]["execution"] == {
+        "attempted_provider": "groq",
+        "attempted_model": "moonshotai/kimi-k2-instruct-0905",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": True,
+    }
+    assert persisted_extra_meta["payload"]["payload_summary"][
+        "tool_loop_execution"
+    ] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
     }
 
 
@@ -506,16 +534,11 @@ def test_completion_result_includes_execution_metadata_without_fallback(
             {},
         )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
     monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *a, **k: "ready",
     )
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
@@ -536,12 +559,28 @@ def test_completion_result_includes_execution_metadata_without_fallback(
         "final_model": "qwen3.5:27b",
         "fallback_triggered": False,
     }
+    assert result["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
+    }
     assert persisted_extra_meta["payload"]["execution"] == {
         "attempted_provider": "local",
         "attempted_model": "qwen3.5:27b",
         "final_provider": "local",
         "final_model": "qwen3.5:27b",
         "fallback_triggered": False,
+    }
+    assert persisted_extra_meta["payload"]["tool_loop_execution"] == {
+        "attempted_provider": "local",
+        "attempted_model": "qwen3.5:27b",
+        "final_provider": "local",
+        "final_model": "qwen3.5:27b",
+        "fallback_triggered": False,
+        "tool_turn_used": False,
     }
 
 
@@ -982,7 +1021,7 @@ def test_audio_generation_schedule_failure_does_not_fail_text_reply(
     assert all(event_type != "task.failed" for event_type, _ in published)
 
 
-def test_schedule_audio_generation_defaults_enabled_when_flag_absent(
+def test_schedule_audio_generation_defaults_disabled_when_flag_absent(
     monkeypatch,
 ):
     submitted: list[dict[str, object]] = []
@@ -1022,6 +1061,52 @@ def test_schedule_audio_generation_defaults_enabled_when_flag_absent(
         message_id=991,
         assistant_text="generate this",
         task_id="task-audio-default-on",
+        turn_id=TURN_ID,
+    )
+
+    assert scheduled is False
+    assert pending == []
+    assert submitted == []
+
+
+def test_schedule_audio_generation_honors_explicit_enable_flag(
+    monkeypatch,
+):
+    submitted: list[dict[str, object]] = []
+    pending: list[dict[str, object]] = []
+
+    monkeypatch.setenv("CODEXIFY_ASSISTANT_MESSAGE_AUDIO_AUTOGENERATE", "1")
+    monkeypatch.setattr(
+        chat_worker,
+        "find_cached_asset",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "upsert_message_audio_asset_status",
+        lambda **kwargs: pending.append(dict(kwargs))
+        or {"id": 1, "status": "pending"},
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_assistant_message_audio_provider_key",
+        lambda: ("chatterbox", "http://tts:8000"),
+    )
+
+    class _FakeExecutor:
+        def submit(self, fn, **kwargs):
+            submitted.append({"fn": fn, **kwargs})
+            return object()
+
+    monkeypatch.setattr(
+        chat_worker, "_ASSISTANT_AUDIO_EXECUTOR", _FakeExecutor()
+    )
+
+    scheduled = chat_worker._schedule_assistant_message_audio_generation(
+        thread_id=61,
+        message_id=991,
+        assistant_text="generate this",
+        task_id="task-audio-enabled",
         turn_id=TURN_ID,
     )
 

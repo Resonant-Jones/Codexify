@@ -24,6 +24,7 @@ def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> N
     assert "\n      - ./" not in text
     assert "frontend:" not in text
     assert "image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}" in text
+    assert 'CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"' in text
     assert "/app/backend/scripts/docker/run_migrator.py" not in text
     assert "/app/backend" not in text
     assert "/app/guardian" not in text

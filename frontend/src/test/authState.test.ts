@@ -15,6 +15,8 @@ import {
 describe("auth state", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "");
+    vi.stubEnv("VITE_GUARDIAN_DEV_API_KEY", "");
     __resetAuthStateForTests();
     __resetRuntimeApiKeyForTests();
     delete (window as any).__TAURI_IPC__;

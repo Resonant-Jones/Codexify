@@ -325,6 +325,31 @@ def _format_memory_anchor(item: Dict[str, Any]) -> str | None:
     )
 
 
+def _connector_context_text(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    for key in ("content", "snippet", "text"):
+        value = _clean_text(item.get(key))
+        if value:
+            return value
+
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = item.get("meta")
+    if isinstance(metadata, dict):
+        for key in ("content", "snippet", "text"):
+            value = _clean_text(metadata.get(key))
+            if value:
+                return value
+    return ""
+
+
+def _connector_context_label(connector_id: str) -> str:
+    normalized = _clean_text(connector_id).replace("_", " ")
+    return normalized.title() if normalized else "Connector"
+
+
 def build_context_system_message_with_meta(
     bundle: Optional[Dict[str, Any]],
 ) -> tuple[Optional[str], dict[str, Any]]:
@@ -338,6 +363,11 @@ def build_context_system_message_with_meta(
             "memory": {"count": 0, "injected": False},
             "graph": {"count": 0, "injected": False},
             "federated": {"count": 0, "injected": False},
+            "connector_context": {
+                "count": 0,
+                "injected": False,
+                "connectors": {},
+            },
             "verified_personal_facts": {
                 "count": 0,
                 "injected": False,
@@ -367,6 +397,17 @@ def build_context_system_message_with_meta(
         "federated": {
             "count": len(bundle.get("federated", []) or []),
             "injected": False,
+        },
+        "connector_context": {
+            "count": len(
+                [
+                    item
+                    for item in (bundle.get("connector_context", []) or [])
+                    if isinstance(item, dict)
+                ]
+            ),
+            "injected": False,
+            "connectors": {},
         },
         "verified_personal_facts": {
             "count": len(_verified_personal_facts(bundle)),
@@ -451,6 +492,40 @@ def build_context_system_message_with_meta(
                 "**Federated Context:**\n" + "\n".join(federated_parts)
             )
             meta["federated"]["injected"] = True
+
+    connector_items = [
+        item
+        for item in (bundle.get("connector_context") or [])
+        if isinstance(item, dict)
+    ]
+    if connector_items:
+        connector_counts: dict[str, int] = {}
+        connector_parts: dict[str, list[str]] = {}
+        for item in connector_items:
+            connector_id = _clean_text(item.get("connector_id")).lower()
+            if not connector_id:
+                metadata = item.get("metadata")
+                if isinstance(metadata, dict):
+                    connector_id = _clean_text(
+                        metadata.get("connector_id")
+                    ).lower()
+            if not connector_id:
+                connector_id = "connector"
+            connector_counts[connector_id] = (
+                connector_counts.get(connector_id, 0) + 1
+            )
+            snippet = _connector_context_text(item)
+            if snippet:
+                connector_parts.setdefault(connector_id, []).append(snippet)
+
+        meta["connector_context"]["connectors"] = connector_counts
+        if connector_parts:
+            for connector_id, snippets in connector_parts.items():
+                context_parts.append(
+                    f"**Connector Context: {_connector_context_label(connector_id)}**\n"
+                    + "\n".join(f"- {snippet}" for snippet in snippets)
+                )
+            meta["connector_context"]["injected"] = True
 
     if bundle.get("sensors"):
         sensor_info = []

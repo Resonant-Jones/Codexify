@@ -1,59 +1,28 @@
 # Codexify Campaign Runner (Deterministic v2)
 
-Canonical runtime: `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner`
+Canonical runtime: `codex_runner/`
 
 Legacy package note:
-- `/Users/resonant_jones/Keep/Resonant_Constructs/Codexify/tools/codex-runner` is frozen/deprecated.
+- `tools/codex-runner` is frozen/deprecated.
 
-## Install (pip)
-
-Install from PyPI:
-
-```bash
-pip install codexify-campaign-runner
-```
-
-Run:
-
-```bash
-codex-runner --tui
-```
-
-or:
-
-```bash
-python -m codex_runner --tui
-```
-
-For local development install:
-
-```bash
-# from repo root
-python -m pip install --no-build-isolation -e ./codex_runner
-```
-
-Commands provided:
-- `codex-runner`
-- `codex_runner`
-
-If your shell still resolves an older global binary, run with:
-
-```bash
-python -m codex_runner --tui
-```
+Pi wrapper note:
+- `src/agent-wrapper.js` is an optional Pi-backed path.
+- It ships with a vendored Pi SDK tree under `codex_runner/vendor/pi-coding-agent`, so the normal path does not require a separate Pi install.
+- It reuses the shared Pi auth store at `~/.pi/agent/auth.json`, so an existing Pi login or API-key setup on the same user account is visible automatically.
+- If the vendored tree is missing or incomplete, the wrapper fails closed with repair guidance rather than resolving a machine-specific absolute path.
 
 ## Interactive TUI (command-first)
 
 Running with no arguments opens the TUI in interactive terminals:
 
 ```bash
-codex-runner
+python codex_runner/runner.py
 ```
 
 Force TUI mode:
 
 ```bash
-codex-runner --tui
+python codex_runner/runner.py --tui
 ```
 
 Non-interactive behavior:
@@ -101,49 +70,6 @@ Instant run (`Cmd+Enter` or `Ctrl+Enter`):
 - skips TUI validation and preview
 - exits immediately to run
 
-### Preview command behavior (minimal args by default)
-
-TUI preview/run now emits a minimal argument set by default. Flags that match
-`default_settings()` are omitted.
-
-Example with defaults unchanged:
-
-```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
-```
-
-Example after changing only passes and execute mode:
-
-```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --passes 2 --execute
-```
-
-The deterministic runner now accepts these omitted defaults directly:
-- `--repo-root` defaults to the git top-level resolved from current working directory
-- prompt/schema file flags default to bundled files in `codex_runner/`
-
-This means common speed-run defaults are implicit unless changed:
-- verify default (`--no-verify` in local/dev, `--verify` in CI)
-- `--branch-per-campaign`
-- `--passes 1`
-
-For a full explicit flag list (debugging/tooling), use `to_cli_args(..., minimal=False)`.
-
-### Important: legacy `codex-runner` binary on PATH
-
-If `codex-runner -h` shows legacy flags like `--cycles` and does not show `--tui`,
-your shell is using an older global binary. Use one of these instead:
-
-```bash
-python -m codex_runner --tui
-```
-
-or:
-
-```bash
-python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py --tui
-```
-
 ### Path editing
 
 Use `/edit-paths` to bulk-edit long path settings in a focused modal.
@@ -182,7 +108,7 @@ Unknown preset keys are ignored with warnings.
 ## Core guarantees
 
 - Runner owns identifiers (`run_id`, `audit_id`) and artifact paths.
-- Runner owns state (`artifacts/campaign-runs/state/state.json`) and transition history.
+- Runner owns state (`docs/_campaign_runs/state/state.json`) and transition history.
 - Stage B is a proposal; runner merges deterministically and hard-fails on task mutation drift.
 - Campaign mapping edits are restricted to:
   - `<!-- RUNNER_TASK_MAP -->`
@@ -198,8 +124,8 @@ Unknown preset keys are ignored with warnings.
 ## Run metadata
 
 The runner writes `run_meta.json` to:
-- `artifacts/audits/YYYY-MM-DD/<audit_id>/run_meta.json`
-- `artifacts/campaign-runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
+- `docs/_audits/YYYY-MM-DD/<audit_id>/run_meta.json`
+- `docs/_campaign_runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
 
 Additional provider traceability in `run_meta.json`:
 - provider name
@@ -211,7 +137,7 @@ Additional provider traceability in `run_meta.json`:
 Required:
 
 ```bash
-codex-runner \
+python codex_runner/runner.py \
   --repo-root /absolute/path/to/repo \
   --audit-prompt-file /path/to/mega_audit.md \
   --audit-schema-file /path/to/mega_audit_output.schema.json \

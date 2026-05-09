@@ -183,7 +183,9 @@ services:
       CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
+      # Local smoke tests should boot from canonical config so a missing Groq key
+      # does not block media/API verification when AI inference is not exercised.
+      CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
@@ -325,6 +327,37 @@ services:
     restart: unless-stopped
     command: ["worker-chat"]
 
+  worker-coding:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    working_dir: /app
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    volumes:
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - codexify_models:/models
+    environment:
+      <<: *postgres_env
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      HOME: /home/codexify
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+      GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
+      NEO4J_BOLT_URL: bolt://neo4j:7687
+      CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+    restart: unless-stopped
+    command: ["python", "-m", "guardian.workers.coding_worker"]
+
   worker-document-embed:
     image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
     working_dir: /app
@@ -420,6 +453,20 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
     command: ["worker-chat-embed"]
+
+  # ─────────────────────────────────────────────────────────────────
+  # WebUI Service - Docker-hosted frontend (for mobile/Tailscale access)
+  # ─────────────────────────────────────────────────────────────────
+  webui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.webui
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   pg_data:

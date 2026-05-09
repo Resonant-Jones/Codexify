@@ -1,3 +1,0 @@
-[console_scripts]
-codex-runner = codex_runner.__main__:main
-codex_runner = codex_runner.__main__:main
