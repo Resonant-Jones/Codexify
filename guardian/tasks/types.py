@@ -45,6 +45,18 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _coerce_bounded_positive_int(
+    raw: Any,
+    *,
+    default: int = 1,
+    cap: int = 3,
+) -> int:
+    value = _coerce_optional_positive_int(raw)
+    if value is None:
+        return max(1, default)
+    return max(1, min(value, cap))
+
+
 class TaskLifecycleState(str, Enum):
     QUEUED = "QUEUED"
     DISPATCHING = "DISPATCHING"
@@ -509,7 +521,7 @@ class CodingExecutionTask(BaseTask):
         default_factory=_default_coding_permission_policy
     )
     validation_command: str | None = None
-    max_validation_attempts: int | None = None
+    max_validation_attempts: int = 1
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -563,9 +575,9 @@ class CodingExecutionTask(BaseTask):
                 payload.get("validation_command")
                 or payload.get("validationCommand")
             ),
-            max_validation_attempts=_coerce_optional_positive_int(
+            max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
-                or payload.get("maxValidationAttempts")
+                or payload.get("maxValidationAttempts"),
             ),
             **base,
         )
@@ -825,7 +837,7 @@ class CodingExecutionTask(BaseTask):
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
-    max_validation_attempts: int | None = None
+    max_validation_attempts: int = 1
     permission_policy: dict[str, Any] | None = None
 
     @classmethod
@@ -851,9 +863,9 @@ class CodingExecutionTask(BaseTask):
                 payload.get("validation_command")
                 or payload.get("validationCommand")
             ),
-            max_validation_attempts=_coerce_optional_positive_int(
+            max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
-                or payload.get("maxValidationAttempts")
+                or payload.get("maxValidationAttempts"),
             ),
             permission_policy=(
                 _coerce_mapping(

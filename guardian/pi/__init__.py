@@ -6,10 +6,6 @@ or persistence.
 """
 
 from guardian.pi.contracts import (
-    Pi,
-"""Backend-only Pi invocation boundary contracts."""
-
-from guardian.pi.contracts import (
     PiCommandBusLinkage,
     PiGuardianBoundary,
     PiHarnessResult,
@@ -19,13 +15,6 @@ from guardian.pi.contracts import (
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
-    """Backend-only,
-    boundary,
-    contracts.""",
-    from,
-    guardian.pi.contracts,
-    import,
-    invocation,
 )
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,

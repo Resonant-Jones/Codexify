@@ -90,11 +90,24 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
     assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
     assert (
+        TaskEventType.TASK_VALIDATION_STARTED.value == "task.validation_started"
+    )
+    assert (
         TaskEventType.TASK_VALIDATION_FAILED.value == "task.validation_failed"
+    )
+    assert (
+        TaskEventType.TASK_VALIDATION_PASSED.value == "task.validation_passed"
+    )
+    assert (
+        TaskEventType.TASK_VALIDATION_RETRYING.value
+        == "task.validation_retrying"
     )
     assert TaskEventType.TASK_RETRYING.value == "task.retrying"
     assert "task.attempt_started" in TASK_EVENT_TYPES
+    assert "task.validation_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
+    assert "task.validation_passed" in TASK_EVENT_TYPES
+    assert "task.validation_retrying" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
     assert TaskEventType.TASK_VALIDATION_FAILED.value == (
         "task.validation_failed"
@@ -104,7 +117,10 @@ def test_task_event_tokens() -> None:
         {
             "task.created",
             "task.attempt_started",
+            "task.validation_started",
             "task.validation_failed",
+            "task.validation_passed",
+            "task.validation_retrying",
             "task.retrying",
         }
     )
@@ -344,9 +360,17 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PI_HARNESS_RESULT_CLASSES == {"success", "failure", "blocked"}
 
     assert PiProviderLaneClass.LOCAL.value == "local"
+    assert PiProviderLaneClass.REMOTE.value == "remote"
+    assert PiProviderLaneClass.HYBRID.value == "hybrid"
     assert PiProviderLaneClass.EXTERNAL.value == "external"
     assert PiProviderLaneClass.MINIMAX.value == "minimax"
-    assert PI_PROVIDER_LANE_CLASSES == {"local", "external", "minimax"}
+    assert PI_PROVIDER_LANE_CLASSES == {
+        "local",
+        "remote",
+        "hybrid",
+        "external",
+        "minimax",
+    }
 
     assert PiInvocationValidationOutcome.VALID.value == "valid"
     assert PiInvocationValidationOutcome.FAILED_CLOSED.value == "failed_closed"

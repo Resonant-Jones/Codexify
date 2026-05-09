@@ -139,24 +139,23 @@ than raw stdout/stderr.
 
 ### Single-Attempt Validation
 
-The coding worker can now run one optional validation command after the
-adapter returns, as long as the task permits shell execution and a working
-directory is available. Validation failure marks the current attempt failed,
-and validation evidence is normalized before it is stored or emitted.
+The coding worker can run one optional validation command after the adapter
+returns, as long as the task permits shell execution and a working directory
+is available. Validation evidence is normalized before it is stored or
+emitted.
 
-This remains a single-attempt supervised check. It does not add retry-until-
-tests-pass behavior, worktree isolation, or commit behavior. Future convergence
-work should consume the normalized validation result instead of parsing raw
-stdout or stderr directly.
+This remains supervised and bounded. A missing validation command means no
+validation run happened. Validation failure may feed the bounded retry loop
+described below, but this section does not imply worktree isolation, commit
+behavior, or autonomous convergence.
 
 ### Bounded Validation Retry
 
-The worker can now retry a coding attempt when the adapter succeeds but the
-validation command fails. Retry boundaries are controlled by
-`CODING_WORKER_MAX_VALIDATION_ATTEMPTS`, with a default of `3` and a safe clamp
-between `1` and `10`. Per-task `max_validation_attempts` may also be carried in
-the task envelope and deployment spec; missing values fall back to the worker
-default.
+The worker can retry a coding attempt when the adapter succeeds but validation
+fails. Retry boundaries are controlled by `max_validation_attempts` on the
+task, with a default of `1` and a hard cap of `3`. Values below `1` normalize
+to `1`; values above the cap are rejected at the route boundary and bounded in
+the worker path as a defense-in-depth check.
 
 Retries happen only when all of the following are true:
 
@@ -164,18 +163,18 @@ Retries happen only when all of the following are true:
 - a validation command is configured,
 - shell execution is allowed by policy,
 - the task has a working directory, and
-- the validation result is `failed` or `error`.
+- the validation result is `failed`.
 
 Retries do not happen when validation is `not_run`, when shell execution is
-blocked, when no validation command is configured, or when the adapter itself
-fails before validation can run. Final validation failure emits `task.failed`
-with `VALIDATION_FAILED` and includes bounded normalized evidence plus the best
-result seen so far.
+blocked, when no validation command is configured, when the adapter itself
+fails before validation can run, when validation returns `error`, when the same
+fail signature repeats, or when the configured attempt budget is exhausted.
+Validation evidence stays normalized and bounded, and retry prompts only reuse
+the previous attempt’s bounded failure evidence.
 
 This is still not autonomous commit/merge behavior. MiniMax can run behind the
-`codex` adapter, and Guardian will feed it structured validation feedback across
-the bounded attempts, but Guardian still owns the loop boundary and stops when
-attempts are exhausted.
+`codex` adapter, but Guardian owns the retry boundary and future convergence
+work must consume the normalized validation results instead of raw logs.
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
@@ -229,7 +228,8 @@ curl -N -sS \
 **Expected event progression:**
 1. `created` - Run created, task enqueued
 2. `task.running` - Worker picked up task
-3. `task.completed` or `task.failed` - Execution finished
+3. `task.validation_started` and, if configured, `task.validation_passed`, `task.validation_failed`, or `task.validation_retrying`
+4. `task.completed` or `task.failed` - Execution finished
 
 ## Operational Drill
 

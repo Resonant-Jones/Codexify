@@ -7,6 +7,7 @@ from typing import Any, Literal
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import CheckConstraint
 
 from guardian.agents.coding_agent_contracts import (
@@ -389,7 +390,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         repo_root="/workspace/repo",
         context_summary="source thread summary",
         validation_command="pytest -q",
-        max_validation_attempts=4,
+        max_validation_attempts=3,
         permission_policy=CodingAgentPermissionPolicy(
             allow_shell=True,
             allow_network=False,
@@ -410,7 +411,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["user_id"] == "local-user"
     assert payload["project_id"] == 17
     assert payload["validation_command"] == "pytest -q"
-    assert payload["max_validation_attempts"] == 4
+    assert payload["max_validation_attempts"] == 3
     assert payload["permission_policy"]["allow_shell"] is True
 
     deployment = local_store.get_deployment(result["deployment_id"])
@@ -418,7 +419,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["thread_id"] == 42
     assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
     assert deployment["spec_json"]["validation_command"] == "pytest -q"
-    assert deployment["spec_json"]["max_validation_attempts"] == 4
+    assert deployment["spec_json"]["max_validation_attempts"] == 3
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"
@@ -501,7 +502,7 @@ def test_agent_run_migration_runtime_target_constraint_includes_terminal() -> (
     assert "runtime_target IN ('container', 'terminal')" in text
 
 
-def test_coding_execution_payload_carries_optional_retry_field() -> None:
+def test_coding_execution_payload_defaults_validation_attempts_to_one() -> None:
     body = agent_orchestration.CodingExecutionRequest(
         run_id="run-123",
         coding_task_id="coding-123",
@@ -523,10 +524,10 @@ def test_coding_execution_payload_carries_optional_retry_field() -> None:
     payload = agent_orchestration.build_coding_execution_task_payload(body)
     task = CodingExecutionTask.from_dict(payload)
 
-    assert "max_validation_attempts" not in payload
+    assert payload["max_validation_attempts"] == 1
     assert task.run_id == "run-123"
-    assert task.max_validation_attempts is None
-    assert task.permission_policy.allow_shell is True
+    assert task.max_validation_attempts == 1
+    assert task.permission_policy["allow_shell"] is True
 
 
 def test_coding_execution_payload_round_trips_retry_field() -> None:
@@ -540,12 +541,30 @@ def test_coding_execution_payload_round_trips_retry_field() -> None:
         adapter_kind="codex",
         instructions="Fix the failing test.",
         validation_command="pytest -q",
-        max_validation_attempts=4,
+        max_validation_attempts=3,
     )
 
     payload = agent_orchestration.build_coding_execution_task_payload(body)
     task = CodingExecutionTask.from_dict(payload)
 
-    assert payload["max_validation_attempts"] == 4
-    assert task.max_validation_attempts == 4
+    assert payload["max_validation_attempts"] == 3
+    assert task.max_validation_attempts == 3
     assert task.validation_command == "pytest -q"
+
+
+def test_coding_execution_request_rejects_validation_attempts_over_cap() -> (
+    None
+):
+    with pytest.raises(ValidationError):
+        agent_orchestration.CodingExecutionRequest(
+            run_id="run-789",
+            coding_task_id="coding-789",
+            thread_id="thread-789",
+            source_message_id="message-789",
+            attempt_id="attempt-789",
+            user_id="local",
+            adapter_kind="codex",
+            instructions="Fix the failing test.",
+            validation_command="pytest -q",
+            max_validation_attempts=4,
+        )
