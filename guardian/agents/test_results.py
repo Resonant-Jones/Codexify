@@ -1,34 +1,42 @@
 """Normalization helpers for coding-worker test truth.
 
 The contract is intentionally small: turn raw subprocess output into a bounded,
-deterministic result object so future orchestration can reason from structured
-test truth instead of raw stdout/stderr blobs.
+deterministic result object so orchestration can reason from structured test
+truth instead of raw stdout/stderr blobs.
 """
 
 from __future__ import annotations
 
-import hashlib
 import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NormalizedTestStatus = Literal["passed", "failed", "error", "not_run"]
+from guardian.agents.retry_policy import build_fail_signature
+from guardian.protocol_tokens import TestResultStatus
+
+NormalizedTestStatus = Literal[
+    TestResultStatus.PASSED.value,
+    TestResultStatus.FAILED.value,
+    TestResultStatus.ERROR.value,
+    TestResultStatus.NOT_RUN.value,
+]
 
 _PREVIEW_LIMIT = 2048
-_SIGNATURE_EXCERPT_LIMIT = 8
+_SIGNATURE_LINE_LIMIT = 20
 
-_HEX_ADDRESS_RE = re.compile(r"\b0x[0-9a-fA-F]+\b")
-_ISO_TIMESTAMP_RE = re.compile(
-    r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
-    r"(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b"
+_MEMORY_ADDRESS_RE = re.compile(r"0x[0-9a-fA-F]+")
+_TIMESTAMP_RE = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}[T ]"
+    r"\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b"
 )
 _TEMP_PATH_RE = re.compile(
     r"(?:/private/var/folders|/var/folders|/private/tmp|/var/tmp|/tmp)"
-    r"(?:/[^\s'\"`]+)+"
+    r"(?:/[^\s:'\"`]+)+"
 )
 _ABS_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)(?:[^\s'\"`]+)")
 _LINE_COL_RE = re.compile(r":\d+(?::\d+)?")
+_LINE_NUMBER_RE = re.compile(r"(?<=[:(,])\d+(?=[:),\s])")
 _LINE_WORD_RE = re.compile(r"\bline\s+\d+\b", re.IGNORECASE)
 _COL_WORD_RE = re.compile(r"\bcol(?:umn)?\s+\d+\b", re.IGNORECASE)
 _PYTEST_FAIL_RE = re.compile(
@@ -64,37 +72,57 @@ class NormalizedTestResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _bound_preview(raw: object | None) -> str:
+    text = "" if raw is None else str(raw)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if len(text) <= _PREVIEW_LIMIT:
+        return text
+    return text[: _PREVIEW_LIMIT - 1] + "…"
+
+
 def _preview(text: str | None) -> str:
-    value = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    if len(value) <= _PREVIEW_LIMIT:
-        return value
-    return value[:_PREVIEW_LIMIT]
+    return _bound_preview(text)
+
+
+def _scrub_volatile_text(raw: object | None) -> str:
+    text = "" if raw is None else str(raw)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _MEMORY_ADDRESS_RE.sub("0xADDR", text)
+    text = _TIMESTAMP_RE.sub("TIMESTAMP", text)
+    text = _TEMP_PATH_RE.sub("/TMPPATH", text)
+    text = _ABS_PATH_RE.sub("/ABSPATH", text)
+    text = _LINE_COL_RE.sub(":LINE", text)
+    text = _LINE_NUMBER_RE.sub("LINE", text)
+    text = _LINE_WORD_RE.sub("line LINE", text)
+    text = _COL_WORD_RE.sub("col LINE", text)
+    return " ".join(text.split())
 
 
 def _normalize_signature_text(text: str) -> str:
-    value = text.replace("\r\n", "\n").replace("\r", "\n")
-    value = _HEX_ADDRESS_RE.sub("0xADDR", value)
-    value = _ISO_TIMESTAMP_RE.sub("<timestamp>", value)
-    value = _TEMP_PATH_RE.sub("<temp_path>", value)
-    value = _ABS_PATH_RE.sub("<path>", value)
-    value = _LINE_COL_RE.sub(":<line>", value)
-    value = _LINE_WORD_RE.sub("line <line>", value)
-    value = _COL_WORD_RE.sub("col <col>", value)
-    value = re.sub(r"\s+", " ", value)
-    return value.strip()
+    return _scrub_volatile_text(text)
 
 
-def _extract_failing_tests(stdout: str, stderr: str) -> list[str]:
-    discovered: list[str] = []
+def _signature_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        clean = " ".join(raw_line.strip().split())
+        if clean and clean not in lines:
+            lines.append(clean)
+    return lines[:_SIGNATURE_LINE_LIMIT]
+
+
+def _signature_excerpt(stdout: str, stderr: str) -> list[str]:
+    lines: list[str] = []
     for text in (stderr, stdout):
-        for line in text.splitlines():
-            match = _PYTEST_FAIL_RE.match(line)
-            if not match:
+        for raw_line in text.splitlines():
+            line = _normalize_signature_text(raw_line)
+            if not line:
                 continue
-            nodeid = " ".join(match.group("nodeid").strip().split())
-            if nodeid and nodeid not in discovered:
-                discovered.append(nodeid)
-    return discovered
+            if line not in lines:
+                lines.append(line)
+            if len(lines) >= _SIGNATURE_LINE_LIMIT:
+                return lines
+    return lines
 
 
 def _collect_summary_counts(
@@ -128,39 +156,26 @@ def _collect_summary_counts(
     return tests_total, tests_passed, tests_failed
 
 
-def _signature_excerpt(stdout: str, stderr: str) -> list[str]:
-    lines: list[str] = []
+def _extract_failing_tests(stdout: str, stderr: str) -> list[str]:
+    discovered: list[str] = []
     for text in (stderr, stdout):
-        for raw_line in text.splitlines():
-            line = _normalize_signature_text(raw_line)
-            if not line:
+        for line in text.splitlines():
+            match = _PYTEST_FAIL_RE.match(line)
+            if not match:
                 continue
-            if line not in lines:
-                lines.append(line)
-            if len(lines) >= _SIGNATURE_EXCERPT_LIMIT:
-                return lines
-    return lines
+            nodeid = " ".join(match.group("nodeid").strip().split())
+            if nodeid and nodeid not in discovered:
+                discovered.append(nodeid)
+    return discovered
 
 
-def _build_fail_signature(
-    *,
-    exit_code: int,
-    failing_tests: list[str],
-    stdout: str,
-    stderr: str,
-) -> str:
-    payload_lines = [f"exit={exit_code}"]
-    payload_lines.extend(
-        f"test={item}"
-        for item in sorted(
-            {test.strip() for test in failing_tests if test.strip()}
-        )
-    )
-    payload_lines.append("---")
-    payload_lines.extend(_signature_excerpt(stdout, stderr))
-    payload = "\n".join(payload_lines)
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return digest[:24]
+def _first_meaningful_line(*texts: str) -> str | None:
+    for text in texts:
+        for line in text.splitlines():
+            clean = " ".join(line.strip().split())
+            if clean:
+                return clean
+    return None
 
 
 def normalize_subprocess_test_result(
@@ -171,45 +186,55 @@ def normalize_subprocess_test_result(
     duration_seconds: float | None = None,
 ) -> NormalizedTestResult:
     normalized_command = str(command or "").strip() or None
-    stdout_text = str(stdout or "")
-    stderr_text = str(stderr or "")
+    stdout_text = "" if stdout is None else str(stdout)
+    stderr_text = "" if stderr is None else str(stderr)
     stdout_preview = _preview(stdout_text)
     stderr_preview = _preview(stderr_text)
 
     if normalized_command is None:
         return NormalizedTestResult(
-            status="error",
+            status=TestResultStatus.ERROR.value,
             command=None,
             exit_code=exit_code,
             stdout_preview=stdout_preview,
             stderr_preview=stderr_preview,
             duration_seconds=duration_seconds,
-            error_message="command is empty",
+            error_message="invalid_test_command",
+        )
+
+    if not isinstance(exit_code, int):
+        return NormalizedTestResult(
+            status=TestResultStatus.ERROR.value,
+            command=normalized_command,
+            exit_code=None,
+            stdout_preview=stdout_preview,
+            stderr_preview=stderr_preview,
+            duration_seconds=duration_seconds,
+            error_message="invalid_exit_code",
         )
 
     if exit_code == 0:
         tests_total, tests_passed, tests_failed = _collect_summary_counts(
             stdout_text, stderr_text
         )
-        if tests_passed is None and tests_total is None:
-            tests_passed = None
-            tests_failed = None
         return NormalizedTestResult(
-            status="passed",
+            status=TestResultStatus.PASSED.value,
             command=normalized_command,
             exit_code=exit_code,
             tests_total=tests_total,
             tests_passed=tests_passed,
             tests_failed=tests_failed,
             failing_tests=[],
+            fail_signature=None,
             stdout_preview=stdout_preview,
             stderr_preview=stderr_preview,
             duration_seconds=duration_seconds,
+            error_message=None,
         )
 
     if exit_code < 0:
         return NormalizedTestResult(
-            status="error",
+            status=TestResultStatus.ERROR.value,
             command=normalized_command,
             exit_code=exit_code,
             stdout_preview=stdout_preview,
@@ -230,14 +255,12 @@ def normalize_subprocess_test_result(
         and tests_failed is not None
     ):
         tests_total = tests_passed + tests_failed
-    fail_signature = _build_fail_signature(
-        exit_code=exit_code,
-        failing_tests=failing_tests,
-        stdout=stdout_text,
-        stderr=stderr_text,
+    fail_signature = build_fail_signature(
+        failing_tests,
+        _signature_lines(_scrub_volatile_text(f"{stdout_text}\n{stderr_text}")),
     )
     return NormalizedTestResult(
-        status="failed",
+        status=TestResultStatus.FAILED.value,
         command=normalized_command,
         exit_code=exit_code,
         tests_total=tests_total,
@@ -248,6 +271,7 @@ def normalize_subprocess_test_result(
         stdout_preview=stdout_preview,
         stderr_preview=stderr_preview,
         duration_seconds=duration_seconds,
+        error_message=_first_meaningful_line(stderr_text, stdout_text),
     )
 
 
@@ -255,20 +279,26 @@ def not_run_test_result(
     reason: str,
     command: str | None = None,
 ) -> NormalizedTestResult:
+    reason_text = str(reason or "").strip() or "test_not_run"
+    command_text = str(command or "").strip() or None
     return NormalizedTestResult(
-        status="not_run",
-        command=str(command).strip()
-        if command and str(command).strip()
-        else None,
+        status=TestResultStatus.NOT_RUN.value,
+        command=command_text,
+        exit_code=None,
+        tests_total=None,
+        tests_passed=None,
+        tests_failed=None,
+        failing_tests=[],
+        fail_signature=None,
         stdout_preview="",
         stderr_preview="",
-        error_message=str(reason).strip() or "not run",
+        duration_seconds=None,
+        error_message=reason_text,
     )
 
 
 __all__ = [
     "NormalizedTestResult",
-    "NormalizedTestStatus",
     "normalize_subprocess_test_result",
     "not_run_test_result",
 ]

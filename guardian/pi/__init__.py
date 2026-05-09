@@ -7,6 +7,9 @@ or persistence.
 
 from guardian.pi.contracts import (
     Pi,
+"""Backend-only Pi invocation boundary contracts."""
+
+from guardian.pi.contracts import (
     PiCommandBusLinkage,
     PiGuardianBoundary,
     PiHarnessResult,
@@ -37,7 +40,12 @@ from guardian.pi.tokens import (
     PiInvocationReceiptStatus,
     PiInvocationValidationOutcome,
     PiProviderLaneClass,
+    PiTokenError,
     PiValidationFailureReason,
+    normalize_pi_harness_result_class,
+    normalize_pi_provider_lane_class,
+    normalize_pi_receipt_status,
+    normalize_pi_validation_outcome,
 )
 from guardian.pi.validation import (
     validate_harness_result_against_receipt,
@@ -46,11 +54,15 @@ from guardian.pi.validation import (
 )
 
 __all__ = [
+    "PiCommandBusLinkage",
+    "PiGuardianBoundary",
     "PiHarnessResult",
     "PiInvocationArtifact",
     "PiInvocationEnvelope",
     "PiInvocationReceipt",
     "PiInvocationValidationResult",
+    "PiPermissionGrant",
+    "PiProviderLane",
     "PI_HARNESS_RESULT_CLASSES",
     "PI_INVOCATION_ENVELOPE_STATUSES",
     "PI_INVOCATION_RECEIPT_STATUSES",
@@ -58,21 +70,17 @@ __all__ = [
     "PI_INVOCATION_VALIDATION_OUTCOMES",
     "PI_PROVIDER_LANE_CLASSES",
     "PI_VALIDATION_FAILURE_REASONS",
-    "PiCommandBusLinkage",
-    "PiGuardianBoundary",
-    "PiHarnessResult",
     "PiHarnessResultClass",
-    "PiInvocationArtifact",
-    "PiInvocationEnvelope",
     "PiInvocationEnvelopeStatus",
-    "PiInvocationReceipt",
     "PiInvocationReceiptStatus",
     "PiInvocationValidationOutcome",
-    "PiInvocationValidationResult",
-    "PiPermissionGrant",
-    "PiProviderLane",
     "PiProviderLaneClass",
+    "PiTokenError",
     "PiValidationFailureReason",
+    "normalize_pi_harness_result_class",
+    "normalize_pi_provider_lane_class",
+    "normalize_pi_receipt_status",
+    "normalize_pi_validation_outcome",
     "validate_harness_result_against_receipt",
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",

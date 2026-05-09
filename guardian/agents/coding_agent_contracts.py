@@ -58,6 +58,7 @@ class CodingAgentResult:
     error_code: str | None
     error_message: str | None
     adapter_session_ref: str | None
+    validation_results: dict[str, object] | None = None
 
 
 __all__ = [

@@ -58,6 +58,13 @@ class ToolLoopStopReason(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TestResultStatus(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    NOT_RUN = "not_run"
+
+
 class DelegationJobStatus(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"
@@ -148,6 +155,7 @@ class ErrorCode(str, Enum):
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     CHAT_COMPLETE_ENQUEUE_FAILED = "CHAT_COMPLETE_ENQUEUE_FAILED"
     TASK_EVENT_PUBLISH_FAILED = "TASK_EVENT_PUBLISH_FAILED"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
     CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = (
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
@@ -207,6 +215,9 @@ LOOP_STOP_REASONS: frozenset[str] = frozenset(
 )
 TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in ToolLoopStopReason}
+)
+TEST_RESULT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in TestResultStatus}
 )
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
@@ -278,6 +289,7 @@ __all__ = [
     "ToolTurnState",
     "LoopStopReason",
     "ToolLoopStopReason",
+    "TestResultStatus",
     "DelegationJobStatus",
     "PersonalFactStatus",
     "TraceSuppressionReason",
@@ -300,6 +312,7 @@ __all__ = [
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",
     "TOOL_LOOP_STOP_REASONS",
+    "TEST_RESULT_STATUSES",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
     "TRACE_SUPPRESSION_REASONS",
