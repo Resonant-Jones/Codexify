@@ -1,3 +1,18 @@
+from guardian.pi.tokens import (
+    PI_HARNESS_RESULT_CLASSES,
+    PI_INVOCATION_ENVELOPE_STATUSES,
+    PI_INVOCATION_RECEIPT_STATUSES,
+    PI_INVOCATION_RECEIPT_TERMINAL_STATUSES,
+    PI_INVOCATION_VALIDATION_OUTCOMES,
+    PI_PROVIDER_LANE_CLASSES,
+    PI_VALIDATION_FAILURE_REASONS,
+    PiHarnessResultClass,
+    PiInvocationEnvelopeStatus,
+    PiInvocationReceiptStatus,
+    PiInvocationValidationOutcome,
+    PiProviderLaneClass,
+    PiValidationFailureReason,
+)
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
     CONTEXT_REQUEST_STATUSES,
@@ -287,6 +302,134 @@ def test_executor_protocol_tokens() -> None:
         "executor.cancelled",
     }
 
+
+def test_pi_invocation_boundary_tokens() -> None:
+    assert PiInvocationEnvelopeStatus.PREPARED.value == "prepared"
+    assert PiInvocationEnvelopeStatus.VALIDATED.value == "validated"
+    assert PiInvocationEnvelopeStatus.REJECTED.value == "rejected"
+    assert PI_INVOCATION_ENVELOPE_STATUSES == {
+        "prepared",
+        "validated",
+        "rejected",
+    }
+
+    assert PiInvocationReceiptStatus.ISSUED.value == "issued"
+    assert PiInvocationReceiptStatus.ACCEPTED.value == "accepted"
+    assert PiInvocationReceiptStatus.COMPLETED.value == "completed"
+    assert PiInvocationReceiptStatus.FAILED.value == "failed"
+    assert PiInvocationReceiptStatus.REJECTED.value == "rejected"
+    assert PI_INVOCATION_RECEIPT_STATUSES == {
+        "issued",
+        "accepted",
+        "completed",
+        "failed",
+        "rejected",
+    }
+    assert PI_INVOCATION_RECEIPT_TERMINAL_STATUSES == {
+        "completed",
+        "failed",
+        "rejected",
+    }
+
+    assert PiHarnessResultClass.SUCCESS.value == "success"
+    assert PiHarnessResultClass.FAILURE.value == "failure"
+    assert PiHarnessResultClass.BLOCKED.value == "blocked"
+    assert PI_HARNESS_RESULT_CLASSES == {"success", "failure", "blocked"}
+
+    assert PiProviderLaneClass.LOCAL.value == "local"
+    assert PiProviderLaneClass.EXTERNAL.value == "external"
+    assert PiProviderLaneClass.MINIMAX.value == "minimax"
+    assert PI_PROVIDER_LANE_CLASSES == {"local", "external", "minimax"}
+
+    assert PiInvocationValidationOutcome.VALID.value == "valid"
+    assert PiInvocationValidationOutcome.FAILED_CLOSED.value == "failed_closed"
+    assert PI_INVOCATION_VALIDATION_OUTCOMES == {"valid", "failed_closed"}
+
+    assert PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY.value == (
+        "missing_owner_account_identity"
+    )
+    assert PiValidationFailureReason.OWNER_ACCOUNT_MISMATCH.value == (
+        "owner_account_mismatch"
+    )
+    assert PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH.value == (
+        "guardian_ownership_mismatch"
+    )
+    assert PiValidationFailureReason.MISSING_SOURCE_LINEAGE.value == (
+        "missing_source_lineage"
+    )
+    assert PiValidationFailureReason.MISSING_INVOCATION_ID.value == (
+        "missing_invocation_id"
+    )
+    assert PiValidationFailureReason.INCONSISTENT_INVOCATION_ID.value == (
+        "inconsistent_invocation_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_ID.value == (
+        "missing_harness_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_VERSION.value == (
+        "missing_harness_version"
+    )
+    assert PiValidationFailureReason.INVALID_ENVELOPE_STATUS.value == (
+        "invalid_envelope_status"
+    )
+    assert PiValidationFailureReason.INVALID_RECEIPT_STATUS.value == (
+        "invalid_receipt_status"
+    )
+    assert PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS.value == (
+        "invalid_harness_result_class"
+    )
+    assert PiValidationFailureReason.INVALID_PROVIDER_LANE.value == (
+        "invalid_provider_lane"
+    )
+    assert PiValidationFailureReason.MINIMAX_METADATA_REQUIRED.value == (
+        "minimax_metadata_required"
+    )
+    assert PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT.value == (
+        "permission_posture_inconsistent"
+    )
+    assert (
+        PiValidationFailureReason.RECEIPT_MISMATCH.value == "receipt_mismatch"
+    )
+    assert PiValidationFailureReason.HARNESS_RESULT_MISMATCH.value == (
+        "harness_result_mismatch"
+    )
+    assert (
+        PiValidationFailureReason.MISSING_RECEIPT_ID.value
+        == "missing_receipt_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_RESULT_ID.value == (
+        "missing_harness_result_id"
+    )
+    assert PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE.value == (
+        "missing_artifact_reference"
+    )
+    assert PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE.value == (
+        "malformed_command_bus_linkage"
+    )
+    assert PI_VALIDATION_FAILURE_REASONS == {
+        "missing_owner_account_identity",
+        "owner_account_mismatch",
+        "guardian_ownership_mismatch",
+        "missing_source_lineage",
+        "missing_invocation_id",
+        "inconsistent_invocation_id",
+        "missing_harness_id",
+        "missing_harness_version",
+        "invalid_envelope_status",
+        "invalid_receipt_status",
+        "invalid_harness_result_class",
+        "invalid_provider_lane",
+        "minimax_metadata_required",
+        "permission_posture_inconsistent",
+        "receipt_mismatch",
+        "result_receipt_mismatch",
+        "harness_result_mismatch",
+        "missing_receipt_id",
+        "missing_harness_result_id",
+        "missing_artifact_reference",
+        "malformed_command_bus_linkage",
+    }
+
     assert (
         ExecutorEscalationKind.NEEDS_CLARIFICATION.value
         == "needs_clarification"
@@ -363,10 +506,10 @@ def test_error_code_tokens() -> None:
         ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
         == "CHAT_COMPLETE_ENQUEUE_FAILED"
     )
+    assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
-    assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"

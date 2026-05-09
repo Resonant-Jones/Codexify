@@ -7,6 +7,14 @@ from guardian.context.context_directive_resolver import (
 from guardian.protocol_tokens import ContextRequestStatus
 
 
+def test_context_directive_resolver_module_import_smoke() -> None:
+    import guardian.context.context_directive_resolver as resolver
+
+    assert callable(resolver.resolve_context_request_plans)
+    assert callable(resolver.serialize_context_request_plans)
+    assert resolver.CONTEXT_REQUEST_PLANS_ORIGIN_KEY == "context_request_plans"
+
+
 def test_resolver_builds_read_only_context_plan_for_obsidian_directive() -> (
     None
 ):
