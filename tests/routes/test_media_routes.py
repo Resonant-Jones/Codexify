@@ -50,6 +50,12 @@ def _mock_db_with_session() -> tuple[MagicMock, MagicMock]:
     session = MagicMock()
     db.get_session.return_value.__enter__ = MagicMock(return_value=session)
     db.get_session.return_value.__exit__ = MagicMock(return_value=False)
+    db.list_projects.return_value = [
+        {"id": 1, "name": "General"},
+        {"id": 5, "name": "General"},
+        {"id": 7, "name": "General"},
+        {"id": 42, "name": "General"},
+    ]
     return db, session
 
 
@@ -929,6 +935,7 @@ class TestUploadDedupeAndResolve:
 
         existing = MagicMock()
         existing.id = "doc-existing"
+        existing.asset_id = "asset-doc-existing"
         existing.project_id = 1
         existing.thread_id = None
         existing.src_url = "/media/documents/project-plan.txt"
