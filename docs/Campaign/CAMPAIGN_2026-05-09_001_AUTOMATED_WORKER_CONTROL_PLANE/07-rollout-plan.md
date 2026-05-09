@@ -15,7 +15,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 2: worktree lease persistence/store
 - Scope: durable lease storage and lifecycle operations.
-- Proof expectation: persistence tests for create/heartbeat/expire/recover/cleanup intent.
+- Proof expectation: persistence tests for create/heartbeat/expire/recover/cleanup intent, including `guardian/tests/agents/test_worktree_lease_store.py` coverage for conflict protection and terminal reuse semantics.
 
 ### Phase 3: coding worker uses leased worktree
 - Scope: worker run path must require and honor lease context.
