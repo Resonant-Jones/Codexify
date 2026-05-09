@@ -58,6 +58,14 @@ Supported values:
 Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
 not execution success.
 
+### Normalized Test Results
+
+A normalized test-result contract now exists in `guardian/agents/test_results.py`.
+It is a preparatory seam for future autonomous convergence work, but this task
+does not make the coding worker run tests automatically. Any later loop that
+reasons about pass/fail convergence must consume the normalized contract rather
+than raw stdout/stderr.
+
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
 API_KEY="${GUARDIAN_API_KEY:-}"
