@@ -25,22 +25,21 @@ Source anchors:
 5. Future loop work must consume the normalized test-result contract rather than
    raw stdout/stderr blobs.
 
-## Bounded Validation Retry
+## Single-Attempt Validation
 
-- The worker now supports bounded supervised validation retries.
-- Default maximum validation attempts: `3`.
-- Environment override: `CODING_WORKER_MAX_VALIDATION_ATTEMPTS`.
-- Valid values clamp to the range `1..10`.
-- `1` preserves the old single-attempt behavior.
-- Retries happen only after a success-like adapter result and a failing
-  validation command.
-- Retries do not happen when the adapter fails, when no validation command is
-  present, or when shell execution is blocked by policy.
-- The retry prompt includes bounded validation feedback: command, status, exit
-  code, fail signature, and truncated stdout/stderr previews.
-- Final validation failure is still a terminal failure.
-- The worker stops when attempts are exhausted; this is still not autonomous
-  commit/merge behavior.
+- The worker can run one optional supervised validation command after the
+  adapter returns.
+- Validation only runs when shell execution is allowed and the task has a
+  working directory.
+- Validation evidence is normalized through `guardian/agents/test_results.py`
+  before it is stored or emitted.
+- `passed` and `not_run` keep the adapter result terminally successful for the
+  current attempt.
+- `failed` and `error` fail closed for the current attempt and emit
+  `task.failed`.
+- If shell execution is blocked, the worker records a normalized `not_run`
+  result with reason `validation_shell_not_allowed`.
+- This does not implement retries, convergence, or commit behavior.
 
 ## Mutation Scope Guard
 
@@ -96,7 +95,7 @@ Source anchors:
 - It does not mean retry policy should read raw terminal output directly once
   this seam is wired into the worker path.
 - MiniMax may run behind the `codex` adapter, but Guardian still owns the loop
-  boundary and stops after the bounded attempts are exhausted.
+  boundary and stops at the single supervised validation pass.
 
 ## Follow-Through Rule
 
@@ -186,33 +185,25 @@ tests-pass behavior, worktree isolation, or commit behavior. Future convergence
 work should consume the normalized validation result instead of parsing raw
 stdout or stderr directly.
 
-### Bounded Validation Retry
+### Single-Attempt Validation Command
 
-The worker can now retry a coding attempt when the adapter succeeds but the
-validation command fails. Retry boundaries are controlled by
-`CODING_WORKER_MAX_VALIDATION_ATTEMPTS`, with a default of `3` and a safe clamp
-between `1` and `10`. Per-task `max_validation_attempts` may also be carried in
-the task envelope and deployment spec; missing values fall back to the worker
-default.
+The worker now performs one supervised validation pass after a success-like
+adapter result when `validation_command` is configured and shell execution is
+allowed. The command runs in the task `cwd`, the subprocess result is
+normalized through `guardian/agents/test_results.py`, and the normalized
+evidence is stored on the coding result and emitted on the terminal event.
 
-Retries happen only when all of the following are true:
+Validation outcomes are bounded and explicit:
 
-- the adapter returned a success-like result,
-- a validation command is configured,
-- shell execution is allowed by policy,
-- the task has a working directory, and
-- the validation result is `failed` or `error`.
+- `passed` keeps the attempt successful.
+- `not_run` records a supervised skip, usually because shell execution is
+  blocked or the working directory is missing.
+- `failed` and `error` fail closed for the current attempt and emit
+  `task.failed` with `VALIDATION_FAILED`.
 
-Retries do not happen when validation is `not_run`, when shell execution is
-blocked, when no validation command is configured, or when the adapter itself
-fails before validation can run. Final validation failure emits `task.failed`
-with `VALIDATION_FAILED` and includes bounded normalized evidence plus the best
-result seen so far.
-
-This is still not autonomous commit/merge behavior. MiniMax can run behind the
-`codex` adapter, and Guardian will feed it structured validation feedback across
-the bounded attempts, but Guardian still owns the loop boundary and stops when
-attempts are exhausted.
+There is no retry loop here. `max_validation_attempts` may still exist as a
+legacy field in older payloads, but it is not part of this single-attempt
+worker behavior.
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
@@ -383,7 +374,7 @@ worker-coding:
 | Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
 | Tasks stuck in queue | Worker not running | Start worker or check logs |
-| Idempotency not working | Old run_id in retry | Each attempt should have unique `attempt_id` |
+| Idempotency not working | Stale or duplicated task payload | Each attempt should have unique `attempt_id` |
 
 ## Environment Variables
 
@@ -405,9 +396,10 @@ Codex adapter. If needed, set `CODEX_ADAPTER_COMMAND` to point the Codex adapter
 at the desired Codex CLI profile.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
-current coding worker executes a single adapter attempt, returns the result
-through `AgentStore.store_coding_result()`, and records failure events when
-execution or result delivery fails.
+current coding worker executes a single adapter attempt with at most one
+optional validation pass, returns the result through
+`AgentStore.store_coding_result()`, and records failure events when execution
+or result delivery fails.
 
 ## Monitoring
 
