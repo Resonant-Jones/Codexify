@@ -8,6 +8,14 @@ from guardian.pi.contracts import (
     Any,
     Mapping,
     Pi,
+"""Pure validation helpers for the Pi invocation boundary."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Mapping
+
+from guardian.pi.contracts import (
     PiCommandBusLinkage,
     PiGuardianBoundary,
     PiHarnessResult,
@@ -28,6 +36,8 @@ from guardian.pi.contracts import (
     the,
     typing,
     validation,
+    PiPermissionGrant,
+    PiProviderLane,
 )
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
@@ -43,136 +53,13 @@ from guardian.pi.tokens import (
 )
 
 _REQUIRED_COMMAND_BUS_LINKAGE_KEYS = frozenset({"command_run_id", "source"})
-
-
-def _fail(
-    reason: PiValidationFailureReason, *, message: str
-) -> PiInvocationValidationResult:
-    return PiInvocationValidationResult(
-        outcome=PiInvocationValidationOutcome.INVALID.value,
-        failure_reason=reason.value,
-        message=message,
-    )
-
-
-def _validate_command_bus_linkage(linkage: Mapping[str, object] | None) -> bool:
-    if linkage is None:
-        return True
-    if not isinstance(linkage, Mapping):
-        return False
-    for key in _REQUIRED_COMMAND_BUS_LINKAGE_KEYS:
-        value = str(linkage.get(key) or "").strip()
-        if not value:
-            return False
-    return True
-
-
-def validate_invocation_envelope(
-    envelope: PiInvocationEnvelope,
-) -> PiInvocationValidationResult:
-    if not envelope.owner_account_id:
-        return _fail(
-            PiValidationFailureReason.MISSING_OWNER,
-            message="owner_account_id is required",
-        )
-    if not envelope.source_thread_id or not envelope.source_message_id:
-        return _fail(
-            PiValidationFailureReason.MISSING_SOURCE_LINEAGE,
-            message="source_thread_id and source_message_id are required",
-        )
-    if not envelope.invocation_id:
-        return _fail(
-            PiValidationFailureReason.MISSING_INVOCATION_ID,
-            message="invocation_id is required",
-        )
-    if not envelope.harness_id:
-        return _fail(
-            PiValidationFailureReason.MISSING_HARNESS_ID,
-            message="harness_id is required",
-        )
-    if envelope.provider_lane not in PI_PROVIDER_LANE_CLASSES:
-        return _fail(
-            PiValidationFailureReason.INVALID_PROVIDER_LANE,
-            message="provider_lane is not an allowed Pi boundary lane",
-        )
-    minimax_meta = envelope.provider_lane_metadata.get("minimax")
-    if isinstance(minimax_meta, Mapping) and bool(
-        minimax_meta.get("requires_minimax")
-    ):
-        return _fail(
-            PiValidationFailureReason.MINIMAX_METADATA_REQUIRES_PROVIDER,
-            message="minimax metadata must be optional and non-authoritative",
-        )
-    if not set(envelope.granted_permissions).issubset(
-        set(envelope.requested_permissions)
-    ):
-        return _fail(
-            PiValidationFailureReason.PERMISSION_POSTURE_MISMATCH,
-            message="granted_permissions must be a subset of requested_permissions",
-        )
-    if not _validate_command_bus_linkage(envelope.command_bus_linkage):
-        return _fail(
-            PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE,
-            message="command_bus_linkage is malformed",
-        )
-    return PiInvocationValidationResult(
-        outcome=PiInvocationValidationOutcome.VALID.value,
-        metadata={"scope": "invocation_envelope"},
-    )
-
-
-def validate_receipt_against_envelope(
-    envelope: PiInvocationEnvelope,
-    receipt: PiInvocationReceipt,
-) -> PiInvocationValidationResult:
-    envelope_check = validate_invocation_envelope(envelope)
-    if not envelope_check.ok:
-        return envelope_check
-    if receipt.owner_account_id != envelope.owner_account_id:
-        return _fail(
-            PiValidationFailureReason.OWNER_ACCOUNT_MISMATCH,
-            message="receipt owner_account_id does not match envelope",
-        )
-    if receipt.invocation_id != envelope.invocation_id:
-        return _fail(
-            PiValidationFailureReason.RECEIPT_ENVELOPE_MISMATCH,
-            message="receipt invocation_id does not match envelope",
-        )
-    if receipt.harness_id != envelope.harness_id:
-        return _fail(
-            PiValidationFailureReason.RECEIPT_ENVELOPE_MISMATCH,
-            message="receipt harness_id does not match envelope",
-        )
-    if (
-        envelope.execution_attempt_id
-        and receipt.execution_attempt_id
-        and (envelope.execution_attempt_id != receipt.execution_attempt_id)
-    ):
-        return _fail(
-            PiValidationFailureReason.RECEIPT_ENVELOPE_MISMATCH,
-            message="receipt execution_attempt_id does not match envelope",
-        )
-    if not set(receipt.granted_permissions).issubset(
-        set(envelope.requested_permissions)
-    ):
-        return _fail(
-            PiValidationFailureReason.PERMISSION_POSTURE_MISMATCH,
-            message="receipt granted_permissions exceed envelope requested_permissions",
-        )
-    if not _validate_command_bus_linkage(receipt.command_bus_linkage):
-        return _fail(
-            PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE,
-            message="receipt command_bus_linkage is malformed",
-        )
-    return PiInvocationValidationResult(
-        outcome=PiInvocationValidationOutcome.VALID.value,
-        metadata={"scope": "receipt"},
-    )
 GUARDIAN_OWNERSHIP_LABEL = "guardian"
 
 
 def _canonical_json(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    )
 
 
 def _permission_signature(permission: PiPermissionGrant) -> str:
@@ -209,6 +96,16 @@ def _result(
     )
 
 
+def _fail(
+    reason: PiValidationFailureReason, *, message: str
+) -> PiInvocationValidationResult:
+    return PiInvocationValidationResult(
+        outcome=PiInvocationValidationOutcome.FAILED_CLOSED.value,
+        failure_reason=reason.value,
+        message=message,
+    )
+
+
 def _validate_guardian_boundary(
     boundary: PiGuardianBoundary,
 ) -> tuple[list[str], dict[str, Any]]:
@@ -225,7 +122,9 @@ def _validate_guardian_boundary(
     }
     if not boundary.owner_account_id:
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY)
+            _invalid_reason(
+                PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY
+            )
         )
     if (
         boundary.request_policy_owner != GUARDIAN_OWNERSHIP_LABEL
@@ -235,7 +134,9 @@ def _validate_guardian_boundary(
         or boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
     return reasons, metadata
 
@@ -246,7 +147,9 @@ def _validate_provider_lane(
     reasons: list[str] = []
     metadata = provider_lane.to_payload()
     if provider_lane.provider_lane_class not in PI_PROVIDER_LANE_CLASSES:
-        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_PROVIDER_LANE))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.INVALID_PROVIDER_LANE)
+        )
     if _metadata_requires_minimax(provider_lane.metadata):
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MINIMAX_METADATA_REQUIRED)
@@ -279,15 +182,24 @@ def _validate_permission_posture(
 
     if any(not permission.permission for permission in requested_permissions):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+            _invalid_reason(
+                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
+            )
         )
     if any(not permission.permission for permission in granted_permissions):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+            _invalid_reason(
+                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
+            )
         )
-    if any(signature not in requested_signatures for signature in granted_signatures):
+    if any(
+        signature not in requested_signatures
+        for signature in granted_signatures
+    ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+            _invalid_reason(
+                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
+            )
         )
 
     metadata = {
@@ -318,7 +230,9 @@ def _validate_command_bus_linkage(
         return [], metadata
     if not command_bus_linkage.command_run_id:
         return [
-            _invalid_reason(PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE)
+            _invalid_reason(
+                PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE
+            )
         ], metadata
     return [], metadata
 
@@ -337,9 +251,13 @@ def _validate_envelope_core(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not envelope.invocation_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
     if not envelope.harness_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+        )
     if not envelope.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
@@ -395,15 +313,21 @@ def _validate_receipt_core(
     reasons.extend(guardian_reasons)
 
     if not receipt.receipt_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID)
+        )
     if not receipt.source_thread_id or not receipt.source_message_id:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not receipt.invocation_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
     if not receipt.harness_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+        )
     if not receipt.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
@@ -465,22 +389,33 @@ def _validate_harness_result_core(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_RESULT_ID)
         )
     if not harness_result.receipt_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID))
-    if not harness_result.source_thread_id or not harness_result.source_message_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_RECEIPT_ID)
+        )
+    if (
+        not harness_result.source_thread_id
+        or not harness_result.source_message_id
+    ):
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
         )
     if not harness_result.invocation_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
     if not harness_result.harness_id:
-        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+        )
     if not harness_result.harness_version:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_VERSION)
         )
     if harness_result.result_class not in PI_HARNESS_RESULT_CLASSES:
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS)
+            _invalid_reason(
+                PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS
+            )
         )
 
     provider_lane_reasons, provider_lane_metadata = _validate_provider_lane(
@@ -495,7 +430,9 @@ def _validate_harness_result_core(
     reasons.extend(permission_reasons)
 
     artifact_metadata = (
-        harness_result.artifact.to_payload() if harness_result.artifact else None
+        harness_result.artifact.to_payload()
+        if harness_result.artifact
+        else None
     )
     if (
         harness_result.artifact is None
@@ -503,7 +440,9 @@ def _validate_harness_result_core(
         or not harness_result.artifact.artifact_ref
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
+            _invalid_reason(
+                PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE
+            )
         )
 
     linkage_reasons, linkage_metadata = _validate_command_bus_linkage(
@@ -541,9 +480,14 @@ def _compare_boundary(
     *,
     reasons: list[str],
 ) -> None:
-    if not envelope_boundary.owner_account_id or not other_boundary.owner_account_id:
+    if (
+        not envelope_boundary.owner_account_id
+        or not other_boundary.owner_account_id
+    ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY)
+            _invalid_reason(
+                PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY
+            )
         )
     elif envelope_boundary.owner_account_id != other_boundary.owner_account_id:
         reasons.append(
@@ -555,35 +499,45 @@ def _compare_boundary(
         or other_boundary.request_policy_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
     if (
         envelope_boundary.transcript_lineage_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.transcript_lineage_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
     if (
         envelope_boundary.provenance_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.provenance_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
     if (
         envelope_boundary.command_authority_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.command_authority_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
     if (
         envelope_boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
         or other_boundary.result_return_owner != GUARDIAN_OWNERSHIP_LABEL
     ):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH)
+            _invalid_reason(
+                PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH
+            )
         )
 
 
@@ -622,7 +576,9 @@ def _compare_signature_sets(
 ) -> None:
     if _permission_signatures(expected) != _permission_signatures(observed):
         reasons.append(
-            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+            _invalid_reason(
+                PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT
+            )
         )
 
 
@@ -707,8 +663,13 @@ def validate_receipt_against_envelope(
         mismatch_reason=PiValidationFailureReason.RECEIPT_MISMATCH,
         reasons=reasons,
     )
-    if envelope.provider_lane.to_payload() != receipt.provider_lane.to_payload():
-        reasons.append(_invalid_reason(PiValidationFailureReason.RECEIPT_MISMATCH))
+    if (
+        envelope.provider_lane.to_payload()
+        != receipt.provider_lane.to_payload()
+    ):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.RECEIPT_MISMATCH)
+        )
     _compare_signature_sets(
         expected=envelope.requested_permissions,
         observed=receipt.requested_permissions,
@@ -748,116 +709,84 @@ def validate_harness_result_against_receipt(
     receipt: PiInvocationReceipt,
     result: PiHarnessResult,
 ) -> PiInvocationValidationResult:
-    if result.owner_account_id != receipt.owner_account_id:
-        return _fail(
-            PiValidationFailureReason.OWNER_ACCOUNT_MISMATCH,
-            message="result owner_account_id does not match receipt",
-        )
-    if result.invocation_id != receipt.invocation_id:
-        return _fail(
-            PiValidationFailureReason.RESULT_RECEIPT_MISMATCH,
-            message="result invocation_id does not match receipt",
-        )
-    if result.receipt_id != receipt.receipt_id:
-        return _fail(
-            PiValidationFailureReason.RESULT_RECEIPT_MISMATCH,
-            message="result receipt_id does not match receipt",
-        )
-    if not _validate_command_bus_linkage(result.command_bus_linkage):
-        return _fail(
-            PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE,
-            message="result command_bus_linkage is malformed",
-        )
-    return PiInvocationValidationResult(
-        outcome=PiInvocationValidationOutcome.VALID.value,
-        metadata={"scope": "harness_result"},
-    )
-
-
-__all__ = [
-    "validate_invocation_envelope",
-    "validate_receipt_against_envelope",
-    "validate_harness_result_against_receipt",
-    harness_result: PiHarnessResult,
-) -> PiInvocationValidationResult:
+    reasons, metadata = _validate_harness_result_core(result)
     receipt_reasons, receipt_metadata = _validate_receipt_core(receipt)
-    reasons, metadata = _validate_harness_result_core(harness_result)
     reasons.extend(receipt_reasons)
 
     _compare_boundary(
-        receipt.guardian_boundary, harness_result.guardian_boundary, reasons=reasons
+        receipt.guardian_boundary, result.guardian_boundary, reasons=reasons
     )
     _compare_required_text(
         expected=receipt.receipt_id,
-        observed=harness_result.receipt_id,
+        observed=result.receipt_id,
         missing_reason=PiValidationFailureReason.MISSING_RECEIPT_ID,
-        mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
+        mismatch_reason=PiValidationFailureReason.RESULT_RECEIPT_MISMATCH,
         reasons=reasons,
     )
     _compare_required_text(
         expected=receipt.source_thread_id,
-        observed=harness_result.source_thread_id,
+        observed=result.source_thread_id,
         missing_reason=PiValidationFailureReason.MISSING_SOURCE_LINEAGE,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
     _compare_required_text(
         expected=receipt.source_message_id,
-        observed=harness_result.source_message_id,
+        observed=result.source_message_id,
         missing_reason=PiValidationFailureReason.MISSING_SOURCE_LINEAGE,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
     _compare_optional_text(
         expected=receipt.authored_request_id,
-        observed=harness_result.authored_request_id,
+        observed=result.authored_request_id,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
     _compare_optional_text(
         expected=receipt.attempt_id,
-        observed=harness_result.attempt_id,
+        observed=result.attempt_id,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
     _compare_required_text(
         expected=receipt.invocation_id,
-        observed=harness_result.invocation_id,
+        observed=result.invocation_id,
         missing_reason=PiValidationFailureReason.MISSING_INVOCATION_ID,
         mismatch_reason=PiValidationFailureReason.INCONSISTENT_INVOCATION_ID,
         reasons=reasons,
     )
     _compare_required_text(
         expected=receipt.harness_id,
-        observed=harness_result.harness_id,
+        observed=result.harness_id,
         missing_reason=PiValidationFailureReason.MISSING_HARNESS_ID,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
     _compare_required_text(
         expected=receipt.harness_version,
-        observed=harness_result.harness_version,
+        observed=result.harness_version,
         missing_reason=PiValidationFailureReason.MISSING_HARNESS_VERSION,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
         reasons=reasons,
     )
-    if receipt.provider_lane.to_payload() != harness_result.provider_lane.to_payload():
+    if receipt.provider_lane.to_payload() != result.provider_lane.to_payload():
         reasons.append(
             _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
         )
     _compare_signature_sets(
         expected=receipt.requested_permissions,
-        observed=harness_result.requested_permissions,
+        observed=result.requested_permissions,
         reasons=reasons,
     )
     _compare_signature_sets(
         expected=receipt.granted_permissions,
-        observed=harness_result.granted_permissions,
+        observed=result.granted_permissions,
         reasons=reasons,
     )
     _compare_linkage(
         expected=receipt.command_bus_linkage,
-        observed=harness_result.command_bus_linkage,
+        observed=result.command_bus_linkage,
         reasons=reasons,
         mismatch_reason=PiValidationFailureReason.HARNESS_RESULT_MISMATCH,
     )
@@ -876,34 +805,34 @@ __all__ = [
         reasons.append(
             _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
         )
-    elif harness_result.result_class != expected_result_class:
+    elif result.result_class != expected_result_class:
         reasons.append(
             _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
         )
 
     if (
-        harness_result.result_class == PiHarnessResultClass.SUCCESS.value
-        and harness_result.failure_classification is not None
+        result.result_class == PiHarnessResultClass.SUCCESS.value
+        and result.failure_classification is not None
     ):
         reasons.append(
             _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
         )
     if (
-        harness_result.result_class != PiHarnessResultClass.SUCCESS.value
-        and harness_result.failure_classification is None
+        result.result_class != PiHarnessResultClass.SUCCESS.value
+        and result.failure_classification is None
     ):
         reasons.append(
             _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
         )
 
-    artifact_ref = (
-        harness_result.artifact.artifact_ref if harness_result.artifact else ""
-    )
-    if receipt.result_artifact_ref is not None:
-        if artifact_ref != receipt.result_artifact_ref:
-            reasons.append(
-                _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
-            )
+    artifact_ref = result.artifact.artifact_ref if result.artifact else ""
+    if (
+        receipt.result_artifact_ref is not None
+        and artifact_ref != receipt.result_artifact_ref
+    ):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.HARNESS_RESULT_MISMATCH)
+        )
 
     metadata.update(
         {
@@ -918,7 +847,7 @@ __all__ = [
                 "harness_version": receipt.harness_version,
                 "provider_lane_class": receipt.provider_lane.provider_lane_class,
                 "expected_result_class": expected_result_class,
-                "observed_result_class": harness_result.result_class,
+                "observed_result_class": result.result_class,
                 "artifact_ref": artifact_ref,
             },
         }
@@ -927,7 +856,7 @@ __all__ = [
 
 
 __all__ = [
-    "validate_harness_result_against_receipt",
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",
+    "validate_harness_result_against_receipt",
 ]

@@ -34,6 +34,7 @@ from guardian.protocol_tokens import (
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     TASK_EVENT_TYPES,
+    TEST_RESULT_STATUSES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
     TRACE_SNAPSHOT_ABSENCE_REASONS,
@@ -55,6 +56,7 @@ from guardian.protocol_tokens import (
     ImageRoutingPath,
     LoopStopReason,
     TaskEventType,
+    TestResultStatus,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSnapshotAbsenceReason,
@@ -94,6 +96,31 @@ def test_task_event_tokens() -> None:
     assert "task.attempt_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
+    assert TaskEventType.TASK_VALIDATION_FAILED.value == (
+        "task.validation_failed"
+    )
+    assert TaskEventType.TASK_RETRYING.value == "task.retrying"
+    assert TASK_EVENT_TYPES.issuperset(
+        {
+            "task.created",
+            "task.attempt_started",
+            "task.validation_failed",
+            "task.retrying",
+        }
+    )
+
+
+def test_test_result_status_tokens() -> None:
+    assert TestResultStatus.PASSED.value == "passed"
+    assert TestResultStatus.FAILED.value == "failed"
+    assert TestResultStatus.ERROR.value == "error"
+    assert TestResultStatus.NOT_RUN.value == "not_run"
+    assert TEST_RESULT_STATUSES == {
+        "passed",
+        "failed",
+        "error",
+        "not_run",
+    }
 
 
 def test_trace_suppression_tokens() -> None:
@@ -402,6 +429,7 @@ def test_pi_invocation_boundary_tokens() -> None:
         "minimax_metadata_required",
         "permission_posture_inconsistent",
         "receipt_mismatch",
+        "result_receipt_mismatch",
         "harness_result_mismatch",
         "missing_receipt_id",
         "missing_harness_result_id",
@@ -485,6 +513,7 @@ def test_error_code_tokens() -> None:
         ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
         == "CHAT_COMPLETE_ENQUEUE_FAILED"
     )
+    assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
@@ -528,6 +557,7 @@ def test_error_code_tokens() -> None:
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
+        "VALIDATION_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any
@@ -205,21 +206,49 @@ def _build_task(
     source_message_id: int | None,
     coding_task_id: str = "coding-task-1",
     attempt_id: str = "attempt-1",
+    validation_command: str | None = None,
+    max_validation_attempts: int | None = None,
+    permission_policy: dict[str, Any] | None = None,
 ) -> CodingExecutionTask:
-    return CodingExecutionTask.from_dict(
+    payload: dict[str, Any] = {
+        "task_id": f"task-{coding_task_id}",
+        "run_id": run_id,
+        "deployment_id": deployment_id,
+        "instructions": "Patch the seam and keep the return path intact.",
+        "cwd": "/workspace/repo",
+        "timeout_seconds": 60,
+        "coding_task_id": coding_task_id,
+        "attempt_id": attempt_id,
+        "thread_id": thread_id,
+        "source_message_id": source_message_id,
+    }
+    if validation_command is not None:
+        payload["validation_command"] = validation_command
+    if max_validation_attempts is not None:
+        payload["max_validation_attempts"] = max_validation_attempts
+    if permission_policy is not None:
+        payload["permission_policy"] = permission_policy
+    return CodingExecutionTask.from_dict(payload)
+
+
+def test_coding_execution_task_from_dict_accepts_missing_retry_fields() -> None:
+    task = CodingExecutionTask.from_dict(
         {
-            "task_id": f"task-{coding_task_id}",
-            "run_id": run_id,
-            "deployment_id": deployment_id,
-            "instructions": "Patch the seam and keep the return path intact.",
+            "task_id": "task-1",
+            "run_id": "run-1",
+            "deployment_id": "dep-1",
+            "instructions": "Do the thing.",
             "cwd": "/workspace/repo",
-            "timeout_seconds": 60,
-            "coding_task_id": coding_task_id,
-            "attempt_id": attempt_id,
-            "thread_id": thread_id,
-            "source_message_id": source_message_id,
+            "timeout_seconds": 30,
+            "coding_task_id": "coding-task-1",
+            "attempt_id": "attempt-1",
+            "thread_id": 7,
+            "source_message_id": 11,
         }
     )
+
+    assert task.validation_command is None
+    assert task.max_validation_attempts is None
 
 
 def _install_fake_adapter(
@@ -241,6 +270,46 @@ def _install_fake_adapter(
     return calls
 
 
+def _install_fake_validation_runner(
+    monkeypatch,
+    *,
+    result: subprocess.CompletedProcess[str] | None = None,
+    side_effect: BaseException | None = None,
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def _fake_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        if side_effect is not None:
+            raise side_effect
+        return result or subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout="1 passed in 0.01s\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(coding_worker.subprocess, "run", _fake_run)
+    return calls
+
+
 def _capture_task_events(monkeypatch) -> list[tuple[str, str, dict[str, Any]]]:
     published: list[tuple[str, str, dict[str, Any]]] = []
     monkeypatch.setattr(
@@ -253,9 +322,11 @@ def _capture_task_events(monkeypatch) -> list[tuple[str, str, dict[str, Any]]]:
             "ok": True,
             "task_id": task_id,
             "event_type": event_type,
-            "visibility_scope": "terminal"
-            if event_type in {"task.completed", "task.failed"}
-            else "progress",
+            "visibility_scope": (
+                "terminal"
+                if event_type in {"task.completed", "task.failed"}
+                else "progress"
+            ),
             "terminal_visibility": event_type
             in {
                 "task.completed",
@@ -465,6 +536,694 @@ def test_unknown_adapter_kind_fails_closed_with_adapter_not_found(
     assert "mystery_adapter" in failure_payload["error_message"]
     assert _fetch_thread_messages(db, seeded["thread_id"]) == []
     assert _fetch_coding_result_artifacts(store, run_id) == []
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_passing_validation_is_persisted_and_emitted(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="validation-pass-user", project_name="validation-pass"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(
+        monkeypatch,
+        result=subprocess.CompletedProcess(
+            args=["pytest", "-q"],
+            returncode=0,
+            stdout="2 passed in 0.02s\n",
+            stderr="",
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-pass",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert len(validation_calls) == 1
+    assert validation_calls[0]["cwd"] == "/workspace/repo"
+    assert validation_calls[0]["timeout"] == 60
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "ok"
+    assert terminal_payload["validation_result"]["status"] == "passed"
+    assert terminal_payload["validation_result"]["tests_passed"] == 2
+    assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["best_validation_result"]["status"] == "passed"
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    message = messages[0]
+    assert message.extra_meta["validation_results"]["status"] == "passed"
+    assert message.extra_meta["validation_results"]["command"] == "pytest -q"
+    assert message.extra_meta["validation_results"]["status"] == "passed"
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    assert (
+        artifacts[0]["content_json"]["validation_results"]["status"] == "passed"
+    )
+    assert (
+        artifacts[0]["content_json"]["validation_results"]["command"]
+        == "pytest -q"
+    )
+    assert artifacts[0]["content_json"]["validation_attempt_count"] == 1
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "succeeded"
+
+
+def test_failing_validation_marks_attempt_failed(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="validation-fail-user", project_name="validation-fail"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded before validation.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(
+        monkeypatch,
+        result=subprocess.CompletedProcess(
+            args=["pytest", "-q"],
+            returncode=1,
+            stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+            stderr="E AssertionError: boom\n",
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-fail",
+        validation_command="pytest -q",
+        max_validation_attempts=1,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(validation_calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_failed",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "failed"
+    assert terminal_payload["validation_result"]["status"] == "failed"
+    assert terminal_payload["errors"][-1] == "validation_failed"
+    assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["best_validation_result"]["status"] == "failed"
+    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert messages == []
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["coding_result_status"] == "failed"
+    assert content["validation_results"]["status"] == "failed"
+    assert content["validation_results"]["fail_signature"] is not None
+    assert content["validation_attempt_count"] == 1
+    assert content["best_validation_result"]["status"] == "failed"
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_adapter_failure_does_not_run_validation(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="adapter-fail-user", project_name="adapter-fail"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="error",
+            summary="Adapter failed before validation could start.",
+            artifacts=(),
+            errors=("adapter failed",),
+            error_message="adapter failed",
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-adapter-fail",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert validation_calls == []
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.failed",
+    ]
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_validation_command_with_shell_blocked_records_not_run(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="shell-blocked-user", project_name="shell-blocked"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-shell-blocked",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert validation_calls == []
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.completed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["validation_result"]["status"] == "not_run"
+    assert terminal_payload["validation_attempt_count"] == 1
+    assert (
+        terminal_payload["validation_result"]["error_message"]
+        == "validation_shell_not_allowed"
+    )
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].extra_meta["validation_results"]["status"] == "not_run"
+    assert (
+        messages[0].extra_meta["validation_results"]["error_message"]
+        == "validation_shell_not_allowed"
+    )
+
+
+def test_omitted_validation_command_preserves_existing_behavior(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="no-validation-user", project_name="no-validation"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-no-validation",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert validation_calls == []
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].extra_meta.get("validation_results") is None
+
+
+def test_validation_timeout_is_normalized_and_fails_closed(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="validation-timeout-user", project_name="validation-timeout"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(
+        monkeypatch,
+        side_effect=subprocess.TimeoutExpired(
+            cmd=["pytest", "-q"],
+            timeout=5,
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-timeout",
+        validation_command="pytest -q",
+        max_validation_attempts=1,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(validation_calls) == 1
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_failed",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["validation_result"]["status"] == "error"
+    assert (
+        terminal_payload["validation_result"]["error_message"]
+        == "validation_command_timeout"
+    )
+    assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
+    assert terminal_payload["errors"][-1] == "validation_failed"
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    assert (
+        artifacts[0]["content_json"]["validation_results"]["status"] == "error"
+    )
+    assert (
+        artifacts[0]["content_json"]["validation_results"]["error_message"]
+        == "validation_command_timeout"
+    )
+    assert artifacts[0]["content_json"]["validation_attempt_count"] == 1
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_validation_failure_retries_once_and_completes(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="validation-retry-user", project_name="validation-retry"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=0,
+                stdout="2 passed in 0.02s\n",
+                stderr="",
+            ),
+        ]
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-retry",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(calls) == 2
+    assert len(validation_calls) == 2
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_failed",
+        "task.retrying",
+        "task.attempt_started",
+        "task.completed",
+    ]
+    second_prompt = calls[1].prompt
+    assert "Validation feedback:" in second_prompt
+    assert "pytest -q" in second_prompt
+    assert "Fail signature:" in second_prompt
+    assert "Fix only the original task scope" in second_prompt
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "ok"
+    assert terminal_payload["validation_result"]["status"] == "passed"
+    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["best_validation_result"]["status"] == "passed"
+    assert len(terminal_payload["validation_attempts"]) == 2
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["validation_results"]["status"] == "passed"
+    assert content["validation_attempt_count"] == 2
+    assert len(content["validation_attempts"]) == 2
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].extra_meta["validation_results"]["status"] == "passed"
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "succeeded"
+
+
+def test_validation_failure_across_all_attempts_emits_terminal_failure(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db,
+        user_id="validation-exhausted-user",
+        project_name="validation-exhausted",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_beta.py::test_other - still broken\n",
+                stderr="E AssertionError: still broken\n",
+            ),
+        ]
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-exhausted",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(validation_calls) == 2
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_failed",
+        "task.retrying",
+        "task.attempt_started",
+        "task.validation_failed",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "failed"
+    assert terminal_payload["validation_result"]["status"] == "failed"
+    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
+    assert terminal_payload["best_validation_result"]["tests_failed"] == 1
+    assert len(terminal_payload["validation_attempts"]) == 2
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["validation_results"]["status"] == "failed"
+    assert content["validation_attempt_count"] == 2
+    assert content["best_validation_result"]["tests_failed"] == 1
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert messages == []
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"

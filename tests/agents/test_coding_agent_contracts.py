@@ -34,12 +34,16 @@ def test_valid_coding_agent_task_envelope_can_be_constructed() -> None:
         instructions="Update the failing parser and keep the change narrow.",
         repo_root="/workspace/repo",
         context_summary="Guardian-supplied summary of the active thread and files.",
+        validation_command="pytest -q",
+        max_validation_attempts=4,
         permission_policy=policy,
     )
 
     assert envelope.coding_task_id == "coding-task-123"
     assert envelope.permission_policy == policy
     assert envelope.adapter_kind == "pi_sdk"
+    assert envelope.validation_command == "pytest -q"
+    assert envelope.max_validation_attempts == 4
 
 
 def test_coding_agent_task_envelope_can_include_validation_metadata() -> None:
@@ -83,6 +87,7 @@ def test_valid_coding_agent_result_can_be_constructed() -> None:
         error_code=None,
         error_message=None,
         adapter_session_ref="pi-session-abc",
+        validation_results={"status": "passed"},
     )
 
     assert result.status == "completed"
@@ -90,6 +95,7 @@ def test_valid_coding_agent_result_can_be_constructed() -> None:
         "guardian/routes/chat.py",
         "tests/test_parser.py",
     )
+    assert result.validation_results == {"status": "passed"}
 
 
 def test_permission_policy_keeps_allowed_paths_as_immutable_tuple() -> None:
