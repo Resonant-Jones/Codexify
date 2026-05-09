@@ -11,6 +11,13 @@ class AcceptanceStatus(str, Enum):
     ACCEPTED_DEGRADED = "accepted_degraded"
 
 
+class ContextRequestStatus(str, Enum):
+    ACCEPTED_NOT_EXECUTED = "accepted_not_executed"
+    EXECUTED = "executed"
+    NO_RESULTS = "no_results"
+    FAILED = "failed"
+
+
 class TaskEventType(str, Enum):
     TASK_CREATED = "task.created"
     TASK_COMPLETED = "task.completed"
@@ -66,6 +73,12 @@ class PersonalFactStatus(str, Enum):
     VERIFIED = "verified"
     DISPUTED = "disputed"
     ARCHIVED = "archived"
+
+
+class TraceSuppressionReason(str, Enum):
+    ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = (
+        "assistant_vision_refusal_on_image_turn"
+    )
 
 
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
@@ -140,6 +153,10 @@ class ErrorCode(str, Enum):
     )
     VALIDATION_FAILED = "VALIDATION_FAILED"
     CODING_ADAPTER_NOT_FOUND = "CODING_ADAPTER_NOT_FOUND"
+    CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED = (
+        "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
+    )
+    CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING = "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
     DELEGATION_EXECUTOR_UNSUPPORTED = "DELEGATION_EXECUTOR_UNSUPPORTED"
     DELEGATION_EXECUTOR_NOT_FOUND = "DELEGATION_EXECUTOR_NOT_FOUND"
     DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
@@ -154,8 +171,30 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class TraceSnapshotAbsenceReason(str, Enum):
+    TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
+    TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
+    IMAGE_ROUTING_NOT_EVALUATED = "image_routing_not_evaluated"
+    VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED = (
+        "vision_model_selected_but_image_payload_not_routed"
+    )
+    LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL = (
+        "local_model_substitution_selected_nonvision_model"
+    )
+    RETRIEVAL_NOT_EXECUTED = "retrieval_not_executed"
+    RETRIEVAL_NO_CANDIDATES = "retrieval_no_candidates"
+
+
+class ImageRoutingPath(str, Enum):
+    NATIVE_MULTIMODAL_VISION = "native_multimodal_vision"
+    INTERPRETER = "interpreter"
+
+
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
+)
+CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in ContextRequestStatus}
 )
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
@@ -174,6 +213,9 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 )
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
+)
+TRACE_SUPPRESSION_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSuppressionReason}
 )
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
@@ -222,15 +264,23 @@ ERROR_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in TraceSnapshotAbsenceReason}
+)
+IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
+    {path.value for path in ImageRoutingPath}
+)
 
 __all__ = [
     "AcceptanceStatus",
+    "ContextRequestStatus",
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
     "ToolLoopStopReason",
     "DelegationJobStatus",
     "PersonalFactStatus",
+    "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
     "ExecutorId",
@@ -243,6 +293,8 @@ __all__ = [
     "DelegationEventType",
     "ErrorCode",
     "EmbeddingLifecycleStatus",
+    "ImageRoutingPath",
+    "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
@@ -250,6 +302,7 @@ __all__ = [
     "TOOL_LOOP_STOP_REASONS",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "TRACE_SUPPRESSION_REASONS",
     "DELEGATION_EXECUTOR_NAMES",
     "EXECUTOR_IDS",
     "EXECUTOR_RELEASE_POSTURES",
@@ -263,4 +316,7 @@ __all__ = [
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "CONTEXT_REQUEST_STATUSES",
+    "IMAGE_ROUTING_PATHS",
+    "TRACE_SNAPSHOT_ABSENCE_REASONS",
 ]
