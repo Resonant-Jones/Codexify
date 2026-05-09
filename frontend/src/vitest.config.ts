@@ -34,5 +34,6 @@ export default defineConfig({
     alias: {
       "@": resolve(__dirname),
     },
+    dedupe: ["react", "react-dom"],
   },
 });

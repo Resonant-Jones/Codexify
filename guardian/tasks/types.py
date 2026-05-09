@@ -812,6 +812,7 @@ class CodingExecutionTask(BaseTask):
 
     Used for async delegation of coding tasks through the queue/worker
     system, enabling proper SSE event visibility and lifecycle tracking.
+    Optional validation runs are supervised and single-attempt only.
     """
 
     type: str = "coding_execution"
@@ -825,6 +826,8 @@ class CodingExecutionTask(BaseTask):
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
+    # Legacy compatibility for older payloads; the worker now performs a single
+    # validation pass and ignores this as a live retry control.
     max_validation_attempts: int | None = None
     permission_policy: dict[str, Any] | None = None
 

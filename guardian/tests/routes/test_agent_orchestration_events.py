@@ -501,7 +501,7 @@ def test_agent_run_migration_runtime_target_constraint_includes_terminal() -> (
     assert "runtime_target IN ('container', 'terminal')" in text
 
 
-def test_coding_execution_payload_carries_optional_retry_field() -> None:
+def test_coding_execution_payload_carries_optional_validation_field() -> None:
     body = agent_orchestration.CodingExecutionRequest(
         run_id="run-123",
         coding_task_id="coding-123",
@@ -526,10 +526,10 @@ def test_coding_execution_payload_carries_optional_retry_field() -> None:
     assert "max_validation_attempts" not in payload
     assert task.run_id == "run-123"
     assert task.max_validation_attempts is None
-    assert task.permission_policy.allow_shell is True
+    assert task.permission_policy["allow_shell"] is True
 
 
-def test_coding_execution_payload_round_trips_retry_field() -> None:
+def test_coding_execution_payload_round_trips_validation_command() -> None:
     body = agent_orchestration.CodingExecutionRequest(
         run_id="run-456",
         coding_task_id="coding-456",

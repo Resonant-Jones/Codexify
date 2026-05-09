@@ -7,6 +7,7 @@ const { downloadAsset, deleteAsset } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/runtimeConfig", () => ({
+  isTauriRuntime: () => false,
   resolveBackendUrl: (path: string) =>
     `http://backend.test${path.startsWith("/") ? path : `/${path}`}`,
 }));
