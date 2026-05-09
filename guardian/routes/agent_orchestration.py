@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import subprocess
 from typing import Any, AsyncGenerator
 
 from fastapi import (
@@ -19,6 +20,10 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from guardian.agents.coding_agent_contracts import (
+    CodingAgentResult,
+    CodingAgentTaskEnvelope,
+)
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
 from guardian.core.dependencies import require_api_key
@@ -48,6 +53,14 @@ def configure_db(db: Any | None) -> None:
 def _stable_hash(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _coerce_optional_positive_int(raw: Any) -> int | None:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 class AgentPlanRequest(BaseModel):
@@ -177,6 +190,110 @@ async def start_run(
         },
     )
     return {"ok": True, "run": run}
+
+
+@router.post("/coding/execute")
+async def execute_coding_task(
+    envelope: CodingAgentTaskEnvelope,
+) -> dict[str, Any]:
+    """Execute a coding task via PiCodexRunnerAdapter.
+
+    Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
+    appropriate adapter (pi_codex_runner by default).
+
+    Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
+    """
+    # Create deployment to track this coding task
+    flow_id = f"coding_{envelope.coding_task_id}"
+    deployment = _store.create_deployment(
+        flow_id=flow_id,
+        thread_id=int(envelope.thread_id) if envelope.thread_id else None,
+        spec_json={
+            "coding_task_id": envelope.coding_task_id,
+            "adapter_kind": envelope.adapter_kind,
+            "source_thread_id": int(envelope.thread_id)
+            if envelope.thread_id
+            else None,
+            "source_message_id": _coerce_optional_positive_int(
+                envelope.source_message_id
+            ),
+            "user_id": envelope.user_id,
+            "project_id": envelope.project_id,
+            "attempt_id": envelope.attempt_id,
+            "instructions": envelope.instructions,
+            "repo_root": envelope.repo_root,
+            "context_summary": envelope.context_summary,
+            "permission_policy": {
+                "allow_shell": envelope.permission_policy.allow_shell,
+                "allow_network": envelope.permission_policy.allow_network,
+                "allow_write": envelope.permission_policy.allow_write,
+                "allowed_paths": list(envelope.permission_policy.allowed_paths),
+                "max_runtime_seconds": envelope.permission_policy.max_runtime_seconds,
+            },
+        },
+        spec_hash=_stable_hash(
+            {
+                "coding_task_id": envelope.coding_task_id,
+                "attempt_id": envelope.attempt_id,
+                "adapter_kind": envelope.adapter_kind,
+            }
+        ),
+        trust_state="supervised",
+    )
+
+    # Create run for tracking
+    # The DB only tracks the execution surface here; the Pi adapter remains
+    # the implementation detail behind the worker.
+    run = _store.create_run(
+        deployment_id=deployment["deployment_id"],
+        thread_id=deployment.get("thread_id"),
+        runtime_target="container",
+        rollback_mode="auto",
+        status="queued",
+    )
+
+    # Emit created event
+    _event_publisher.emit(
+        run_id=run["run_id"],
+        event_type="created",
+        payload={
+            "coding_task_id": envelope.coding_task_id,
+            "attempt_id": envelope.attempt_id,
+            "deployment_id": deployment["deployment_id"],
+        },
+    )
+
+    # Enqueue for async processing via CodingWorker
+    from guardian.queue.redis_queue import enqueue_coding_execution
+    from guardian.tasks.types import CodingExecutionTask
+
+    task_payload = {
+        "run_id": run["run_id"],
+        "deployment_id": deployment["deployment_id"],
+        "instructions": envelope.instructions,
+        "cwd": envelope.repo_root,
+        "timeout_seconds": envelope.permission_policy.max_runtime_seconds,
+        "coding_task_id": envelope.coding_task_id,
+        "attempt_id": envelope.attempt_id,
+        "thread_id": int(envelope.thread_id) if envelope.thread_id else None,
+        "source_message_id": _coerce_optional_positive_int(
+            envelope.source_message_id
+        ),
+        "source_thread_id": int(envelope.thread_id)
+        if envelope.thread_id
+        else None,
+        "user_id": envelope.user_id,
+        "project_id": envelope.project_id,
+        "origin": "coding_execute_route",
+    }
+    enqueue_coding_execution(task_payload)
+
+    return {
+        "ok": True,
+        "run_id": run["run_id"],
+        "deployment_id": deployment["deployment_id"],
+        "coding_task_id": envelope.coding_task_id,
+    }
 
 
 @router.post("/runs/{run_id}/cancel")

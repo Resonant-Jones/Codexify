@@ -1,5 +1,21 @@
+from guardian.pi.tokens import (
+    PI_HARNESS_RESULT_CLASSES,
+    PI_INVOCATION_ENVELOPE_STATUSES,
+    PI_INVOCATION_RECEIPT_STATUSES,
+    PI_INVOCATION_RECEIPT_TERMINAL_STATUSES,
+    PI_INVOCATION_VALIDATION_OUTCOMES,
+    PI_PROVIDER_LANE_CLASSES,
+    PI_VALIDATION_FAILURE_REASONS,
+    PiHarnessResultClass,
+    PiInvocationEnvelopeStatus,
+    PiInvocationReceiptStatus,
+    PiInvocationValidationOutcome,
+    PiProviderLaneClass,
+    PiValidationFailureReason,
+)
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
     DELEGATION_JOB_STATUSES,
@@ -15,11 +31,15 @@ from guardian.protocol_tokens import (
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
     EXECUTOR_RELEASE_POSTURES,
+    IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     TASK_EVENT_TYPES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
+    TRACE_SNAPSHOT_ABSENCE_REASONS,
+    TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
+    ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
     DelegationJobStatus,
@@ -32,10 +52,13 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    ImageRoutingPath,
     LoopStopReason,
     TaskEventType,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSnapshotAbsenceReason,
+    TraceSuppressionReason,
 )
 
 
@@ -43,6 +66,21 @@ def test_acceptance_status_tokens() -> None:
     assert AcceptanceStatus.ACCEPTED.value == "accepted"
     assert AcceptanceStatus.ACCEPTED_DEGRADED.value == "accepted_degraded"
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
+
+
+def test_context_request_status_tokens() -> None:
+    assert ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value == (
+        "accepted_not_executed"
+    )
+    assert ContextRequestStatus.EXECUTED.value == "executed"
+    assert ContextRequestStatus.NO_RESULTS.value == "no_results"
+    assert ContextRequestStatus.FAILED.value == "failed"
+    assert CONTEXT_REQUEST_STATUSES == {
+        "accepted_not_executed",
+        "executed",
+        "no_results",
+        "failed",
+    }
 
 
 def test_task_event_tokens() -> None:
@@ -56,6 +94,62 @@ def test_task_event_tokens() -> None:
     assert "task.attempt_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
+
+
+def test_trace_suppression_tokens() -> None:
+    assert (
+        TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
+        == "assistant_vision_refusal_on_image_turn"
+    )
+    assert TRACE_SUPPRESSION_REASONS == {
+        "assistant_vision_refusal_on_image_turn",
+    }
+
+
+def test_trace_snapshot_absence_reason_tokens() -> None:
+    assert TraceSnapshotAbsenceReason.TRACE_SOURCE_UNAVAILABLE.value == (
+        "trace_source_unavailable"
+    )
+    assert TraceSnapshotAbsenceReason.TRACE_SNAPSHOT_MISSING.value == (
+        "trace_snapshot_missing"
+    )
+    assert TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value == (
+        "image_routing_not_evaluated"
+    )
+    assert (
+        TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
+        == "vision_model_selected_but_image_payload_not_routed"
+    )
+    assert (
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
+        == "local_model_substitution_selected_nonvision_model"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (
+        "retrieval_not_executed"
+    )
+    assert TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value == (
+        "retrieval_no_candidates"
+    )
+    assert TRACE_SNAPSHOT_ABSENCE_REASONS == {
+        "trace_source_unavailable",
+        "trace_snapshot_missing",
+        "image_routing_not_evaluated",
+        "vision_model_selected_but_image_payload_not_routed",
+        "local_model_substitution_selected_nonvision_model",
+        "retrieval_not_executed",
+        "retrieval_no_candidates",
+    }
+
+
+def test_image_routing_protocol_tokens() -> None:
+    assert ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value == (
+        "native_multimodal_vision"
+    )
+    assert ImageRoutingPath.INTERPRETER.value == "interpreter"
+    assert IMAGE_ROUTING_PATHS == {
+        "native_multimodal_vision",
+        "interpreter",
+    }
 
 
 def test_tool_turn_protocol_tokens() -> None:
@@ -188,6 +282,133 @@ def test_executor_protocol_tokens() -> None:
         "executor.cancelled",
     }
 
+
+def test_pi_invocation_boundary_tokens() -> None:
+    assert PiInvocationEnvelopeStatus.PREPARED.value == "prepared"
+    assert PiInvocationEnvelopeStatus.VALIDATED.value == "validated"
+    assert PiInvocationEnvelopeStatus.REJECTED.value == "rejected"
+    assert PI_INVOCATION_ENVELOPE_STATUSES == {
+        "prepared",
+        "validated",
+        "rejected",
+    }
+
+    assert PiInvocationReceiptStatus.ISSUED.value == "issued"
+    assert PiInvocationReceiptStatus.ACCEPTED.value == "accepted"
+    assert PiInvocationReceiptStatus.COMPLETED.value == "completed"
+    assert PiInvocationReceiptStatus.FAILED.value == "failed"
+    assert PiInvocationReceiptStatus.REJECTED.value == "rejected"
+    assert PI_INVOCATION_RECEIPT_STATUSES == {
+        "issued",
+        "accepted",
+        "completed",
+        "failed",
+        "rejected",
+    }
+    assert PI_INVOCATION_RECEIPT_TERMINAL_STATUSES == {
+        "completed",
+        "failed",
+        "rejected",
+    }
+
+    assert PiHarnessResultClass.SUCCESS.value == "success"
+    assert PiHarnessResultClass.FAILURE.value == "failure"
+    assert PiHarnessResultClass.BLOCKED.value == "blocked"
+    assert PI_HARNESS_RESULT_CLASSES == {"success", "failure", "blocked"}
+
+    assert PiProviderLaneClass.LOCAL.value == "local"
+    assert PiProviderLaneClass.EXTERNAL.value == "external"
+    assert PiProviderLaneClass.MINIMAX.value == "minimax"
+    assert PI_PROVIDER_LANE_CLASSES == {"local", "external", "minimax"}
+
+    assert PiInvocationValidationOutcome.VALID.value == "valid"
+    assert PiInvocationValidationOutcome.FAILED_CLOSED.value == "failed_closed"
+    assert PI_INVOCATION_VALIDATION_OUTCOMES == {"valid", "failed_closed"}
+
+    assert PiValidationFailureReason.MISSING_OWNER_ACCOUNT_IDENTITY.value == (
+        "missing_owner_account_identity"
+    )
+    assert PiValidationFailureReason.OWNER_ACCOUNT_MISMATCH.value == (
+        "owner_account_mismatch"
+    )
+    assert PiValidationFailureReason.GUARDIAN_OWNERSHIP_MISMATCH.value == (
+        "guardian_ownership_mismatch"
+    )
+    assert PiValidationFailureReason.MISSING_SOURCE_LINEAGE.value == (
+        "missing_source_lineage"
+    )
+    assert PiValidationFailureReason.MISSING_INVOCATION_ID.value == (
+        "missing_invocation_id"
+    )
+    assert PiValidationFailureReason.INCONSISTENT_INVOCATION_ID.value == (
+        "inconsistent_invocation_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_ID.value == (
+        "missing_harness_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_VERSION.value == (
+        "missing_harness_version"
+    )
+    assert PiValidationFailureReason.INVALID_ENVELOPE_STATUS.value == (
+        "invalid_envelope_status"
+    )
+    assert PiValidationFailureReason.INVALID_RECEIPT_STATUS.value == (
+        "invalid_receipt_status"
+    )
+    assert PiValidationFailureReason.INVALID_HARNESS_RESULT_CLASS.value == (
+        "invalid_harness_result_class"
+    )
+    assert PiValidationFailureReason.INVALID_PROVIDER_LANE.value == (
+        "invalid_provider_lane"
+    )
+    assert PiValidationFailureReason.MINIMAX_METADATA_REQUIRED.value == (
+        "minimax_metadata_required"
+    )
+    assert PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT.value == (
+        "permission_posture_inconsistent"
+    )
+    assert (
+        PiValidationFailureReason.RECEIPT_MISMATCH.value == "receipt_mismatch"
+    )
+    assert PiValidationFailureReason.HARNESS_RESULT_MISMATCH.value == (
+        "harness_result_mismatch"
+    )
+    assert (
+        PiValidationFailureReason.MISSING_RECEIPT_ID.value
+        == "missing_receipt_id"
+    )
+    assert PiValidationFailureReason.MISSING_HARNESS_RESULT_ID.value == (
+        "missing_harness_result_id"
+    )
+    assert PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE.value == (
+        "missing_artifact_reference"
+    )
+    assert PiValidationFailureReason.MALFORMED_COMMAND_BUS_LINKAGE.value == (
+        "malformed_command_bus_linkage"
+    )
+    assert PI_VALIDATION_FAILURE_REASONS == {
+        "missing_owner_account_identity",
+        "owner_account_mismatch",
+        "guardian_ownership_mismatch",
+        "missing_source_lineage",
+        "missing_invocation_id",
+        "inconsistent_invocation_id",
+        "missing_harness_id",
+        "missing_harness_version",
+        "invalid_envelope_status",
+        "invalid_receipt_status",
+        "invalid_harness_result_class",
+        "invalid_provider_lane",
+        "minimax_metadata_required",
+        "permission_posture_inconsistent",
+        "receipt_mismatch",
+        "harness_result_mismatch",
+        "missing_receipt_id",
+        "missing_harness_result_id",
+        "missing_artifact_reference",
+        "malformed_command_bus_linkage",
+    }
+
     assert (
         ExecutorEscalationKind.NEEDS_CLARIFICATION.value
         == "needs_clarification"
@@ -276,6 +497,14 @@ def test_error_code_tokens() -> None:
         ErrorCode.CODING_ADAPTER_NOT_FOUND.value == "CODING_ADAPTER_NOT_FOUND"
     )
     assert (
+        ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+        == "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
+    )
+    assert (
+        ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+        == "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
+    )
+    assert (
         ErrorCode.DELEGATION_EXECUTOR_UNSUPPORTED.value
         == "DELEGATION_EXECUTOR_UNSUPPORTED"
     )
@@ -302,6 +531,8 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",
+        "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED",
+        "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING",
         "DELEGATION_EXECUTOR_UNSUPPORTED",
         "DELEGATION_EXECUTOR_NOT_FOUND",
         "DELEGATION_EXECUTOR_TIMEOUT",

@@ -15,6 +15,7 @@ GRAPH_WRITE_INSPECTION_KEY_PREFIX = "codexify:graph-write:inspection"
 GRAPH_WRITE_INSPECTION_TTL_SECONDS = 3600
 GRAPH_WRITE_INSPECTION_STATUS_CLAIMED = "claimed"
 GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED = "duplicate_skipped"
+MAX_ADAPTER_FAILURE_MESSAGE_CHARS = 240
 
 _FALLBACK_LOCK = threading.Lock()
 _FALLBACK_LATEST: dict[str, dict[str, Any]] = {}
@@ -27,6 +28,7 @@ _SNAPSHOT_FIELDS = (
     "graph_write_id",
     "idempotency_key",
     "receipt_status",
+    "adapter_failure_message",
     "node_count",
     "edge_count",
     "warning_count",
@@ -70,6 +72,15 @@ def _coerce_text_list(raw: Any) -> list[str]:
     return result
 
 
+def _sanitize_adapter_failure_message(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    return value[:MAX_ADAPTER_FAILURE_MESSAGE_CHARS]
+
+
 def _normalize_snapshot(
     thread_id: str | int,
     snapshot: dict[str, Any] | None,
@@ -92,6 +103,9 @@ def _normalize_snapshot(
         "graph_write_id": str(payload.get("graph_write_id") or "").strip(),
         "idempotency_key": str(payload.get("idempotency_key") or "").strip(),
         "receipt_status": str(payload.get("receipt_status") or "").strip(),
+        "adapter_failure_message": _sanitize_adapter_failure_message(
+            payload.get("adapter_failure_message")
+        ),
         "node_count": _coerce_int(payload.get("node_count")),
         "edge_count": _coerce_int(payload.get("edge_count")),
         "warning_count": _coerce_int(payload.get("warning_count")),
@@ -195,6 +209,7 @@ __all__ = [
     "GRAPH_WRITE_INSPECTION_STATUS_CLAIMED",
     "GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED",
     "GRAPH_WRITE_INSPECTION_TTL_SECONDS",
+    "MAX_ADAPTER_FAILURE_MESSAGE_CHARS",
     "get_latest_graph_write_inspection",
     "store_graph_write_inspection_snapshot",
 ]

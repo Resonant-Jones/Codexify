@@ -169,6 +169,7 @@ COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/pyt
 # Copy application code
 COPY guardian /app/guardian
 COPY backend /app/backend
+COPY codex_runner /app/codex_runner
 COPY plugins /app/plugins
 COPY scripts /app/scripts
 

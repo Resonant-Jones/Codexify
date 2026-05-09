@@ -11,6 +11,36 @@ from guardian.queue import task_events
 logger = logging.getLogger(__name__)
 
 
+def build_coding_result_lineage_payload(
+    *,
+    run_id: str,
+    queue_task_id: str | None,
+    coding_task_id: str,
+    attempt_id: str,
+    request_id: str | None = None,
+    source_thread_id: int | None = None,
+    source_message_id: int | None = None,
+    adapter_kind: str | None = None,
+) -> dict[str, Any]:
+    """Build the shared lineage payload used for coding-result metadata.
+
+    The caller can extend the returned dict with status, artifacts, or delivery
+    fields depending on whether it is being written to a message row, event row,
+    or terminal task event.
+    """
+
+    return {
+        "run_id": run_id,
+        "queue_task_id": queue_task_id,
+        "request_id": request_id,
+        "coding_task_id": coding_task_id,
+        "attempt_id": attempt_id,
+        "source_thread_id": source_thread_id,
+        "source_message_id": source_message_id,
+        "adapter_kind": adapter_kind,
+    }
+
+
 class AgentEventPublisher:
     """Persist agent events and publish them on existing task event streams."""
 
@@ -79,4 +109,8 @@ class AgentEventPublisher:
 publisher = AgentEventPublisher()
 
 
-__all__ = ["AgentEventPublisher", "publisher"]
+__all__ = [
+    "AgentEventPublisher",
+    "build_coding_result_lineage_payload",
+    "publisher",
+]
