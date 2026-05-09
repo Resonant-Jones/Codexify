@@ -32,8 +32,6 @@ class PiHarnessResultClass(str, Enum):
 
 class PiProviderLaneClass(str, Enum):
     LOCAL = "local"
-    REMOTE = "remote"
-    HYBRID = "hybrid"
     EXTERNAL = "external"
     MINIMAX = "minimax"
 
