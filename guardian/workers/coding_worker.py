@@ -33,6 +33,20 @@ _SUCCESS_LIKE_CODING_RESULT_STATUSES = {
     "partial-success",
 }
 
+_ADAPTER_KIND_ALIASES = {
+    "": "pi_codex_runner",
+    "pi": "pi_codex_runner",
+    "pi_sdk": "pi_codex_runner",
+    "pi_codex_runner": "pi_codex_runner",
+    "codex": "codex",
+    "claudecode": "claudecode",
+}
+
+
+def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
+    value = str(raw_adapter_kind or "").strip().lower()
+    return _ADAPTER_KIND_ALIASES.get(value, value)
+
 
 def _normalize_coding_result_status(status: Any) -> str:
     value = str(status or "").strip().lower()
@@ -40,7 +54,10 @@ def _normalize_coding_result_status(status: Any) -> str:
 
 
 def _is_success_like_coding_result(status: str) -> bool:
-    return _normalize_coding_result_status(status) in _SUCCESS_LIKE_CODING_RESULT_STATUSES
+    return (
+        _normalize_coding_result_status(status)
+        in _SUCCESS_LIKE_CODING_RESULT_STATUSES
+    )
 
 
 def _normalize_artifacts(raw_artifacts: Any) -> list[dict[str, Any]]:
@@ -49,7 +66,11 @@ def _normalize_artifacts(raw_artifacts: Any) -> list[dict[str, Any]]:
         return normalized
     if isinstance(raw_artifacts, dict):
         raw_artifacts = [raw_artifacts]
-    for item in raw_artifacts if isinstance(raw_artifacts, (list, tuple, set)) else [raw_artifacts]:
+    for item in (
+        raw_artifacts
+        if isinstance(raw_artifacts, (list, tuple, set))
+        else [raw_artifacts]
+    ):
         if isinstance(item, dict):
             normalized.append(dict(item))
         else:
@@ -63,9 +84,7 @@ def _normalize_files_changed(
 ) -> list[str]:
     if isinstance(raw_files_changed, (list, tuple, set)):
         normalized = [
-            str(item).strip()
-            for item in raw_files_changed
-            if str(item).strip()
+            str(item).strip() for item in raw_files_changed if str(item).strip()
         ]
         if normalized:
             return normalized
@@ -138,18 +157,20 @@ class CodingWorker:
 
         deployment = self.store.get_deployment(task.deployment_id) or {}
         deployment_spec = dict(deployment.get("spec_json") or {})
-        adapter_kind = str(deployment_spec.get("adapter_kind") or "").strip() or None
+        adapter_kind = _resolve_adapter_kind(
+            deployment_spec.get("adapter_kind")
+        )
 
         # Emit running event
         self._emit_running(task, adapter_kind=adapter_kind)
 
         # Get adapter
-        adapter = ADAPTERS.get("pi_codex_runner")
+        adapter = ADAPTERS.get(adapter_kind)
         if not adapter:
             self._emit_failure(
                 task,
                 adapter_kind=adapter_kind,
-                error_message="pi_codex_runner adapter not configured",
+                error_message=f"coding adapter not configured: {adapter_kind}",
                 error_code="ADAPTER_NOT_FOUND",
             )
             return
@@ -167,9 +188,13 @@ class CodingWorker:
 
         # Execute
         result = adapter.execute(request)
-        result_status = _normalize_coding_result_status(getattr(result, "status", ""))
+        result_status = _normalize_coding_result_status(
+            getattr(result, "status", "")
+        )
         success_like = _is_success_like_coding_result(result_status)
-        result_artifacts = _normalize_artifacts(getattr(result, "artifacts", []))
+        result_artifacts = _normalize_artifacts(
+            getattr(result, "artifacts", [])
+        )
         files_changed = _normalize_files_changed(
             getattr(result, "files_changed", None),
             result_artifacts,

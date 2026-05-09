@@ -1,10 +1,13 @@
 # Codexify Coding Worker Runbook
 
-Purpose: Operating runbook for the Pi-coded-agent delegation pipeline (ADR-020).
-Last updated: 2026-05-03
+Purpose: Operating runbook for the Guardian coding-worker adapter pipeline (ADR-020).
+Last updated: 2026-05-09
 Source anchors:
 - `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
+- `guardian/agents/adapters/__init__.py` - adapter registry
 - `guardian/agents/adapters/pi_codex_runner.py` - PiCodexRunnerAdapter
+- `guardian/agents/adapters/codex.py` - CodexAdapter
+- `guardian/agents/adapters/claudecode.py` - ClaudeCodeAdapter
 - `guardian/workers/coding_worker.py` - CodingWorker
 - `guardian/queue/redis_queue.py` - `enqueue_coding_execution`, `dequeue_coding_execution`
 - `guardian/tasks/types.py` - `CodingExecutionTask`
@@ -32,14 +35,28 @@ Source anchors:
                                                                 │ execute
                                                                 ▼
                                                          ┌──────────────┐
-                                                         │   Pi SDK /   │
-                                                         │ Code Runner  │
+                                                         │  Registered  │
+                                                         │Coding Adapter│
                                                          └──────────────┘
 ```
 
 ## Canonical Interface
 
 ### Execute Coding Task
+
+`adapter_kind` controls which registered coding-worker adapter executes the task.
+The route persists the requested value in the deployment spec, and the worker
+resolves it at execution time. Missing or blank values preserve the legacy
+default of `pi_codex_runner`.
+
+Supported values:
+
+- `pi_sdk`, `pi`, or `pi_codex_runner` -> `pi_codex_runner`
+- `codex` -> `codex`
+- `claudecode` -> `claudecode`
+
+Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
+not execution success.
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
@@ -206,7 +223,7 @@ worker-coding:
 
 | Symptom | Likely Cause | Remediation |
 |---------|--------------|-------------|
-| `ADAPTER_NOT_FOUND` in worker logs | Adapter not registered | Check `guardian/agents/adapters/__init__.py` |
+| `ADAPTER_NOT_FOUND` in worker logs or run events | `adapter_kind` resolved to an unregistered adapter | Check the deployment spec and `guardian/agents/adapters/__init__.py` |
 | Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
 | Tasks stuck in queue | Worker not running | Start worker or check logs |
@@ -221,6 +238,20 @@ worker-coding:
 | `GUARDIAN_DB_URL` | For thread injection | None | Alternative DB URL |
 | `CODING_WORKER_POLL_INTERVAL_SECONDS` | No | `0.5` | Poll frequency |
 | `CODEXIFY_SINGLE_USER_ID` | For local dev | `local` | User context |
+| `CODEX_ADAPTER_COMMAND` | For `codex` adapter customization | `codex exec` | Command prefix used by the Codex adapter |
+
+## MiniMax / Codex Operational Note
+
+MiniMax-backed coding execution should be configured through the Codex CLI
+profile/config outside Guardian. Guardian should receive coding requests with
+`adapter_kind="codex"` so the worker routes execution through the registered
+Codex adapter. If needed, set `CODEX_ADAPTER_COMMAND` to point the Codex adapter
+at the desired Codex CLI profile.
+
+This runbook does not describe an autonomous retry-until-tests-pass loop. The
+current coding worker executes a single adapter attempt, returns the result
+through `AgentStore.store_coding_result()`, and records failure events when
+execution or result delivery fails.
 
 ## Monitoring
 
