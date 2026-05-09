@@ -86,7 +86,9 @@ function PanelShell({ className, surfaceStyle, disabled, children }: PanelShellP
       ariaLabel={disabled ? "panel disabled" : undefined}
       style={{
         borderRadius: "var(--card-radius)",
-        border: "1px solid var(--panel-border)",
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: "var(--panel-border)",
         ...panelStyle,
       }}
     >

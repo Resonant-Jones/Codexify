@@ -5,6 +5,10 @@ import React from "react";
 
 import AppShell from "@/components/persona/layout/AppShell";
 import {
+  LIVE_EVENT_CONNECTION_STATES,
+  RUNTIME_HEALTH_STATUSES,
+} from "@/contracts/runtimeTokens";
+import {
   personaStudioApiMock,
   resetPersonaStudioApiMock,
 } from "./personaStudioApiMock";
@@ -19,7 +23,62 @@ vi.mock("@/hooks/useLiveEvents", () => ({
 }));
 
 vi.mock("@/hooks/useRuntimeHealth", () => ({
-  default: () => ({ healthy: false, checkedAt: null }),
+  default: () => ({
+    status: RUNTIME_HEALTH_STATUSES.UNAVAILABLE,
+    failureKind: null,
+    llmDetail: null,
+    lastSuccessAt: null,
+    backendReachable: null,
+    chatHealthy: null,
+    llmHealthy: null,
+    liveEventsStatus: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+    lastCheckedAt: null,
+    lastFailedAt: null,
+    stale: false,
+    diagnostics: {
+      resolvedApiBaseUrl: null,
+      resolvedApiBaseUrlSource: "unknown",
+      apiKeyPresent: false,
+      apiKeySource: "unknown",
+      hydrationState: "ready",
+      nativeCommandStatus: null,
+      authSource: "unknown",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: null,
+        transportErrorClass: null,
+        parsedStatus: null,
+        parsedOk: null,
+        detailsStatus: null,
+        detailsOk: null,
+        providerRuntimeAvailable: null,
+        endpointResolutionState: null,
+        failureReason: null,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: null,
+        transportErrorClass: null,
+        parsedStatus: null,
+        parsedOk: null,
+        detailsStatus: null,
+        detailsOk: null,
+        providerRuntimeAvailable: null,
+        endpointResolutionState: null,
+        failureReason: null,
+      },
+      liveEvents: {
+        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+        connected: true,
+        statusUpdatedAt: null,
+      },
+      failureKind: null,
+      lastSuccessAt: null,
+      lastFailedAt: null,
+      lastCheckedAt: null,
+      currentComputedStateSource: "fallback",
+    },
+  }),
 }));
 
 vi.mock("@/hooks/useWallpaperUrl", () => ({
@@ -44,7 +103,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
 
 beforeEach(() => {
   window.localStorage.clear();
-  window.history.pushState({}, "", "/");
+  window.history.pushState({}, "", "/persona-studio");
   resetPersonaStudioApiMock();
 });
 
@@ -55,24 +114,25 @@ function renderAppShell() {
 }
 
 describe("Persona Studio Shell Integration", () => {
-  it("renders Persona Studio navigation pill in the app shell", async () => {
+  it("renders the Persona Studio route in the app shell", async () => {
     renderAppShell();
-
-    const personaStudioPill = screen.getByRole("button", { name: /persona studio/i });
-    expect(personaStudioPill).toBeInTheDocument();
-  });
-
-  it("renders Persona Studio hierarchy when navigating to it", async () => {
-    const user = userEvent.setup();
-    renderAppShell();
-
-    const personaStudioPill = screen.getByRole("button", { name: /persona studio/i });
-    await user.click(personaStudioPill);
 
     expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
-    expect(screen.getByText(/configure runtime persona profiles/i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /persona studio utility pane/i })).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
+  });
+
+  it("renders Persona Studio hierarchy directly from the route", () => {
+    renderAppShell();
+
+    expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/profiles and diagnostics stay subordinate to the primary editor and harness/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /persona studio utility pane/i })).toBeInTheDocument();
     expect(screen.getByText("Selection")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
@@ -87,20 +147,14 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
   });
 
-  it("renders the profile list panel when Persona Studio is active", async () => {
-    const user = userEvent.setup();
+  it("renders the profile list panel when Persona Studio is active", () => {
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
-
-    expect(screen.getByText("Profiles")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeInTheDocument();
   });
 
-  it("renders the editor tabs when Persona Studio is active", async () => {
-    const user = userEvent.setup();
+  it("renders the editor tabs when Persona Studio is active", () => {
     renderAppShell();
-
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
     expect(screen.getByRole("button", { name: /identity/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /model/i })).toBeInTheDocument();
@@ -115,19 +169,15 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
-
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
     expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
     expect(screen.getByText("Save Status")).toBeInTheDocument();
     expect(screen.getByText("Effective Config")).toBeInTheDocument();
     expect(screen.getByText("Debug Log")).toBeInTheDocument();
   });
 
-  it("does not render chat composer or thread UI in Persona Studio", async () => {
-    const user = userEvent.setup();
+  it("does not render chat composer or thread UI in Persona Studio", () => {
     renderAppShell();
-
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
@@ -139,7 +189,6 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
     await user.click(screen.getByRole("button", { name: /model/i }));
 
     expect(screen.getByText("Generation Top K", { selector: "label" })).toBeInTheDocument();
@@ -154,8 +203,6 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
-
     const codeAssistantCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
     if (codeAssistantCard) {
       await user.click(codeAssistantCard);
@@ -163,11 +210,8 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByTestId("persona-studio-framecard")).toBeInTheDocument();
   });
 
-  it("renders Save, Save As New, and Reset controls", async () => {
-    const user = userEvent.setup();
+  it("renders Save, Save As New, and Reset controls", () => {
     renderAppShell();
-
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
 
     expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
@@ -177,7 +221,6 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /persona studio/i }));
     await user.click(screen.getByRole("button", { name: /truth matrix/i }));
 
     const matrix = screen.getByRole("table", { name: /persona studio truth matrix/i });

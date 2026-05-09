@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import api from "@/lib/api";
+import { WORKSPACE_OPEN_EVENT } from "@/features/workspace/state/useWorkspaceState";
 
 
 describe("Document generation editor open", () => {
@@ -19,6 +20,13 @@ describe("Document generation editor open", () => {
 
   it("opens the generated document in the workspace", async () => {
     const user = userEvent.setup();
+    const workspaceOpenPromise = new Promise<CustomEvent>((resolve) => {
+      const handler = (event: Event) => {
+        window.removeEventListener(WORKSPACE_OPEN_EVENT, handler as EventListener);
+        resolve(event as CustomEvent);
+      };
+      window.addEventListener(WORKSPACE_OPEN_EVENT, handler as EventListener);
+    });
     vi.spyOn(api, "get").mockResolvedValue({
       data: [],
     } as AxiosResponse);
@@ -33,10 +41,11 @@ describe("Document generation editor open", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /generate doc/i }));
-    await user.type(screen.getByLabelText(/title/i), "Launch Brief");
+    window.dispatchEvent(new CustomEvent("cfy:documents:generate"));
+    expect(await screen.findByRole("dialog", { name: /generate document/i })).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^title/i), "Launch Brief");
     await user.type(
-      screen.getByLabelText(/prompt/i),
+      screen.getByRole("textbox", { name: /^prompt$/i }),
       "Draft a launch overview."
     );
     await user.click(screen.getByRole("button", { name: /save draft/i }));
@@ -53,10 +62,16 @@ describe("Document generation editor open", () => {
       );
     });
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Workspace .*Launch Brief\.md/i)
-      ).toBeInTheDocument();
-    });
+    const workspaceOpenEvent = await workspaceOpenPromise;
+    expect(workspaceOpenEvent.detail).toEqual(
+      expect.objectContaining({
+        source: "generated-document",
+        targetView: "documents",
+        doc: expect.objectContaining({
+          title: "Launch Brief",
+          ext: "md",
+        }),
+      })
+    );
   });
 });
