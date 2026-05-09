@@ -9,6 +9,8 @@ from typing import Any, Mapping, Sequence
 
 from guardian.command_bus.contracts import (
     CapabilityManualDispatchResult as CommandBusManualDispatchResult,
+)
+from guardian.command_bus.contracts import (
     CommandBusInvokeResult,
     InvokeArguments,
     InvokeRequest,
@@ -18,6 +20,8 @@ from guardian.extensions.tokens import (
     CapabilityActivationContextToken,
     CapabilityActivationDenyReasonToken,
     CapabilityActivationOutcomeToken,
+    CapabilityAssistantReentryFailureReason,
+    CapabilityAssistantReentryOutcome,
     CapabilityDispatchSourceToken,
     CapabilityEntryProvenanceClass,
     CapabilityManualDispatchDenyReasonToken,
@@ -35,18 +39,19 @@ from guardian.extensions.tokens import (
     normalize_capability_activation_context_token,
     normalize_capability_activation_deny_reason_token,
     normalize_capability_activation_outcome_token,
+    normalize_capability_assistant_reentry_failure_reason,
+    normalize_capability_assistant_reentry_outcome,
     normalize_capability_dispatch_source_token,
     normalize_capability_entry_provenance_class,
+    normalize_capability_manual_dispatch_deny_reason_token,
+    normalize_capability_manual_dispatch_idempotency_class_token,
+    normalize_capability_manual_dispatch_outcome_token,
+    normalize_capability_manual_dispatch_source_token,
     normalize_capability_registry_status,
     normalize_capability_reinjection_failure_reason,
     normalize_capability_reinjection_result_shape,
     normalize_capability_reinjection_source,
     normalize_capability_result_reinjection_outcome,
-    normalize_capability_registry_status,
-    normalize_capability_manual_dispatch_deny_reason_token,
-    normalize_capability_manual_dispatch_idempotency_class_token,
-    normalize_capability_manual_dispatch_outcome_token,
-    normalize_capability_manual_dispatch_source_token,
     normalize_extension_install_binding_scope,
     normalize_extension_install_binding_status,
     normalize_extension_proposal_scope,
@@ -75,9 +80,7 @@ def _clean_text_sequence(value: Sequence[Any] | None) -> tuple[str, ...]:
     if not value:
         return ()
     return tuple(
-        item_text
-        for item in value
-        if (item_text := str(item).strip())
+        item_text for item in value if (item_text := str(item).strip())
     )
 
 
@@ -1772,7 +1775,9 @@ class CapabilityActivationMatch:
             binding_id=data.get("binding_id") or "",
             resolved_from_scope_token=data.get("resolved_from_scope_token")
             or "",
-            manifest_snapshot=manifest_payload if manifest_payload is not None else {},
+            manifest_snapshot=manifest_payload
+            if manifest_payload is not None
+            else {},
             approved_permissions=tuple(
                 ExtensionRequestedPermission.from_payload(item)
                 for item in approved_permissions
@@ -2083,7 +2088,9 @@ class CapabilityDispatchEnvelope:
             binding_id=data.get("binding_id") or "",
             resolved_from_scope_token=data.get("resolved_from_scope_token")
             or "",
-            manifest_snapshot=manifest_payload if manifest_payload is not None else {},
+            manifest_snapshot=manifest_payload
+            if manifest_payload is not None
+            else {},
             approved_permissions=tuple(
                 ExtensionRequestedPermission.from_payload(item)
                 for item in approved_permissions
@@ -2119,9 +2126,9 @@ class CapabilityActivationDecision:
     denial_reason_token: str | None = None
     conflict_class_token: str | None = None
     conflict_details: tuple[CapabilityActivationConflictDetail, ...] = ()
-    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[str, Any] | None = (
-        None
-    )
+    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[
+        str, Any
+    ] | None = None
     evaluated_at: datetime | None = None
     decision_metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -2185,7 +2192,9 @@ class CapabilityActivationDecision:
             "dispatch_envelope",
             (
                 self.dispatch_envelope
-                if isinstance(self.dispatch_envelope, CapabilityDispatchEnvelope)
+                if isinstance(
+                    self.dispatch_envelope, CapabilityDispatchEnvelope
+                )
                 else CapabilityDispatchEnvelope.from_payload(
                     self.dispatch_envelope
                 )
@@ -2204,15 +2213,22 @@ class CapabilityActivationDecision:
 
     @property
     def is_allowed(self) -> bool:
-        return self.outcome_token == CapabilityActivationOutcomeToken.ALLOWED.value
+        return (
+            self.outcome_token == CapabilityActivationOutcomeToken.ALLOWED.value
+        )
 
     @property
     def is_denied(self) -> bool:
-        return self.outcome_token == CapabilityActivationOutcomeToken.DENIED.value
+        return (
+            self.outcome_token == CapabilityActivationOutcomeToken.DENIED.value
+        )
 
     @property
     def is_conflict(self) -> bool:
-        return self.outcome_token == CapabilityActivationOutcomeToken.CONFLICT.value
+        return (
+            self.outcome_token
+            == CapabilityActivationOutcomeToken.CONFLICT.value
+        )
 
     @property
     def selected_match(self) -> CapabilityActivationMatch | None:
@@ -2295,9 +2311,9 @@ class CapabilityManualDispatchRequest:
     profile_id: str | None = None
     requested_permissions: tuple[ExtensionRequestedPermission, ...] = ()
     request_metadata: dict[str, Any] = field(default_factory=dict)
-    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[str, Any] | None = (
-        None
-    )
+    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[
+        str, Any
+    ] | None = None
     invocation_source_token: str = (
         CapabilityManualDispatchSourceToken.MANUAL_CAPABILITY_DISPATCH.value
     )
@@ -2344,7 +2360,9 @@ class CapabilityManualDispatchRequest:
             "dispatch_envelope",
             (
                 self.dispatch_envelope
-                if isinstance(self.dispatch_envelope, CapabilityDispatchEnvelope)
+                if isinstance(
+                    self.dispatch_envelope, CapabilityDispatchEnvelope
+                )
                 else CapabilityDispatchEnvelope.from_payload(
                     self.dispatch_envelope
                 )
@@ -2440,7 +2458,9 @@ class CapabilityManualDispatchRequest:
         return cls(
             account_id=data.get("account_id") or "",
             requested_command_id=data.get("requested_command_id") or "",
-            command_arguments=command_arguments if command_arguments is not None else {},
+            command_arguments=command_arguments
+            if command_arguments is not None
+            else {},
             project_id=data.get("project_id"),
             profile_id=data.get("profile_id"),
             requested_permissions=tuple(
@@ -2470,12 +2490,12 @@ class CapabilityManualDispatchResult:
 
     request: CapabilityManualDispatchRequest | Mapping[str, Any]
     outcome_token: str
-    activation_decision: CapabilityActivationDecision | Mapping[str, Any] | None = (
-        None
-    )
-    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[str, Any] | None = (
-        None
-    )
+    activation_decision: CapabilityActivationDecision | Mapping[
+        str, Any
+    ] | None = None
+    dispatch_envelope: CapabilityDispatchEnvelope | Mapping[
+        str, Any
+    ] | None = None
     command_bus_request: InvokeRequest | Mapping[str, Any] | None = None
     command_bus_result: CommandBusInvokeResult | Mapping[str, Any] | None = None
     command_run_id: str | None = None
@@ -2502,7 +2522,9 @@ class CapabilityManualDispatchResult:
             "activation_decision",
             (
                 self.activation_decision
-                if isinstance(self.activation_decision, CapabilityActivationDecision)
+                if isinstance(
+                    self.activation_decision, CapabilityActivationDecision
+                )
                 else CapabilityActivationDecision.from_payload(
                     self.activation_decision
                 )
@@ -2515,7 +2537,9 @@ class CapabilityManualDispatchResult:
             "dispatch_envelope",
             (
                 self.dispatch_envelope
-                if isinstance(self.dispatch_envelope, CapabilityDispatchEnvelope)
+                if isinstance(
+                    self.dispatch_envelope, CapabilityDispatchEnvelope
+                )
                 else CapabilityDispatchEnvelope.from_payload(
                     self.dispatch_envelope
                 )
@@ -2707,7 +2731,9 @@ class CapabilityManualDispatchResult:
             activation_decision=activation_decision
             if activation_decision is not None
             else None,
-            dispatch_envelope=dispatch_envelope if dispatch_envelope is not None else None,
+            dispatch_envelope=dispatch_envelope
+            if dispatch_envelope is not None
+            else None,
             command_bus_request=command_bus_request
             if command_bus_request is not None
             else None,
@@ -3178,6 +3204,433 @@ class CapabilityResultReinjectionResult:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CapabilityAssistantReentryRequest:
+    """Request contract for one-turn assistant reentry."""
+
+    account_id: str
+    reinjection_result: CapabilityResultReinjectionResult | Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        object.__setattr__(
+            self,
+            "reinjection_result",
+            self.reinjection_result
+            if isinstance(
+                self.reinjection_result, CapabilityResultReinjectionResult
+            )
+            else CapabilityResultReinjectionResult.from_payload(
+                self.reinjection_result
+            ),
+        )
+
+    @property
+    def proposal_id(self) -> str:
+        return self.reinjection_result.proposal_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.reinjection_result.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.reinjection_result.effective_binding_id
+
+    @property
+    def resolved_from_scope_token(self) -> str:
+        return self.reinjection_result.resolved_from_scope_token
+
+    @property
+    def manual_dispatch_id(self) -> str:
+        return self.reinjection_result.manual_dispatch_id
+
+    @property
+    def command_bus_run_id(self) -> str | None:
+        return self.reinjection_result.command_bus_run_id
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "reinjection_result_json": self.reinjection_result.to_payload(),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityAssistantReentryRequest:
+        data = dict(payload or {})
+        reinjection_payload = data.get("reinjection_result_json")
+        if not isinstance(reinjection_payload, Mapping):
+            reinjection_payload = data.get("reinjection_result") or {}
+        return cls(
+            account_id=data.get("account_id") or "",
+            reinjection_result=reinjection_payload,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityAssistantContinuationPayload:
+    """Bounded assistant-facing continuation payload from one reinjection result."""
+
+    account_id: str
+    proposal_id: str
+    registry_entry_id: str
+    effective_binding_id: str
+    resolved_from_scope_token: str
+    manual_dispatch_id: str
+    command_bus_run_id: str | None
+    requested_command_id: str | None = None
+    manifest_snapshot_json: dict[str, Any] | None = None
+    approved_permissions_json: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+    reentry_outcome_token: str = (
+        CapabilityAssistantReentryOutcome.FAILED_CLOSED.value
+    )
+    reentry_failure_reason_token: str | None = None
+    normalized_command_result_payload: dict[str, Any] | None = None
+    normalized_command_failure_payload: dict[str, Any] | None = None
+    continuation_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "account_id", _clean_optional_text(self.account_id) or ""
+        )
+        object.__setattr__(
+            self, "proposal_id", _clean_optional_text(self.proposal_id) or ""
+        )
+        object.__setattr__(
+            self,
+            "registry_entry_id",
+            _clean_optional_text(self.registry_entry_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "effective_binding_id",
+            _clean_optional_text(self.effective_binding_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "resolved_from_scope_token",
+            normalize_extension_install_binding_scope(
+                self.resolved_from_scope_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "manual_dispatch_id",
+            _clean_optional_text(self.manual_dispatch_id) or "",
+        )
+        object.__setattr__(
+            self,
+            "command_bus_run_id",
+            _clean_optional_text(self.command_bus_run_id),
+        )
+        object.__setattr__(
+            self,
+            "requested_command_id",
+            _clean_optional_text(self.requested_command_id),
+        )
+        object.__setattr__(
+            self,
+            "manifest_snapshot_json",
+            _clean_mapping(self.manifest_snapshot_json),
+        )
+        object.__setattr__(
+            self,
+            "approved_permissions_json",
+            list(self.approved_permissions_json or []),
+        )
+        object.__setattr__(
+            self,
+            "reentry_outcome_token",
+            normalize_capability_assistant_reentry_outcome(
+                self.reentry_outcome_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reentry_failure_reason_token",
+            (
+                normalize_capability_assistant_reentry_failure_reason(
+                    self.reentry_failure_reason_token
+                )
+                if self.reentry_failure_reason_token is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_result_payload",
+            (
+                _canonical_json_payload(self.normalized_command_result_payload)
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "normalized_command_failure_payload",
+            (
+                _canonical_json_payload(self.normalized_command_failure_payload)
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "continuation_metadata",
+            _clean_mapping(self.continuation_metadata),
+        )
+        if not self.account_id:
+            raise ValueError("account_id is required")
+        if not self.proposal_id:
+            raise ValueError("proposal_id is required")
+        if not self.registry_entry_id:
+            raise ValueError("registry_entry_id is required")
+        if not self.effective_binding_id:
+            raise ValueError("effective_binding_id is required")
+        if not self.manual_dispatch_id:
+            raise ValueError("manual_dispatch_id is required")
+
+    @property
+    def is_success(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.SUCCESS.value
+        )
+
+    @property
+    def is_failure(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.FAILURE.value
+        )
+
+    @property
+    def is_failed_closed(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.FAILED_CLOSED.value
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "proposal_id": self.proposal_id,
+            "registry_entry_id": self.registry_entry_id,
+            "effective_binding_id": self.effective_binding_id,
+            "resolved_from_scope_token": self.resolved_from_scope_token,
+            "manual_dispatch_id": self.manual_dispatch_id,
+            "command_bus_run_id": self.command_bus_run_id,
+            "requested_command_id": self.requested_command_id,
+            "manifest_snapshot_json": self.manifest_snapshot_json,
+            "approved_permissions_json": list(self.approved_permissions_json),
+            "reentry_outcome_token": self.reentry_outcome_token,
+            "reentry_failure_reason_token": self.reentry_failure_reason_token,
+            "normalized_command_result_payload": (
+                _canonical_json_payload(self.normalized_command_result_payload)
+                if self.normalized_command_result_payload is not None
+                else None
+            ),
+            "normalized_command_failure_payload": (
+                _canonical_json_payload(self.normalized_command_failure_payload)
+                if self.normalized_command_failure_payload is not None
+                else None
+            ),
+            "continuation_metadata_json": dict(self.continuation_metadata),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityAssistantContinuationPayload:
+        data = dict(payload or {})
+        continuation_metadata = data.get("continuation_metadata_json")
+        if continuation_metadata is None:
+            continuation_metadata = data.get("continuation_metadata") or {}
+        return cls(
+            account_id=data.get("account_id") or "",
+            proposal_id=data.get("proposal_id") or "",
+            registry_entry_id=data.get("registry_entry_id") or "",
+            effective_binding_id=data.get("effective_binding_id") or "",
+            resolved_from_scope_token=data.get("resolved_from_scope_token")
+            or "",
+            manual_dispatch_id=data.get("manual_dispatch_id") or "",
+            command_bus_run_id=data.get("command_bus_run_id"),
+            requested_command_id=data.get("requested_command_id"),
+            manifest_snapshot_json=data.get("manifest_snapshot_json"),
+            approved_permissions_json=(
+                data.get("approved_permissions_json") or []
+            ),
+            reentry_outcome_token=(
+                data.get("reentry_outcome_token")
+                or CapabilityAssistantReentryOutcome.FAILED_CLOSED.value
+            ),
+            reentry_failure_reason_token=data.get(
+                "reentry_failure_reason_token"
+            ),
+            normalized_command_result_payload=data.get(
+                "normalized_command_result_payload"
+            ),
+            normalized_command_failure_payload=data.get(
+                "normalized_command_failure_payload"
+            ),
+            continuation_metadata=_clean_mapping(continuation_metadata)
+            if isinstance(continuation_metadata, Mapping)
+            else {},
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityAssistantReentryResult:
+    """One-turn assistant reentry result from one completed reinjection."""
+
+    request: CapabilityAssistantReentryRequest | Mapping[str, Any]
+    reentry_outcome_token: str
+    reentry_failure_reason_token: str | None = None
+    continuation_payload: CapabilityAssistantContinuationPayload | Mapping[
+        str, Any
+    ] | None = None
+    result_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "request",
+            self.request
+            if isinstance(self.request, CapabilityAssistantReentryRequest)
+            else CapabilityAssistantReentryRequest.from_payload(self.request),
+        )
+        object.__setattr__(
+            self,
+            "reentry_outcome_token",
+            normalize_capability_assistant_reentry_outcome(
+                self.reentry_outcome_token
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reentry_failure_reason_token",
+            (
+                normalize_capability_assistant_reentry_failure_reason(
+                    self.reentry_failure_reason_token
+                )
+                if self.reentry_failure_reason_token is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "continuation_payload",
+            (
+                self.continuation_payload
+                if isinstance(
+                    self.continuation_payload,
+                    CapabilityAssistantContinuationPayload,
+                )
+                else CapabilityAssistantContinuationPayload.from_payload(
+                    self.continuation_payload
+                )
+                if isinstance(self.continuation_payload, Mapping)
+                else None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "result_metadata",
+            _clean_mapping(self.result_metadata),
+        )
+
+    @property
+    def account_id(self) -> str:
+        return self.request.account_id
+
+    @property
+    def proposal_id(self) -> str:
+        return self.request.proposal_id
+
+    @property
+    def registry_entry_id(self) -> str:
+        return self.request.registry_entry_id
+
+    @property
+    def effective_binding_id(self) -> str:
+        return self.request.effective_binding_id
+
+    @property
+    def is_success(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.SUCCESS.value
+        )
+
+    @property
+    def is_failure(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.FAILURE.value
+        )
+
+    @property
+    def is_failed_closed(self) -> bool:
+        return (
+            self.reentry_outcome_token
+            == CapabilityAssistantReentryOutcome.FAILED_CLOSED.value
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "request_json": self.request.to_payload(),
+            "reentry_outcome_token": self.reentry_outcome_token,
+            "reentry_failure_reason_token": self.reentry_failure_reason_token,
+            "continuation_payload_json": (
+                self.continuation_payload.to_payload()
+                if self.continuation_payload is not None
+                else None
+            ),
+            "result_metadata_json": dict(self.result_metadata),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> CapabilityAssistantReentryResult:
+        data = dict(payload or {})
+        request_payload = data.get("request_json")
+        if request_payload is None:
+            request_payload = data.get("request")
+        continuation_payload = data.get("continuation_payload_json")
+        if continuation_payload is None:
+            continuation_payload = data.get("continuation_payload")
+        result_metadata = data.get("result_metadata_json")
+        if result_metadata is None:
+            result_metadata = data.get("result_metadata") or {}
+        return cls(
+            request=request_payload if request_payload is not None else {},
+            reentry_outcome_token=(
+                data.get("reentry_outcome_token")
+                or CapabilityAssistantReentryOutcome.FAILED_CLOSED.value
+            ),
+            reentry_failure_reason_token=data.get(
+                "reentry_failure_reason_token"
+            ),
+            continuation_payload=(
+                continuation_payload
+                if continuation_payload is not None
+                else None
+            ),
+            result_metadata=_clean_mapping(result_metadata)
+            if isinstance(result_metadata, Mapping)
+            else {},
+        )
+
+
 __all__ = [
     "MANIFEST_VERSION",
     "ExtensionRequestedPermission",
@@ -3203,4 +3656,7 @@ __all__ = [
     "CapabilityResultReinjectionRequest",
     "CapabilityReinjectedOutput",
     "CapabilityResultReinjectionResult",
+    "CapabilityAssistantReentryRequest",
+    "CapabilityAssistantContinuationPayload",
+    "CapabilityAssistantReentryResult",
 ]

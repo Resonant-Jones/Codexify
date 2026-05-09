@@ -20,6 +20,9 @@ except ImportError:
 
 from guardian.connectors.google import router as google_connect_router
 from guardian.retrieve.api import router as retrieve_router
+from guardian.routes import embeddings as embeddings_routes
+from guardian.routes import health as health_routes
+from guardian.routes import media as media_routes
 from guardian.server.codexify_api import oauth_status as codexify_oauth_status
 from guardian.server.codexify_api import router as codexify_router
 
@@ -106,10 +109,13 @@ app.include_router(chat_threads_router)
 app.include_router(chat_thread_router)
 app.include_router(api_chat_router)
 app.include_router(imprint_router)
+app.include_router(health_routes.router)
 app.include_router(projects_router)
 app.include_router(api_projects_router)
 app.include_router(threads_router)
 app.include_router(api_threads_router)
+app.include_router(embeddings_routes.router)
+app.include_router(media_routes.router, prefix="/api/media")
 app.include_router(flows_router)
 
 

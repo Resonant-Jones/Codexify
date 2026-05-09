@@ -18,10 +18,12 @@ from guardian.core.graph_write_inspection_store import (
     GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
     store_graph_write_inspection_snapshot,
 )
+from guardian.memory_graph.graph_backend_factory import (
+    get_graph_backend_adapter,
+)
 from guardian.memory_graph.graph_write_identity import (
     build_graph_write_identity,
 )
-from guardian.memory_graph.noop_graph_backend import get_graph_backend_adapter
 from guardian.queue.graph_write_receipts import claim_graph_write_receipt
 from guardian.queue.redis_queue import GRAPH_WRITE_QUEUE, get_redis_connection
 

@@ -28,6 +28,7 @@ describe("desktop auth headers", () => {
   const originalAdapter = api.defaults.adapter;
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     api.defaults.adapter = originalAdapter;
     setAuthToken(null);
     clearRuntimeApiKey();
@@ -66,6 +67,18 @@ describe("desktop auth headers", () => {
 
     expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe("desktop-key");
     expect(headers["Authorization"] ?? headers["authorization"]).toBeUndefined();
+  });
+
+  it("defaults to attaching the dev key when proxy mode is unset", () => {
+    vi.unstubAllEnvs();
+    setAuthToken(null);
+    clearRuntimeApiKey();
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+
+    const init = buildAuthenticatedFetchInit();
+    const headers = normalizeHeaders(init.headers);
+
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBe("default-dev-key");
   });
 
   it("sends the runtime desktop key through the axios client even when a bearer token exists", async () => {

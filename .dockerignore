@@ -48,7 +48,6 @@ venv
 /archive
 /artifacts
 /codex_ralph_loop
-/codex_runner
 /codex_tasks
 /codexify-ui-triage
 /cypress
@@ -62,6 +61,9 @@ venv
 /src-tauri
 /tests
 /tools
+/codex_runner
+!/codex_runner
+!/codex_runner/**
 /guardian/codemap/codemap.json
 /guardian/tts_output
 /guardian/*.backup

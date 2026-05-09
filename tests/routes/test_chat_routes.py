@@ -1488,7 +1488,22 @@ class TestChatCompletePost:
                     "final_provider": "local",
                     "final_model": "qwen3.5:27b",
                     "fallback_triggered": True,
-                }
+                },
+                "tool_loop_execution": {
+                    "attempted_provider": "local",
+                    "attempted_model": "qwen3.5:27b",
+                    "final_provider": "local",
+                    "final_model": "qwen3.5:27b",
+                    "fallback_triggered": False,
+                    "tool_turn_used": False,
+                },
+                "tool_loop": {
+                    "messageId": 2,
+                    "requestId": "task-1",
+                    "toolTurnState": "idle",
+                    "loopStopReason": "plain_answer",
+                    "commandRunId": None,
+                },
             },
         )
 
