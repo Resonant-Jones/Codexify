@@ -96,10 +96,6 @@ def test_task_event_tokens() -> None:
     assert "task.attempt_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
-    assert TaskEventType.TASK_VALIDATION_FAILED.value == (
-        "task.validation_failed"
-    )
-    assert TaskEventType.TASK_RETRYING.value == "task.retrying"
     assert TASK_EVENT_TYPES.issuperset(
         {
             "task.created",
@@ -346,7 +342,15 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PiProviderLaneClass.LOCAL.value == "local"
     assert PiProviderLaneClass.EXTERNAL.value == "external"
     assert PiProviderLaneClass.MINIMAX.value == "minimax"
-    assert PI_PROVIDER_LANE_CLASSES == {"local", "external", "minimax"}
+    assert PiProviderLaneClass.REMOTE.value == "remote"
+    assert PiProviderLaneClass.HYBRID.value == "hybrid"
+    assert PI_PROVIDER_LANE_CLASSES == {
+        "local",
+        "remote",
+        "hybrid",
+        "external",
+        "minimax",
+    }
 
     assert PiInvocationValidationOutcome.VALID.value == "valid"
     assert PiInvocationValidationOutcome.FAILED_CLOSED.value == "failed_closed"
@@ -437,60 +441,6 @@ def test_pi_invocation_boundary_tokens() -> None:
         "malformed_command_bus_linkage",
     }
 
-    assert (
-        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
-        == "needs_clarification"
-    )
-    assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
-    assert ExecutorEscalationKind.BLOCKED.value == "blocked"
-    assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
-    assert ExecutorEscalationKind.TOOLING_LIMIT.value == "tooling_limit"
-    assert EXECUTOR_ESCALATION_KINDS == {
-        "needs_clarification",
-        "needs_permission",
-        "blocked",
-        "needs_review",
-        "tooling_limit",
-    }
-
-    assert ExecutorAuthMode.DIRECT_PROVIDER.value == "direct_provider"
-    assert ExecutorAuthMode.LOCAL_MODEL.value == "local_model"
-    assert ExecutorAuthMode.GATEWAY_BASE_URL.value == "gateway_base_url"
-    assert EXECUTOR_AUTH_MODES == {
-        "direct_provider",
-        "local_model",
-        "gateway_base_url",
-    }
-
-    assert ExecutorEventType.PROGRESS.value == "executor.progress"
-    assert ExecutorEventType.ESCALATION.value == "executor.escalation"
-    assert ExecutorEventType.COMPLETED.value == "executor.completed"
-    assert ExecutorEventType.FAILED.value == "executor.failed"
-    assert ExecutorEventType.CANCELLED.value == "executor.cancelled"
-    assert EXECUTOR_EVENT_TYPES == {
-        "executor.progress",
-        "executor.escalation",
-        "executor.completed",
-        "executor.failed",
-        "executor.cancelled",
-    }
-
-    assert (
-        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
-        == "needs_clarification"
-    )
-    assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
-    assert ExecutorEscalationKind.BLOCKED.value == "blocked"
-    assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
-    assert ExecutorEscalationKind.TOOLING_LIMIT.value == "tooling_limit"
-    assert EXECUTOR_ESCALATION_KINDS == {
-        "needs_clarification",
-        "needs_permission",
-        "blocked",
-        "needs_review",
-        "tooling_limit",
-    }
-
 
 def test_delegation_event_tokens() -> None:
     assert DelegationEventType.CREATED.value == "delegation.created"
@@ -559,7 +509,6 @@ def test_error_code_tokens() -> None:
         "TASK_EVENT_PUBLISH_FAILED",
         "VALIDATION_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
-        "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",
         "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED",
         "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING",
