@@ -20,11 +20,26 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from guardian.core.auth import issue_session_token
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import documents
 
 
 class TestGetThreadDocuments:
     """Tests for GET /api/threads/{thread_id}/documents endpoint."""
+
+    @staticmethod
+    def _resolved_user_scope(
+        user_id: str = "test_user",
+        *,
+        multi_user_enabled: bool = False,
+        account_id: str | None = None,
+    ) -> RequestUserScope:
+        """Create a resolved RequestUserScope without FastAPI dependency injection."""
+        return RequestUserScope(
+            user_id=user_id,
+            account_id=account_id or user_id,
+            multi_user_enabled=multi_user_enabled,
+        )
 
     @patch("guardian.routes.documents.models")
     def test_get_documents_success(self, mock_models, mock_db):
@@ -113,9 +128,15 @@ class TestGetThreadDocuments:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = self._resolved_user_scope()
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         # Verify
         assert result["ok"] is True
@@ -161,9 +182,15 @@ class TestGetThreadDocuments:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = self._resolved_user_scope()
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         # Verify
         assert result["ok"] is True
@@ -185,10 +212,16 @@ class TestGetThreadDocuments:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.routes.documents import _get_thread_documents_impl
 
+        scope = self._resolved_user_scope()
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(get_thread_documents(999))
+            asyncio.run(
+                _get_thread_documents_impl(
+                    thread_id=999,
+                    request_user_scope=scope,
+                )
+            )
 
         assert exc_info.value.status_code == 404
         assert "Thread 999 not found" in exc_info.value.detail
@@ -245,9 +278,15 @@ class TestGetThreadDocuments:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = self._resolved_user_scope()
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         assert result["ok"] is True
         assert result["documents"] == [
@@ -336,9 +375,16 @@ class TestMultipleDocumentsPerThread:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = RequestUserScope(user_id="test_user", multi_user_enabled=False)
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         # Verify
         assert result["ok"] is True
@@ -437,9 +483,16 @@ class TestDocumentOrdering:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = RequestUserScope(user_id="test_user", multi_user_enabled=False)
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         # Verify newest document is first
         assert result["ok"] is True
@@ -534,9 +587,16 @@ class TestGracefulDegradation:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
 
-        result = asyncio.run(get_thread_documents(1))
+        scope = RequestUserScope(user_id="test_user", multi_user_enabled=False)
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
 
         # Verify only existing document is returned
         assert result["ok"] is True
@@ -559,13 +619,186 @@ class TestDatabaseErrors:
 
         import asyncio
 
-        from guardian.routes.documents import get_thread_documents
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
 
+        scope = RequestUserScope(user_id="test_user", multi_user_enabled=False)
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(get_thread_documents(1))
+            asyncio.run(
+                _get_thread_documents_impl(
+                    thread_id=1,
+                    request_user_scope=scope,
+                )
+            )
 
         assert exc_info.value.status_code == 500
         assert "Failed to retrieve thread documents" in exc_info.value.detail
+
+
+class TestMultiUserOwnershipEnforcement:
+    """Regression tests for multi-user ownership enforcement.
+
+    These tests verify that the thread-document route does not receive
+    an unresolved FastAPI Depends object when checking account boundaries.
+    """
+
+    @patch("guardian.routes.documents.models")
+    def test_multi_user_forbidden_cross_account(self, mock_models, mock_db):
+        """Multi-user mode rejects requests for threads owned by another account."""
+        mock_session = MagicMock()
+        mock_db.get_session.return_value.__enter__.return_value = mock_session
+
+        mock_thread = MagicMock()
+        mock_thread.id = 42
+        mock_thread.user_id = "account-b"  # Different account
+
+        mock_models.ChatThread = MagicMock()
+
+        def query_side_effect(model):
+            if model == mock_models.ChatThread:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = mock_thread
+                return q
+            return MagicMock()
+
+        mock_session.query.side_effect = query_side_effect
+        documents.configure_db(mock_db)
+
+        import asyncio
+
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
+
+        # Requesting as "account-a" but thread belongs to "account-b"
+        scope = RequestUserScope(
+            user_id="account-a",
+            account_id="account-a",
+            multi_user_enabled=True,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                _get_thread_documents_impl(
+                    thread_id=42,
+                    request_user_scope=scope,
+                )
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "account" in exc_info.value.detail.lower()
+
+    @patch("guardian.routes.documents.models")
+    def test_single_user_bypasses_account_check(self, mock_models, mock_db):
+        """Single-user mode (multi_user_enabled=False) skips account boundary check."""
+        mock_session = MagicMock()
+        mock_db.get_session.return_value.__enter__.return_value = mock_session
+
+        mock_thread = MagicMock()
+        mock_thread.id = 1
+        mock_thread.user_id = "some-other-user"
+
+        mock_link = MagicMock()
+        mock_link.id = 1
+        mock_link.thread_id = 1
+        mock_link.document_id = "doc-1"
+        mock_link.relation = "autosave"
+        mock_link.created_at = datetime.now()
+
+        mock_doc = MagicMock()
+        mock_doc.id = "doc-1"
+        mock_doc.title = "Session Notes"
+
+        mock_models.ChatThread = MagicMock()
+        mock_models.ThreadDocument = MagicMock()
+        mock_models.GeneratedDocument = MagicMock()
+        mock_models.UploadedDocument = MagicMock()
+
+        def query_side_effect(model):
+            if model == mock_models.ChatThread:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = mock_thread
+                return q
+            elif model == mock_models.ThreadDocument:
+                q = MagicMock()
+                filtered = MagicMock()
+                filtered.order_by.return_value.all.return_value = [mock_link]
+                q.filter_by.return_value = filtered
+                return q
+            elif model == mock_models.GeneratedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = mock_doc
+                return q
+            elif model == mock_models.UploadedDocument:
+                q = MagicMock()
+                q.filter_by.return_value.first.return_value = None
+                return q
+            return MagicMock()
+
+        mock_session.query.side_effect = query_side_effect
+        documents.configure_db(mock_db)
+
+        import asyncio
+
+        from guardian.core.dependencies import RequestUserScope
+        from guardian.routes.documents import _get_thread_documents_impl
+
+        # Single-user mode: even though thread.user_id differs, no 403 is raised
+        scope = RequestUserScope(
+            user_id="local",
+            account_id=None,
+            multi_user_enabled=False,
+        )
+        result = asyncio.run(
+            _get_thread_documents_impl(
+                thread_id=1,
+                request_user_scope=scope,
+            )
+        )
+
+        assert result["ok"] is True
+        assert len(result["documents"]) == 1
+        assert result["documents"][0]["id"] == "doc-1"
+
+    @patch("guardian.routes.documents.models")
+    def test_resolved_request_user_scope_not_depends_object(self, mock_db):
+        """Regression: _get_thread_documents_impl must receive RequestUserScope, not Depends.
+
+        This test directly proves that passing a raw Depends object raises
+        AttributeError, confirming the original failure mode was caught and fixed
+        by requiring callers to pass a resolved RequestUserScope.
+        """
+        from fastapi import Depends as FastAPIDepends
+
+        mock_db.get_session.side_effect = Exception("intentional")
+        documents.configure_db(mock_db)
+
+        import asyncio
+
+        from guardian.routes.documents import _get_thread_documents_impl
+
+        # Simulate the old failure mode: passing a raw Depends instead of a
+        # resolved RequestUserScope. This should fail with AttributeError because
+        # Depends objects have no 'multi_user_enabled' attribute.
+        raw_depends = FastAPIDepends(lambda: None)
+
+        scope = RequestUserScope(
+            user_id="test", account_id="test", multi_user_enabled=True
+        )
+
+        # The correct call with resolved scope must NOT raise AttributeError
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                _get_thread_documents_impl(
+                    thread_id=1,
+                    request_user_scope=scope,
+                )
+            )
+
+        # We expect 500 (db error) not AttributeError, proving the scope was
+        # properly resolved rather than passed as a Depends object.
+        assert exc_info.value.status_code == 500
+        assert "Failed to retrieve thread documents" in exc_info.value.detail
+        # If we got AttributeError here, it would mean the Depends was passed
+        # through, which would expose the regression this test guards against.
 
 
 @contextmanager

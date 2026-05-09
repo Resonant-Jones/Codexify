@@ -605,20 +605,21 @@ async def generate_document(
     }
 
 
-@router.get("/api/threads/{thread_id}/documents")
-async def get_thread_documents(
+async def _get_thread_documents_impl(
     thread_id: int,
-    _api_key: str = Depends(require_api_key),
-    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    request_user_scope: RequestUserScope,
+    _db: GuardianDB | None = None,
 ) -> dict[str, Any]:
     """
-    Get all documents linked to a thread.
+    Pure implementation of thread-document retrieval.
 
-    Returns documents with their relation types (autosave, attached, reference).
-    Documents are ordered by creation date (newest first).
+    Accepts resolved dependencies so it can be tested directly without FastAPI
+    dependency injection.
 
     Args:
         thread_id: The thread ID to get documents for
+        request_user_scope: Pre-resolved RequestUserScope
+        _db: Optional database instance (uses _get_db() if not provided)
 
     Returns:
         Dict with 'ok' status and 'documents' array
@@ -627,7 +628,7 @@ async def get_thread_documents(
         HTTPException: 404 if thread not found
     """
     try:
-        db = _get_db()
+        db = _db or _get_db()
 
         with db.get_session() as session:
             # Verify thread exists
@@ -707,11 +708,35 @@ async def get_thread_documents(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in get_thread_documents: {e}", exc_info=True)
+        logger.error(f"Error in _get_thread_documents_impl: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve thread documents: {str(e)}",
         )
+
+
+@router.get("/api/threads/{thread_id}/documents")
+async def get_thread_documents(
+    thread_id: int,
+    _api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """
+    Get all documents linked to a thread.
+
+    Returns documents with their relation types (autosave, attached, reference).
+    Documents are ordered by creation date (newest first).
+
+    Args:
+        thread_id: The thread ID to get documents for
+
+    Returns:
+        Dict with 'ok' status and 'documents' array
+
+    Raises:
+        HTTPException: 404 if thread not found
+    """
+    return await _get_thread_documents_impl(thread_id, request_user_scope)
 
 
 @router.get(
