@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from urllib.parse import quote
 from unittest.mock import ANY, AsyncMock, MagicMock
+from urllib.parse import quote
 
 import pytest
 

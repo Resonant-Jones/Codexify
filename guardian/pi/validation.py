@@ -5,25 +5,29 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from guardian.pi.contracts import (
-"""Pure validation helpers for the Pi invocation boundary."""
-
-from __future__ import annotations
-
-import json
-from typing import Any, Mapping
-
-from guardian.pi.contracts import (
+    Any,
+    Mapping,
+    Pi,
     PiCommandBusLinkage,
     PiGuardianBoundary,
     PiHarnessResult,
     PiInvocationEnvelope,
     PiInvocationReceipt,
     PiInvocationValidationResult,
-)
-from guardian.pi.tokens import (
-    PI_PROVIDER_LANE_CLASSES,
-    PiPermissionGrant,
-    PiProviderLane,
+    """Pure,
+    __future__,
+    annotations,
+    boundary.""",
+    for,
+    from,
+    guardian.pi.contracts,
+    helpers,
+    import,
+    invocation,
+    json,
+    the,
+    typing,
+    validation,
 )
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
@@ -33,6 +37,8 @@ from guardian.pi.tokens import (
     PI_PROVIDER_LANE_CLASSES,
     PiHarnessResultClass,
     PiInvocationValidationOutcome,
+    PiPermissionGrant,
+    PiProviderLane,
     PiValidationFailureReason,
 )
 

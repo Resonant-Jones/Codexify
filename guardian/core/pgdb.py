@@ -1056,9 +1056,7 @@ class PgDB(ChatDB):
             payload = self._model_override_to_dict(row)
 
         try:
-            from backend.model_overrides import (
-                invalidate_model_overrides_cache,
-            )
+            from backend.model_overrides import invalidate_model_overrides_cache
 
             invalidate_model_overrides_cache()
         except Exception:

@@ -62,7 +62,10 @@ def get_model_override(provider_id: str, model_id: str):
     db = _require_chatlog_db()
     override = db.get_inference_model_override(provider_id, model_id)
     if override is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model override not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model override not found",
+        )
     return {"override": override}
 
 

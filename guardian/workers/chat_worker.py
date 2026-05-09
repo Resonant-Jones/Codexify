@@ -1547,9 +1547,7 @@ def _run_chat_completion_task_compat(
     retrieval_posture = _chat_completion_service._build_retrieval_posture(
         source_mode=trace_source_mode,
         retrieval_override=(
-            trace.get("retrieval_override")
-            if isinstance(trace, dict)
-            else None
+            trace.get("retrieval_override") if isinstance(trace, dict) else None
         ),
         widen_reason=(
             trace.get("widen_reason") if isinstance(trace, dict) else None
@@ -1831,20 +1829,14 @@ def _run_chat_completion_task_compat(
     if not model_selection.get("policy_reason"):
         if fallback_reason:
             model_selection["policy_reason"] = fallback_reason
-        elif (
-            requested_model
-            and final_model
-            and requested_model != final_model
-        ):
+        elif requested_model and final_model and requested_model != final_model:
             model_selection["policy_reason"] = "requested_model_not_selected"
         elif (
             requested_provider
             and final_provider
             and requested_provider != final_provider
         ):
-            model_selection["policy_reason"] = (
-                "requested_provider_not_selected"
-            )
+            model_selection["policy_reason"] = "requested_provider_not_selected"
     payload_summary["model_selection"] = model_selection
 
     execution = {
@@ -1941,18 +1933,18 @@ def _run_chat_completion_task_compat(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary["image_routing_absence_reason"] = (
-        image_routing_absence_reason
-    )
+    payload_summary[
+        "image_routing_absence_reason"
+    ] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(final_trace, dict):
         final_trace["image_attachment_count"] = image_attachment_count
         final_trace["image_routing_path"] = image_routing_path
-        final_trace["image_routing_absence_reason"] = (
-            image_routing_absence_reason
-        )
+        final_trace[
+            "image_routing_absence_reason"
+        ] = image_routing_absence_reason
         result["trace"] = final_trace
     _sanitize_assistant_result_payload(result)
 
