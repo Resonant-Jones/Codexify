@@ -418,9 +418,11 @@ class DelegationSummary:
                 payload.get("raw_transcript") or payload.get("rawTranscript")
             ),
             transcript=_coerce_optional_text(payload.get("transcript")),
-            failure=_coerce_mapping(payload.get("failure"))
-            if payload.get("failure") is not None
-            else None,
+            failure=(
+                _coerce_mapping(payload.get("failure"))
+                if payload.get("failure") is not None
+                else None
+            ),
             error_message=_coerce_optional_text(payload.get("error_message")),
             lineage=_coerce_mapping(payload.get("lineage")),
             created_at=str(
@@ -711,6 +713,8 @@ class CodingExecutionTask(BaseTask):
     attempt_id: str = ""
     thread_id: int | None = None
     source_message_id: int | str | None = None
+    validation_command: str | None = None
+    permission_policy: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -730,6 +734,17 @@ class CodingExecutionTask(BaseTask):
             source_message_id=_coerce_optional_identifier(
                 payload.get("source_message_id")
                 or payload.get("sourceMessageId")
+            ),
+            validation_command=_coerce_optional_text(
+                payload.get("validation_command")
+                or payload.get("validationCommand")
+            ),
+            permission_policy=(
+                _coerce_mapping(
+                    payload.get("permission_policy")
+                    or payload.get("permissionPolicy")
+                )
+                or None
             ),
             **base,
         )

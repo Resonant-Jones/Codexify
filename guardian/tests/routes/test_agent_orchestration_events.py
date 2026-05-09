@@ -387,6 +387,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
         context_summary="source thread summary",
+        validation_command="pytest -q",
         permission_policy=CodingAgentPermissionPolicy(
             allow_shell=True,
             allow_network=False,
@@ -406,11 +407,14 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["source_message_id"] == 99
     assert payload["user_id"] == "local-user"
     assert payload["project_id"] == 17
+    assert payload["validation_command"] == "pytest -q"
+    assert payload["permission_policy"]["allow_shell"] is True
 
     deployment = local_store.get_deployment(result["deployment_id"])
     assert deployment is not None
     assert deployment["thread_id"] == 42
     assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
+    assert deployment["spec_json"]["validation_command"] == "pytest -q"
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"

@@ -42,6 +42,7 @@ class CodingAgentTaskEnvelope:
     repo_root: str | None
     context_summary: str | None
     permission_policy: CodingAgentPermissionPolicy
+    validation_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class CodingAgentResult:
     error_code: str | None
     error_message: str | None
     adapter_session_ref: str | None
+    validation_results: dict[str, object] | None = None
 
 
 __all__ = [

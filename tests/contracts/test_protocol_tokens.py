@@ -16,10 +16,13 @@ from guardian.protocol_tokens import (
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
     EXECUTOR_RELEASE_POSTURES,
+    IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     TASK_EVENT_TYPES,
+    TEST_RESULT_STATUSES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
+    TRACE_SNAPSHOT_ABSENCE_REASONS,
     TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
     ContextRequestStatus,
@@ -35,15 +38,14 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    ImageRoutingPath,
     LoopStopReason,
     TaskEventType,
-    ImageRoutingPath,
-    TraceSnapshotAbsenceReason,
+    TestResultStatus,
     ToolLoopStopReason,
     ToolTurnState,
+    TraceSnapshotAbsenceReason,
     TraceSuppressionReason,
-    IMAGE_ROUTING_PATHS,
-    TRACE_SNAPSHOT_ABSENCE_REASONS,
 )
 
 
@@ -73,6 +75,19 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
 
 
+def test_test_result_status_tokens() -> None:
+    assert TestResultStatus.PASSED.value == "passed"
+    assert TestResultStatus.FAILED.value == "failed"
+    assert TestResultStatus.ERROR.value == "error"
+    assert TestResultStatus.NOT_RUN.value == "not_run"
+    assert TEST_RESULT_STATUSES == {
+        "passed",
+        "failed",
+        "error",
+        "not_run",
+    }
+
+
 def test_trace_suppression_tokens() -> None:
     assert (
         TraceSuppressionReason.ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN.value
@@ -94,15 +109,11 @@ def test_trace_snapshot_absence_reason_tokens() -> None:
         "image_routing_not_evaluated"
     )
     assert (
-        TraceSnapshotAbsenceReason
-        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
-        .value
+        TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
         == "vision_model_selected_but_image_payload_not_routed"
     )
     assert (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
         == "local_model_substitution_selected_nonvision_model"
     )
     assert TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value == (

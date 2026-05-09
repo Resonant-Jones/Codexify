@@ -66,6 +66,18 @@ does not make the coding worker run tests automatically. Any later loop that
 reasons about pass/fail convergence must consume the normalized contract rather
 than raw stdout/stderr.
 
+### Single-Attempt Validation
+
+The coding worker can now run one optional validation command after the
+adapter returns, as long as the task permits shell execution and a working
+directory is available. Validation failure marks the current attempt failed,
+and validation evidence is normalized before it is stored or emitted.
+
+This remains a single-attempt supervised check. It does not add retry-until-
+tests-pass behavior, worktree isolation, or commit behavior. Future convergence
+work should consume the normalized validation result instead of parsing raw
+stdout or stderr directly.
+
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
 API_KEY="${GUARDIAN_API_KEY:-}"
