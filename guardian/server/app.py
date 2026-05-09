@@ -28,7 +28,7 @@ from guardian.server.codexify_api import router as codexify_router
 
 try:
     from guardian.server.tools_api import router as tools_router
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError):
     from fastapi import APIRouter
 
     tools_router = APIRouter()
