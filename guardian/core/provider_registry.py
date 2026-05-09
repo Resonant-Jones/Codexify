@@ -1369,7 +1369,9 @@ def supported_profile_posture(settings: Settings) -> dict[str, Any]:
     )
 
     manifest = get_active_supported_profile()
-    selected_provider = normalize_provider(getattr(settings, "LLM_PROVIDER", None))
+    selected_provider = normalize_provider(
+        getattr(settings, "LLM_PROVIDER", None)
+    )
     cloud_capable = _cloud_capable_configuration_present(settings)
 
     if manifest is None:
@@ -1558,11 +1560,11 @@ def resolve_provider_capability(
             "model_count": sum(
                 1 for model in models if bool(model.get("supports_chat"))
             ),
-                "utility_model_count": sum(
-                    1 for model in models if not bool(model.get("supports_chat"))
-                ),
-                "total_model_count": len(models),
-            }
+            "utility_model_count": sum(
+                1 for model in models if not bool(model.get("supports_chat"))
+            ),
+            "total_model_count": len(models),
+        }
 
     models = _apply_model_overrides(provider, models)
     chat_model_count = sum(

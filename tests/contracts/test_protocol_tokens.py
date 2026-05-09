@@ -89,6 +89,13 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
     assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
+    assert (
+        TaskEventType.TASK_VALIDATION_FAILED.value == "task.validation_failed"
+    )
+    assert TaskEventType.TASK_RETRYING.value == "task.retrying"
+    assert "task.attempt_started" in TASK_EVENT_TYPES
+    assert "task.validation_failed" in TASK_EVENT_TYPES
+    assert "task.retrying" in TASK_EVENT_TYPES
     assert TaskEventType.TASK_VALIDATION_FAILED.value == (
         "task.validation_failed"
     )
@@ -514,6 +521,10 @@ def test_error_code_tokens() -> None:
         ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
+    assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
+    assert (
+        ErrorCode.CODING_ADAPTER_NOT_FOUND.value == "CODING_ADAPTER_NOT_FOUND"
+    )
     assert (
         ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
         == "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
@@ -548,6 +559,8 @@ def test_error_code_tokens() -> None:
         "TASK_EVENT_PUBLISH_FAILED",
         "VALIDATION_FAILED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
+        "VALIDATION_FAILED",
+        "CODING_ADAPTER_NOT_FOUND",
         "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED",
         "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING",
         "DELEGATION_EXECUTOR_UNSUPPORTED",

@@ -95,14 +95,19 @@ async def test_context_broker_emits_containment_trace_fields() -> None:
     }
     assert trace["retrieval_executed"] is True
     assert trace["retrieval_absence_reason"] == "retrieval_no_candidates"
-    assert trace["retrieval_provenance"]["source_hit_counts"]["semantic_total"] == 0
+    assert (
+        trace["retrieval_provenance"]["source_hit_counts"]["semantic_total"]
+        == 0
+    )
     assert trace["retrieval_provenance"]["retrieval_status"] == "no_candidates"
     assert trace["retrieval_suppression"] == {
         "items": [],
         "summary": {"total_suppressed": 0},
     }
     assert trace["image_routing_path"] is None
-    assert trace["image_routing_absence_reason"] == "image_routing_not_evaluated"
+    assert (
+        trace["image_routing_absence_reason"] == "image_routing_not_evaluated"
+    )
 
 
 class _Chatlog:

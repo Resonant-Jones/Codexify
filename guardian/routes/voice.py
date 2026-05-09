@@ -347,7 +347,9 @@ def voice_capabilities(
     )
     worker_present = _voice_worker_available()
     voices = _list_tts_voices(cfg.tts_provider if tts_configured else None)
-    configured_voice_default = (os.getenv("CODEXIFY_DEFAULT_VOICE") or "").strip()
+    configured_voice_default = (
+        os.getenv("CODEXIFY_DEFAULT_VOICE") or ""
+    ).strip()
     if configured_voice_default and (
         not voices or configured_voice_default in voices
     ):

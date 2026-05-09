@@ -603,9 +603,7 @@ def health_llm():
                 "selected_provider_supported": supported_profile_posture_state[
                     "selected_provider_supported"
                 ],
-                "release_hold": supported_profile_posture_state[
-                    "release_hold"
-                ],
+                "release_hold": supported_profile_posture_state["release_hold"],
             }
             if supported_profile_state is not None
             else supported_profile_posture_state

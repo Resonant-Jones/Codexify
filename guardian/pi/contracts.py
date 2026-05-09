@@ -1,3 +1,9 @@
+"""Typed boundary contracts for Pi-like invocation envelopes and receipts."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+
 """Typed contracts for the Pi invocation boundary.
 
 This module is intentionally dependency-light and only models contracts plus
@@ -15,6 +21,7 @@ from guardian.pi.tokens import (
     PiInvocationEnvelopeStatus,
     PiInvocationReceiptStatus,
     PiInvocationValidationOutcome,
+    PiReceiptStatus,
     PiProviderLaneClass,
     PiValidationFailureReason,
     normalize_pi_validation_outcome,

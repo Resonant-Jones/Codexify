@@ -727,9 +727,13 @@ def resolve_context_assembly_policy(
 
     reasons = list(plan.reasons)
     if thread_project_bound:
-        reasons.append("thread is project-bound, so project documents remain eligible.")
+        reasons.append(
+            "thread is project-bound, so project documents remain eligible."
+        )
     else:
-        reasons.append("thread is not project-bound, so project documents stay out by default.")
+        reasons.append(
+            "thread is not project-bound, so project documents stay out by default."
+        )
     if allow_semantic_widening:
         reasons.append(
             f"source mode {normalized_source_mode} or explicit intent allows widening beyond the active thread."
@@ -739,7 +743,9 @@ def resolve_context_assembly_policy(
             "ordinary chat stays thread-first and does not widen semantic recall."
         )
     if allow_global_widening:
-        reasons.append("explicit broadened intent allows global search posture.")
+        reasons.append(
+            "explicit broadened intent allows global search posture."
+        )
     if retrieval_override:
         override_mode = str(retrieval_override.get("mode") or "").strip()
         if override_mode:

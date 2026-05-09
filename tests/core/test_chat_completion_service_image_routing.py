@@ -6,8 +6,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core import chat_completion_service
-from guardian.protocol_tokens import ImageRoutingPath
-from guardian.protocol_tokens import TraceSnapshotAbsenceReason
+from guardian.protocol_tokens import (
+    ImageRoutingPath,
+    TraceSnapshotAbsenceReason,
+)
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -151,7 +153,10 @@ def test_image_routing_native_vision_builds_multimodal_payload(
     )
 
     summary = result["payload_summary"]
-    assert summary["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert (
+        summary["image_routing_path"]
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
     assert summary["image_attachment_count"] == 1
     assert summary["derived_image_context_injected"] is False
 
@@ -159,7 +164,9 @@ def test_image_routing_native_vision_builds_multimodal_payload(
 def test_image_routing_origin_hints_preserve_absence_reason(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mock_chatlog_db = _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    mock_chatlog_db = _seed_common(
+        monkeypatch, provider="openai", model="gpt-4o"
+    )
     mock_chatlog_db.list_messages.return_value = [
         {
             "id": 1,
@@ -262,17 +269,13 @@ def test_image_routing_origin_hints_mark_local_model_substitution_absence(
     assert trace["image_routing_path"] is None
     assert (
         trace["image_routing_absence_reason"]
-        == TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        == TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
     assert result["payload_summary"]["image_attachment_count"] == 1
     assert result["payload_summary"]["image_routing_path"] is None
     assert (
         result["payload_summary"]["image_routing_absence_reason"]
-        == TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        == TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
 
 
@@ -369,7 +372,9 @@ def test_image_routing_text_only_uses_local_blip_captioning(
         captured["kwargs"] = kwargs
         return "yes, I do see the image of green hills and floating clouds."
 
-    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+    monkeypatch.setattr(
+        chat_completion_service, "stream_local", _capture_stream
+    )
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
@@ -408,9 +413,9 @@ def test_image_routing_text_only_uses_local_blip_captioning(
     assert summary["final_model"] == "qwen3.5:9b"
     assert summary["model_selection"]["requested_model"] == "qwen3.5:9b"
     assert summary["model_selection"]["final_model"] == "qwen3.5:9b"
-    assert summary["model_selection"]["model_resolution"]["requested_model"] == (
-        "qwen3.5:9b"
-    )
+    assert summary["model_selection"]["model_resolution"][
+        "requested_model"
+    ] == ("qwen3.5:9b")
 
 
 def test_image_routing_local_model_substitution_is_machine_readable(
@@ -469,8 +474,14 @@ def test_image_routing_local_model_substitution_is_machine_readable(
         captured["kwargs"] = kwargs
         return "local model substitution reply"
 
-    monkeypatch.setattr(chat_completion_service, "resolve_local_execution_model", lambda **kwargs: _Resolution())
-    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_local_execution_model",
+        lambda **kwargs: _Resolution(),
+    )
+    monkeypatch.setattr(
+        chat_completion_service, "stream_local", _capture_stream
+    )
 
     task = ChatCompletionTask(
         user_id="local",
@@ -545,7 +556,9 @@ def test_image_routing_local_only_reports_requested_override_reason(
         captured["kwargs"] = kwargs
         return "yes, I do see the image of green hills and floating clouds."
 
-    monkeypatch.setattr(chat_completion_service, "stream_local", _capture_stream)
+    monkeypatch.setattr(
+        chat_completion_service, "stream_local", _capture_stream
+    )
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
@@ -654,7 +667,9 @@ def test_image_routing_snapshot_carries_containment_fields(
             }
             return bundle, trace
 
-    monkeypatch.setattr(chat_completion_service, "ContextBroker", _TracefulBroker)
+    monkeypatch.setattr(
+        chat_completion_service, "ContextBroker", _TracefulBroker
+    )
 
     captured: dict[str, object] = {}
 
@@ -684,17 +699,26 @@ def test_image_routing_snapshot_carries_containment_fields(
         "total_suppressed": 1,
         "assistant_vision_refusal_on_image_turn": 1,
     }
-    assert trace["retrieval_suppression"]["items"][0][
-        "suppression_reason"
-    ] == "assistant_vision_refusal_on_image_turn"
-    assert trace["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert (
+        trace["retrieval_suppression"]["items"][0]["suppression_reason"]
+        == "assistant_vision_refusal_on_image_turn"
+    )
+    assert (
+        trace["image_routing_path"]
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
     assert trace["image_routing_absence_reason"] is None
     assert trace["model_selection"]["requested_provider"] == "openai"
     assert trace["model_selection"]["requested_model"] == "gpt-4o"
     assert trace["model_selection"]["final_provider"] == "openai"
     assert trace["model_selection"]["final_model"] == "gpt-4o"
-    assert result["payload_summary"]["model_selection"] == trace["model_selection"]
-    assert result["payload_summary"]["image_routing_path"] == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    assert (
+        result["payload_summary"]["model_selection"] == trace["model_selection"]
+    )
+    assert (
+        result["payload_summary"]["image_routing_path"]
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
     assert result["payload_summary"]["image_routing_absence_reason"] is None
 
 
@@ -823,15 +847,11 @@ def test_image_routing_snapshot_marks_vision_model_selected_but_payload_not_rout
     trace = result["trace"]
     assert trace["image_routing_path"] is None
     assert trace["image_routing_absence_reason"] == (
-        TraceSnapshotAbsenceReason
-        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
-        .value
+        TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
     )
     assert result["payload_summary"]["image_routing_path"] is None
     assert result["payload_summary"]["image_routing_absence_reason"] == (
-        TraceSnapshotAbsenceReason
-        .VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED
-        .value
+        TraceSnapshotAbsenceReason.VISION_MODEL_SELECTED_BUT_IMAGE_PAYLOAD_NOT_ROUTED.value
     )
 
 
@@ -903,14 +923,10 @@ def test_image_routing_snapshot_marks_local_model_substitution_absence(
     )
     assert trace["image_routing_path"] is None
     assert trace["image_routing_absence_reason"] == (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
     assert result["payload_summary"]["image_routing_absence_reason"] == (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
 
 
@@ -925,9 +941,7 @@ def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
 
     stale_reason = TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
     canonical_reason = (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
     model_selection = {
         "requested_provider": "local",
@@ -1057,9 +1071,7 @@ def test_worker_completion_normalizes_stale_nested_image_routing_reason(
 ):
     stale_reason = TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
     canonical_reason = (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
 
     async def _fake_build_messages_for_llm_compat(task, user_id=None):

@@ -16,9 +16,9 @@ from guardian.core.provider_registry import (
     provider_governance,
     provider_governance_contract,
     provider_routing_requires_discovered_inventory,
-    supported_profile_posture,
     resolve_provider_capability,
     resolve_provider_for_model,
+    supported_profile_posture,
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
@@ -150,9 +150,13 @@ def test_provider_governance_contract_is_internally_consistent():
 
         if classification == "discovery_backed":
             assert contract_entry["live_discovery_expected"] is True
-            assert contract_entry["routing_requires_discovered_inventory"] is True
             assert (
-                contract_entry["configured_defaults_allowed_on_discovery_failure"]
+                contract_entry["routing_requires_discovered_inventory"] is True
+            )
+            assert (
+                contract_entry[
+                    "configured_defaults_allowed_on_discovery_failure"
+                ]
                 is True
             )
             assert local_only is False
@@ -160,14 +164,18 @@ def test_provider_governance_contract_is_internally_consistent():
 
         if classification == "static_authorized":
             assert contract_entry["live_discovery_expected"] is False
-            assert contract_entry["routing_requires_discovered_inventory"] is False
+            assert (
+                contract_entry["routing_requires_discovered_inventory"] is False
+            )
             assert local_only is False
             continue
 
         if classification == "local_only":
             assert local_only is True
             assert (
-                contract_entry["configured_defaults_allowed_on_discovery_failure"]
+                contract_entry[
+                    "configured_defaults_allowed_on_discovery_failure"
+                ]
                 is True
             )
             continue

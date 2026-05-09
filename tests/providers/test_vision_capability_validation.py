@@ -6,9 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from guardian.core import ai_router
-from guardian.core import chat_completion_service
-from guardian.core import llm_catalog
+from guardian.core import ai_router, chat_completion_service, llm_catalog
 from guardian.protocol_tokens import ErrorCode
 from guardian.tasks.types import ChatCompletionTask
 
@@ -182,7 +180,10 @@ def test_non_vision_model_rejects_image_turn_before_provider_execution(
 
     detail = excinfo.value.detail
     assert isinstance(detail, dict)
-    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    assert (
+        detail["error_code"]
+        == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    )
     assert "support image turns" in str(detail["message"]).lower()
     assert detail["provider"] == "openai"
     assert detail["model"] == "gpt-4o"
@@ -281,7 +282,10 @@ def test_image_payload_missing_has_distinct_error_code(
     monkeypatch.setattr(
         chat_completion_service,
         "extract_attachments_and_text",
-        lambda _content: ([{"kind": "image", "name": "Test.png"}], "Describe this."),
+        lambda _content: (
+            [{"kind": "image", "name": "Test.png"}],
+            "Describe this.",
+        ),
     )
     monkeypatch.setattr(
         chat_completion_service,
@@ -303,7 +307,10 @@ def test_image_payload_missing_has_distinct_error_code(
 
     detail = excinfo.value.detail
     assert isinstance(detail, dict)
-    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+    assert (
+        detail["error_code"]
+        == ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+    )
     assert "missing source urls" in str(detail["message"]).lower()
     assert detail["provider"] == "openai"
     assert detail["model"] == "gpt-4o"
@@ -347,6 +354,9 @@ def test_chat_router_rejects_image_turn_when_vision_is_explicitly_unsupported(
 
     detail = excinfo.value.detail
     assert isinstance(detail, dict)
-    assert detail["error_code"] == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    assert (
+        detail["error_code"]
+        == ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
+    )
     assert "support image turns" in str(detail["message"]).lower()
     assert detail["provider"] == "openai"

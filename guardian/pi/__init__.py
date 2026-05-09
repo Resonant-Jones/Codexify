@@ -1,3 +1,12 @@
+"""Pi-like invocation boundary contracts and validators.
+
+This package is intentionally bounded to typed contracts and deterministic
+validation helpers. It does not invoke providers, command execution, workers,
+or persistence.
+"""
+
+from guardian.pi.contracts import (
+    Pi,
 """Backend-only Pi invocation boundary contracts."""
 
 from guardian.pi.contracts import (
@@ -10,6 +19,13 @@ from guardian.pi.contracts import (
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
+    """Backend-only,
+    boundary,
+    contracts.""",
+    from,
+    guardian.pi.contracts,
+    import,
+    invocation,
 )
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,

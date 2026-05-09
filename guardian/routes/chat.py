@@ -52,7 +52,6 @@ from guardian.context.context_directive_resolver import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
-from guardian.core.auth_dependencies import get_current_user_id
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )

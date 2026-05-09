@@ -8,8 +8,8 @@ from guardian.core.config import Settings
 from guardian.core.provider_registry import (
     normalize_provider,
     provider_egress_allowed,
-    supported_profile_posture,
     resolve_provider_capability,
+    supported_profile_posture,
 )
 
 
@@ -107,9 +107,7 @@ def build_provider_truth(
         "egress_allowed": provider_egress_allowed(provider, settings),
         "supported_profile_name": supported_profile_name,
         "supported_profile_valid": supported_profile_valid,
-        "supported_profile_mismatches": list(
-            posture.get("mismatches") or []
-        ),
+        "supported_profile_mismatches": list(posture.get("mismatches") or []),
         "supported_profile_approved": supported_profile_approved,
         "cloud_capable_configuration_present": bool(
             posture.get("cloud_capable_configuration_present")

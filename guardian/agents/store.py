@@ -79,6 +79,7 @@ class AgentStore:
         self._mem_artifacts: list[dict[str, Any]] = []
         self._mem_confidence: list[dict[str, Any]] = []
         self._mem_escalations: list[dict[str, Any]] = []
+        self._mem_coding_results: list[dict[str, Any]] = []
 
     def configure_db(self, db: Any | None) -> None:
         self.db = db
@@ -520,6 +521,67 @@ class AgentStore:
                 "content_json": dict(content_json or {}),
             }
         )
+
+    def store_coding_result(
+        self,
+        *,
+        run_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        result_json: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = {
+            "run_id": run_id,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "result_json": dict(result_json or {}),
+        }
+        if self._has_db():
+            self.add_artifact(
+                run_id=run_id,
+                step_index=None,
+                artifact_type="coding_result",
+                content_json=payload,
+            )
+            return payload
+        self._mem_coding_results.append(payload)
+        return payload
+
+    def list_coding_results(
+        self, *, run_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        if self._has_db():
+            with self.db.get_session() as session:
+                run_filter = None
+                if run_id is not None:
+                    run_row = (
+                        session.query(AgentRun).filter_by(run_id=run_id).first()
+                    )
+                    if run_row is None:
+                        return []
+                    run_filter = run_row.id
+                query = session.query(AgentRunArtifact).filter_by(
+                    artifact_type="coding_result"
+                )
+                if run_filter is not None:
+                    query = query.filter_by(run_id=run_filter)
+                rows = query.order_by(AgentRunArtifact.created_at.asc()).all()
+                return [
+                    {
+                        "run_id": row.run_id,
+                        "run_step_id": row.run_step_id,
+                        "artifact_type": row.artifact_type,
+                        "content_json": dict(row.content_json or {}),
+                    }
+                    for row in rows
+                ]
+        if run_id is None:
+            return list(self._mem_coding_results)
+        return [
+            row
+            for row in self._mem_coding_results
+            if row.get("run_id") == run_id
+        ]
 
     def add_confidence_report(
         self,

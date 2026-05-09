@@ -12,8 +12,8 @@ from guardian.core.chat_completion_service import (
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
 )
 from guardian.core.dependencies import RequestUserScope
-from guardian.routes import chat
 from guardian.protocol_tokens import TraceSnapshotAbsenceReason
+from guardian.routes import chat
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -264,9 +264,7 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     chat._thread_latest_task[782] = "task-782"
 
     absence_reason = (
-        TraceSnapshotAbsenceReason
-        .LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL
-        .value
+        TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value
     )
 
     monkeypatch.setattr(
@@ -299,7 +297,9 @@ def test_rag_trace_exposes_image_routing_absence_reason(monkeypatch):
     chat._rag_traces.pop(782, None)
 
 
-def test_rag_trace_promotes_eval_snapshot_truth_from_real_row_shape(monkeypatch):
+def test_rag_trace_promotes_eval_snapshot_truth_from_real_row_shape(
+    monkeypatch,
+):
     chat._thread_latest_task[784] = "task-784"
 
     monkeypatch.setattr(chat, "_get_task_completed_payload", lambda _task: None)
@@ -380,9 +380,12 @@ def test_rag_trace_promotes_eval_snapshot_truth_from_real_row_shape(monkeypatch)
     assert trace["retrieval_provenance"]["retrieval_status"] == (
         "workspace_local_success"
     )
-    assert trace["retrieval_suppression"]["counts_by_reason"][
-        "assistant_vision_refusal_on_image_turn"
-    ] == 1
+    assert (
+        trace["retrieval_suppression"]["counts_by_reason"][
+            "assistant_vision_refusal_on_image_turn"
+        ]
+        == 1
+    )
     assert trace["image_routing_path"] == "interpreter"
     assert trace["completion"]["requested_model"] == "medgemma:4b-it-q8_0"
     assert trace["completion"]["final_model"] == "library2/ministral-3:8b"
@@ -514,9 +517,12 @@ def test_rag_trace_exposes_completion_metadata(monkeypatch):
         "LOCAL_LLM_MODEL"
     )
     assert trace["model_selection"]["policy_reason"] == "LOCAL_LLM_MODEL"
-    assert trace["retrieval_suppression"]["counts_by_reason"][
-        "assistant_vision_refusal_on_image_turn"
-    ] == 1
+    assert (
+        trace["retrieval_suppression"]["counts_by_reason"][
+            "assistant_vision_refusal_on_image_turn"
+        ]
+        == 1
+    )
 
     chat._thread_latest_task.pop(783, None)
     chat._rag_traces.pop(783, None)
@@ -785,7 +791,9 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
     assert result["payload_summary"]["effective_policy"] == (
         expected_effective_policy
     )
-    assert result["trace"]["retrieval_policy"] == trace_payload["retrieval_policy"]
+    assert (
+        result["trace"]["retrieval_policy"] == trace_payload["retrieval_policy"]
+    )
     assert result["payload_summary"]["retrieval_policy"] == (
         trace_payload["retrieval_policy"]
     )
@@ -929,9 +937,10 @@ def test_rag_trace_exposes_latest_turn_targeting_fields(monkeypatch):
     assert trace["retrieval_target"] == "latest_turn"
     assert trace["retrieval_query_matches_latest_turn"] is True
     assert trace["retrieval_summary"]["retrieval_target"] == "latest_turn"
-    assert trace["retrieval_summary"][
-        "retrieval_query_matches_latest_turn"
-    ] is True
+    assert (
+        trace["retrieval_summary"]["retrieval_query_matches_latest_turn"]
+        is True
+    )
     assert trace["queued_at"] == "2026-04-02T00:00:00+00:00"
     assert trace["awaiting_model_at"] == "2026-04-02T00:00:01+00:00"
     assert trace["awaiting_first_token_at"] == "2026-04-02T00:00:02+00:00"
@@ -1599,9 +1608,10 @@ def test_rag_trace_distinguishes_workspace_obsidian_participation(
     assert trace["payload_summary"]["obsidian_count"] == 1
     assert trace["payload_summary"]["obsidian_injected"] is True
     assert trace["payload_summary"]["retrieval_injected"] is True
-    assert trace["retrieval_provenance"]["source_hit_counts"][
-        "obsidian_semantic"
-    ] == 1
+    assert (
+        trace["retrieval_provenance"]["source_hit_counts"]["obsidian_semantic"]
+        == 1
+    )
     assert trace["retrieval_summary"]["obsidian_count"] == 1
     assert trace["retrieval_summary"]["retrieval_status"] == (
         "workspace_local_success"

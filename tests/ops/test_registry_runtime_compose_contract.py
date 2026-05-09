@@ -1,8 +1,12 @@
 from pathlib import Path
 
 
-def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> None:
-    compose_path = Path(__file__).resolve().parents[2] / "docker-compose.runtime.yml"
+def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> (
+    None
+):
+    compose_path = (
+        Path(__file__).resolve().parents[2] / "docker-compose.runtime.yml"
+    )
     text = compose_path.read_text(encoding="utf-8")
 
     required_services = [
@@ -23,7 +27,10 @@ def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> N
     assert "build:" not in text
     assert "\n      - ./" not in text
     assert "frontend:" not in text
-    assert "image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}" in text
+    assert (
+        "image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}"
+        in text
+    )
     assert 'CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"' in text
     assert "/app/backend/scripts/docker/run_migrator.py" not in text
     assert "/app/backend" not in text
