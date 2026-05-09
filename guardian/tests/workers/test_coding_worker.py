@@ -231,7 +231,9 @@ def _build_task(
     return CodingExecutionTask.from_dict(payload)
 
 
-def test_coding_execution_task_from_dict_accepts_missing_retry_fields() -> None:
+def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> (
+    None
+):
     task = CodingExecutionTask.from_dict(
         {
             "task_id": "task-1",
@@ -610,7 +612,6 @@ def test_passing_validation_is_persisted_and_emitted(
     assert terminal_payload["validation_result"]["status"] == "passed"
     assert terminal_payload["validation_result"]["tests_passed"] == 2
     assert terminal_payload["validation_attempt_count"] == 1
-    assert terminal_payload["best_validation_result"]["status"] == "passed"
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
     message = messages[0]
@@ -700,7 +701,6 @@ def test_failing_validation_marks_attempt_failed(
     assert terminal_payload["validation_result"]["status"] == "failed"
     assert terminal_payload["errors"][-1] == "validation_failed"
     assert terminal_payload["validation_attempt_count"] == 1
-    assert terminal_payload["best_validation_result"]["status"] == "failed"
     assert terminal_payload["error_code"] == "VALIDATION_FAILED"
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert messages == []
@@ -711,7 +711,6 @@ def test_failing_validation_marks_attempt_failed(
     assert content["validation_results"]["status"] == "failed"
     assert content["validation_results"]["fail_signature"] is not None
     assert content["validation_attempt_count"] == 1
-    assert content["best_validation_result"]["status"] == "failed"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
@@ -982,139 +981,12 @@ def test_validation_timeout_is_normalized_and_fails_closed(
     assert run_state["status"] == "failed"
 
 
-def test_validation_failure_retries_once_and_completes(
+def test_validation_runtime_error_is_normalized_and_fails_closed(
     db,
     monkeypatch,
 ) -> None:
     seeded = _seed_source_context(
-        db, user_id="validation-retry-user", project_name="validation-retry"
-    )
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-        adapter_kind="codex",
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_fake_adapter(
-        monkeypatch,
-        SimpleNamespace(
-            status="ok",
-            summary="Adapter succeeded.",
-            artifacts=(),
-            errors=(),
-        ),
-        adapter_kind="codex",
-    )
-    validation_results = iter(
-        [
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=1,
-                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
-                stderr="E AssertionError: boom\n",
-            ),
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=0,
-                stdout="2 passed in 0.02s\n",
-                stderr="",
-            ),
-        ]
-    )
-    validation_calls = _install_fake_validation_runner(monkeypatch)
-
-    def _sequenced_validation_run(
-        argv: list[str],
-        *,
-        cwd: str | None = None,
-        capture_output: bool | None = None,
-        text: bool | None = None,
-        check: bool | None = None,
-        timeout: int | float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        validation_calls.append(
-            {
-                "argv": list(argv),
-                "cwd": cwd,
-                "capture_output": capture_output,
-                "text": text,
-                "check": check,
-                "timeout": timeout,
-            }
-        )
-        return next(validation_results)
-
-    monkeypatch.setattr(
-        coding_worker.subprocess, "run", _sequenced_validation_run
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        coding_task_id="coding-task-validation-retry",
-        validation_command="pytest -q",
-        max_validation_attempts=2,
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["/workspace/repo"],
-            "max_runtime_seconds": 60,
-        },
-    )
-
-    worker._process_task(task)
-
-    assert len(calls) == 2
-    assert len(validation_calls) == 2
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.validation_failed",
-        "task.retrying",
-        "task.attempt_started",
-        "task.completed",
-    ]
-    second_prompt = calls[1].prompt
-    assert "Validation feedback:" in second_prompt
-    assert "pytest -q" in second_prompt
-    assert "Fail signature:" in second_prompt
-    assert "Fix only the original task scope" in second_prompt
-    terminal_payload = published[-1][2]
-    assert terminal_payload["coding_result_status"] == "ok"
-    assert terminal_payload["validation_result"]["status"] == "passed"
-    assert terminal_payload["validation_attempt_count"] == 2
-    assert terminal_payload["best_validation_result"]["status"] == "passed"
-    assert len(terminal_payload["validation_attempts"]) == 2
-    artifacts = _fetch_coding_result_artifacts(store, run_id)
-    assert len(artifacts) == 1
-    content = artifacts[0]["content_json"]
-    assert content["validation_results"]["status"] == "passed"
-    assert content["validation_attempt_count"] == 2
-    assert len(content["validation_attempts"]) == 2
-    messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert len(messages) == 1
-    assert messages[0].extra_meta["validation_results"]["status"] == "passed"
-    run_state = _fetch_run_state(store, run_id)
-    assert run_state is not None
-    assert run_state["status"] == "succeeded"
-
-
-def test_validation_failure_across_all_attempts_emits_terminal_failure(
-    db,
-    monkeypatch,
-) -> None:
-    seeded = _seed_source_context(
-        db,
-        user_id="validation-exhausted-user",
-        project_name="validation-exhausted",
+        db, user_id="validation-error-user", project_name="validation-error"
     )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
@@ -1137,57 +1009,17 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
         ),
         adapter_kind="codex",
     )
-    validation_results = iter(
-        [
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=1,
-                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
-                stderr="E AssertionError: boom\n",
-            ),
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=1,
-                stdout="FAILED tests/unit/test_beta.py::test_other - still broken\n",
-                stderr="E AssertionError: still broken\n",
-            ),
-        ]
+    validation_calls = _install_fake_validation_runner(
+        monkeypatch,
+        side_effect=RuntimeError("boom"),
     )
-    validation_calls = _install_fake_validation_runner(monkeypatch)
-
-    def _sequenced_validation_run(
-        argv: list[str],
-        *,
-        cwd: str | None = None,
-        capture_output: bool | None = None,
-        text: bool | None = None,
-        check: bool | None = None,
-        timeout: int | float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        validation_calls.append(
-            {
-                "argv": list(argv),
-                "cwd": cwd,
-                "capture_output": capture_output,
-                "text": text,
-                "check": check,
-                "timeout": timeout,
-            }
-        )
-        return next(validation_results)
-
-    monkeypatch.setattr(
-        coding_worker.subprocess, "run", _sequenced_validation_run
-    )
-
     task = _build_task(
         run_id=run_id,
         deployment_id=deployment_id,
         thread_id=seeded["thread_id"],
         source_message_id=seeded["source_message_id"],
-        coding_task_id="coding-task-validation-exhausted",
+        coding_task_id="coding-task-validation-error",
         validation_command="pytest -q",
-        max_validation_attempts=2,
         permission_policy={
             "allow_shell": True,
             "allow_network": False,
@@ -1199,29 +1031,27 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
 
     worker._process_task(task)
 
-    assert len(validation_calls) == 2
+    assert len(validation_calls) == 1
     assert [event for _, event, _ in published] == [
         "task.running",
-        "task.attempt_started",
-        "task.validation_failed",
-        "task.retrying",
         "task.attempt_started",
         "task.validation_failed",
         "task.failed",
     ]
     terminal_payload = published[-1][2]
     assert terminal_payload["coding_result_status"] == "failed"
-    assert terminal_payload["validation_result"]["status"] == "failed"
-    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["validation_result"]["status"] == "error"
+    assert terminal_payload["validation_result"]["error_message"].startswith(
+        "validation_command_error:"
+    )
     assert terminal_payload["error_code"] == "VALIDATION_FAILED"
-    assert terminal_payload["best_validation_result"]["tests_failed"] == 1
-    assert len(terminal_payload["validation_attempts"]) == 2
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(artifacts) == 1
     content = artifacts[0]["content_json"]
-    assert content["validation_results"]["status"] == "failed"
-    assert content["validation_attempt_count"] == 2
-    assert content["best_validation_result"]["tests_failed"] == 1
+    assert content["validation_results"]["status"] == "error"
+    assert content["validation_results"]["error_message"].startswith(
+        "validation_command_error:"
+    )
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert messages == []
     run_state = _fetch_run_state(store, run_id)
