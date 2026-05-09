@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
+import subprocess
+import time
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionRequest
 from guardian.agents.events import build_coding_result_lineage_payload
 from guardian.agents.store import AgentStore, store
+from guardian.agents.test_results import (
+    NormalizedTestResult,
+    normalize_subprocess_test_result,
+    not_run_test_result,
+)
 from guardian.core import dependencies
 from guardian.queue import task_events
 from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
@@ -41,6 +49,8 @@ _ADAPTER_KIND_ALIASES = {
     "codex": "codex",
     "claudecode": "claudecode",
 }
+
+_VALIDATION_TIMEOUT_CAP_SECONDS = 120
 
 
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
@@ -103,6 +113,113 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _coerce_permission_policy(raw: Any) -> dict[str, Any]:
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _validation_timeout_seconds(task_timeout_seconds: int) -> int:
+    return max(
+        1, min(int(task_timeout_seconds or 0), _VALIDATION_TIMEOUT_CAP_SECONDS)
+    )
+
+
+def _build_validation_error_result(
+    *,
+    command: str,
+    stdout: str = "",
+    stderr: str = "",
+    error_message: str,
+    duration_seconds: float | None = None,
+) -> NormalizedTestResult:
+    return NormalizedTestResult(
+        status="error",
+        command=command,
+        exit_code=None,
+        tests_total=None,
+        tests_passed=None,
+        tests_failed=None,
+        fail_signature=None,
+        stdout_preview=stdout[:480],
+        stderr_preview=stderr[:480],
+        duration_seconds=duration_seconds,
+        error_message=error_message,
+    )
+
+
+def _resolve_validation_command(
+    task: CodingExecutionTask, deployment_spec: dict[str, Any]
+) -> str | None:
+    command = task.validation_command or deployment_spec.get(
+        "validation_command"
+    )
+    value = str(command or "").strip()
+    return value or None
+
+
+def _validation_permissions(
+    task: CodingExecutionTask, deployment_spec: dict[str, Any]
+) -> dict[str, Any]:
+    return _coerce_permission_policy(
+        task.permission_policy
+        or deployment_spec.get("permission_policy")
+        or deployment_spec.get("permissionPolicy")
+    )
+
+
+def _run_validation_command(
+    *,
+    command: str,
+    cwd: str,
+    timeout_seconds: int,
+) -> NormalizedTestResult:
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return _build_validation_error_result(
+            command=command,
+            error_message=f"validation_command_parse_failed: {exc}",
+        )
+    if not argv:
+        return _build_validation_error_result(
+            command=command,
+            error_message="validation_command_empty",
+        )
+
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        elapsed = time.monotonic() - started
+        return _build_validation_error_result(
+            command=command,
+            error_message="validation_command_timeout",
+            duration_seconds=elapsed,
+        )
+    except Exception as exc:
+        elapsed = time.monotonic() - started
+        return _build_validation_error_result(
+            command=command,
+            error_message=f"validation_command_error: {type(exc).__name__}",
+            duration_seconds=elapsed,
+        )
+
+    elapsed = time.monotonic() - started
+    return normalize_subprocess_test_result(
+        command=command,
+        exit_code=completed.returncode,
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
+        duration_seconds=elapsed,
+    )
 
 
 def configure_db(db: Any | None) -> None:
@@ -205,6 +322,70 @@ class CodingWorker:
         if not error_message and not success_like:
             error_message = getattr(result, "summary", None)
 
+        validation_result: NormalizedTestResult | None = None
+        validation_command = _resolve_validation_command(task, deployment_spec)
+        permission_policy = _validation_permissions(task, deployment_spec)
+        if success_like and validation_command:
+            if not permission_policy.get("allow_shell"):
+                validation_result = not_run_test_result(
+                    reason="validation_shell_not_allowed",
+                    command=validation_command,
+                )
+            elif not task.cwd:
+                validation_result = not_run_test_result(
+                    reason="validation_cwd_missing",
+                    command=validation_command,
+                )
+            else:
+                validation_result = _run_validation_command(
+                    command=validation_command,
+                    cwd=task.cwd,
+                    timeout_seconds=_validation_timeout_seconds(
+                        task.timeout_seconds
+                    ),
+                )
+
+        final_result_status = result_status
+        final_summary = getattr(result, "summary", "")
+        final_error_code = error_code
+        final_error_message = error_message
+        final_errors = list(getattr(result, "errors", []) or [])
+        if validation_result is not None:
+            result_artifacts = [
+                {"validation_results": validation_result.model_dump()},
+                *result_artifacts,
+            ]
+            if validation_result.status == "failed":
+                final_result_status = "failed"
+                final_summary = (
+                    f"{final_summary} | validation failed"
+                    if final_summary
+                    else "validation failed"
+                )
+                final_error_message = (
+                    validation_result.error_message
+                    or "validation command failed"
+                )
+                final_errors = [
+                    *final_errors,
+                    "validation_failed",
+                ]
+            elif validation_result.status == "error":
+                final_result_status = "failed"
+                final_summary = (
+                    f"{final_summary} | validation error"
+                    if final_summary
+                    else "validation error"
+                )
+                final_error_message = (
+                    validation_result.error_message
+                    or "validation command error"
+                )
+                final_errors = [
+                    *final_errors,
+                    "validation_error",
+                ]
+
         # Store result and inject into thread (per ADR-020)
         delivery = self.store.store_coding_result(
             run_id=task.run_id,
@@ -216,15 +397,19 @@ class CodingWorker:
             adapter_kind=adapter_kind,
             adapter_session_ref=adapter_session_ref,
             files_changed=files_changed,
-            result_status=result_status,
-            result_summary=getattr(result, "summary", ""),
+            result_status=final_result_status,
+            result_summary=final_summary,
             artifacts=result_artifacts,
-            errors=list(getattr(result, "errors", []) or []),
-            error_code=error_code,
-            error_message=error_message,
+            errors=final_errors,
+            error_code=final_error_code,
+            error_message=final_error_message,
         )
 
-        if success_like and not bool(delivery.get("delivery_ok", False)):
+        if (
+            success_like
+            and _is_success_like_coding_result(final_result_status)
+            and not bool(delivery.get("delivery_ok", False))
+        ):
             self._emit_failure(
                 task,
                 adapter_kind=adapter_kind,
@@ -237,19 +422,28 @@ class CodingWorker:
             return
 
         # Emit terminal event
-        terminal_event = "completed" if success_like else "failed"
+        terminal_event = (
+            "completed"
+            if _is_success_like_coding_result(final_result_status)
+            else "failed"
+        )
         self._emit_terminal(
             task,
             event_type=terminal_event,
             result=result,
             adapter_kind=adapter_kind,
-            result_status=result_status,
+            result_status=final_result_status,
+            summary=final_summary,
             files_changed=files_changed,
             artifacts=result_artifacts,
             adapter_session_ref=adapter_session_ref,
             delivery=delivery,
-            error_code=error_code,
-            error_message=error_message,
+            errors=final_errors,
+            error_code=final_error_code,
+            error_message=final_error_message,
+            validation_result=(
+                validation_result.model_dump() if validation_result else None
+            ),
         )
 
     def _emit_running(
@@ -293,12 +487,15 @@ class CodingWorker:
         *,
         adapter_kind: str | None,
         result_status: str,
+        summary: str,
         files_changed: list[str],
         artifacts: list[dict[str, Any]],
         adapter_session_ref: str | None,
         delivery: dict[str, Any],
+        errors: list[str],
         error_code: str | None,
         error_message: str | None,
+        validation_result: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
         try:
@@ -321,16 +518,17 @@ class CodingWorker:
                     "status": event_type,
                     "coding_result_status": result_status,
                     "result_captured_by_guardian": True,
-                    "summary": getattr(result, "summary", ""),
+                    "summary": summary,
                     "files_changed": files_changed,
                     "artifacts": artifacts,
                     "adapter_session_ref": adapter_session_ref,
                     "message_id": delivery.get("message_id"),
                     "delivery_ok": bool(delivery.get("delivery_ok", False)),
                     "delivery_reason": delivery.get("delivery_reason"),
-                    "errors": list(getattr(result, "errors", []) or []),
+                    "errors": errors,
                     "error_code": error_code,
                     "error_message": error_message,
+                    "validation_result": validation_result,
                 },
             )
         except Exception as exc:

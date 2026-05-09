@@ -183,6 +183,7 @@ async def execute_coding_task(
         spec_json={
             "coding_task_id": envelope.coding_task_id,
             "adapter_kind": envelope.adapter_kind,
+            "validation_command": envelope.validation_command,
             "source_thread_id": int(envelope.thread_id)
             if envelope.thread_id
             else None,
@@ -208,6 +209,7 @@ async def execute_coding_task(
                 "coding_task_id": envelope.coding_task_id,
                 "attempt_id": envelope.attempt_id,
                 "adapter_kind": envelope.adapter_kind,
+                "validation_command": envelope.validation_command,
             }
         ),
         trust_state="supervised",
@@ -256,6 +258,14 @@ async def execute_coding_task(
         else None,
         "user_id": envelope.user_id,
         "project_id": envelope.project_id,
+        "validation_command": envelope.validation_command,
+        "permission_policy": {
+            "allow_shell": envelope.permission_policy.allow_shell,
+            "allow_network": envelope.permission_policy.allow_network,
+            "allow_write": envelope.permission_policy.allow_write,
+            "allowed_paths": list(envelope.permission_policy.allowed_paths),
+            "max_runtime_seconds": envelope.permission_policy.max_runtime_seconds,
+        },
         "origin": "coding_execute_route",
     }
     enqueue_coding_execution(task_payload)

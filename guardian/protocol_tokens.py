@@ -55,6 +55,13 @@ class ToolLoopStopReason(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TestResultStatus(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    NOT_RUN = "not_run"
+
+
 class DelegationJobStatus(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"
@@ -151,9 +158,7 @@ class ErrorCode(str, Enum):
     CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED = (
         "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
     )
-    CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING = (
-        "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
-    )
+    CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING = "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
     DELEGATION_EXECUTOR_UNSUPPORTED = "DELEGATION_EXECUTOR_UNSUPPORTED"
     DELEGATION_EXECUTOR_NOT_FOUND = "DELEGATION_EXECUTOR_NOT_FOUND"
     DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
@@ -204,6 +209,9 @@ LOOP_STOP_REASONS: frozenset[str] = frozenset(
 )
 TOOL_LOOP_STOP_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in ToolLoopStopReason}
+)
+TEST_RESULT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in TestResultStatus}
 )
 DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
     {status.value for status in DelegationJobStatus}
@@ -275,6 +283,7 @@ __all__ = [
     "ToolTurnState",
     "LoopStopReason",
     "ToolLoopStopReason",
+    "TestResultStatus",
     "DelegationJobStatus",
     "PersonalFactStatus",
     "TraceSuppressionReason",
@@ -297,6 +306,7 @@ __all__ = [
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",
     "TOOL_LOOP_STOP_REASONS",
+    "TEST_RESULT_STATUSES",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
     "TRACE_SUPPRESSION_REASONS",

@@ -8,8 +8,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.agents.retry_policy import build_fail_signature
+from guardian.protocol_tokens import TestResultStatus
 
-NormalizedTestStatus = Literal["passed", "failed", "error", "not_run"]
+NormalizedTestStatus = Literal[
+    TestResultStatus.PASSED.value,
+    TestResultStatus.FAILED.value,
+    TestResultStatus.ERROR.value,
+    TestResultStatus.NOT_RUN.value,
+]
 
 _PREVIEW_LIMIT = 480
 _SIGNATURE_LINE_LIMIT = 20
@@ -131,7 +137,7 @@ def normalize_subprocess_test_result(
 
     if not command_text:
         return NormalizedTestResult(
-            status="error",
+            status=TestResultStatus.ERROR.value,
             command=None,
             exit_code=exit_code if isinstance(exit_code, int) else None,
             stdout_preview=stdout_preview,
@@ -142,7 +148,7 @@ def normalize_subprocess_test_result(
 
     if not isinstance(exit_code, int):
         return NormalizedTestResult(
-            status="error",
+            status=TestResultStatus.ERROR.value,
             command=command_text,
             exit_code=None,
             stdout_preview=stdout_preview,
@@ -158,7 +164,7 @@ def normalize_subprocess_test_result(
         if passed is not None or failed is not None:
             total = (passed or 0) + (failed or 0)
         return NormalizedTestResult(
-            status="passed",
+            status=TestResultStatus.PASSED.value,
             command=command_text,
             exit_code=exit_code,
             tests_total=total,
@@ -187,7 +193,7 @@ def normalize_subprocess_test_result(
     if any(value is not None for value in (passed, tests_failed, errors)):
         total = sum(value or 0 for value in (passed, tests_failed, errors))
     return NormalizedTestResult(
-        status="failed",
+        status=TestResultStatus.FAILED.value,
         command=command_text,
         exit_code=exit_code,
         tests_total=total,
@@ -208,7 +214,7 @@ def not_run_test_result(
     reason_text = str(reason or "").strip() or "test_not_run"
     command_text = str(command or "").strip() or None
     return NormalizedTestResult(
-        status="not_run",
+        status=TestResultStatus.NOT_RUN.value,
         command=command_text,
         exit_code=None,
         tests_total=None,
