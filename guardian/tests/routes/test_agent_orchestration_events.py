@@ -388,6 +388,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         repo_root="/workspace/repo",
         context_summary="source thread summary",
         validation_command="pytest -q",
+        max_validation_attempts=4,
         permission_policy=CodingAgentPermissionPolicy(
             allow_shell=True,
             allow_network=False,
@@ -408,6 +409,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["user_id"] == "local-user"
     assert payload["project_id"] == 17
     assert payload["validation_command"] == "pytest -q"
+    assert payload["max_validation_attempts"] == 4
     assert payload["permission_policy"]["allow_shell"] is True
 
     deployment = local_store.get_deployment(result["deployment_id"])
@@ -415,6 +417,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["thread_id"] == 42
     assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
     assert deployment["spec_json"]["validation_command"] == "pytest -q"
+    assert deployment["spec_json"]["max_validation_attempts"] == 4
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"

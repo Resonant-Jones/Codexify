@@ -24,6 +24,9 @@ class TaskEventType(str, Enum):
     TASK_FAILED = "task.failed"
     TASK_CANCELLED = "task.cancelled"
     TASK_EVENT = "task.event"
+    TASK_ATTEMPT_STARTED = "task.attempt_started"
+    TASK_VALIDATION_FAILED = "task.validation_failed"
+    TASK_RETRYING = "task.retrying"
 
 
 class ToolTurnState(str, Enum):
@@ -152,6 +155,7 @@ class ErrorCode(str, Enum):
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     CHAT_COMPLETE_ENQUEUE_FAILED = "CHAT_COMPLETE_ENQUEUE_FAILED"
     TASK_EVENT_PUBLISH_FAILED = "TASK_EVENT_PUBLISH_FAILED"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
     CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = (
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )

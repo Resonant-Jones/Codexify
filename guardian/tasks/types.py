@@ -714,6 +714,7 @@ class CodingExecutionTask(BaseTask):
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
+    max_validation_attempts: int | None = None
     permission_policy: dict[str, Any] | None = None
 
     @classmethod
@@ -738,6 +739,10 @@ class CodingExecutionTask(BaseTask):
             validation_command=_coerce_optional_text(
                 payload.get("validation_command")
                 or payload.get("validationCommand")
+            ),
+            max_validation_attempts=_coerce_optional_positive_int(
+                payload.get("max_validation_attempts")
+                or payload.get("maxValidationAttempts")
             ),
             permission_policy=(
                 _coerce_mapping(
