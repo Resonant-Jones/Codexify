@@ -1,3 +1,7 @@
+from guardian.agents.worktree_leases import (
+    WORKTREE_LEASE_CLEANUP_POLICIES,
+    WORKTREE_LEASE_STATUSES,
+)
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
     PI_INVOCATION_ENVELOPE_STATUSES,
@@ -82,6 +86,24 @@ def test_context_request_status_tokens() -> None:
         "executed",
         "no_results",
         "failed",
+    }
+
+
+def test_worktree_lease_contract_tokens() -> None:
+    assert WORKTREE_LEASE_STATUSES == {
+        "active",
+        "expired",
+        "released",
+        "abandoned",
+        "cleanup_pending",
+        "cleaned",
+        "blocked",
+        "failed",
+    }
+    assert WORKTREE_LEASE_CLEANUP_POLICIES == {
+        "cleanup_on_merge",
+        "preserve_on_fail",
+        "manual_cleanup_required",
     }
 
 

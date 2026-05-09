@@ -4,7 +4,13 @@
 Define the proposed branch/worktree lease envelope that gives each worker run an isolated mutable workspace with explicit lifecycle and cleanup policy.
 
 ## Contract status
-Proposed only. Not implemented.
+- Contract types and validation helpers now exist in code.
+- Runtime allocation/store behavior is still not implemented.
+
+## Implementation anchor
+- `guardian/agents/worktree_leases.py`
+- This anchor provides canonical tokens, request/contract/result shapes, and no-shared-mutable-worktree validation helpers only.
+- It does not create branches, create worktrees, persist leases, or execute worker policy.
 
 ## Required fields
 - `lease_id`: unique lease identifier.
