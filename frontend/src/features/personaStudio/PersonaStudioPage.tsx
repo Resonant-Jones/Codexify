@@ -1319,9 +1319,9 @@ export default function PersonaStudioPage() {
     setSelectedProfileId,
     setActiveTab,
     updateSelectedProfile,
-    saveProfile,
-    saveAsNewProfile,
-    resetToSaved,
+    saveSelectedProfile,
+    saveSelectedProfileAsNew,
+    resetSelectedProfile,
   } = usePersonaStudioLocalDraftState();
 
   const [utilityTab, setUtilityTab] = React.useState<UtilityTab>("Profiles");
@@ -1334,18 +1334,18 @@ export default function PersonaStudioPage() {
 
   const handleSave = () => {
     if (selectedProfile) {
-      saveProfile(selectedProfile);
+      saveSelectedProfile();
     }
   };
 
   const handleSaveAsNew = () => {
     if (selectedProfile) {
-      saveAsNewProfile(selectedProfile);
+      saveSelectedProfileAsNew();
     }
   };
 
   const handleReset = () => {
-    resetToSaved();
+    resetSelectedProfile();
   };
 
   const resetAllLocalPersonaStudioData = React.useCallback(() => {

@@ -1,10 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
 import type { ExtColors } from "@/types/ui";
-
 
 const EXT_COLORS: ExtColors = {
   pdf: "#111111",
@@ -19,23 +17,11 @@ const EXT_COLORS: ExtColors = {
 };
 
 describe("DocumentsView", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("dispatches a generate document event", async () => {
-    const user = userEvent.setup();
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
-
+  it("renders the upload affordance instead of the deprecated generate action", () => {
     render(<DocumentsView documents={[]} extColors={EXT_COLORS} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /generate document/i })
-    );
-
-    const fired = dispatchSpy.mock.calls.some(
-      ([event]) => (event as Event).type === "cfy:documents:generate"
-    );
-    expect(fired).toBe(true);
+    expect(screen.getByText(/no documents yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /choose files/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /generate document/i })).not.toBeInTheDocument();
   });
 });
