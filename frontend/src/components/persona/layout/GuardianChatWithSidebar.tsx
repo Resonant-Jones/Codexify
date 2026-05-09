@@ -243,6 +243,7 @@ type GuardianChatWithSidebarProps = {
   onWorkspaceOpenInThread?: (doc: DocumentLike | null) => void;
   providerRuntimeState?: ProviderRuntimeState | null;
   runtimeHealth?: RuntimeHealthStatus | null;
+  onProjectChange?: (projectId: string | null, projectName: string | null) => void;
 };
 
 export default function GuardianChatWithSidebar({
@@ -260,6 +261,7 @@ export default function GuardianChatWithSidebar({
   onWorkspaceOpenInThread,
   providerRuntimeState = null,
   runtimeHealth = null,
+  onProjectChange,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -281,6 +283,11 @@ export default function GuardianChatWithSidebar({
     setSelectedProjectId(id);
     setSelectedProjectName(name);
   }, []);
+
+  React.useEffect(() => {
+    if (selectedProjectId == null) return;
+    onProjectChange?.(selectedProjectId, selectedProjectName);
+  }, [onProjectChange, selectedProjectId, selectedProjectName]);
 
   // Persist sidebar visibility preference
   React.useEffect(() => {

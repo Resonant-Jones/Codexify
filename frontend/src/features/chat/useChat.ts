@@ -41,6 +41,8 @@ export type ChatMessage = {
   turn_id?: string | null;
   audio_status?: "unavailable" | "pending" | "ready" | "failed";
   audio_url?: string | null;
+  audio_provider?: string | null;
+  audio_voice?: string | null;
   audio_mime_type?: string | null;
   audio_duration_ms?: number | null;
   audio_error?: string | null;
@@ -407,6 +409,8 @@ const normalizeMessage = (
       ? audioStatusRaw
       : undefined;
   const audioUrlRaw = base.audio_url ?? base.audioUrl;
+  const audioProviderRaw = base.audio_provider ?? base.audioProvider;
+  const audioVoiceRaw = base.audio_voice ?? base.audioVoice;
   const audioMimeTypeRaw = base.audio_mime_type ?? base.audioMimeType;
   const audioDurationRaw = base.audio_duration_ms ?? base.audioDurationMs;
   const audioErrorRaw = base.audio_error ?? base.audioError;
@@ -425,6 +429,9 @@ const normalizeMessage = (
     turn_id: turnId,
     audio_status: audioStatus,
     audio_url: normalizeAudioUrl(audioUrlRaw),
+    audio_provider:
+      typeof audioProviderRaw === "string" ? audioProviderRaw : null,
+    audio_voice: typeof audioVoiceRaw === "string" ? audioVoiceRaw : null,
     audio_mime_type:
       typeof audioMimeTypeRaw === "string" ? audioMimeTypeRaw : null,
     audio_duration_ms: Number.isFinite(Number(audioDurationRaw))
@@ -477,6 +484,8 @@ const sameMessage = (a: ChatMessage, b: ChatMessage): boolean => {
     (a.turn_id || null) === (b.turn_id || null) &&
     (a.audio_status || null) === (b.audio_status || null) &&
     (a.audio_url || null) === (b.audio_url || null) &&
+    (a.audio_provider || null) === (b.audio_provider || null) &&
+    (a.audio_voice || null) === (b.audio_voice || null) &&
     (a.audio_mime_type || null) === (b.audio_mime_type || null) &&
     (a.audio_duration_ms ?? null) === (b.audio_duration_ms ?? null) &&
     (a.audio_error || null) === (b.audio_error || null)

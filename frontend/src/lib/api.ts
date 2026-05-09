@@ -60,11 +60,11 @@ export function classifyOptionalSurfaceError(error: unknown): OptionalSurfaceErr
 }
 
 function readRuntimeEnv(name: string, fallback = ""): string {
-  const viteEnv =
-    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
   const nodeEnv =
     typeof process !== "undefined" ? ((process as any).env ?? {}) : {};
-  const raw = viteEnv[name] ?? nodeEnv[name] ?? fallback;
+  const viteEnv =
+    typeof import.meta !== "undefined" ? ((import.meta as any).env ?? {}) : {};
+  const raw = nodeEnv[name] ?? viteEnv[name] ?? fallback;
   return String(raw ?? "");
 }
 
@@ -74,6 +74,10 @@ function isDevRuntime(): boolean {
   if (typeof viteEnv.DEV === "boolean") return viteEnv.DEV;
   const raw = readRuntimeEnv("NODE_ENV", "development").trim().toLowerCase();
   return raw !== "production";
+}
+
+function isProxyRuntime(): boolean {
+  return readRuntimeEnv("VITE_USE_PROXY", "false") === "true";
 }
 
 function resolveDevApiKey(): string {
@@ -209,7 +213,8 @@ function applyAuthHeaders(
     headers["X-API-Key"] = runtimeApiKey;
   } else {
     const devApiKey = resolveDevApiKey();
-    if ((forceApiKey || !token) && devApiKey && !hasApiKey) {
+    const allowDevKey = !isProxyRuntime() || forceApiKey;
+    if ((forceApiKey || !token) && allowDevKey && devApiKey && !hasApiKey) {
       headers["X-API-Key"] = devApiKey;
     }
   }
@@ -275,6 +280,17 @@ export function buildThreadDocumentsPath(threadId: string | number): string {
 
 export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
+}
+
+export function buildLlmModelOverridesPath(): string {
+  return "/api/llm/model-overrides";
+}
+
+export function buildLlmModelOverridePath(
+  providerId: string | number,
+  modelId: string | number
+): string {
+  return `${buildLlmModelOverridesPath()}/${normalizePathSegment(providerId)}/${normalizePathSegment(modelId)}`;
 }
 
 export function buildChatThreadsPath(): string {
@@ -415,11 +431,105 @@ export type CommandBusInvokeResponse = {
   warning?: unknown;
 };
 
+export type GuardianIntentSourceSurface =
+  | "chat"
+  | "voice"
+  | "automation"
+  | "cli"
+  | "plugin";
+
+export type GuardianIntentKind = "command_bus.invoke" | "cron.create";
+
+export type GuardianIntentApprovalState = "pending" | "approved" | "blocked";
+
+export type GuardianIntentExecutionState =
+  | "accepted"
+  | "blocked"
+  | "running"
+  | "completed"
+  | "failed";
+
+export type GuardianIntentScope = {
+  thread_id?: number | null;
+  source_message_id?: number | null;
+  project_id?: number | null;
+  repo_root?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type GuardianIntentPolicy = {
+  approval_required?: boolean;
+  allow_write_execution?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type GuardianCommandBusIntentTarget = {
+  command_id: string;
+  arguments?: CommandBusInvokeArguments;
+  idempotency_key?: string | null;
+};
+
+export type GuardianCronCreateIntentTarget = {
+  is_enabled?: boolean;
+  job_type: string;
+  name: string;
+  payload?: Record<string, unknown>;
+  schedule: string;
+};
+
+export type GuardianIntentTarget =
+  | GuardianCommandBusIntentTarget
+  | GuardianCronCreateIntentTarget;
+
+export type GuardianIntentRequest = {
+  intent_id?: string;
+  actor: CommandBusActor;
+  source_surface: GuardianIntentSourceSurface;
+  intent_kind?: GuardianIntentKind;
+  target: GuardianIntentTarget;
+  scope?: GuardianIntentScope;
+  policy?: GuardianIntentPolicy;
+  provenance_json?: Record<string, unknown>;
+  idempotency_key?: string | null;
+  requested_at?: string;
+  approval_state?: GuardianIntentApprovalState;
+  execution_state?: GuardianIntentExecutionState | null;
+  receipt_ref?: string | null;
+};
+
+export type GuardianIntentDispatchResult = {
+  intent_id?: string;
+  status?: "accepted" | "blocked" | "failed";
+  dispatch_target?: "command_bus" | "cron";
+  intent_kind?: GuardianIntentKind;
+  source_surface?: GuardianIntentSourceSurface;
+  receipt_ref?: string | null;
+  downstream_result_json?: Record<string, unknown>;
+  rejection_reason?: string | null;
+  execution_state?: GuardianIntentExecutionState | null;
+  provenance_json?: Record<string, unknown>;
+};
+
 export async function invokeCommandBus(
   payload: CommandBusInvokeRequest
 ): Promise<CommandBusInvokeResponse> {
   const response = await api.post(
     "/api/guardian/commands/invoke",
+    payload,
+    {
+      headers: {
+        "X-User-Id": payload.actor.id,
+      },
+    }
+  );
+  return response?.data ?? {};
+}
+
+export async function dispatchGuardianIntent(
+  payload: GuardianIntentRequest
+): Promise<GuardianIntentDispatchResult> {
+  const response = await api.post(
+    "/api/guardian/intents/dispatch",
     payload,
     {
       headers: {
