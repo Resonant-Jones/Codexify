@@ -83,6 +83,7 @@ Respect identity boundaries, deep identity consent, persona borrowing rather tha
 
 Read more:
 
+- [`IDDB Policy v1`](../iddb_policy_v1.md): identity-data governance covering diary/identity layer separation, Imprint_Zero/light identity, opt-in deep identity, persona borrowing semantics, and sensitive-trait non-inference rules.
 - [`Self-Extending Agent Plugin System`](./self-extending-agent-plugin-system.md)
 - [`Account Export + Restore Contract`](./account-export-restore-contract.md)
 - [`Persona Studio Architecture`](./persona-studio.md) or [`Persona Studio Spec`](./persona-studio-spec.md) when the spec is the better fit
