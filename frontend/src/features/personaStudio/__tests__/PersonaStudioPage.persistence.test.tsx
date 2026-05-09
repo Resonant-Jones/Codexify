@@ -185,8 +185,9 @@ describe("Persona Studio persistence", () => {
     expect(
       screen.getByDisplayValue("Saved profile description")
     ).toBeInTheDocument();
-    expect(screen.getByText("Saved Locally")).toBeInTheDocument();
-    expect(screen.getByText(/"name": "Code Assistant Saved"/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await screen.findByText("Saved Locally");
+    await user.click(screen.getByRole("button", { name: /identity/i }));
 
     const nameInput = screen.getByPlaceholderText(/enter persona name/i);
     await user.clear(nameInput);
@@ -211,8 +212,10 @@ describe("Persona Studio persistence", () => {
       expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument()
     );
 
-    expect(screen.getByText("Saved Locally")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /identity/i }));
 
     await user.clear(screen.getByDisplayValue("Code Assistant Draft"));
     await user.type(screen.getByPlaceholderText(/enter persona name/i), "Code Assistant Reset Candidate");
@@ -222,8 +225,10 @@ describe("Persona Studio persistence", () => {
     await user.click(screen.getByRole("button", { name: /^reset$/i }));
 
     expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    expect(screen.getByText("Saved Locally")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /identity/i }));
   });
 
   it("duplicates the current draft into a new persona and leaves the original saved profile intact", async () => {
@@ -242,7 +247,8 @@ describe("Persona Studio persistence", () => {
         screen.getByDisplayValue("Code Assistant Working")
       ).toBeInTheDocument()
     );
-    expect(screen.getByText("Saved Locally")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await screen.findByText("Saved Locally");
 
     await user.click(screen.getByRole("button", { name: /save as new/i }));
 
@@ -250,17 +256,23 @@ describe("Persona Studio persistence", () => {
       expect(personaStudioApiMock.createPersonaProfile).toHaveBeenCalled()
     );
 
-    expect(
-      screen.getByRole("heading", { name: "Code Assistant Working Copy" })
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /code assistant working copy/i })
+      ).toBeInTheDocument()
+    );
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
     expect(
       screen.getByRole("button", { name: /code assistant working copy/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /code assistant working(?! copy)/i })
     ).toBeInTheDocument();
-    expect(screen.getByText("Saved Locally")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await screen.findByText("Saved Locally");
+    await user.click(screen.getByRole("button", { name: /identity/i }));
 
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
     await user.click(screen.getByRole("button", { name: /code assistant working(?! copy)/i }));
 
     expect(

@@ -37,7 +37,7 @@ describe("Persona Studio Page", () => {
     expect(supportSurfaces).toBeVisible();
     expect(chatLane).toBeVisible();
     expect(harness).toBeVisible();
-    expect(configurationLane).toHaveClass("lg:overflow-y-auto");
+    expect(configurationLane).toHaveClass("overflow-y-auto");
     expect(within(shell).queryByRole("button", { name: /hide utility pane/i })).not.toBeInTheDocument();
     expect(within(shell).getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
