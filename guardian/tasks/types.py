@@ -6,8 +6,12 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, TypedDict
+from typing import Any, TypedDict
 
+from guardian.agents.coding_agent_contracts import (
+    CodingAgentAdapterKind,
+    CodingAgentPermissionPolicy,
+)
 from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
     DelegationJobStatus,
@@ -119,6 +123,33 @@ def _normalize_executor_id(raw: Any) -> str:
         value.lower().replace("-", "_").replace(" ", "_")
         if value is not None
         else ""
+    )
+
+
+def _default_coding_permission_policy() -> CodingAgentPermissionPolicy:
+    return CodingAgentPermissionPolicy(
+        allow_shell=False,
+        allow_network=False,
+        allow_write=False,
+        allowed_paths=(),
+        max_runtime_seconds=60,
+    )
+
+
+def _coerce_coding_permission_policy(
+    raw: Any,
+) -> CodingAgentPermissionPolicy:
+    if isinstance(raw, CodingAgentPermissionPolicy):
+        return raw
+    data = dict(raw) if isinstance(raw, dict) else {}
+    max_runtime = _coerce_optional_positive_int(data.get("max_runtime_seconds"))
+    allowed_paths = tuple(_coerce_text_list(data.get("allowed_paths")))
+    return CodingAgentPermissionPolicy(
+        allow_shell=bool(data.get("allow_shell", False)),
+        allow_network=bool(data.get("allow_network", False)),
+        allow_write=bool(data.get("allow_write", False)),
+        allowed_paths=allowed_paths,
+        max_runtime_seconds=max_runtime or 60,
     )
 
 
@@ -458,6 +489,86 @@ class BaseTask:
         return cls(**base)
 
 
+@dataclass(kw_only=True)
+class CodingExecutionTask(BaseTask):
+    type: str = "coding.execute"
+    run_id: str = ""
+    coding_task_id: str = ""
+    thread_id: str = ""
+    source_message_id: str = ""
+    attempt_id: str = ""
+    user_id: str = ""
+    project_id: int | None = None
+    adapter_kind: CodingAgentAdapterKind = "mock"
+    instructions: str = ""
+    repo_root: str | None = None
+    context_summary: str | None = None
+    permission_policy: CodingAgentPermissionPolicy = field(
+        default_factory=_default_coding_permission_policy
+    )
+    validation_command: str | None = None
+    max_validation_attempts: int | None = None
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
+        base = _base_kwargs(payload or {})
+        base.setdefault("type", cls.type)
+        return cls(
+            run_id=str(
+                payload.get("run_id") or payload.get("runId") or ""
+            ).strip(),
+            coding_task_id=str(
+                payload.get("coding_task_id")
+                or payload.get("codingTaskId")
+                or payload.get("task_id")
+                or base["task_id"]
+            ).strip(),
+            thread_id=str(
+                payload.get("thread_id") or payload.get("threadId") or ""
+            ).strip(),
+            source_message_id=str(
+                payload.get("source_message_id")
+                or payload.get("sourceMessageId")
+                or ""
+            ).strip(),
+            attempt_id=str(
+                payload.get("attempt_id") or payload.get("attemptId") or ""
+            ).strip(),
+            user_id=str(
+                payload.get("user_id") or payload.get("userId") or ""
+            ).strip(),
+            project_id=_coerce_optional_positive_int(
+                payload.get("project_id") or payload.get("projectId")
+            ),
+            adapter_kind=(
+                _normalize_executor_id(
+                    payload.get("adapter_kind") or payload.get("adapterKind")
+                )
+                or "mock"
+            ),
+            instructions=str(payload.get("instructions") or "").strip(),
+            repo_root=_coerce_optional_text(
+                payload.get("repo_root") or payload.get("repoRoot")
+            ),
+            context_summary=_coerce_optional_text(
+                payload.get("context_summary") or payload.get("contextSummary")
+            ),
+            permission_policy=_coerce_coding_permission_policy(
+                payload.get("permission_policy")
+                or payload.get("permissionPolicy")
+            ),
+            validation_command=_coerce_optional_text(
+                payload.get("validation_command")
+                or payload.get("validationCommand")
+            ),
+            max_validation_attempts=_coerce_optional_positive_int(
+                payload.get("max_validation_attempts")
+                or payload.get("maxValidationAttempts")
+            ),
+            **base,
+        )
+
+
 @dataclass
 class WarmupTask(BaseTask):
     type: str = "warmup"
@@ -695,6 +806,7 @@ class DelegationTask(BaseTask):
 
 TASK_TYPE_REGISTRY: dict[str, type[BaseTask]] = {
     "warmup": WarmupTask,
+    "coding.execute": CodingExecutionTask,
     "chat_completion": ChatCompletionTask,
     "eval.trace": EvalTask,
     "voice_turn": VoiceTurnTask,

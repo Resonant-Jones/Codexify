@@ -42,6 +42,35 @@ def test_valid_coding_agent_task_envelope_can_be_constructed() -> None:
     assert envelope.adapter_kind == "pi_sdk"
 
 
+def test_coding_agent_task_envelope_can_include_validation_metadata() -> None:
+    policy = CodingAgentPermissionPolicy(
+        allow_shell=True,
+        allow_network=False,
+        allow_write=False,
+        allowed_paths=("/workspace/repo",),
+        max_runtime_seconds=300,
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-321",
+        thread_id="thread-321",
+        source_message_id="message-321",
+        attempt_id="attempt-321",
+        user_id="local",
+        project_id=7,
+        adapter_kind="mock",
+        instructions="Run the parser validation loop.",
+        repo_root="/workspace/repo",
+        context_summary="Validation metadata should be optional.",
+        permission_policy=policy,
+        validation_command="pytest -q",
+        max_validation_attempts=4,
+    )
+
+    assert envelope.validation_command == "pytest -q"
+    assert envelope.max_validation_attempts == 4
+
+
 def test_valid_coding_agent_result_can_be_constructed() -> None:
     result = CodingAgentResult(
         coding_task_id="coding-task-123",
