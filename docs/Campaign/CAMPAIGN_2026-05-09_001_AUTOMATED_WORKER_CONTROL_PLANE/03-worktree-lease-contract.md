@@ -5,12 +5,16 @@ Define the proposed branch/worktree lease envelope that gives each worker run an
 
 ## Contract status
 - Contract types and validation helpers now exist in code.
-- Runtime allocation/store behavior is still not implemented.
+- Durable lease store operations now exist in code.
+- Runtime allocation, worker lease enforcement, and Git branch/worktree creation are still not implemented.
 
 ## Implementation anchor
 - `guardian/agents/worktree_leases.py`
-- This anchor provides canonical tokens, request/contract/result shapes, and no-shared-mutable-worktree validation helpers only.
-- It does not create branches, create worktrees, persist leases, or execute worker policy.
+- `guardian/agents/worktree_lease_store.py`
+- `guardian/db/models.py`
+- `guardian/db/migrations/versions/8c9d0e1f2a3b_add_worktree_leases.py`
+- The contract anchor provides canonical tokens, request/contract/result shapes, validation helpers, and durable storage lifecycle methods.
+- It does not allocate filesystem worktrees, create Git branches, execute coding workers, or expose API/UI behavior.
 
 ## Required fields
 - `lease_id`: unique lease identifier.
@@ -20,7 +24,7 @@ Define the proposed branch/worktree lease envelope that gives each worker run an
 - `base_ref`: immutable source ref used to create branch/worktree.
 - `branch_name`: worker-owned branch for this lease.
 - `worktree_path`: absolute lease workspace path.
-- `status`: lease lifecycle token (`active`, `expired`, `released`, `abandoned`, `cleanup_pending`, `cleaned`).
+- `status`: lease lifecycle token (`active`, `expired`, `released`, `abandoned`, `cleanup_pending`, `cleaned`, `blocked`, `failed`).
 - `created_at`: lease creation timestamp.
 - `expires_at`: lease expiry timestamp used for stale detection.
 - `preserve_on_failure`: boolean policy for retaining workspace for human review.
