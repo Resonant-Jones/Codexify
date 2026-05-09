@@ -26,6 +26,8 @@ Source anchors:
 - Brief reason:
   - This contract defines a bounded architecture seam for future Pi-like harness invocation and clarifies provider-lane separation (including Minimax) without implementing runtime execution.
 
+Implementation status: backend-only Pi invocation envelope, receipt, artifact, harness-result, and pure validation contracts now exist under `guardian/pi/`. They perform shape, provenance, and permission-posture validation only. No live Pi SDK call exists, no Minimax provider behavior changed, and no command execution, worker orchestration, sandboxing, runtime dispatch, or transcript persistence was added by this seam.
+
 ## Purpose and Problem Statement
 
 Codexify needs a bounded Pi Invocation Boundary before any Pi-like integration so external coding-agent harnesses cannot quietly redefine runtime authority.
