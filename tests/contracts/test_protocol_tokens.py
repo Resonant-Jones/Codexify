@@ -38,6 +38,8 @@ from guardian.protocol_tokens import (
     EXECUTOR_RELEASE_POSTURES,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
+    ORCHESTRATOR_DECISION_TOKENS,
+    ORCHESTRATOR_REASON_CODES,
     TASK_EVENT_TYPES,
     TEST_RESULT_STATUSES,
     TOOL_LOOP_STOP_REASONS,
@@ -60,6 +62,8 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     ImageRoutingPath,
     LoopStopReason,
+    OrchestratorDecisionToken,
+    OrchestratorReasonCode,
     TaskEventType,
     TestResultStatus,
     ToolLoopStopReason,
@@ -681,6 +685,55 @@ def test_error_code_tokens() -> None:
         "WORK_ORDER_INVALID",
         "WORK_ORDER_INVALID_STATUS",
         "WORK_ORDER_INVALID_TRANSITION",
+    }
+
+
+def test_orchestrator_decision_tokens() -> None:
+    assert OrchestratorDecisionToken.RECOMMEND.value == "recommend"
+    assert OrchestratorDecisionToken.SKIP.value == "skip"
+    assert OrchestratorDecisionToken.BLOCKED.value == "blocked"
+    assert (
+        OrchestratorDecisionToken.RECOMMENDATION_ONLY.value
+        == "recommendation_only"
+    )
+    assert ORCHESTRATOR_DECISION_TOKENS == {
+        "recommend",
+        "skip",
+        "blocked",
+        "recommendation_only",
+    }
+
+
+def test_orchestrator_reason_code_tokens() -> None:
+    assert (
+        OrchestratorReasonCode.DEPENDENCY_NOT_SATISFIED.value
+        == "DEPENDENCY_NOT_SATISFIED"
+    )
+    assert (
+        OrchestratorReasonCode.ACTIVE_LEASE_CONFLICT.value
+        == "ACTIVE_LEASE_CONFLICT"
+    )
+    assert (
+        OrchestratorReasonCode.FILE_SCOPE_CONFLICT.value
+        == "FILE_SCOPE_CONFLICT"
+    )
+    assert OrchestratorReasonCode.STATUS_NOT_READY.value == "STATUS_NOT_READY"
+    assert (
+        OrchestratorReasonCode.HUMAN_REVIEW_REQUIRED.value
+        == "HUMAN_REVIEW_REQUIRED"
+    )
+    assert OrchestratorReasonCode.AMBIGUOUS_STATE.value == "AMBIGUOUS_STATE"
+    assert (
+        OrchestratorReasonCode.READY_FOR_DISPATCH.value == "READY_FOR_DISPATCH"
+    )
+    assert ORCHESTRATOR_REASON_CODES == {
+        "DEPENDENCY_NOT_SATISFIED",
+        "ACTIVE_LEASE_CONFLICT",
+        "FILE_SCOPE_CONFLICT",
+        "STATUS_NOT_READY",
+        "HUMAN_REVIEW_REQUIRED",
+        "AMBIGUOUS_STATE",
+        "READY_FOR_DISPATCH",
     }
 
 

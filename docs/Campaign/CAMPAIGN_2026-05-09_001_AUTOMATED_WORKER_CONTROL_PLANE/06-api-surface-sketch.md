@@ -38,7 +38,7 @@ Track the worker-control-plane backend route surface across rollout phases.
 ### `GET /api/coding/orchestrator/next`
 - Proposed purpose: recommendation-only endpoint for next safe task selection.
 - Proposed output: ranked recommendation list + decision reasons.
-- Implementation status: proposed only.
+- Implementation status: implemented in Phase 6 as recommendation-only policy output (no dispatch side effects).
 
 ### `POST /api/coding/orchestrator/dispatch`
 - Proposed purpose: policy-authorized dispatch endpoint that turns a recommendation into execution.
@@ -60,5 +60,7 @@ Track the worker-control-plane backend route surface across rollout phases.
 - Still proposed:
   - `POST /api/coding/work-orders/{id}/runs`
   - `GET /api/coding/runs/{id}/receipt`
-  - `GET /api/coding/orchestrator/next`
   - `POST /api/coding/orchestrator/dispatch`
+
+- Implemented after Phase 6:
+  - `GET /api/coding/orchestrator/next`

@@ -5,6 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .commit_gate import CommitGateError, CommitGateResult, commit_after_green
+from .orchestrator_policy import (
+    OrchestratorDecision,
+    OrchestratorPolicyInput,
+    OrchestratorPolicyResult,
+    OrchestratorRecommendation,
+    OrchestratorSkipReason,
+    select_next_work_orders,
+)
 from .work_orders import (
     WORK_ORDER_ACTIVE_STATUSES,
     WORK_ORDER_ALLOWED_TRANSITIONS,
@@ -64,6 +72,12 @@ __all__ = [
     "is_terminal_work_order_status",
     "is_active_work_order_status",
     "validate_work_order_transition",
+    "OrchestratorDecision",
+    "OrchestratorPolicyInput",
+    "OrchestratorPolicyResult",
+    "OrchestratorRecommendation",
+    "OrchestratorSkipReason",
+    "select_next_work_orders",
     "WorkOrderStore",
     "WorkOrderStoreError",
     "WorkOrderNotFound",

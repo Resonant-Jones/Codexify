@@ -1,8 +1,9 @@
-"""Durable coding work-order task-board routes (Phase 5 foundation).
+"""Durable coding work-order task-board routes (Phases 5-6 foundation).
 
 These routes expose durable work-order control-plane state only. They do not
-queue/dispatch workers, allocate worktrees, run Git operations, or make
-orchestrator decisions.
+queue/dispatch workers, allocate worktrees, or run Git operations. The
+orchestrator route provides recommendation-only outputs and does not mutate
+runtime state.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from guardian.agents.orchestrator_policy import select_next_work_orders
 from guardian.agents.work_order_store import (
     WorkOrderNotFound,
     WorkOrderStore,
@@ -19,6 +21,7 @@ from guardian.agents.work_order_store import (
     WorkOrderValidationError,
 )
 from guardian.agents.work_orders import WORK_ORDER_STATUSES, WorkOrderCreate
+from guardian.agents.worktree_lease_store import WorktreeLeaseStore
 from guardian.core.dependencies import require_api_key
 from guardian.protocol_tokens import ErrorCode
 
@@ -27,13 +30,20 @@ router = APIRouter(
     tags=["Coding Work Orders"],
     dependencies=[Depends(require_api_key)],
 )
+orchestrator_router = APIRouter(
+    prefix="/api/coding/orchestrator",
+    tags=["Coding Orchestrator"],
+    dependencies=[Depends(require_api_key)],
+)
 
 _store = WorkOrderStore(db=None)
+_lease_store = WorktreeLeaseStore(db=None)
 
 
 def configure_db(db: Any | None) -> None:
-    global _store
+    global _store, _lease_store
     _store = WorkOrderStore(db=db)
+    _lease_store = WorktreeLeaseStore(db=db)
 
 
 def _normalize_validation_error_code(reason_code: str | None) -> str:
@@ -83,6 +93,40 @@ def _ensure_store_configured() -> WorkOrderStore:
             status_code=503, detail="work_order_store_unavailable"
         )
     return _store
+
+
+def _ensure_stores_configured() -> tuple[WorkOrderStore, WorktreeLeaseStore]:
+    store = _ensure_store_configured()
+    if _lease_store.db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="worktree_lease_store_unavailable",
+        )
+    return store, _lease_store
+
+
+def _list_all_work_orders(
+    *,
+    store: WorkOrderStore,
+    campaign_id: str | None = None,
+) -> list[Any]:
+    items: list[Any] = []
+    page_size = 200
+    offset = 0
+    while True:
+        page = store.list_work_orders(
+            status=None,
+            campaign_id=campaign_id,
+            limit=page_size,
+            offset=offset,
+        )
+        if not page:
+            break
+        items.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return items
 
 
 @router.post("")
@@ -190,3 +234,24 @@ async def cancel_work_order(
         "ok": True,
         "work_order": cancelled.to_dict(),
     }
+
+
+@orchestrator_router.get("/next")
+async def get_next_work_order_recommendations(
+    campaign_id: str | None = Query(default=None),
+    limit: int = Query(default=5, ge=1, le=50),
+) -> dict[str, Any]:
+    store, lease_store = _ensure_stores_configured()
+    work_orders = _list_all_work_orders(store=store, campaign_id=campaign_id)
+    active_leases = lease_store.list_active_leases()
+    result = select_next_work_orders(
+        work_orders=work_orders,
+        active_leases=active_leases,
+        limit=limit,
+    )
+
+    payload = result.to_dict()
+    payload["ok"] = True
+    payload["campaign_id"] = campaign_id
+    payload["limit"] = limit
+    return payload

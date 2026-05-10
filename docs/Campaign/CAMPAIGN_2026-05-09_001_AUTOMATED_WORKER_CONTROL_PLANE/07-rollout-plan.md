@@ -31,7 +31,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 6: orchestrator next-task selector
 - Scope: deterministic recommendation logic with dependency and conflict awareness.
-- Proof expectation: policy tests showing deterministic decision reasons and safe blocking on ambiguity.
+- Proof expectation: policy tests (`guardian/tests/agents/test_orchestrator_policy.py`) prove deterministic ranking and skip reasons, and route tests (`guardian/tests/routes/test_coding_work_orders.py`) prove `GET /api/coding/orchestrator/next` reads durable state without dispatch side effects.
 
 ### Phase 7: inspection/UI surface
 - Scope: operator-facing run ledger and receipt inspection surfaces.

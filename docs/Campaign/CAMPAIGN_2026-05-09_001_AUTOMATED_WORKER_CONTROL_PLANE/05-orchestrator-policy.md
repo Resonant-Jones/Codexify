@@ -4,7 +4,16 @@
 Define the orchestrator as deterministic policy/control logic that recommends or dispatches safe next work, without introducing a persona-style autonomous authority model.
 
 ## Contract status
-Proposed only. Not implemented.
+Partially implemented in Phase 6:
+- Deterministic recommendation policy exists in `guardian/agents/orchestrator_policy.py`.
+- Recommendation route exists at `GET /api/coding/orchestrator/next`.
+- Dispatch remains unimplemented.
+
+## Implementation anchor
+- `guardian/agents/orchestrator_policy.py`
+- `guardian/routes/coding_work_orders.py` (`/api/coding/orchestrator/next`)
+- `guardian/tests/agents/test_orchestrator_policy.py`
+- `guardian/tests/routes/test_coding_work_orders.py`
 
 ## Policy inputs
 - Work-order lifecycle state.
@@ -19,7 +28,7 @@ Proposed only. Not implemented.
 2. Exclude work orders that conflict on active file scopes or branch/worktree ownership.
 3. Prefer tasks with highest policy priority and lowest ambiguity.
 4. Require explicit skip reasons for non-selected ready tasks.
-5. Emit `OrchestratorDecision` explaining recommendation or dispatch.
+5. Emit explicit recommendation/skip decisions with bounded reason codes.
 
 ## Dependency behavior
 - Hard dependencies block transition from `draft/ready` to `leased`.
@@ -43,6 +52,10 @@ When key control-plane facts are ambiguous (state mismatch, missing receipt line
 - Recommendation: proposes next action and rationale; does not change runtime state.
 - Dispatch authority: explicitly granted policy path that enqueues/leases a run.
 - Every dispatch must cite decision lineage and respect Guardian policy boundary.
+
+Current implementation note:
+- Recommendation behavior is live in backend policy + route.
+- Dispatch behavior is intentionally deferred.
 
 ## Non-goals
 - No anthropomorphic planner behavior.

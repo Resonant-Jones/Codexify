@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.db.models import CodingWorkOrder
+from guardian.db.models import CodingWorkOrder, CodingWorktreeLease
 from guardian.routes import coding_work_orders
 
 
@@ -23,6 +23,7 @@ class _TestDB:
             poolclass=StaticPool,
         )
         CodingWorkOrder.__table__.create(bind=self._engine)
+        CodingWorktreeLease.__table__.create(bind=self._engine)
         self._session_factory = sessionmaker(
             bind=self._engine,
             autocommit=False,
@@ -36,6 +37,8 @@ class _TestDB:
     def close(self) -> None:
         with suppress(Exception):
             CodingWorkOrder.__table__.drop(bind=self._engine)
+        with suppress(Exception):
+            CodingWorktreeLease.__table__.drop(bind=self._engine)
         self._engine.dispose()
 
 
@@ -43,6 +46,7 @@ def _build_client(db: _TestDB) -> TestClient:
     app = FastAPI()
     coding_work_orders.configure_db(db)
     app.include_router(coding_work_orders.router)
+    app.include_router(coding_work_orders.orchestrator_router)
     return TestClient(app)
 
 
@@ -55,6 +59,8 @@ def _create_payload(
     title: str = "Add task-board API",
     campaign_id: str = "campaign-1",
     status: str | None = None,
+    dependency_ids: list[str] | None = None,
+    file_scope: list[str] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "campaign_id": campaign_id,
@@ -62,8 +68,12 @@ def _create_payload(
         "objective": "Durable work-order surface",
         "scope": "backend only",
         "priority": 2,
-        "dependency_ids": ["wo-pre-1"],
-        "file_scope": ["guardian/routes/coding_work_orders.py"],
+        "dependency_ids": dependency_ids if dependency_ids is not None else [],
+        "file_scope": (
+            file_scope
+            if file_scope is not None
+            else ["guardian/routes/coding_work_orders.py"]
+        ),
         "validation_command": "pytest -q",
         "adapter_kind": "mock",
         "max_validation_attempts": 1,
@@ -252,3 +262,180 @@ def test_auth_is_required(client: TestClient) -> None:
         headers={"X-API-Key": "invalid-key"},
     )
     assert response.status_code == 401
+
+
+def test_orchestrator_next_returns_recommendation_for_ready_work_order(
+    client: TestClient,
+) -> None:
+    create_response = client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(title="Recommend me"),
+        headers=_headers(),
+    )
+    created_id = create_response.json()["work_order"]["work_order_id"]
+
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        headers=_headers(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["recommendations"]
+    recommendation = payload["recommendations"][0]
+    assert recommendation["work_order_id"] == created_id
+    assert recommendation["status"] == "ready"
+    assert "READY_FOR_DISPATCH" in recommendation["reason_codes"]
+
+
+def test_orchestrator_next_respects_campaign_filter(client: TestClient) -> None:
+    response_a = client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(campaign_id="campaign-a", title="Campaign A"),
+        headers=_headers(),
+    )
+    campaign_a_work_order_id = response_a.json()["work_order"]["work_order_id"]
+    client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(campaign_id="campaign-b", title="Campaign B"),
+        headers=_headers(),
+    )
+
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        params={"campaign_id": "campaign-a"},
+        headers=_headers(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["campaign_id"] == "campaign-a"
+    assert payload["recommendations"]
+    assert {item["work_order_id"] for item in payload["recommendations"]} == {
+        campaign_a_work_order_id
+    }
+
+
+def test_orchestrator_next_respects_limit(client: TestClient) -> None:
+    for index in range(3):
+        client.post(
+            "/api/coding/work-orders",
+            json=_create_payload(title=f"Limit item {index}"),
+            headers=_headers(),
+        )
+
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        params={"limit": 2},
+        headers=_headers(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 2
+    assert len(payload["recommendations"]) == 2
+
+
+def test_orchestrator_next_includes_skip_reasons(client: TestClient) -> None:
+    client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(title="Ready item"),
+        headers=_headers(),
+    )
+    draft_response = client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(title="Draft item", status="draft"),
+        headers=_headers(),
+    )
+    draft_id = draft_response.json()["work_order"]["work_order_id"]
+
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        headers=_headers(),
+    )
+
+    assert response.status_code == 200
+    skipped = response.json()["skipped"]
+    draft_skips = [
+        item
+        for item in skipped
+        if item["work_order_id"] == draft_id
+        and item["reason_code"] == "STATUS_NOT_READY"
+    ]
+    assert draft_skips
+
+
+def test_orchestrator_next_does_not_dispatch_or_create_lease(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, Any]] = []
+    lease_create_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: enqueue_calls.append(dict(payload)),
+    )
+    monkeypatch.setattr(
+        "guardian.agents.worktree_lease_store.WorktreeLeaseStore.create_lease",
+        lambda *_args, **_kwargs: lease_create_calls.append({}),
+    )
+
+    client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(title="No side-effect item"),
+        headers=_headers(),
+    )
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        headers=_headers(),
+    )
+
+    assert response.status_code == 200
+    assert enqueue_calls == []
+    assert lease_create_calls == []
+
+
+def test_orchestrator_next_invalid_auth_returns_401(client: TestClient) -> None:
+    response = client.get(
+        "/api/coding/orchestrator/next",
+        headers={"X-API-Key": "invalid-key"},
+    )
+    assert response.status_code == 401
+
+
+def test_orchestrator_next_output_is_json_safe_and_stable(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(title="Stable output item"),
+        headers=_headers(),
+    )
+
+    response_one = client.get(
+        "/api/coding/orchestrator/next",
+        headers=_headers(),
+    )
+    response_two = client.get(
+        "/api/coding/orchestrator/next",
+        headers=_headers(),
+    )
+
+    assert response_one.status_code == 200
+    assert response_two.status_code == 200
+    payload_one = response_one.json()
+    payload_two = response_two.json()
+
+    assert isinstance(payload_one["generated_at"], str)
+    assert isinstance(payload_two["generated_at"], str)
+    assert isinstance(payload_one["recommendations"], list)
+    assert isinstance(payload_one["skipped"], list)
+    assert isinstance(payload_one["decision_reasons"], list)
+
+    comparable_one = dict(payload_one)
+    comparable_two = dict(payload_two)
+    comparable_one.pop("generated_at", None)
+    comparable_two.pop("generated_at", None)
+    assert comparable_one == comparable_two
