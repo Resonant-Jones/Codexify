@@ -1,21 +1,12 @@
-"""Pi-like invocation boundary contracts and validators.
+"""Pi invocation boundary token re-exports.
 
-This package is intentionally bounded to typed contracts and deterministic
-validation helpers. It does not invoke providers, command execution, workers,
-or persistence.
+This package stays intentionally small and import-safe. The contract and
+validation modules are available as direct submodules; the package root only
+re-exports canonical token helpers.
 """
 
-from guardian.pi.contracts import (
-    PiCommandBusLinkage,
-    PiGuardianBoundary,
-    PiHarnessResult,
-    PiInvocationArtifact,
-    PiInvocationEnvelope,
-    PiInvocationReceipt,
-    PiInvocationValidationResult,
-    PiPermissionGrant,
-    PiProviderLane,
-)
+from __future__ import annotations
+
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
     PI_INVOCATION_ENVELOPE_STATUSES,
@@ -36,22 +27,8 @@ from guardian.pi.tokens import (
     normalize_pi_receipt_status,
     normalize_pi_validation_outcome,
 )
-from guardian.pi.validation import (
-    validate_harness_result_against_receipt,
-    validate_invocation_envelope,
-    validate_receipt_against_envelope,
-)
 
 __all__ = [
-    "PiCommandBusLinkage",
-    "PiGuardianBoundary",
-    "PiHarnessResult",
-    "PiInvocationArtifact",
-    "PiInvocationEnvelope",
-    "PiInvocationReceipt",
-    "PiInvocationValidationResult",
-    "PiPermissionGrant",
-    "PiProviderLane",
     "PI_HARNESS_RESULT_CLASSES",
     "PI_INVOCATION_ENVELOPE_STATUSES",
     "PI_INVOCATION_RECEIPT_STATUSES",
@@ -70,7 +47,4 @@ __all__ = [
     "normalize_pi_provider_lane_class",
     "normalize_pi_receipt_status",
     "normalize_pi_validation_outcome",
-    "validate_harness_result_against_receipt",
-    "validate_invocation_envelope",
-    "validate_receipt_against_envelope",
 ]
