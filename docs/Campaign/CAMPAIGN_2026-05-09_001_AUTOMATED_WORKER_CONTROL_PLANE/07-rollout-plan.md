@@ -43,6 +43,15 @@ Define a phased implementation sequence for future work while preserving current
 - Proof expectation: durable proof artifact with branch/worktree/commands/validation/cleanup evidence and explicit limitations.
 - Status (2026-05-10): **INCOMPLETE** for Command Center worker-control seam live proof. Backend task-board/orchestrator API checks passed, but Command Center UI panel test IDs were not present during live runtime proof, so Phase 8 is not complete.
 
+### Phase 9 (optional): external tracker/workflow adaptation
+- Scope:
+  - evaluate a repository-owned workflow policy file candidate,
+  - issue-tracker ingestion into `WorkOrder` records,
+  - reconciliation and explicit stop conditions for tracker-driven state drift,
+  - bounded concurrency and retry backoff for dispatch-adjacent orchestration.
+- Proof expectation: adaptation-specific policy/contract tests and bounded live proof artifacts that preserve current control-plane invariants.
+- Constraint: this phase is optional and is **not required** for current Command Center proof or the initial manual worker-control loop.
+
 ## Cross-phase rules
 1. Each phase must remain atomic and independently validated.
 2. Each phase must preserve "acceptance is not completion" semantics.
