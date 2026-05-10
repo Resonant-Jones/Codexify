@@ -1,3 +1,8 @@
+from guardian.agents.work_orders import WORK_ORDER_STATUSES
+from guardian.agents.worktree_leases import (
+    WORKTREE_LEASE_CLEANUP_POLICIES,
+    WORKTREE_LEASE_STATUSES,
+)
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
     PI_INVOCATION_ENVELOPE_STATUSES,
@@ -33,6 +38,8 @@ from guardian.protocol_tokens import (
     EXECUTOR_RELEASE_POSTURES,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
+    ORCHESTRATOR_DECISION_TOKENS,
+    ORCHESTRATOR_REASON_CODES,
     TASK_EVENT_TYPES,
     TEST_RESULT_STATUSES,
     TOOL_LOOP_STOP_REASONS,
@@ -55,6 +62,8 @@ from guardian.protocol_tokens import (
     ExecutorReleasePosture,
     ImageRoutingPath,
     LoopStopReason,
+    OrchestratorDecisionToken,
+    OrchestratorReasonCode,
     TaskEventType,
     TestResultStatus,
     ToolLoopStopReason,
@@ -85,16 +94,66 @@ def test_context_request_status_tokens() -> None:
     }
 
 
+def test_worktree_lease_contract_tokens() -> None:
+    assert WORKTREE_LEASE_STATUSES == {
+        "active",
+        "expired",
+        "released",
+        "abandoned",
+        "cleanup_pending",
+        "cleaned",
+        "blocked",
+        "failed",
+    }
+    assert WORKTREE_LEASE_CLEANUP_POLICIES == {
+        "cleanup_on_merge",
+        "preserve_on_fail",
+        "manual_cleanup_required",
+    }
+
+
+def test_work_order_contract_tokens() -> None:
+    assert WORK_ORDER_STATUSES == {
+        "draft",
+        "ready",
+        "leased",
+        "running",
+        "validating",
+        "retrying",
+        "passed",
+        "failed",
+        "blocked",
+        "escalated",
+        "merge_ready",
+        "merged",
+        "archived",
+        "cancelled",
+    }
+
+
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
     assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
     assert (
+        TaskEventType.TASK_VALIDATION_STARTED.value == "task.validation_started"
+    )
+    assert (
         TaskEventType.TASK_VALIDATION_FAILED.value == "task.validation_failed"
+    )
+    assert (
+        TaskEventType.TASK_VALIDATION_PASSED.value == "task.validation_passed"
+    )
+    assert (
+        TaskEventType.TASK_VALIDATION_RETRYING.value
+        == "task.validation_retrying"
     )
     assert TaskEventType.TASK_RETRYING.value == "task.retrying"
     assert "task.attempt_started" in TASK_EVENT_TYPES
+    assert "task.validation_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
+    assert "task.validation_passed" in TASK_EVENT_TYPES
+    assert "task.validation_retrying" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
     assert TaskEventType.TASK_VALIDATION_FAILED.value == (
         "task.validation_failed"
@@ -104,7 +163,10 @@ def test_task_event_tokens() -> None:
         {
             "task.created",
             "task.attempt_started",
+            "task.validation_started",
             "task.validation_failed",
+            "task.validation_passed",
+            "task.validation_retrying",
             "task.retrying",
         }
     )
@@ -344,6 +406,8 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PI_HARNESS_RESULT_CLASSES == {"success", "failure", "blocked"}
 
     assert PiProviderLaneClass.LOCAL.value == "local"
+    assert PiProviderLaneClass.REMOTE.value == "remote"
+    assert PiProviderLaneClass.HYBRID.value == "hybrid"
     assert PiProviderLaneClass.EXTERNAL.value == "external"
     assert PiProviderLaneClass.MINIMAX.value == "minimax"
     assert PI_PROVIDER_LANE_CLASSES == {
@@ -521,16 +585,6 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
-        ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
-        == "DIRTY_WORKTREE_PRECHECK_FAILED"
-    )
-    assert (
-        ErrorCode.MUTATION_SCOPE_VIOLATION.value == "MUTATION_SCOPE_VIOLATION"
-    )
-    assert (
-        ErrorCode.MUTATION_SCOPE_UNVERIFIED.value == "MUTATION_SCOPE_UNVERIFIED"
-    )
-    assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
     assert (
@@ -569,14 +623,43 @@ def test_error_code_tokens() -> None:
         ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value
         == "DELEGATION_EXECUTOR_SPAWN_FAILED"
     )
+    assert ErrorCode.WORKTREE_LEASE_REQUIRED.value == "WORKTREE_LEASE_REQUIRED"
+    assert (
+        ErrorCode.WORKTREE_LEASE_NOT_FOUND.value == "WORKTREE_LEASE_NOT_FOUND"
+    )
+    assert (
+        ErrorCode.WORKTREE_LEASE_NOT_ACTIVE.value == "WORKTREE_LEASE_NOT_ACTIVE"
+    )
+    assert ErrorCode.WORKTREE_LEASE_INVALID.value == "WORKTREE_LEASE_INVALID"
+    assert (
+        ErrorCode.WORKTREE_LEASE_PATH_UNAVAILABLE.value
+        == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+    )
+    assert (
+        ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value
+        == "WORKTREE_LEASE_HEARTBEAT_FAILED"
+    )
+    assert ErrorCode.GIT_WORKTREE_REQUIRED.value == "GIT_WORKTREE_REQUIRED"
+    assert ErrorCode.GIT_WORKTREE_INVALID.value == "GIT_WORKTREE_INVALID"
+    assert (
+        ErrorCode.GIT_NO_CHANGES_TO_COMMIT.value == "GIT_NO_CHANGES_TO_COMMIT"
+    )
+    assert ErrorCode.GIT_COMMIT_FAILED.value == "GIT_COMMIT_FAILED"
+    assert ErrorCode.GIT_COMMIT_CREATED.value == "GIT_COMMIT_CREATED"
+    assert ErrorCode.WORK_ORDER_NOT_FOUND.value == "WORK_ORDER_NOT_FOUND"
+    assert ErrorCode.WORK_ORDER_INVALID.value == "WORK_ORDER_INVALID"
+    assert (
+        ErrorCode.WORK_ORDER_INVALID_STATUS.value == "WORK_ORDER_INVALID_STATUS"
+    )
+    assert (
+        ErrorCode.WORK_ORDER_INVALID_TRANSITION.value
+        == "WORK_ORDER_INVALID_TRANSITION"
+    )
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
         "TASK_EVENT_PUBLISH_FAILED",
         "VALIDATION_FAILED",
-        "DIRTY_WORKTREE_PRECHECK_FAILED",
-        "MUTATION_SCOPE_VIOLATION",
-        "MUTATION_SCOPE_UNVERIFIED",
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",
@@ -587,6 +670,73 @@ def test_error_code_tokens() -> None:
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",
         "DELEGATION_EXECUTOR_SPAWN_FAILED",
+        "WORKTREE_LEASE_REQUIRED",
+        "WORKTREE_LEASE_NOT_FOUND",
+        "WORKTREE_LEASE_NOT_ACTIVE",
+        "WORKTREE_LEASE_INVALID",
+        "WORKTREE_LEASE_PATH_UNAVAILABLE",
+        "WORKTREE_LEASE_HEARTBEAT_FAILED",
+        "DIRTY_WORKTREE_PRECHECK_FAILED",
+        "MUTATION_SCOPE_VIOLATION",
+        "MUTATION_SCOPE_UNVERIFIED",
+        "GIT_WORKTREE_REQUIRED",
+        "GIT_WORKTREE_INVALID",
+        "GIT_NO_CHANGES_TO_COMMIT",
+        "GIT_COMMIT_FAILED",
+        "GIT_COMMIT_CREATED",
+        "WORK_ORDER_NOT_FOUND",
+        "WORK_ORDER_INVALID",
+        "WORK_ORDER_INVALID_STATUS",
+        "WORK_ORDER_INVALID_TRANSITION",
+    }
+
+
+def test_orchestrator_decision_tokens() -> None:
+    assert OrchestratorDecisionToken.RECOMMEND.value == "recommend"
+    assert OrchestratorDecisionToken.SKIP.value == "skip"
+    assert OrchestratorDecisionToken.BLOCKED.value == "blocked"
+    assert (
+        OrchestratorDecisionToken.RECOMMENDATION_ONLY.value
+        == "recommendation_only"
+    )
+    assert ORCHESTRATOR_DECISION_TOKENS == {
+        "recommend",
+        "skip",
+        "blocked",
+        "recommendation_only",
+    }
+
+
+def test_orchestrator_reason_code_tokens() -> None:
+    assert (
+        OrchestratorReasonCode.DEPENDENCY_NOT_SATISFIED.value
+        == "DEPENDENCY_NOT_SATISFIED"
+    )
+    assert (
+        OrchestratorReasonCode.ACTIVE_LEASE_CONFLICT.value
+        == "ACTIVE_LEASE_CONFLICT"
+    )
+    assert (
+        OrchestratorReasonCode.FILE_SCOPE_CONFLICT.value
+        == "FILE_SCOPE_CONFLICT"
+    )
+    assert OrchestratorReasonCode.STATUS_NOT_READY.value == "STATUS_NOT_READY"
+    assert (
+        OrchestratorReasonCode.HUMAN_REVIEW_REQUIRED.value
+        == "HUMAN_REVIEW_REQUIRED"
+    )
+    assert OrchestratorReasonCode.AMBIGUOUS_STATE.value == "AMBIGUOUS_STATE"
+    assert (
+        OrchestratorReasonCode.READY_FOR_DISPATCH.value == "READY_FOR_DISPATCH"
+    )
+    assert ORCHESTRATOR_REASON_CODES == {
+        "DEPENDENCY_NOT_SATISFIED",
+        "ACTIVE_LEASE_CONFLICT",
+        "FILE_SCOPE_CONFLICT",
+        "STATUS_NOT_READY",
+        "HUMAN_REVIEW_REQUIRED",
+        "AMBIGUOUS_STATE",
+        "READY_FOR_DISPATCH",
     }
 
 

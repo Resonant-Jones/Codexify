@@ -1,3 +1,5 @@
+"""Pure validation helpers for the Pi invocation boundary."""
+
 from __future__ import annotations
 
 import json
