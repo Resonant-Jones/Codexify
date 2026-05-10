@@ -29,6 +29,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path after the document detail route repair.
 - Graph writes remain default-off on the supported Compose path.
+- Command Center now has a live-proofed non-dispatch worker-control panel for coding work-order visibility, create/cancel, and recommendation-only next-task inspection (`docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`).
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -36,6 +37,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume the coding-result return path is release-evidenced: the post-fix rerun still shows missing source-thread delivery and `agent_runs.status='queued'` after `task.failed`.
 - Do not assume workspace-local Obsidian retrieval is release signoff without a fresh current-tip proof run.
+- Do not assume UI dispatch, lease allocation, live MiniMax/Codex execution, or merge automation are release-proven; the worker-control Command Center seam is recommendation-only and non-dispatch.
 
 ## Active blockers
 - The coding-result return path still fails release gates after the post-fix rerun: no source-thread `coding_result` and durable run status remains `queued`.
