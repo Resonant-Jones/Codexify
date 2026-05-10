@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
@@ -17,6 +18,15 @@ from guardian.agents.test_results import (
     NormalizedTestResult,
     normalize_subprocess_test_result,
     not_run_test_result,
+)
+from guardian.agents.worktree_lease_store import (
+    WorktreeLeaseNotFound,
+    WorktreeLeaseStore,
+    WorktreeLeaseStoreError,
+)
+from guardian.agents.worktree_leases import (
+    is_active_lease_status,
+    validate_lease_contract,
 )
 from guardian.core import dependencies
 from guardian.protocol_tokens import ErrorCode, TaskEventType
@@ -54,6 +64,38 @@ _ADAPTER_KIND_ALIASES = {
 _VALIDATION_TIMEOUT_CAP_SECONDS = 120
 _VALIDATION_ATTEMPTS_DEFAULT = 1
 _VALIDATION_ATTEMPTS_CAP = 3
+
+
+@dataclass(frozen=True)
+class LeaseExecutionContext:
+    lease_id: str
+    branch_name: str
+    worktree_path: str
+    lease_required: bool
+
+
+def _coerce_optional_text(raw: Any) -> str | None:
+    value = str(raw or "").strip()
+    return value or None
+
+
+def _lease_metadata(lease_ctx: LeaseExecutionContext | None) -> dict[str, Any]:
+    if lease_ctx is None:
+        return {}
+    return {
+        "worktree_lease_id": lease_ctx.lease_id,
+        "branch_name": lease_ctx.branch_name,
+        "worktree_path": lease_ctx.worktree_path,
+        "lease_required": lease_ctx.lease_required,
+    }
+
+
+def _merge_payload(
+    payload: dict[str, Any], lease_ctx: LeaseExecutionContext | None
+) -> dict[str, Any]:
+    merged = dict(payload)
+    merged.update(_lease_metadata(lease_ctx))
+    return merged
 
 
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
@@ -386,9 +428,159 @@ class CodingWorker:
         validation_attempt_budget = (
             max_validation_attempts if validation_command else 1
         )
+        lease_required = bool(
+            task.require_worktree_lease
+            or deployment_spec.get("require_worktree_lease", False)
+        )
+        lease_id = _coerce_optional_text(
+            task.worktree_lease_id or deployment_spec.get("worktree_lease_id")
+        )
+        lease_store: WorktreeLeaseStore | None = None
+        lease_ctx: LeaseExecutionContext | None = None
+        effective_cwd = task.cwd
+
+        db = getattr(self.store, "db", None)
+        if db is not None and hasattr(db, "get_session"):
+            lease_store = WorktreeLeaseStore(db=db)
+
+        if lease_id is not None or lease_required:
+            if not lease_id:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_REQUIRED.value,
+                    error_message=(
+                        "worktree_lease_id is required when require_worktree_lease is true"
+                    ),
+                    lease_required=lease_required,
+                )
+                return
+
+            if lease_store is None:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_NOT_FOUND.value,
+                    error_message=(
+                        "worktree lease store is unavailable for lease-bound execution"
+                    ),
+                    lease_id=lease_id,
+                    lease_required=lease_required,
+                )
+                return
+
+            try:
+                lease = lease_store.get_lease(lease_id)
+            except WorktreeLeaseNotFound:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_NOT_FOUND.value,
+                    error_message=f"unknown worktree_lease_id: {lease_id}",
+                    lease_id=lease_id,
+                    lease_required=lease_required,
+                )
+                return
+            except WorktreeLeaseStoreError as exc:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_INVALID.value,
+                    error_message=f"failed to resolve worktree lease: {exc}",
+                    lease_id=lease_id,
+                    lease_required=lease_required,
+                )
+                return
+
+            if lease is None:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_NOT_FOUND.value,
+                    error_message=f"unknown worktree_lease_id: {lease_id}",
+                    lease_id=lease_id,
+                    lease_required=lease_required,
+                )
+                return
+
+            lease_validation = validate_lease_contract(lease)
+            if not lease_validation.ok:
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_INVALID.value,
+                    error_message=(
+                        lease_validation.reason
+                        or "worktree lease contract validation failed"
+                    ),
+                    lease_id=lease.lease_id,
+                    lease_required=lease_required,
+                    branch_name=lease.branch_name,
+                    worktree_path=lease.worktree_path,
+                )
+                return
+
+            if not is_active_lease_status(lease.status):
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_NOT_ACTIVE.value,
+                    error_message=f"worktree lease is not active: {lease.status}",
+                    lease_id=lease.lease_id,
+                    lease_required=lease_required,
+                    branch_name=lease.branch_name,
+                    worktree_path=lease.worktree_path,
+                )
+                return
+
+            if not os.path.exists(lease.worktree_path):
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_PATH_UNAVAILABLE.value,
+                    error_message=(
+                        f"worktree lease path does not exist: {lease.worktree_path}"
+                    ),
+                    lease_id=lease.lease_id,
+                    lease_required=lease_required,
+                    branch_name=lease.branch_name,
+                    worktree_path=lease.worktree_path,
+                )
+                return
+
+            if not os.path.isdir(lease.worktree_path):
+                self._emit_lease_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_LEASE_PATH_UNAVAILABLE.value,
+                    error_message=(
+                        f"worktree lease path is not a directory: {lease.worktree_path}"
+                    ),
+                    lease_id=lease.lease_id,
+                    lease_required=lease_required,
+                    branch_name=lease.branch_name,
+                    worktree_path=lease.worktree_path,
+                )
+                return
+
+            lease_ctx = LeaseExecutionContext(
+                lease_id=lease.lease_id,
+                branch_name=lease.branch_name,
+                worktree_path=lease.worktree_path,
+                lease_required=lease_required,
+            )
+            effective_cwd = lease.worktree_path
+            if not self._heartbeat_or_fail(
+                task,
+                adapter_kind=adapter_kind,
+                lease_ctx=lease_ctx,
+                lease_store=lease_store,
+                reason="pre_execution",
+            ):
+                return
 
         # Emit running event
-        self._emit_running(task, adapter_kind=adapter_kind)
+        self._emit_running(task, adapter_kind=adapter_kind, lease_ctx=lease_ctx)
 
         # Get adapter
         adapter = ADAPTERS.get(adapter_kind)
@@ -398,6 +590,7 @@ class CodingWorker:
                 adapter_kind=adapter_kind,
                 error_message=f"coding adapter not configured: {adapter_kind}",
                 error_code="ADAPTER_NOT_FOUND",
+                lease_ctx=lease_ctx,
             )
             return
 
@@ -481,6 +674,18 @@ class CodingWorker:
                     else None
                 ),
                 max_validation_attempts=max_validation_attempts,
+                worktree_lease_id=(
+                    lease_ctx.lease_id if lease_ctx is not None else None
+                ),
+                lease_required=(
+                    lease_ctx.lease_required if lease_ctx is not None else False
+                ),
+                lease_branch_name=(
+                    lease_ctx.branch_name if lease_ctx is not None else None
+                ),
+                lease_worktree_path=(
+                    lease_ctx.worktree_path if lease_ctx is not None else None
+                ),
             )
 
             if _is_success_like_coding_result(result_status) and not bool(
@@ -494,6 +699,7 @@ class CodingWorker:
                         or "coding result delivery failed"
                     ),
                     error_code="RESULT_DELIVERY_FAILED",
+                    lease_ctx=lease_ctx,
                 )
                 return
 
@@ -532,6 +738,7 @@ class CodingWorker:
                     if best_validation_result is not None
                     else None
                 ),
+                lease_ctx=lease_ctx,
             )
 
         for attempt_index in range(1, validation_attempt_budget + 1):
@@ -557,17 +764,29 @@ class CodingWorker:
                     validation_command=validation_command,
                     validation_attempt_count=attempt_index,
                     max_validation_attempts=validation_attempt_budget,
+                    lease_ctx=lease_ctx,
                 )
+
+            if lease_ctx is not None and lease_store is not None:
+                if not self._heartbeat_or_fail(
+                    task,
+                    adapter_kind=adapter_kind,
+                    lease_ctx=lease_ctx,
+                    lease_store=lease_store,
+                    reason="before_adapter_execute",
+                ):
+                    return
 
             request = AgentExecutionRequest(
                 prompt=attempt_prompt,
-                cwd=task.cwd,
+                cwd=effective_cwd,
                 timeout_seconds=task.timeout_seconds,
                 metadata={
                     "coding_task_id": task.coding_task_id,
                     "attempt_id": task.attempt_id,
                     "attempt_index": attempt_index,
                     "max_validation_attempts": validation_attempt_budget,
+                    **_lease_metadata(lease_ctx),
                 },
             )
 
@@ -626,26 +845,45 @@ class CodingWorker:
                         reason="validation_shell_not_allowed",
                         command=validation_command,
                     )
-                elif not task.cwd:
+                elif not effective_cwd:
                     final_validation_result = not_run_test_result(
                         reason="validation_cwd_missing",
                         command=validation_command,
                     )
                 else:
+                    if lease_ctx is not None and lease_store is not None:
+                        if not self._heartbeat_or_fail(
+                            task,
+                            adapter_kind=adapter_kind,
+                            lease_ctx=lease_ctx,
+                            lease_store=lease_store,
+                            reason="before_validation",
+                        ):
+                            return
                     self._emit_validation_started(
                         task,
                         adapter_kind=adapter_kind,
                         validation_command=validation_command,
                         validation_attempt_count=attempt_index,
                         max_validation_attempts=validation_attempt_budget,
+                        lease_ctx=lease_ctx,
                     )
                     final_validation_result = _run_validation_command(
                         command=validation_command,
-                        cwd=task.cwd,
+                        cwd=effective_cwd,
                         timeout_seconds=_validation_timeout_seconds(
                             task.timeout_seconds
                         ),
                     )
+                    if lease_ctx is not None and lease_store is not None:
+                        if not self._heartbeat_or_fail(
+                            task,
+                            adapter_kind=adapter_kind,
+                            lease_ctx=lease_ctx,
+                            lease_store=lease_store,
+                            reason="after_validation",
+                        ):
+                            return
 
                 validation_attempt_count = attempt_index
                 validation_attempts.append(
@@ -672,6 +910,7 @@ class CodingWorker:
                         validation_result=final_validation_result,
                         validation_attempt_count=validation_attempt_count,
                         max_validation_attempts=validation_attempt_budget,
+                        lease_ctx=lease_ctx,
                     )
                     _persist_and_emit_terminal(
                         result=result,
@@ -723,6 +962,7 @@ class CodingWorker:
                     validation_stop_reason=validation_stop_reason,
                     final_validation_status=final_validation_status,
                     final_fail_signature=final_fail_signature,
+                    lease_ctx=lease_ctx,
                 )
 
                 if final_validation_result.status == "error":
@@ -776,6 +1016,7 @@ class CodingWorker:
                             max_validation_attempts=validation_attempt_budget,
                             validation_stop_reason=validation_stop_reason,
                             retry_feedback=retry_feedback,
+                            lease_ctx=lease_ctx,
                         )
                         previous_fail_signature = final_fail_signature
                         continue
@@ -824,32 +1065,116 @@ class CodingWorker:
             )
             return
 
+    def _heartbeat_or_fail(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        lease_ctx: LeaseExecutionContext,
+        lease_store: WorktreeLeaseStore,
+        reason: str,
+    ) -> bool:
+        try:
+            lease_store.heartbeat(lease_ctx.lease_id)
+            return True
+        except WorktreeLeaseStoreError as exc:
+            self._emit_lease_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_code=ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value,
+                error_message=f"worktree lease heartbeat failed ({reason}): {exc}",
+                lease_id=lease_ctx.lease_id,
+                lease_required=lease_ctx.lease_required,
+                branch_name=lease_ctx.branch_name,
+                worktree_path=lease_ctx.worktree_path,
+            )
+            return False
+
+    def _emit_lease_failure(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        error_code: str,
+        error_message: str,
+        lease_id: str | None = None,
+        lease_required: bool = False,
+        branch_name: str | None = None,
+        worktree_path: str | None = None,
+    ) -> None:
+        artifacts = [
+            {
+                "stop_reason": "worktree_lease_preflight_failed",
+                "worktree_lease_id": lease_id,
+                "branch_name": branch_name,
+                "worktree_path": worktree_path,
+                "lease_required": lease_required,
+            }
+        ]
+        self.store.store_coding_result(
+            run_id=task.run_id,
+            coding_task_id=task.coding_task_id,
+            attempt_id=task.attempt_id,
+            request_id=task.request_id or None,
+            thread_id=task.thread_id,
+            source_message_id=_coerce_optional_positive_int(
+                task.source_message_id
+            ),
+            result_status="failed",
+            result_summary=error_message,
+            adapter_kind=adapter_kind,
+            files_changed=[],
+            artifacts=artifacts,
+            errors=[error_code],
+            error_code=error_code,
+            error_message=error_message,
+            worktree_lease_id=lease_id,
+            lease_required=lease_required,
+            lease_branch_name=branch_name,
+            lease_worktree_path=worktree_path,
+        )
+        self._emit_failure(
+            task,
+            adapter_kind=adapter_kind,
+            error_message=error_message,
+            error_code=error_code,
+            result_captured_by_guardian=True,
+            lease_id=lease_id,
+            branch_name=branch_name,
+            worktree_path=worktree_path,
+            lease_required=lease_required,
+        )
+
     def _emit_running(
         self,
         task: CodingExecutionTask,
         *,
         adapter_kind: str | None,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.running event."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 "task.running",
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "running",
-                },
+                        "status": "running",
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -865,30 +1190,34 @@ class CodingWorker:
         validation_command: str,
         validation_attempt_count: int,
         max_validation_attempts: int,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.attempt_started for a validation-bearing attempt."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 TaskEventType.TASK_ATTEMPT_STARTED.value,
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "running",
-                    "validation_attempt_count": validation_attempt_count,
-                    "max_validation_attempts": max_validation_attempts,
-                    "validation_command": validation_command,
-                },
+                        "status": "running",
+                        "validation_attempt_count": validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_command": validation_command,
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -904,30 +1233,34 @@ class CodingWorker:
         validation_command: str,
         validation_attempt_count: int,
         max_validation_attempts: int,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.validation_started for an upcoming validation run."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 TaskEventType.TASK_VALIDATION_STARTED.value,
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "validation_started",
-                    "validation_attempt_count": validation_attempt_count,
-                    "max_validation_attempts": max_validation_attempts,
-                    "validation_command": validation_command,
-                },
+                        "status": "validation_started",
+                        "validation_attempt_count": validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_command": validation_command,
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -943,31 +1276,35 @@ class CodingWorker:
         validation_result: NormalizedTestResult,
         validation_attempt_count: int,
         max_validation_attempts: int,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.validation_passed for a successful validation attempt."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 TaskEventType.TASK_VALIDATION_PASSED.value,
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "validation_passed",
-                    "validation_attempt_count": validation_attempt_count,
-                    "max_validation_attempts": max_validation_attempts,
-                    "validation_results": validation_result.model_dump(),
-                    "validation_result": validation_result.model_dump(),
-                },
+                        "status": "validation_passed",
+                        "validation_attempt_count": validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_results": validation_result.model_dump(),
+                        "validation_result": validation_result.model_dump(),
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -986,34 +1323,38 @@ class CodingWorker:
         validation_stop_reason: str | None,
         final_validation_status: str | None,
         final_fail_signature: str | None,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.validation_failed for a failed validation attempt."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 TaskEventType.TASK_VALIDATION_FAILED.value,
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "validation_failed",
-                    "validation_attempt_count": validation_attempt_count,
-                    "max_validation_attempts": max_validation_attempts,
-                    "validation_stop_reason": validation_stop_reason,
-                    "final_validation_status": final_validation_status,
-                    "final_fail_signature": final_fail_signature,
-                    "validation_results": validation_result.model_dump(),
-                    "validation_result": validation_result.model_dump(),
-                },
+                        "status": "validation_failed",
+                        "validation_attempt_count": validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_stop_reason": validation_stop_reason,
+                        "final_validation_status": final_validation_status,
+                        "final_fail_signature": final_fail_signature,
+                        "validation_results": validation_result.model_dump(),
+                        "validation_result": validation_result.model_dump(),
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -1032,34 +1373,38 @@ class CodingWorker:
         max_validation_attempts: int,
         validation_stop_reason: str | None,
         retry_feedback: str,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit task.validation_retrying with bounded retry feedback."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 TaskEventType.TASK_VALIDATION_RETRYING.value,
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "validation_retrying",
-                    "validation_attempt_count": validation_attempt_count,
-                    "next_validation_attempt_count": next_validation_attempt_count,
-                    "max_validation_attempts": max_validation_attempts,
-                    "validation_stop_reason": validation_stop_reason,
-                    "validation_results": validation_result.model_dump(),
-                    "validation_result": validation_result.model_dump(),
-                    "retry_feedback": retry_feedback,
-                },
+                        "status": "validation_retrying",
+                        "validation_attempt_count": validation_attempt_count,
+                        "next_validation_attempt_count": next_validation_attempt_count,
+                        "max_validation_attempts": max_validation_attempts,
+                        "validation_stop_reason": validation_stop_reason,
+                        "validation_results": validation_result.model_dump(),
+                        "validation_result": validation_result.model_dump(),
+                        "retry_feedback": retry_feedback,
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -1091,48 +1436,52 @@ class CodingWorker:
         final_fail_signature: str | None = None,
         best_validation_result: dict[str, Any] | None = None,
         max_validation_attempts: int | None = None,
+        lease_ctx: LeaseExecutionContext | None = None,
     ) -> None:
         """Emit terminal task event."""
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 f"task.{event_type}",
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
                         ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": event_type,
-                    "coding_result_status": result_status,
-                    "result_captured_by_guardian": True,
-                    "summary": summary,
-                    "files_changed": files_changed,
-                    "artifacts": artifacts,
-                    "adapter_session_ref": adapter_session_ref,
-                    "message_id": delivery.get("message_id"),
-                    "delivery_ok": bool(delivery.get("delivery_ok", False)),
-                    "delivery_reason": delivery.get("delivery_reason"),
-                    "errors": errors,
-                    "error_code": error_code,
-                    "error_message": error_message,
-                    "validation_results": validation_results,
-                    "validation_result": validation_results,
-                    "validation_attempt_count": validation_attempt_count,
-                    "validation_attempts": validation_attempts,
-                    "validation_stop_reason": validation_stop_reason,
-                    "final_validation_status": final_validation_status,
-                    "final_fail_signature": final_fail_signature,
-                    "best_validation_result": best_validation_result,
-                    "max_validation_attempts": max_validation_attempts,
-                },
+                        "status": event_type,
+                        "coding_result_status": result_status,
+                        "result_captured_by_guardian": True,
+                        "summary": summary,
+                        "files_changed": files_changed,
+                        "artifacts": artifacts,
+                        "adapter_session_ref": adapter_session_ref,
+                        "message_id": delivery.get("message_id"),
+                        "delivery_ok": bool(delivery.get("delivery_ok", False)),
+                        "delivery_reason": delivery.get("delivery_reason"),
+                        "errors": errors,
+                        "error_code": error_code,
+                        "error_message": error_message,
+                        "validation_results": validation_results,
+                        "validation_result": validation_results,
+                        "validation_attempt_count": validation_attempt_count,
+                        "validation_attempts": validation_attempts,
+                        "validation_stop_reason": validation_stop_reason,
+                        "final_validation_status": final_validation_status,
+                        "final_fail_signature": final_fail_signature,
+                        "best_validation_result": best_validation_result,
+                        "max_validation_attempts": max_validation_attempts,
+                    },
+                    lease_ctx,
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -1147,6 +1496,12 @@ class CodingWorker:
         adapter_kind: str | None,
         error_message: str,
         error_code: str,
+        lease_ctx: LeaseExecutionContext | None = None,
+        result_captured_by_guardian: bool = False,
+        lease_id: str | None = None,
+        branch_name: str | None = None,
+        worktree_path: str | None = None,
+        lease_required: bool | None = None,
     ) -> None:
         """Emit task.failed event for unrecoverable errors."""
         self.store.update_run_status(
@@ -1154,28 +1509,39 @@ class CodingWorker:
             status="failed",
             error=error_message,
         )
+        payload = {
+            **build_coding_result_lineage_payload(
+                run_id=task.run_id,
+                queue_task_id=task.task_id,
+                coding_task_id=task.coding_task_id,
+                attempt_id=task.attempt_id,
+                request_id=task.request_id or None,
+                source_thread_id=task.thread_id,
+                source_message_id=_coerce_optional_positive_int(
+                    task.source_message_id
+                ),
+                adapter_kind=adapter_kind,
+            ),
+            "status": "failed",
+            "error_code": error_code,
+            "error_message": error_message,
+            "result_captured_by_guardian": result_captured_by_guardian,
+        }
+        if lease_ctx is not None:
+            payload.update(_lease_metadata(lease_ctx))
+        if lease_id is not None:
+            payload["worktree_lease_id"] = lease_id
+        if branch_name is not None:
+            payload["branch_name"] = branch_name
+        if worktree_path is not None:
+            payload["worktree_path"] = worktree_path
+        if lease_required is not None:
+            payload["lease_required"] = lease_required
         try:
             task_events.publish_with_visibility(
                 task.run_id,
                 "task.failed",
-                {
-                    **build_coding_result_lineage_payload(
-                        run_id=task.run_id,
-                        queue_task_id=task.task_id,
-                        coding_task_id=task.coding_task_id,
-                        attempt_id=task.attempt_id,
-                        request_id=task.request_id or None,
-                        source_thread_id=task.thread_id,
-                        source_message_id=_coerce_optional_positive_int(
-                            task.source_message_id
-                        ),
-                        adapter_kind=adapter_kind,
-                    ),
-                    "status": "failed",
-                    "error_code": error_code,
-                    "error_message": error_message,
-                    "result_captured_by_guardian": False,
-                },
+                payload,
             )
         except Exception as exc:
             logger.warning(

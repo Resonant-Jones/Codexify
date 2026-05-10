@@ -413,6 +413,8 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["validation_command"] == "pytest -q"
     assert payload["max_validation_attempts"] == 3
     assert payload["permission_policy"]["allow_shell"] is True
+    assert payload["worktree_lease_id"] is None
+    assert payload["require_worktree_lease"] is False
 
     deployment = local_store.get_deployment(result["deployment_id"])
     assert deployment is not None
@@ -424,6 +426,64 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"
     assert deployment["spec_json"]["project_id"] == 17
+    assert deployment["spec_json"]["worktree_lease_id"] is None
+    assert deployment["spec_json"]["require_worktree_lease"] is False
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_propagates_worktree_lease_fields(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    captured_payloads: list[dict[str, Any]] = []
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: captured_payloads.append(dict(payload)),
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-lease-123",
+        thread_id="42",
+        source_message_id="99",
+        attempt_id="attempt-1",
+        user_id="local-user",
+        project_id=17,
+        adapter_kind="pi_sdk",
+        instructions="Patch the failing seam.",
+        repo_root="/workspace/repo",
+        context_summary="source thread summary",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        worktree_lease_id="lease-abc",
+        require_worktree_lease=True,
+        permission_policy=CodingAgentPermissionPolicy(
+            allow_shell=True,
+            allow_network=False,
+            allow_write=True,
+            allowed_paths=("/workspace/repo",),
+            max_runtime_seconds=60,
+        ),
+    )
+
+    result = await agent_orchestration.execute_coding_task(envelope)
+
+    assert result["ok"] is True
+    assert captured_payloads
+    payload = captured_payloads[0]
+    assert payload["worktree_lease_id"] == "lease-abc"
+    assert payload["require_worktree_lease"] is True
+
+    deployment = local_store.get_deployment(result["deployment_id"])
+    assert deployment is not None
+    assert deployment["spec_json"]["worktree_lease_id"] == "lease-abc"
+    assert deployment["spec_json"]["require_worktree_lease"] is True
 
 
 def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:
@@ -525,8 +585,12 @@ def test_coding_execution_payload_defaults_validation_attempts_to_one() -> None:
     task = CodingExecutionTask.from_dict(payload)
 
     assert payload["max_validation_attempts"] == 1
+    assert "worktree_lease_id" not in payload
+    assert payload["require_worktree_lease"] is False
     assert task.run_id == "run-123"
     assert task.max_validation_attempts == 1
+    assert task.worktree_lease_id is None
+    assert task.require_worktree_lease is False
     assert task.permission_policy["allow_shell"] is True
 
 
@@ -542,13 +606,19 @@ def test_coding_execution_payload_round_trips_retry_field() -> None:
         instructions="Fix the failing test.",
         validation_command="pytest -q",
         max_validation_attempts=3,
+        worktree_lease_id="lease-xyz",
+        require_worktree_lease=True,
     )
 
     payload = agent_orchestration.build_coding_execution_task_payload(body)
     task = CodingExecutionTask.from_dict(payload)
 
     assert payload["max_validation_attempts"] == 3
+    assert payload["worktree_lease_id"] == "lease-xyz"
+    assert payload["require_worktree_lease"] is True
     assert task.max_validation_attempts == 3
+    assert task.worktree_lease_id == "lease-xyz"
+    assert task.require_worktree_lease is True
     assert task.validation_command == "pytest -q"
 
 

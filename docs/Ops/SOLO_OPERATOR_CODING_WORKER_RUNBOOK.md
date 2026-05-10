@@ -24,6 +24,9 @@ Source anchors:
 4. It does not enable retry-until-tests-pass behavior.
 5. Future loop work must consume the normalized test-result contract rather than
    raw stdout/stderr blobs.
+6. Lease-bound execution now exists in the worker seam when `worktree_lease_id`
+   is supplied.
+7. Guardian still does not allocate Git branches or Git worktrees in this phase.
 
 ## Bounded Validation Retry
 
@@ -128,6 +131,21 @@ Supported values:
 
 Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
 not execution success.
+
+### Lease-Bound Execution
+
+- Optional request/spec/task fields:
+  - `worktree_lease_id`
+  - `require_worktree_lease`
+- If a lease is provided, the worker resolves durable lease state and requires
+  an active, valid lease contract.
+- When lease-bound, the worker uses lease `worktree_path` as the effective cwd
+  for both adapter execution and validation commands.
+- Lease heartbeats are attempted during execution.
+- Missing, inactive, invalid, or unavailable lease context fails closed.
+- This remains a backend seam only in this phase. There is no UI command center
+  for lease inspection yet.
+- Guardian still does not create Git branches or Git worktrees in this phase.
 
 ### Normalized Test Results
 

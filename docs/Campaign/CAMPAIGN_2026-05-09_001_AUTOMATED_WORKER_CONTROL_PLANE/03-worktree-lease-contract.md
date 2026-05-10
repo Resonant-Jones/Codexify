@@ -6,15 +6,18 @@ Define the proposed branch/worktree lease envelope that gives each worker run an
 ## Contract status
 - Contract types and validation helpers now exist in code.
 - Durable lease store operations now exist in code.
-- Runtime allocation, worker lease enforcement, and Git branch/worktree creation are still not implemented.
+- Coding worker now honors lease-bound execution when lease context is provided.
+- Runtime allocation and Git branch/worktree creation are still not implemented.
 
 ## Implementation anchor
 - `guardian/agents/worktree_leases.py`
 - `guardian/agents/worktree_lease_store.py`
+- `guardian/workers/coding_worker.py`
 - `guardian/db/models.py`
 - `guardian/db/migrations/versions/8c9d0e1f2a3b_add_worktree_leases.py`
 - The contract anchor provides canonical tokens, request/contract/result shapes, validation helpers, and durable storage lifecycle methods.
-- It does not allocate filesystem worktrees, create Git branches, execute coding workers, or expose API/UI behavior.
+- It now includes worker-side lease resolution and lease-bound cwd enforcement.
+- It does not allocate filesystem worktrees, create Git branches, execute commit/merge policy, or expose API/UI behavior.
 
 ## Required fields
 - `lease_id`: unique lease identifier.

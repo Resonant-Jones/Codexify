@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +13,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from guardian.agents.store import AgentStore
+from guardian.agents.worktree_lease_store import (
+    WorktreeLeaseStore,
+    WorktreeLeaseStoreError,
+)
+from guardian.agents.worktree_leases import WorktreeLeaseContract
 from guardian.db.models import (
     AgentDeployment,
     AgentRun,
@@ -19,6 +25,7 @@ from guardian.db.models import (
     Base,
     ChatMessage,
     ChatThread,
+    CodingWorktreeLease,
     Project,
     User,
 )
@@ -64,6 +71,7 @@ class _TestDB:
                 AgentDeployment.__table__,
                 AgentRun.__table__,
                 AgentRunArtifact.__table__,
+                CodingWorktreeLease.__table__,
             ],
         )
         self._session_factory = sessionmaker(
@@ -210,6 +218,8 @@ def _build_task(
     validation_command: str | None = None,
     max_validation_attempts: int | None = None,
     permission_policy: dict[str, Any] | None = None,
+    worktree_lease_id: str | None = None,
+    require_worktree_lease: bool | None = None,
 ) -> CodingExecutionTask:
     payload: dict[str, Any] = {
         "task_id": f"task-{coding_task_id}",
@@ -230,7 +240,74 @@ def _build_task(
         payload["max_validation_attempts"] = max_validation_attempts
     if permission_policy is not None:
         payload["permission_policy"] = permission_policy
+    if worktree_lease_id is not None:
+        payload["worktree_lease_id"] = worktree_lease_id
+    if require_worktree_lease is not None:
+        payload["require_worktree_lease"] = require_worktree_lease
     return CodingExecutionTask.from_dict(payload)
+
+
+def _create_active_worktree_lease(
+    db: _TestDB,
+    *,
+    lease_id: str,
+    work_order_id: str,
+    run_id: str,
+    worker_id: str,
+    branch_name: str,
+    worktree_path: str,
+) -> WorktreeLeaseContract:
+    created_at = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    lease = WorktreeLeaseContract(
+        lease_id=lease_id,
+        work_order_id=work_order_id,
+        run_id=run_id,
+        worker_id=worker_id,
+        base_ref="origin/main",
+        branch_name=branch_name,
+        worktree_path=worktree_path,
+        status="active",
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+        preserve_on_failure=False,
+        cleanup_policy="cleanup_on_merge",
+        last_heartbeat_at=created_at + timedelta(minutes=1),
+    )
+    store = WorktreeLeaseStore(db=db)
+    return store.create_lease(lease)
+
+
+def _insert_invalid_worktree_lease_row(
+    db: _TestDB,
+    *,
+    lease_id: str,
+    work_order_id: str,
+    run_id: str,
+    worker_id: str,
+    branch_name: str,
+    worktree_path: str,
+) -> None:
+    created_at = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    with db.get_session() as session:
+        session.add(
+            CodingWorktreeLease(
+                lease_id=lease_id,
+                work_order_id=work_order_id,
+                run_id=run_id,
+                worker_id=worker_id,
+                base_ref="origin/main",
+                branch_name=branch_name,
+                worktree_path=worktree_path,
+                status="active",
+                created_at=created_at,
+                expires_at=created_at - timedelta(minutes=5),
+                preserve_on_failure=False,
+                cleanup_policy="cleanup_on_merge",
+                last_heartbeat_at=created_at + timedelta(minutes=1),
+                extra_meta={},
+            )
+        )
+        session.commit()
 
 
 def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> (
@@ -253,6 +330,8 @@ def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> 
 
     assert task.validation_command is None
     assert task.max_validation_attempts == 1
+    assert task.worktree_lease_id is None
+    assert task.require_worktree_lease is False
 
 
 def _install_fake_adapter(
@@ -543,6 +622,447 @@ def test_unknown_adapter_kind_fails_closed_with_adapter_not_found(
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
+
+
+def test_lease_bound_execution_uses_leased_worktree_and_metadata(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-bound-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "lease-worktree"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-bound-1",
+        work_order_id="wo-lease-bound-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/lease-bound-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Lease-bound adapter completed.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    heartbeat_calls: list[str] = []
+    original_heartbeat = coding_worker.WorktreeLeaseStore.heartbeat
+
+    def _spy_heartbeat(
+        self, lease_id: str, at: datetime | None = None
+    ) -> WorktreeLeaseContract:
+        heartbeat_calls.append(lease_id)
+        return original_heartbeat(self, lease_id, at=at)
+
+    monkeypatch.setattr(
+        coding_worker.WorktreeLeaseStore, "heartbeat", _spy_heartbeat
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-lease-bound",
+        cwd="/tmp/ignored-cwd",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": [str(lease_path)],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(adapter_calls) == 1
+    assert adapter_calls[0].cwd == str(lease_path)
+    assert len(validation_calls) == 1
+    assert validation_calls[0]["cwd"] == str(lease_path)
+    assert len(heartbeat_calls) >= 4
+    terminal_payload = published[-1][2]
+    assert published[-1][1] == "task.completed"
+    assert terminal_payload["worktree_lease_id"] == lease.lease_id
+    assert terminal_payload["branch_name"] == lease.branch_name
+    assert terminal_payload["worktree_path"] == str(lease_path)
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["worktree_lease_id"] == lease.lease_id
+    assert content["branch_name"] == lease.branch_name
+    assert content["worktree_path"] == str(lease_path)
+    assert content["lease_required"] is True
+
+
+def test_missing_required_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-required-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-required-lease",
+        require_worktree_lease=True,
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert validation_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_REQUIRED"
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+
+
+def test_unknown_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-unknown-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-unknown-lease",
+        worktree_lease_id="lease-does-not-exist",
+        require_worktree_lease=False,
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_NOT_FOUND"
+    assert published[-1][2]["worktree_lease_id"] == "lease-does-not-exist"
+
+
+def test_inactive_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-inactive-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "inactive-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    released_lease = WorktreeLeaseContract(
+        lease_id="lease-inactive-1",
+        work_order_id="wo-inactive-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        base_ref="origin/main",
+        branch_name="codex/inactive-1",
+        worktree_path=str(lease_path),
+        status="released",
+        created_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 5, 10, 13, 0, tzinfo=UTC),
+        preserve_on_failure=False,
+        cleanup_policy="cleanup_on_merge",
+        last_heartbeat_at=datetime(2026, 5, 10, 12, 5, tzinfo=UTC),
+    )
+    WorktreeLeaseStore(db=db).create_lease(released_lease)
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-inactive-lease",
+        worktree_lease_id="lease-inactive-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_NOT_ACTIVE"
+
+
+def test_invalid_lease_contract_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-invalid-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "invalid-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    _insert_invalid_worktree_lease_row(
+        db,
+        lease_id="lease-invalid-1",
+        work_order_id="wo-invalid-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/invalid-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-invalid-lease",
+        worktree_lease_id="lease-invalid-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_INVALID"
+
+
+def test_missing_lease_path_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-missing-path-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    missing_path = tmp_path / "missing-lease-path"
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-missing-path-1",
+        work_order_id="wo-missing-path-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/missing-path-1",
+        worktree_path=str(missing_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-lease-path",
+        worktree_lease_id="lease-missing-path-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+
+
+def test_lease_path_file_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-file-path-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    file_path = tmp_path / "not-a-dir.txt"
+    file_path.write_text("lease path file", encoding="utf-8")
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-file-path-1",
+        work_order_id="wo-file-path-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/file-path-1",
+        worktree_path=str(file_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-file-lease-path",
+        worktree_lease_id="lease-file-path-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+
+
+def test_lease_heartbeat_failure_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-heartbeat-fail-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "lease-heartbeat-fail"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-heartbeat-fail-1",
+        work_order_id="wo-heartbeat-fail-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/heartbeat-fail-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+
+    def _boom_heartbeat(
+        _self, _lease_id: str, at: datetime | None = None
+    ) -> WorktreeLeaseContract:
+        _ = at
+        raise WorktreeLeaseStoreError("heartbeat unavailable")
+
+    monkeypatch.setattr(
+        coding_worker.WorktreeLeaseStore, "heartbeat", _boom_heartbeat
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-lease-heartbeat-fail",
+        worktree_lease_id="lease-heartbeat-fail-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_HEARTBEAT_FAILED"
 
 
 def test_passing_validation_is_persisted_and_emitted(
@@ -887,8 +1407,8 @@ def test_omitted_validation_command_preserves_existing_behavior(
         adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
-    _capture_task_events(monkeypatch)
-    _install_fake_adapter(
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(
             status="ok",
@@ -916,6 +1436,10 @@ def test_omitted_validation_command_preserves_existing_behavior(
 
     worker._process_task(task)
 
+    assert len(adapter_calls) == 1
+    assert adapter_calls[0].cwd == "/workspace/repo"
+    terminal_payload = published[-1][2]
+    assert terminal_payload.get("worktree_lease_id") is None
     assert validation_calls == []
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1

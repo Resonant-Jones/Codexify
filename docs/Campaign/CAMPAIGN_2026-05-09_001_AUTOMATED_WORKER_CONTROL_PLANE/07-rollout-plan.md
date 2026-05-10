@@ -19,7 +19,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 3: coding worker uses leased worktree
 - Scope: worker run path must require and honor lease context.
-- Proof expectation: worker integration proof that run executes inside leased worktree and emits lease-linked receipt.
+- Proof expectation: worker tests prove lease-bound adapter/validation cwd (`guardian/tests/workers/test_coding_worker.py`) and lease-linked terminal/result metadata, plus route tests prove lease-field propagation (`guardian/tests/routes/test_agent_orchestration_events.py`).
 
 ### Phase 4: commit-after-green gate
 - Scope: commit behavior only after passing validation in bounded policy path.

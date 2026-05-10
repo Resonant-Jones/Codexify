@@ -926,6 +926,10 @@ class AgentStore:
         final_fail_signature: Any | None = None,
         best_validation_result: Any | None = None,
         max_validation_attempts: Any | None = None,
+        worktree_lease_id: str | None = None,
+        lease_required: bool | None = None,
+        lease_branch_name: str | None = None,
+        lease_worktree_path: str | None = None,
     ) -> dict[str, Any]:
         """Store coding result and inject into source thread.
 
@@ -981,6 +985,25 @@ class AgentStore:
         )
         expected_project_id = _coerce_positive_int(
             deployment_spec.get("project_id")
+        )
+        resolved_worktree_lease_id = (
+            str(
+                worktree_lease_id
+                or deployment_spec.get("worktree_lease_id")
+                or ""
+            ).strip()
+            or None
+        )
+        resolved_lease_required = bool(
+            lease_required
+            if lease_required is not None
+            else deployment_spec.get("require_worktree_lease", False)
+        )
+        resolved_lease_branch_name = (
+            str(lease_branch_name or "").strip() or None
+        )
+        resolved_lease_worktree_path = (
+            str(lease_worktree_path or "").strip() or None
         )
 
         commit_hash = None
@@ -1075,6 +1098,10 @@ class AgentStore:
                 "best_validation_result": best_validation_result,
                 "max_validation_attempts": max_validation_attempts,
                 "adapter_session_ref": adapter_session_ref,
+                "worktree_lease_id": resolved_worktree_lease_id,
+                "lease_required": resolved_lease_required,
+                "branch_name": resolved_lease_branch_name,
+                "worktree_path": resolved_lease_worktree_path,
                 "result_captured_by_guardian": True,
             }
 
@@ -1107,6 +1134,10 @@ class AgentStore:
             "best_validation_result": best_validation_result,
             "max_validation_attempts": max_validation_attempts,
             "adapter_session_ref": adapter_session_ref,
+            "worktree_lease_id": resolved_worktree_lease_id,
+            "lease_required": resolved_lease_required,
+            "branch_name": resolved_lease_branch_name,
+            "worktree_path": resolved_lease_worktree_path,
             "result_captured_by_guardian": True,
         }
 
@@ -1148,6 +1179,10 @@ class AgentStore:
                 adapter_session_ref=adapter_session_ref,
                 error_code=error_code,
                 error_message=error_message,
+                worktree_lease_id=resolved_worktree_lease_id,
+                lease_required=resolved_lease_required,
+                lease_branch_name=resolved_lease_branch_name,
+                lease_worktree_path=resolved_lease_worktree_path,
             )
             delivery_ok = message_id is not None
         elif expected_thread_id is None:
@@ -1241,6 +1276,10 @@ class AgentStore:
         adapter_session_ref: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        worktree_lease_id: str | None = None,
+        lease_required: bool = False,
+        lease_branch_name: str | None = None,
+        lease_worktree_path: str | None = None,
     ) -> tuple[int | None, str | None]:
         if not self._has_db():
             return None, "delivery_database_unavailable"
@@ -1303,6 +1342,10 @@ class AgentStore:
                     "files_changed": list(files_changed),
                     "artifacts": list(artifacts),
                     "adapter_session_ref": adapter_session_ref,
+                    "worktree_lease_id": worktree_lease_id,
+                    "lease_required": lease_required,
+                    "branch_name": lease_branch_name,
+                    "worktree_path": lease_worktree_path,
                     "result_captured_by_guardian": True,
                     "error_code": error_code,
                     "error_message": error_message,
@@ -1377,6 +1420,18 @@ class AgentStore:
                     )
                     content_parts.append(f"- {name}\n")
                 content_parts.append("\n")
+            if worktree_lease_id:
+                content_parts.append("**Worktree Lease**:\n")
+                content_parts.append(f"- Lease ID: `{worktree_lease_id}`\n")
+                if lease_branch_name:
+                    content_parts.append(f"- Branch: `{lease_branch_name}`\n")
+                if lease_worktree_path:
+                    content_parts.append(
+                        f"- Worktree Path: `{lease_worktree_path}`\n"
+                    )
+                content_parts.append(
+                    f"- Lease Required: `{str(lease_required).lower()}`\n\n"
+                )
 
             if errors:
                 content_parts.append("**This task requires attention.**\n")
