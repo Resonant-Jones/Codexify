@@ -585,6 +585,16 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
+        ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
+        == "DIRTY_WORKTREE_PRECHECK_FAILED"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_VIOLATION.value == "MUTATION_SCOPE_VIOLATION"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_UNVERIFIED.value == "MUTATION_SCOPE_UNVERIFIED"
+    )
+    assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
     assert (

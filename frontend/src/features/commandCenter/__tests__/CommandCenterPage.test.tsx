@@ -199,10 +199,10 @@ const mockedTracePayload: CommandCenterRagTracePayload = {
       timestamp: "2026-04-01T15:58:08Z",
     },
   ],
-  // graph is accessed in buildOutcomeRows but not present in the type;
-  // include it as an empty array so the optional chain doesn't throw.
   graph: [],
 };
+let mockedTracePayloadForTaskAlpha: CommandCenterRagTracePayload | null =
+  mockedTracePayload;
 
 const mockedRawTrace = {
   attempted_model: "gpt-5-mini",
@@ -826,7 +826,7 @@ vi.mock("../hooks/useRagTrace", () => ({
         loading: false,
         rawTrace: mockedRawTrace,
         resolvedThreadId: 42,
-        trace: mockedTracePayload,
+        trace: mockedTracePayloadForTaskAlpha,
         unavailable: false,
         unavailableReason: null,
       };
@@ -1345,6 +1345,7 @@ vi.mock("../hooks/useRetrievalPostureHistory", () => ({
 beforeEach(() => {
   mockRefresh.mockClear();
   clearRetrievalPostureSequences();
+  mockedTracePayloadForTaskAlpha = mockedTracePayload;
   mockClipboardWriteText.mockReset();
   setThread42HistoryItems(defaultThread42HistoryItems);
   Object.defineProperty(navigator, "clipboard", {
@@ -1519,6 +1520,26 @@ describe("CommandCenterPage", () => {
     const row = screen.getByTestId("command-center-retrieval-posture-history-item");
     expect(row).toBeInTheDocument();
     expect(within(row).getByText("Task: task-alpha")).toBeInTheDocument();
+  });
+
+  it("keeps worker-control panel visible when trace payload fields are partial", () => {
+    mockedTracePayloadForTaskAlpha = {
+      resolvedThreadId: 42,
+      memory: [],
+      // omit semantic + graph to mirror partial live payload shape
+    } as unknown as CommandCenterRagTracePayload;
+
+    render(<CommandCenterPage enabled />);
+
+    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("coding-orchestrator-recommendations")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /dispatch/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows a generic fallback when the newest two history items differ in an unsupported combination", () => {
