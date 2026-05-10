@@ -4,7 +4,9 @@
 Define the structured terminal receipt returned by a coding worker run so orchestration, human review, and follow-up decisions operate on bounded normalized evidence.
 
 ## Contract status
-Proposed only. Not implemented.
+- Proposed contract remains broader than current runtime.
+- Worker result envelopes now include bounded lease metadata for lease-bound runs (`worktree_lease_id`, `branch_name`, `worktree_path`, `lease_required`).
+- A full standalone receipt table/API is still not implemented.
 
 ## Required fields
 - `work_order_id`
@@ -28,6 +30,7 @@ Proposed only. Not implemented.
 ## Field notes
 - `files_changed`: bounded list or digest, not unbounded patch payload.
 - `validation_results`: normalized attempt list (status, exit code, bounded previews, timestamps).
+- `lease_id` / `branch_name` / `worktree_path`: present when execution is lease-bound; absent for legacy non-lease runs.
 - `final_validation_status`: canonical token (`passed`, `failed`, `not_run`, `error`).
 - `final_fail_signature`: deterministic token/string for failure clustering when available.
 - `stop_reason`: canonical terminal reason token.

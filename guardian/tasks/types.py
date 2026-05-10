@@ -522,6 +522,8 @@ class CodingExecutionTask(BaseTask):
     )
     validation_command: str | None = None
     max_validation_attempts: int = 1
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -578,6 +580,15 @@ class CodingExecutionTask(BaseTask):
             max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
                 or payload.get("maxValidationAttempts"),
+            ),
+            worktree_lease_id=_coerce_optional_text(
+                payload.get("worktree_lease_id")
+                or payload.get("worktreeLeaseId")
+            ),
+            require_worktree_lease=bool(
+                payload.get("require_worktree_lease")
+                or payload.get("requireWorktreeLease")
+                or False
             ),
             **base,
         )
@@ -839,6 +850,8 @@ class CodingExecutionTask(BaseTask):
     validation_command: str | None = None
     max_validation_attempts: int = 1
     permission_policy: dict[str, Any] | None = None
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -873,6 +886,15 @@ class CodingExecutionTask(BaseTask):
                     or payload.get("permissionPolicy")
                 )
                 or None
+            ),
+            worktree_lease_id=_coerce_optional_text(
+                payload.get("worktree_lease_id")
+                or payload.get("worktreeLeaseId")
+            ),
+            require_worktree_lease=bool(
+                payload.get("require_worktree_lease")
+                or payload.get("requireWorktreeLease")
+                or False
             ),
             **base,
         )

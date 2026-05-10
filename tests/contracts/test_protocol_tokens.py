@@ -599,6 +599,22 @@ def test_error_code_tokens() -> None:
         ErrorCode.DELEGATION_EXECUTOR_SPAWN_FAILED.value
         == "DELEGATION_EXECUTOR_SPAWN_FAILED"
     )
+    assert ErrorCode.WORKTREE_LEASE_REQUIRED.value == "WORKTREE_LEASE_REQUIRED"
+    assert (
+        ErrorCode.WORKTREE_LEASE_NOT_FOUND.value == "WORKTREE_LEASE_NOT_FOUND"
+    )
+    assert (
+        ErrorCode.WORKTREE_LEASE_NOT_ACTIVE.value == "WORKTREE_LEASE_NOT_ACTIVE"
+    )
+    assert ErrorCode.WORKTREE_LEASE_INVALID.value == "WORKTREE_LEASE_INVALID"
+    assert (
+        ErrorCode.WORKTREE_LEASE_PATH_UNAVAILABLE.value
+        == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+    )
+    assert (
+        ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value
+        == "WORKTREE_LEASE_HEARTBEAT_FAILED"
+    )
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
@@ -614,6 +630,12 @@ def test_error_code_tokens() -> None:
         "DELEGATION_EXECUTOR_TIMEOUT",
         "DELEGATION_EXECUTOR_NONZERO_EXIT",
         "DELEGATION_EXECUTOR_SPAWN_FAILED",
+        "WORKTREE_LEASE_REQUIRED",
+        "WORKTREE_LEASE_NOT_FOUND",
+        "WORKTREE_LEASE_NOT_ACTIVE",
+        "WORKTREE_LEASE_INVALID",
+        "WORKTREE_LEASE_PATH_UNAVAILABLE",
+        "WORKTREE_LEASE_HEARTBEAT_FAILED",
     }
 
 

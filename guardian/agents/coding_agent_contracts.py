@@ -44,6 +44,8 @@ class CodingAgentTaskEnvelope:
     permission_policy: CodingAgentPermissionPolicy
     validation_command: str | None = None
     max_validation_attempts: int = 1
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
 
 
 @dataclass(frozen=True)

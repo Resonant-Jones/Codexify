@@ -103,6 +103,8 @@ class CodingExecutionRequest(BaseModel):
     permission_policy: dict[str, Any] = Field(default_factory=dict)
     validation_command: str | None = None
     max_validation_attempts: int = Field(default=1, ge=1, le=3)
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -213,6 +215,8 @@ async def execute_coding_task(
             "adapter_kind": envelope.adapter_kind,
             "validation_command": envelope.validation_command,
             "max_validation_attempts": envelope.max_validation_attempts,
+            "worktree_lease_id": envelope.worktree_lease_id,
+            "require_worktree_lease": envelope.require_worktree_lease,
             "source_thread_id": int(envelope.thread_id)
             if envelope.thread_id
             else None,
@@ -240,6 +244,8 @@ async def execute_coding_task(
                 "adapter_kind": envelope.adapter_kind,
                 "validation_command": envelope.validation_command,
                 "max_validation_attempts": envelope.max_validation_attempts,
+                "worktree_lease_id": envelope.worktree_lease_id,
+                "require_worktree_lease": envelope.require_worktree_lease,
             }
         ),
         trust_state="supervised",
@@ -290,6 +296,8 @@ async def execute_coding_task(
         "project_id": envelope.project_id,
         "validation_command": envelope.validation_command,
         "max_validation_attempts": envelope.max_validation_attempts,
+        "worktree_lease_id": envelope.worktree_lease_id,
+        "require_worktree_lease": envelope.require_worktree_lease,
         "permission_policy": {
             "allow_shell": envelope.permission_policy.allow_shell,
             "allow_network": envelope.permission_policy.allow_network,
