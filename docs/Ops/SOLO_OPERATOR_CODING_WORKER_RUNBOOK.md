@@ -1,8 +1,8 @@
 # Codexify Solo Operator Coding Worker Runbook
 
 Purpose: give a solo operator the current truth surface for Guardian-mediated
-coding-worker work without implying autonomous retry loops or test-gated
-convergence that do not exist yet.
+coding-worker work without implying autonomous convergence, commit behavior,
+or unbounded retry loops.
 
 Last updated: 2026-05-09
 
@@ -24,6 +24,79 @@ Source anchors:
 4. It does not enable retry-until-tests-pass behavior.
 5. Future loop work must consume the normalized test-result contract rather than
    raw stdout/stderr blobs.
+
+## Bounded Validation Retry
+
+- The worker can run a supervised validation command after the adapter returns.
+- Validation only runs when shell execution is allowed and the task has a
+  working directory.
+- Validation evidence is normalized through `guardian/agents/test_results.py`
+  before it is stored or emitted.
+- `passed` and `not_run` keep the current attempt terminally successful when
+  the mutation scope guard is clean or within allowed scope.
+- `failed` and `error` can trigger bounded retries only when the mutation scope
+  is clean or within allowed paths.
+- If shell execution is blocked, the worker records a normalized `not_run`
+  result with reason `validation_shell_not_allowed`.
+- Retry behavior is bounded; it does not imply convergence, commit behavior, or
+  infinite retry.
+
+## Mutation Scope Guard
+
+- Every attempted coding-worker run captures Git porcelain state before the
+  adapter executes when the cwd resolves to a Git repository.
+- If the worktree is already dirty before execution, the worker fails closed
+  with `DIRTY_WORKTREE_PRECHECK_FAILED` before the adapter runs.
+- After each adapter attempt, the worker captures Git porcelain state again and
+  compares it to the preflight snapshot.
+- When `allow_write=false`, any new repository mutation fails closed with
+  `MUTATION_SCOPE_VIOLATION`.
+- When `allow_write=true`, changed paths must match `permission_policy.allowed_paths`.
+- Allowed paths support exact repo-relative paths, directory prefixes ending in
+  `/`, and simple glob patterns via `fnmatch`.
+- Absolute paths and `..` segments in `allowed_paths` are ignored safely.
+- If the cwd is not a Git repository, the worker emits explicit unverified
+  evidence and continues without claiming scope proof.
+- Scope violations stop the retry loop immediately.
+- Validation failures may retry only when mutation scope is clean or within the
+  allowed path set.
+
+## Mutation Scope Guard
+
+- The worker now inspects Git porcelain state before the first adapter attempt
+  and again after each attempt, including any validation step that runs before
+  the final decision.
+- If `cwd` is inside a Git repository, the worker treats the repository root as
+  the mutation boundary and compares post-attempt porcelain paths against the
+  clean preflight baseline.
+- If `cwd` is not inside a Git repository, the guard degrades explicitly:
+  validation can still run, the attempt can still complete, and the emitted
+  metadata marks the mutation scope as `unverified`.
+- If the repository is already dirty before execution starts, the worker fails
+  closed with `DIRTY_WORKTREE_PRECHECK_FAILED` before calling the adapter.
+- If `allow_write=false`, any new porcelain changes fail closed with
+  `MUTATION_SCOPE_VIOLATION`.
+- If `allow_write=true`, every changed path must match a sanitized
+  `allowed_paths` entry. Supported matches are:
+  - exact repo-relative paths
+  - directory prefixes ending in `/`
+  - simple `fnmatch` glob patterns
+- Absolute policy paths and paths containing `..` are ignored safely and do
+  not widen the allowed scope.
+- Mutation guard metadata is emitted on task events and stored result artifacts
+  using bounded lists and totals:
+  - `mutation_guard_enabled`
+  - `mutation_guard_status`
+  - `mutation_guard_error_code`
+  - `changed_paths`
+  - `disallowed_paths`
+  - `allowed_paths`
+  - `changed_paths_truncated` and `changed_paths_total`
+- Path lists are truncated to 50 entries when necessary.
+- Scope violations stop the retry loop immediately.
+- Validation failures can retry only when the guard status is verified.
+- This still does not add commits, worktree isolation, auto-merge, or infinite
+  retry.
 6. Lease-bound execution now exists in the worker seam when `worktree_lease_id`
    is supplied.
 7. Guardian still does not allocate Git branches or Git worktrees in this phase.
@@ -59,11 +132,13 @@ Source anchors:
 ## What This Does Not Mean
 
 - It does not mean Guardian has an autonomous remediation loop.
-- It does not mean coding-worker execution now re-runs until green.
+- It does not mean coding-worker execution now re-runs until green without
+  bounds.
 - It does not mean adapter success is equivalent to repository test success.
 - It does not mean retry policy should read raw terminal output directly once
   this seam is wired into the worker path.
 - MiniMax may run behind the `codex` adapter, but Guardian still owns the loop
+  boundary and stops at the bounded validation attempts.
   boundary and stops after the bounded attempts are exhausted.
 
 ## Follow-Through Rule
@@ -171,8 +246,42 @@ does not make the coding worker run tests automatically. Any later loop that
 reasons about pass/fail convergence must consume the normalized contract rather
 than raw stdout/stderr.
 
-### Single-Attempt Validation
+### Bounded Validation Retry
 
+The coding worker can run a supervised validation command after the adapter
+returns, as long as the task permits shell execution and a working directory
+is available. Validation evidence is normalized before it is stored or
+emitted.
+
+Validation failure can trigger bounded retries, but only when the mutation
+scope guard is clean or within the allowed path set. The worker stops retrying
+as soon as the guard reports a scope violation.
+
+This is still supervised, bounded behavior. It does not add retry-until-tests-
+pass convergence, worktree isolation, commit behavior, auto-merge, or infinite
+retry. Future convergence work should consume the normalized validation result
+instead of parsing raw stdout or stderr directly.
+
+### Mutation Scope Guard
+
+The worker now snapshots Git porcelain state before each adapter attempt when
+the task cwd resolves to a Git repository.
+
+- Dirty preflight worktrees fail closed with `DIRTY_WORKTREE_PRECHECK_FAILED`
+  before the adapter runs.
+- After each attempt, the worker compares the new porcelain state against the
+  preflight snapshot.
+- When `allow_write=false`, any new repository mutation fails closed with
+  `MUTATION_SCOPE_VIOLATION`.
+- When `allow_write=true`, changed paths must match `permission_policy.allowed_paths`.
+- Allowed paths are repo-relative only. Exact paths, directory prefixes ending
+  in `/`, and simple `fnmatch` globs are accepted.
+- Absolute paths and `..` segments in `allowed_paths` are ignored safely.
+- If the cwd is not a Git repository, the worker emits explicit unverified
+  evidence and continues without claiming scope proof.
+- Scope violations stop the retry loop immediately.
+- Validation failures may retry only when the mutation scope is clean or
+  within the allowed path set.
 The coding worker can run one optional validation command after the adapter
 returns, as long as the task permits shell execution and a working directory
 is available. Validation evidence is normalized before it is stored or
@@ -191,6 +300,11 @@ task, with a default of `1` and a hard cap of `3`. Values below `1` normalize
 to `1`; values above the cap are rejected at the route boundary and bounded in
 the worker path as a defense-in-depth check.
 
+The worker may perform a supervised validation pass after a success-like
+adapter result when `validation_command` is configured and shell execution is
+allowed. The command runs in the task `cwd`, the subprocess result is
+normalized through `guardian/agents/test_results.py`, and the normalized
+evidence is stored on the coding result and emitted on the terminal event.
 Retries happen only when all of the following are true:
 
 - the adapter returned a success-like result,
@@ -206,6 +320,9 @@ fail signature repeats, or when the configured attempt budget is exhausted.
 Validation evidence stays normalized and bounded, and retry prompts only reuse
 the previous attempt’s bounded failure evidence.
 
+`max_validation_attempts` is the bounded retry ceiling. Values clamp to the
+worker policy range, and retries only happen when the mutation scope guard
+remains clean or within the allowed path set.
 This is still not autonomous commit/merge behavior. MiniMax can run behind the
 `codex` adapter, but Guardian owns the retry boundary and future convergence
 work must consume the normalized validation results instead of raw logs.
@@ -226,14 +343,14 @@ curl -sS -X POST \
     "user_id": "local",
     "project_id": null,
     "adapter_kind": "pi_sdk",
-    "instructions": "Create a test file at /tmp/hello.txt",
-    "repo_root": "/tmp",
+    "instructions": "Create a test file at hello.txt",
+    "repo_root": "/workspace/repo",
     "context_summary": null,
     "permission_policy": {
       "allow_shell": true,
       "allow_network": false,
       "allow_write": true,
-      "allowed_paths": ["/tmp"],
+      "allowed_paths": ["hello.txt"],
       "max_runtime_seconds": 300
     }
   }'
