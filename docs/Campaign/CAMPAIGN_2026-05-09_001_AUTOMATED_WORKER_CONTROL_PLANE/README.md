@@ -62,5 +62,10 @@ Use "air-traffic-control" and "worker docking" as explanatory metaphors only. Th
 - [proof-template.md](./proofs/proof-template.md)
 - [DECISION-001-branch-and-worktree-lifecycle.md](./decisions/DECISION-001-branch-and-worktree-lifecycle.md)
 
+### Related references
+- [Symphony Service Specification seed](../../specs/Symphony-Spec-Seed.md) is imported as a reference architecture seed for comparison only.
+- Symphony is not normative for Codexify architecture or campaign truth.
+- [SYMPHONY_SPEC_ADAPTATION_MATRIX.md](./analysis/SYMPHONY_SPEC_ADAPTATION_MATRIX.md) is the canonical interpretation artifact for this campaign.
+
 ## Current-Truth Constraint
 This campaign must remain subordinate to [00-current-state.md](../../architecture/00-current-state.md). Route/task acceptance is not completion, and future implementation must preserve Guardian ownership of policy, transcript, lineage, worker events, and result receipts.
