@@ -41,6 +41,7 @@ from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
 from guardian.tasks.types import CodingExecutionTask, task_from_dict
 
 logger = logging.getLogger(__name__)
+_SUBPROCESS_RUN = subprocess.run
 
 WORKER_POLL_INTERVAL_SECONDS = float(
     os.getenv("CODING_WORKER_POLL_INTERVAL_SECONDS", "0.5")
@@ -226,7 +227,7 @@ def _run_git_command(
     timeout_seconds: int,
 ) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(
+        return _SUBPROCESS_RUN(
             ["git", "-C", cwd, *argv],
             capture_output=True,
             text=True,
