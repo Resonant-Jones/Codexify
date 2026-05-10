@@ -748,7 +748,6 @@ def _fetch_coding_result_artifacts(
     return store.list_artifacts(run_id=run_id, artifact_type="coding_result")
 
 
-<<<<<<< HEAD
 def _fetch_campaign_attempts(
     db: _TestDB, campaign_id: str
 ) -> list[CampaignExecutionAttempt]:
@@ -770,7 +769,8 @@ def _fetch_work_order(
             .filter_by(work_order_id=work_order_id)
             .first()
         )
-=======
+
+
 def _find_coding_patch_artifact(
     artifacts: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
@@ -780,7 +780,6 @@ def _find_coding_patch_artifact(
         if str(artifact.get("kind") or "") == "coding_patch":
             return artifact
     return None
->>>>>>> 0fa121e8f (Capture isolated coding worker patch artifacts)
 
 
 def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
