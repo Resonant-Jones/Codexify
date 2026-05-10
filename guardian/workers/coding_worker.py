@@ -77,6 +77,7 @@ _WORKTREE_METADATA_TEXT_LIMIT = 280
 _WORKTREE_CLEANUP_TIMEOUT_SECONDS = 30
 _WORKTREE_CREATE_TIMEOUT_SECONDS = 30
 _GIT_DISCOVERY_TIMEOUT_SECONDS = 10
+_WORKTREE_INTERNAL_PATH_PREFIX = ".codexify/coding-worktrees/"
 
 
 @dataclass(frozen=True)
@@ -576,6 +577,11 @@ def _collect_dirty_worktree_paths(
         if " -> " in path_part:
             path_part = path_part.split(" -> ", 1)[1]
         normalized = _coerce_optional_text(path_part.strip('"'))
+        if not normalized:
+            continue
+        canonical = normalized.replace("\\", "/")
+        if canonical.startswith(_WORKTREE_INTERNAL_PATH_PREFIX):
+            continue
         if normalized:
             dirty_paths.append(normalized)
     return dirty_paths, None
