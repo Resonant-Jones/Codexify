@@ -216,6 +216,7 @@ def _build_task(
     coding_task_id: str = "coding-task-1",
     attempt_id: str = "attempt-1",
     cwd: str | None = "/workspace/repo",
+    repo_root: str | None = None,
     validation_command: str | None = None,
     max_validation_attempts: int | None = None,
     permission_policy: dict[str, Any] | None = None,
@@ -238,6 +239,8 @@ def _build_task(
     }
     if cwd is not None:
         payload["cwd"] = cwd
+    if repo_root is not None:
+        payload["repo_root"] = repo_root
     if validation_command is not None:
         payload["validation_command"] = validation_command
     if max_validation_attempts is not None:
@@ -342,11 +345,32 @@ def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> 
 
     assert task.validation_command is None
     assert task.max_validation_attempts == 1
+    assert task.repo_root is None
     assert task.worktree_lease_id is None
     assert task.require_worktree_lease is False
     assert task.commit_after_validation is False
     assert task.commit_message is None
     assert task.require_human_review_before_merge is True
+
+
+def test_coding_execution_task_from_dict_preserves_repo_root() -> None:
+    task = CodingExecutionTask.from_dict(
+        {
+            "task_id": "task-repo-root",
+            "run_id": "run-repo-root",
+            "deployment_id": "dep-repo-root",
+            "instructions": "Do the thing.",
+            "repo_root": "/workspace/repo",
+            "timeout_seconds": 30,
+            "coding_task_id": "coding-task-repo-root",
+            "attempt_id": "attempt-repo-root",
+            "thread_id": 9,
+            "source_message_id": 21,
+        }
+    )
+
+    assert task.cwd is None
+    assert task.repo_root == "/workspace/repo"
 
 
 def _install_fake_adapter(
@@ -2007,6 +2031,86 @@ def test_omitted_validation_command_preserves_existing_behavior(
     assert messages[0].extra_meta.get("validation_results") is None
 
 
+def test_mutation_guard_metadata_persists_without_validation_command(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db,
+        user_id="mutation-guard-user",
+        project_name="mutation-guard",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="failed",
+            summary="Mutation guard blocked the run.",
+            artifacts=(),
+            errors=("MUTATION_SCOPE_VIOLATION",),
+            error_code="MUTATION_SCOPE_VIOLATION",
+            error_message="changed path outside allowed scope",
+            mutation_guard={
+                "mutation_guard_enabled": True,
+                "mutation_guard_status": "violated",
+                "mutation_guard_error_code": "MUTATION_SCOPE_VIOLATION",
+                "changed_paths": ["README.md"],
+                "disallowed_paths": ["README.md"],
+            },
+        ),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-mutation-guard",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["guardian/workers/"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    events = [event for _, event, _ in published]
+    assert events[0] == "task.running"
+    assert events[-1] == "task.failed"
+    assert events.count("task.failed") == 1
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "violated"
+    assert terminal_payload["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_VIOLATION"
+    )
+    assert terminal_payload["disallowed_paths"] == ["README.md"]
+
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert len(content["artifacts"]) == 1
+    guard_artifact = content["artifacts"][0]
+    assert guard_artifact["mutation_guard_status"] == "violated"
+    assert guard_artifact["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_VIOLATION"
+    )
+    assert guard_artifact["disallowed_paths"] == ["README.md"]
+
+
 def test_validation_timeout_is_normalized_and_fails_closed(
     db,
     monkeypatch,
@@ -2653,6 +2757,69 @@ def test_validation_command_with_missing_cwd_records_not_run(
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
     assert messages[0].extra_meta["validation_results"]["status"] == "not_run"
+
+
+def test_validation_command_uses_repo_root_when_cwd_missing(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="repo-root-user", project_name="repo-root"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        cwd=None,
+        repo_root="/workspace/repo",
+        coding_task_id="coding-task-repo-root",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_passed",
+        "task.completed",
+    ]
+    assert len(validation_calls) == 1
+    assert validation_calls[0]["cwd"] == "/workspace/repo"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["validation_results"]["status"] == "passed"
+    assert terminal_payload["validation_stop_reason"] == "validation_passed"
 
 
 def test_successful_completion_writes_one_result_message_with_lineage(
