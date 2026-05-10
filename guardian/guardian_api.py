@@ -1207,7 +1207,10 @@ _include_router(
 _include_router(
     label="coding_work_orders",
     flag_name="CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES",
-    include_fn=lambda: app.include_router(coding_work_orders.router),
+    include_fn=lambda: (
+        app.include_router(coding_work_orders.router),
+        app.include_router(coding_work_orders.orchestrator_router),
+    ),
 )
 _include_router(
     label="command_bus",

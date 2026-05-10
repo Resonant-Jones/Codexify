@@ -189,6 +189,23 @@ class ErrorCode(str, Enum):
     WORK_ORDER_INVALID_TRANSITION = "WORK_ORDER_INVALID_TRANSITION"
 
 
+class OrchestratorDecisionToken(str, Enum):
+    RECOMMEND = "recommend"
+    SKIP = "skip"
+    BLOCKED = "blocked"
+    RECOMMENDATION_ONLY = "recommendation_only"
+
+
+class OrchestratorReasonCode(str, Enum):
+    DEPENDENCY_NOT_SATISFIED = "DEPENDENCY_NOT_SATISFIED"
+    ACTIVE_LEASE_CONFLICT = "ACTIVE_LEASE_CONFLICT"
+    FILE_SCOPE_CONFLICT = "FILE_SCOPE_CONFLICT"
+    STATUS_NOT_READY = "STATUS_NOT_READY"
+    HUMAN_REVIEW_REQUIRED = "HUMAN_REVIEW_REQUIRED"
+    AMBIGUOUS_STATE = "AMBIGUOUS_STATE"
+    READY_FOR_DISPATCH = "READY_FOR_DISPATCH"
+
+
 class EmbeddingLifecycleStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -289,6 +306,12 @@ DELEGATION_TERMINAL_EVENT_TYPES: frozenset[str] = frozenset(
 ERROR_CODES: frozenset[str] = frozenset(
     {error_code.value for error_code in ErrorCode}
 )
+ORCHESTRATOR_DECISION_TOKENS: frozenset[str] = frozenset(
+    {token.value for token in OrchestratorDecisionToken}
+)
+ORCHESTRATOR_REASON_CODES: frozenset[str] = frozenset(
+    {reason.value for reason in OrchestratorReasonCode}
+)
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
@@ -321,6 +344,8 @@ __all__ = [
     "ExecutorEscalationKind",
     "DelegationEventType",
     "ErrorCode",
+    "OrchestratorDecisionToken",
+    "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
@@ -345,6 +370,8 @@ __all__ = [
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
+    "ORCHESTRATOR_DECISION_TOKENS",
+    "ORCHESTRATOR_REASON_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
