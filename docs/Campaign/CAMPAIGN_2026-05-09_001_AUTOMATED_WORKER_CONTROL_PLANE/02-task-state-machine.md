@@ -19,6 +19,11 @@ Define a proposed state vocabulary and transition policy for `WorkOrder` lifecyc
 - `archived`
 - `cancelled`
 
+## Implementation note
+- Canonical work-order status tokens and transition validation now exist in code at `guardian/agents/work_orders.py`.
+- Durable work-order rows now persist status values in `coding_work_orders` via `guardian/agents/work_order_store.py`.
+- This phase does not claim full worker-driven lifecycle progression for every state.
+
 ## Allowed transitions
 1. `draft -> ready` when objective/scope/dependencies are defined.
 2. `ready -> leased` when an exclusive `WorktreeLease` is granted.

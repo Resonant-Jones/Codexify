@@ -27,7 +27,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 5: task-board API
 - Scope: work-order CRUD/read surfaces with lifecycle visibility.
-- Proof expectation: API contract tests for acceptance semantics, state visibility, and dependency filtering.
+- Proof expectation: contract/store/route tests (`guardian/tests/agents/test_work_orders.py`, `guardian/tests/agents/test_work_order_store.py`, `guardian/tests/routes/test_coding_work_orders.py`) prove durable create/list/detail/cancel behavior, transition validation, and no-dispatch route semantics.
 
 ### Phase 6: orchestrator next-task selector
 - Scope: deterministic recommendation logic with dependency and conflict awareness.
