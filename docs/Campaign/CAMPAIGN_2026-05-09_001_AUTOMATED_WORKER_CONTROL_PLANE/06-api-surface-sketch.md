@@ -73,7 +73,8 @@ Track the worker-control-plane backend route surface across rollout phases.
     - `POST /api/coding/work-orders/{id}/cancel`
     - `GET /api/coding/orchestrator/next`
   - Live proof artifact: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`.
+  - Live proof rerun artifact after render repair: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`.
   - Live backend route proof for these endpoints passed on Compose runtime.
-  - Command Center browser rendering proof was incomplete on that run due frontend runtime errors, so the operator UI seam is not yet live-proven end to end.
+  - Command Center browser rendering proof remains incomplete after rerun: panel test IDs appear immediately, but the route crashes after load (`TraceWorkbench` runtime error), so the operator UI seam is not yet live-proven end to end.
   - Dispatch endpoint remains proposed only.
   - Run/receipt endpoints remain proposed only.
