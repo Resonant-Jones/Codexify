@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -9,6 +11,7 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
@@ -79,6 +82,11 @@ _WORKTREE_CLEANUP_TIMEOUT_SECONDS = 30
 _WORKTREE_CREATE_TIMEOUT_SECONDS = 30
 _GIT_DISCOVERY_TIMEOUT_SECONDS = 10
 _WORKTREE_INTERNAL_PATH_PREFIX = ".codexify/coding-worktrees/"
+_PATCH_CHANGED_PATHS_LIMIT = 50
+_PATCH_MAX_BYTES_DEFAULT = 2_000_000
+_PATCH_MAX_BYTES_MIN = 1024
+_PATCH_MAX_BYTES_MAX = 20_000_000
+_PATCH_MANIFEST_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -125,6 +133,29 @@ def _parse_env_bool(name: str, *, default: bool) -> bool:
     return default
 
 
+def _parse_env_int(
+    name: str,
+    *,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "[coding-worker] invalid integer value for %s=%r; falling back to %s",
+            name,
+            raw,
+            default,
+        )
+        return default
+    return max(min_value, min(value, max_value))
+
+
 def _coding_worktree_isolation_enabled() -> bool:
     return _parse_env_bool(
         "CODING_WORKER_WORKTREE_ISOLATION",
@@ -143,6 +174,22 @@ def _coding_keep_worktree_on_success() -> bool:
     return _parse_env_bool(
         "CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS",
         default=False,
+    )
+
+
+def _coding_patch_capture_enabled() -> bool:
+    return _parse_env_bool(
+        "CODING_WORKER_CAPTURE_PATCH_ARTIFACTS",
+        default=_coding_worktree_isolation_enabled(),
+    )
+
+
+def _coding_patch_max_bytes() -> int:
+    return _parse_env_int(
+        "CODING_WORKER_PATCH_MAX_BYTES",
+        default=_PATCH_MAX_BYTES_DEFAULT,
+        min_value=_PATCH_MAX_BYTES_MIN,
+        max_value=_PATCH_MAX_BYTES_MAX,
     )
 
 
@@ -170,6 +217,28 @@ def _resolve_worktree_root(repo_root: str) -> str:
     if normalized.startswith(".."):
         logger.warning(
             "[coding-worker] rejecting unsafe CODING_WORKER_WORKTREE_ROOT=%r; using default",
+            raw,
+        )
+        return default_root
+    return os.path.abspath(os.path.join(repo_root, normalized))
+
+
+def _resolve_patch_artifact_root(repo_root: str) -> str:
+    default_root = os.path.join(
+        repo_root,
+        ".codexify",
+        "coding-artifacts",
+    )
+    raw = _coerce_optional_text(os.getenv("CODING_WORKER_PATCH_ARTIFACT_ROOT"))
+    if raw is None:
+        return default_root
+    if os.path.isabs(raw):
+        return os.path.abspath(raw)
+
+    normalized = os.path.normpath(raw)
+    if normalized.startswith(".."):
+        logger.warning(
+            "[coding-worker] rejecting unsafe CODING_WORKER_PATCH_ARTIFACT_ROOT=%r; using default",
             raw,
         )
         return default_root
@@ -268,6 +337,29 @@ def _resolve_git_repo_root(cwd: str | None) -> tuple[str | None, str | None]:
     if not repo_root:
         return None, "git_repo_root_missing"
     return os.path.abspath(repo_root), None
+
+
+def _resolve_isolated_cwd(
+    *,
+    repo_root: str,
+    original_cwd: str | None,
+    worktree_path: str,
+) -> str:
+    """Preserve task cwd relative subdirectory when executing in an isolated worktree."""
+    resolved_original = _coerce_optional_text(original_cwd)
+    if not resolved_original:
+        return worktree_path
+    resolved_repo_root = os.path.abspath(repo_root)
+    resolved_original_abs = os.path.abspath(resolved_original)
+    try:
+        relative = os.path.relpath(resolved_original_abs, resolved_repo_root)
+    except Exception:
+        return worktree_path
+    if relative in {".", ""}:
+        return worktree_path
+    if relative == ".." or relative.startswith(f"..{os.sep}"):
+        return worktree_path
+    return os.path.abspath(os.path.join(worktree_path, relative))
 
 
 def _create_isolated_worktree(
@@ -380,6 +472,347 @@ def _create_isolated_worktree(
 
     metadata.update({"status": "created", "created": True})
     return metadata
+
+
+def _finalize_isolated_worktree_metadata(
+    worktree_metadata: dict[str, Any],
+    *,
+    success_like: bool,
+) -> dict[str, Any] | None:
+    if not bool(worktree_metadata.get("enabled")):
+        return None
+    if not bool(worktree_metadata.get("created")):
+        return _normalize_worktree_metadata(worktree_metadata)
+
+    keep_for_inspection = (
+        _coding_keep_worktree_on_success()
+        if success_like
+        else _coding_keep_worktree_on_failure()
+    )
+    worktree_metadata["kept_for_inspection"] = keep_for_inspection
+
+    if keep_for_inspection:
+        worktree_metadata.update(
+            {
+                "status": "retained_for_inspection",
+                "cleanup_attempted": False,
+                "cleanup_ok": None,
+            }
+        )
+        return _normalize_worktree_metadata(worktree_metadata)
+
+    repo_root = _coerce_optional_text(worktree_metadata.get("repo_root"))
+    worktree_path = _coerce_optional_text(
+        worktree_metadata.get("worktree_path")
+    )
+    if not repo_root or not worktree_path:
+        worktree_metadata.update(
+            {
+                "status": "cleanup_failed",
+                "cleanup_attempted": True,
+                "cleanup_ok": False,
+                "error_code": ErrorCode.WORKTREE_CLEANUP_FAILED.value,
+                "error_message": "missing_cleanup_paths",
+            }
+        )
+        return _normalize_worktree_metadata(worktree_metadata)
+
+    cleanup_result = _cleanup_isolated_worktree(repo_root, worktree_path)
+    worktree_metadata.update(cleanup_result)
+    if cleanup_result.get("cleanup_ok"):
+        worktree_metadata.update(
+            {
+                "status": "cleanup_succeeded",
+                "error_code": worktree_metadata.get("error_code"),
+                "error_message": worktree_metadata.get("error_message"),
+            }
+        )
+    else:
+        worktree_metadata.update(
+            {
+                "status": "cleanup_failed",
+                "error_code": (
+                    cleanup_result.get("error_code")
+                    or ErrorCode.WORKTREE_CLEANUP_FAILED.value
+                ),
+                "error_message": _bounded_text(
+                    cleanup_result.get("error_message")
+                )
+                or "worktree cleanup failed",
+            }
+        )
+
+    return _normalize_worktree_metadata(worktree_metadata)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(8192)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bounded_json_write(path: str, payload: dict[str, Any]) -> None:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        indent=2,
+        sort_keys=True,
+    )
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(f"{encoded}\n")
+
+
+def _generate_worktree_patch(
+    worktree_path: str,
+    max_bytes: int,
+) -> dict[str, Any]:
+    normalized_limit = max(
+        _PATCH_MAX_BYTES_MIN, min(int(max_bytes), _PATCH_MAX_BYTES_MAX)
+    )
+    changed_paths, changed_paths_error = _collect_dirty_worktree_paths(
+        worktree_path
+    )
+    if changed_paths_error:
+        return {
+            "patch_status": "generation_failed",
+            "error_code": ErrorCode.PATCH_ARTIFACT_GENERATION_FAILED.value,
+            "error_message": changed_paths_error,
+            "changed_paths": [],
+            "changed_paths_total": 0,
+            "changed_paths_truncated": False,
+            "patch_size_bytes": None,
+            "patch_total_bytes": None,
+            "patch_content": None,
+        }
+
+    all_changed_paths = list(changed_paths or [])
+    changed_paths_total = len(all_changed_paths)
+    changed_paths_truncated = changed_paths_total > _PATCH_CHANGED_PATHS_LIMIT
+    bounded_changed_paths = all_changed_paths[:_PATCH_CHANGED_PATHS_LIMIT]
+    if changed_paths_total == 0:
+        return {
+            "patch_status": "no_changes",
+            "error_code": None,
+            "error_message": None,
+            "changed_paths": bounded_changed_paths,
+            "changed_paths_total": changed_paths_total,
+            "changed_paths_truncated": changed_paths_truncated,
+            "patch_size_bytes": 0,
+            "patch_total_bytes": 0,
+            "patch_content": None,
+        }
+
+    # Include untracked files in the diff without committing/staging blob data.
+    intent_add = _run_git_command(
+        worktree_path,
+        ["add", "-N", "--", "."],
+        timeout_seconds=_WORKTREE_CREATE_TIMEOUT_SECONDS,
+    )
+    if intent_add is None or intent_add.returncode != 0:
+        return {
+            "patch_status": "generation_failed",
+            "error_code": ErrorCode.PATCH_ARTIFACT_GENERATION_FAILED.value,
+            "error_message": _bounded_text(
+                (intent_add.stderr if intent_add else None)
+                or "git_intent_to_add_failed"
+            ),
+            "changed_paths": bounded_changed_paths,
+            "changed_paths_total": changed_paths_total,
+            "changed_paths_truncated": changed_paths_truncated,
+            "patch_size_bytes": None,
+            "patch_total_bytes": None,
+            "patch_content": None,
+        }
+
+    patch_result = _run_git_command(
+        worktree_path,
+        ["diff", "--binary", "HEAD", "--", "."],
+        timeout_seconds=_WORKTREE_CREATE_TIMEOUT_SECONDS,
+    )
+    if patch_result is None or patch_result.returncode != 0:
+        return {
+            "patch_status": "generation_failed",
+            "error_code": ErrorCode.PATCH_ARTIFACT_GENERATION_FAILED.value,
+            "error_message": _bounded_text(
+                (patch_result.stderr if patch_result else None)
+                or "git_diff_failed"
+            ),
+            "changed_paths": bounded_changed_paths,
+            "changed_paths_total": changed_paths_total,
+            "changed_paths_truncated": changed_paths_truncated,
+            "patch_size_bytes": None,
+            "patch_total_bytes": None,
+            "patch_content": None,
+        }
+
+    patch_content = patch_result.stdout or ""
+    patch_size_bytes = len(patch_content.encode("utf-8"))
+    if patch_size_bytes > normalized_limit:
+        return {
+            "patch_status": "too_large",
+            "error_code": None,
+            "error_message": None,
+            "changed_paths": bounded_changed_paths,
+            "changed_paths_total": changed_paths_total,
+            "changed_paths_truncated": changed_paths_truncated,
+            "patch_size_bytes": None,
+            "patch_total_bytes": patch_size_bytes,
+            "patch_content": None,
+        }
+
+    return {
+        "patch_status": "captured",
+        "error_code": None,
+        "error_message": None,
+        "changed_paths": bounded_changed_paths,
+        "changed_paths_total": changed_paths_total,
+        "changed_paths_truncated": changed_paths_truncated,
+        "patch_size_bytes": patch_size_bytes,
+        "patch_total_bytes": patch_size_bytes,
+        "patch_content": patch_content,
+    }
+
+
+def _write_patch_artifact_bundle(
+    *,
+    run_id: str,
+    deployment_id: str,
+    coding_task_id: str,
+    attempt_id: str,
+    attempt_number: int,
+    request_id: str | None,
+    thread_id: int | None,
+    source_message_id: int | None,
+    adapter_kind: str | None,
+    repo_root: str,
+    worktree_path: str,
+    base_head: str | None,
+    validation_status: str | None,
+    validation_fail_signature: str | None,
+    mutation_guard_status: str,
+    capture_result: dict[str, Any],
+) -> dict[str, Any]:
+    status = _bounded_text(capture_result.get("patch_status")) or "unknown"
+    bundle: dict[str, Any] = {
+        "kind": "coding_patch",
+        "status": status,
+        "run_id": run_id,
+        "coding_task_id": coding_task_id,
+        "attempt_id": attempt_id,
+        "path": None,
+        "manifest_path": None,
+        "sha256": None,
+        "size_bytes": None,
+        "error_code": _bounded_text(capture_result.get("error_code")),
+        "error_message": _bounded_text(capture_result.get("error_message")),
+    }
+    root = _resolve_patch_artifact_root(repo_root)
+    attempt_id_value = _coerce_optional_text(attempt_id)
+    attempt_key = (
+        _safe_worktree_slug(attempt_id_value)
+        if attempt_id_value
+        else f"attempt-{attempt_number}"
+    )
+    output_dir = os.path.join(root, run_id, coding_task_id, attempt_key)
+    patch_path = os.path.join(output_dir, "changes.patch")
+    manifest_path = os.path.join(output_dir, "manifest.json")
+
+    changed_paths = [
+        str(path).strip()
+        for path in (capture_result.get("changed_paths") or [])
+        if str(path).strip()
+    ][:_PATCH_CHANGED_PATHS_LIMIT]
+    changed_paths_total = int(capture_result.get("changed_paths_total") or 0)
+    changed_paths_truncated = bool(
+        capture_result.get("changed_paths_truncated", False)
+    )
+    patch_total_bytes = capture_result.get("patch_total_bytes")
+    patch_size_bytes = capture_result.get("patch_size_bytes")
+
+    manifest_payload: dict[str, Any] = {
+        "schema_version": _PATCH_MANIFEST_SCHEMA_VERSION,
+        "run_id": run_id,
+        "deployment_id": deployment_id,
+        "coding_task_id": coding_task_id,
+        "attempt_id": attempt_id,
+        "attempt_number": attempt_number,
+        "request_id": request_id,
+        "thread_id": thread_id,
+        "source_message_id": source_message_id,
+        "adapter_kind": adapter_kind,
+        "repo_root": repo_root,
+        "worktree_path": worktree_path,
+        "base_head": base_head,
+        "validation_status": validation_status,
+        "validation_fail_signature": validation_fail_signature,
+        "mutation_guard_status": mutation_guard_status,
+        "changed_paths": changed_paths,
+        "changed_paths_total": changed_paths_total,
+        "changed_paths_truncated": changed_paths_truncated,
+        "patch_status": status,
+        "patch_path": None,
+        "patch_sha256": None,
+        "patch_size_bytes": patch_size_bytes,
+        "patch_total_bytes": patch_total_bytes,
+        "created_at": _utc_now_iso(),
+        "error_code": bundle["error_code"],
+        "error_message": bundle["error_message"],
+    }
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except Exception as exc:
+        return {
+            **bundle,
+            "status": "write_failed",
+            "error_code": ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value,
+            "error_message": _bounded_text(str(exc))
+            or "artifact_directory_create_failed",
+        }
+
+    if status == "captured":
+        patch_content = str(capture_result.get("patch_content") or "")
+        try:
+            with open(patch_path, "w", encoding="utf-8") as handle:
+                handle.write(patch_content)
+        except Exception as exc:
+            return {
+                **bundle,
+                "status": "write_failed",
+                "error_code": ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value,
+                "error_message": _bounded_text(str(exc))
+                or "patch_write_failed",
+            }
+        manifest_payload["patch_path"] = patch_path
+        manifest_payload["patch_size_bytes"] = os.path.getsize(patch_path)
+        manifest_payload["patch_sha256"] = _sha256_file(patch_path)
+
+    try:
+        _bounded_json_write(manifest_path, manifest_payload)
+    except Exception as exc:
+        return {
+            **bundle,
+            "status": "write_failed",
+            "error_code": ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value,
+            "error_message": _bounded_text(str(exc)) or "manifest_write_failed",
+        }
+
+    bundle["manifest_path"] = manifest_path
+    bundle["status"] = str(manifest_payload["patch_status"])
+    if manifest_payload["patch_path"] is not None:
+        bundle["path"] = str(manifest_payload["patch_path"])
+        bundle["sha256"] = str(manifest_payload["patch_sha256"])
+        bundle["size_bytes"] = manifest_payload["patch_size_bytes"]
+    return bundle
 
 
 def _cleanup_isolated_worktree(
@@ -1187,7 +1620,11 @@ class CodingWorker:
                 )
                 return
 
-            effective_cwd = worktree_path
+            effective_cwd = _resolve_isolated_cwd(
+                repo_root=repo_root,
+                original_cwd=task.cwd,
+                worktree_path=worktree_path,
+            )
             (
                 preflight_ok,
                 preflight_error_code,
@@ -1237,17 +1674,21 @@ class CodingWorker:
         # Get adapter
         adapter = ADAPTERS.get(adapter_kind)
         if not adapter:
+            normalized_worktree = (
+                _finalize_isolated_worktree_metadata(
+                    worktree_metadata,
+                    success_like=False,
+                )
+                if bool(worktree_metadata.get("enabled"))
+                else None
+            )
             self._emit_failure(
                 task,
                 adapter_kind=adapter_kind,
                 error_message=f"coding adapter not configured: {adapter_kind}",
                 error_code="ADAPTER_NOT_FOUND",
                 lease_ctx=lease_ctx,
-                worktree=(
-                    _normalize_worktree_metadata(worktree_metadata)
-                    if bool(worktree_metadata.get("enabled"))
-                    else None
-                ),
+                worktree=normalized_worktree,
             )
             return
 
@@ -1259,6 +1700,7 @@ class CodingWorker:
         best_validation_result: NormalizedTestResult | None = None
         previous_fail_signature: str | None = None
         worktree_cleanup_finalized = False
+        current_attempt_index = 0
 
         def _finalize_worktree_for_terminal(
             *,
@@ -1269,76 +1711,12 @@ class CodingWorker:
                 return None
             if worktree_cleanup_finalized:
                 return _normalize_worktree_metadata(worktree_metadata)
-            if not bool(worktree_metadata.get("created")):
-                worktree_cleanup_finalized = True
-                return _normalize_worktree_metadata(worktree_metadata)
-
-            keep_for_inspection = (
-                _coding_keep_worktree_on_success()
-                if success_like
-                else _coding_keep_worktree_on_failure()
+            normalized = _finalize_isolated_worktree_metadata(
+                worktree_metadata,
+                success_like=success_like,
             )
-            worktree_metadata["kept_for_inspection"] = keep_for_inspection
-
-            if keep_for_inspection:
-                worktree_metadata.update(
-                    {
-                        "status": "retained_for_inspection",
-                        "cleanup_attempted": False,
-                        "cleanup_ok": None,
-                    }
-                )
-                worktree_cleanup_finalized = True
-                return _normalize_worktree_metadata(worktree_metadata)
-
-            repo_root = _coerce_optional_text(
-                worktree_metadata.get("repo_root")
-            )
-            worktree_path = _coerce_optional_text(
-                worktree_metadata.get("worktree_path")
-            )
-            if not repo_root or not worktree_path:
-                worktree_metadata.update(
-                    {
-                        "status": "cleanup_failed",
-                        "cleanup_attempted": True,
-                        "cleanup_ok": False,
-                        "error_code": ErrorCode.WORKTREE_CLEANUP_FAILED.value,
-                        "error_message": "missing_cleanup_paths",
-                    }
-                )
-                worktree_cleanup_finalized = True
-                return _normalize_worktree_metadata(worktree_metadata)
-
-            cleanup_result = _cleanup_isolated_worktree(
-                repo_root, worktree_path
-            )
-            worktree_metadata.update(cleanup_result)
-            if cleanup_result.get("cleanup_ok"):
-                worktree_metadata.update(
-                    {
-                        "status": "cleanup_succeeded",
-                        "error_code": worktree_metadata.get("error_code"),
-                        "error_message": worktree_metadata.get("error_message"),
-                    }
-                )
-            else:
-                worktree_metadata.update(
-                    {
-                        "status": "cleanup_failed",
-                        "error_code": (
-                            cleanup_result.get("error_code")
-                            or ErrorCode.WORKTREE_CLEANUP_FAILED.value
-                        ),
-                        "error_message": _bounded_text(
-                            cleanup_result.get("error_message")
-                        )
-                        or "worktree cleanup failed",
-                    }
-                )
-
             worktree_cleanup_finalized = True
-            return _normalize_worktree_metadata(worktree_metadata)
+            return normalized
 
         def _persist_and_emit_terminal(
             *,
@@ -1365,7 +1743,102 @@ class CodingWorker:
             merge_ready: bool = False,
             human_review_required: bool = True,
             require_human_review_before_merge: bool = True,
+            mutation_guard_status: str | None = None,
         ) -> None:
+            patch_artifact_metadata: dict[str, Any] | None = None
+            if (
+                bool(worktree_metadata.get("enabled"))
+                and bool(worktree_metadata.get("created"))
+                and _coding_patch_capture_enabled()
+            ):
+                repo_root = _coerce_optional_text(
+                    worktree_metadata.get("repo_root")
+                )
+                worktree_path_for_capture = _coerce_optional_text(
+                    worktree_metadata.get("worktree_path")
+                )
+                base_head = _coerce_optional_text(
+                    worktree_metadata.get("base_head")
+                )
+                if repo_root and worktree_path_for_capture:
+                    capture_result: dict[str, Any]
+                    current_worktree_status = _coerce_optional_text(
+                        worktree_metadata.get("status")
+                    )
+                    if current_worktree_status == "mutation_scope_failed":
+                        (
+                            blocked_paths,
+                            blocked_paths_error,
+                        ) = _collect_dirty_worktree_paths(
+                            worktree_path_for_capture
+                        )
+                        blocked_all = list(blocked_paths or [])
+                        capture_result = {
+                            "patch_status": "blocked_scope_violation",
+                            "error_code": (
+                                ErrorCode.MUTATION_SCOPE_VIOLATION.value
+                                if not blocked_paths_error
+                                else ErrorCode.MUTATION_SCOPE_UNVERIFIED.value
+                            ),
+                            "error_message": _bounded_text(blocked_paths_error),
+                            "changed_paths": blocked_all[
+                                :_PATCH_CHANGED_PATHS_LIMIT
+                            ],
+                            "changed_paths_total": len(blocked_all),
+                            "changed_paths_truncated": len(blocked_all)
+                            > _PATCH_CHANGED_PATHS_LIMIT,
+                            "patch_size_bytes": None,
+                            "patch_total_bytes": None,
+                            "patch_content": None,
+                        }
+                    else:
+                        capture_result = _generate_worktree_patch(
+                            worktree_path_for_capture,
+                            _coding_patch_max_bytes(),
+                        )
+
+                    patch_artifact_metadata = _write_patch_artifact_bundle(
+                        run_id=task.run_id,
+                        deployment_id=task.deployment_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        attempt_number=current_attempt_index or 1,
+                        request_id=task.request_id or None,
+                        thread_id=task.thread_id,
+                        source_message_id=task.source_message_id,
+                        adapter_kind=adapter_kind,
+                        repo_root=repo_root,
+                        worktree_path=worktree_path_for_capture,
+                        base_head=base_head,
+                        validation_status=final_validation_status,
+                        validation_fail_signature=final_fail_signature,
+                        mutation_guard_status=(
+                            mutation_guard_status
+                            or (
+                                "blocked"
+                                if current_worktree_status
+                                == "mutation_scope_failed"
+                                else "passed"
+                            )
+                        ),
+                        capture_result=capture_result,
+                    )
+                    manifest_path = _coerce_optional_text(
+                        patch_artifact_metadata.get("manifest_path")
+                        if isinstance(patch_artifact_metadata, dict)
+                        else None
+                    )
+                    if manifest_path:
+                        self._emit_patch_artifact_created(
+                            task,
+                            adapter_kind=adapter_kind,
+                            patch_artifact=patch_artifact_metadata,
+                            lease_ctx=lease_ctx,
+                            worktree=_normalize_worktree_metadata(
+                                worktree_metadata
+                            ),
+                        )
+
             normalized_worktree = _finalize_worktree_for_terminal(
                 success_like=_is_success_like_coding_result(result_status)
             )
@@ -1418,6 +1891,23 @@ class CodingWorker:
             elif normalized_worktree is not None:
                 result_artifact_payload = [
                     {"worktree": normalized_worktree},
+                    *result_artifact_payload,
+                ]
+            if patch_artifact_metadata is not None:
+                result_artifact_payload = [
+                    {
+                        "kind": "coding_patch",
+                        "path": patch_artifact_metadata.get("path"),
+                        "manifest_path": patch_artifact_metadata.get(
+                            "manifest_path"
+                        ),
+                        "sha256": patch_artifact_metadata.get("sha256"),
+                        "size_bytes": patch_artifact_metadata.get("size_bytes"),
+                        "status": patch_artifact_metadata.get("status"),
+                        "run_id": task.run_id,
+                        "coding_task_id": task.coding_task_id,
+                        "attempt_id": task.attempt_id,
+                    },
                     *result_artifact_payload,
                 ]
 
@@ -1538,9 +2028,11 @@ class CodingWorker:
                     require_human_review_before_merge
                 ),
                 worktree=normalized_worktree,
+                patch_artifact=patch_artifact_metadata,
             )
 
         for attempt_index in range(1, validation_attempt_budget + 1):
+            current_attempt_index = attempt_index
             if is_cancelled(task.task_id):
                 self._emit_cancelled(task)
                 return
@@ -1658,6 +2150,7 @@ class CodingWorker:
                             _bounded_text(scope_error_message)
                             or "mutation scope verification failed"
                         ),
+                        mutation_guard_status="blocked",
                     )
                     return
 
@@ -2337,6 +2830,53 @@ class CodingWorker:
                 exc,
             )
 
+    def _emit_patch_artifact_created(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        patch_artifact: dict[str, Any] | None,
+        lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(patch_artifact, dict):
+            return
+        manifest_path = _coerce_optional_text(
+            patch_artifact.get("manifest_path")
+        )
+        if not manifest_path:
+            return
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_PATCH_ARTIFACT_CREATED.value,
+                _merge_payload(
+                    {
+                        **build_coding_result_lineage_payload(
+                            run_id=task.run_id,
+                            queue_task_id=task.task_id,
+                            coding_task_id=task.coding_task_id,
+                            attempt_id=task.attempt_id,
+                            request_id=task.request_id or None,
+                            source_thread_id=task.thread_id,
+                            source_message_id=_coerce_optional_positive_int(
+                                task.source_message_id
+                            ),
+                            adapter_kind=adapter_kind,
+                        ),
+                        "status": "patch_artifact_created",
+                        "patch_artifact": dict(patch_artifact),
+                    },
+                    lease_ctx,
+                    worktree,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit patch artifact created event: %s",
+                exc,
+            )
+
     def _emit_worktree_failure(
         self,
         task: CodingExecutionTask,
@@ -2652,9 +3192,15 @@ class CodingWorker:
         merge_ready: bool = False,
         human_review_required: bool = True,
         require_human_review_before_merge: bool = True,
+        patch_artifact: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
         try:
+            normalized_patch_artifact = (
+                dict(patch_artifact)
+                if isinstance(patch_artifact, dict)
+                else None
+            )
             task_events.publish_with_visibility(
                 task.run_id,
                 f"task.{event_type}",
@@ -2703,6 +3249,7 @@ class CodingWorker:
                         "require_human_review_before_merge": (
                             require_human_review_before_merge
                         ),
+                        "patch_artifact": normalized_patch_artifact,
                     },
                     lease_ctx,
                     worktree,
