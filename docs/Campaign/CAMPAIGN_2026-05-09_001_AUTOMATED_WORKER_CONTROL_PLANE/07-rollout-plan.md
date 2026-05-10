@@ -41,8 +41,8 @@ Define a phased implementation sequence for future work while preserving current
 ### Phase 8: live MiniMax/Codex proof
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
 - Proof expectation: durable proof artifact with branch/worktree/commands/validation/cleanup evidence and explicit limitations.
-- Status (2026-05-10): **INCOMPLETE** for Command Center worker-control seam live proof. Backend task-board/orchestrator API checks passed, but Command Center UI panel test IDs were not present during live runtime proof, so Phase 8 is not complete.
-- Rerun status (2026-05-10, post-render-repair): backend seam re-passed and panel test IDs appeared immediately, but Command Center still crashed after load (`TraceWorkbench` runtime error from `commandCenterObservability.ts`), so Phase 8 remains incomplete. See `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`.
+- Prior status (2026-05-10): initial run and render-repair rerun were incomplete due Command Center runtime instability (see `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md` and `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`).
+- Rerun status (2026-05-10, post-null-safety-repair): **PASSED** for the non-dispatch Command Center worker-control seam on supported Compose runtime. Backend work-order/orchestrator APIs passed, panel test IDs stayed present after observability load wait, and no-dispatch boundaries held. See `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`.
 
 ### Phase 9 (optional): external tracker/workflow adaptation
 - Scope:
