@@ -1,5 +1,10 @@
 # Command Center Worker Control Plane Live Proof Rerun After Render Repair (2026-05-10)
 
+## Follow-up pointer
+- This rerun after render repair remained **INCOMPLETE**.
+- A subsequent rerun after null-safety repair is captured at `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`.
+- Do not reinterpret this artifact as passed.
+
 ## Title
 Phase 8 rerun live proof for the Command Center worker-control seam after frontend render repair commit `70addf6c1e74a93802067321df57caaf4fec5f10`.
 
