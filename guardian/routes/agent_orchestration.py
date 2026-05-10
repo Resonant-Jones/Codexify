@@ -105,6 +105,9 @@ class CodingExecutionRequest(BaseModel):
     max_validation_attempts: int = Field(default=1, ge=1, le=3)
     worktree_lease_id: str | None = None
     require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
     model_config = ConfigDict(extra="forbid")
 
@@ -217,6 +220,11 @@ async def execute_coding_task(
             "max_validation_attempts": envelope.max_validation_attempts,
             "worktree_lease_id": envelope.worktree_lease_id,
             "require_worktree_lease": envelope.require_worktree_lease,
+            "commit_after_validation": envelope.commit_after_validation,
+            "commit_message": envelope.commit_message,
+            "require_human_review_before_merge": (
+                envelope.require_human_review_before_merge
+            ),
             "source_thread_id": int(envelope.thread_id)
             if envelope.thread_id
             else None,
@@ -246,6 +254,11 @@ async def execute_coding_task(
                 "max_validation_attempts": envelope.max_validation_attempts,
                 "worktree_lease_id": envelope.worktree_lease_id,
                 "require_worktree_lease": envelope.require_worktree_lease,
+                "commit_after_validation": envelope.commit_after_validation,
+                "commit_message": envelope.commit_message,
+                "require_human_review_before_merge": (
+                    envelope.require_human_review_before_merge
+                ),
             }
         ),
         trust_state="supervised",
@@ -298,6 +311,11 @@ async def execute_coding_task(
         "max_validation_attempts": envelope.max_validation_attempts,
         "worktree_lease_id": envelope.worktree_lease_id,
         "require_worktree_lease": envelope.require_worktree_lease,
+        "commit_after_validation": envelope.commit_after_validation,
+        "commit_message": envelope.commit_message,
+        "require_human_review_before_merge": (
+            envelope.require_human_review_before_merge
+        ),
         "permission_policy": {
             "allow_shell": envelope.permission_policy.allow_shell,
             "allow_network": envelope.permission_policy.allow_network,

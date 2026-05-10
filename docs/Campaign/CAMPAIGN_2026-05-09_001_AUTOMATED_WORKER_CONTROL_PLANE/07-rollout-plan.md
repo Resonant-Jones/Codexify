@@ -23,7 +23,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 4: commit-after-green gate
 - Scope: commit behavior only after passing validation in bounded policy path.
-- Proof expectation: failing validation cannot produce commit hash; passing validation can.
+- Proof expectation: commit-gate tests (`guardian/tests/agents/test_commit_gate.py`) prove commit created/no-change/failure behavior, and worker tests (`guardian/tests/workers/test_coding_worker.py`) prove commit runs only on lease-bound passing-validation paths with bounded commit metadata.
 
 ### Phase 5: task-board API
 - Scope: work-order CRUD/read surfaces with lifecycle visibility.

@@ -930,6 +930,13 @@ class AgentStore:
         lease_required: bool | None = None,
         lease_branch_name: str | None = None,
         lease_worktree_path: str | None = None,
+        commit_after_validation: bool | None = None,
+        commit_hash: str | None = None,
+        commit_status: str | None = None,
+        commit_reason_code: str | None = None,
+        merge_ready: bool | None = None,
+        human_review_required: bool | None = None,
+        require_human_review_before_merge: bool | None = None,
     ) -> dict[str, Any]:
         """Store coding result and inject into source thread.
 
@@ -1005,8 +1012,36 @@ class AgentStore:
         resolved_lease_worktree_path = (
             str(lease_worktree_path or "").strip() or None
         )
+        resolved_commit_after_validation = bool(
+            commit_after_validation
+            if commit_after_validation is not None
+            else deployment_spec.get(
+                "commit_after_validation",
+                deployment_spec.get("commitAfterValidation", False),
+            )
+        )
+        resolved_require_human_review_before_merge = bool(
+            require_human_review_before_merge
+            if require_human_review_before_merge is not None
+            else deployment_spec.get(
+                "require_human_review_before_merge",
+                deployment_spec.get("requireHumanReviewBeforeMerge", True),
+            )
+        )
+        resolved_human_review_required = bool(
+            human_review_required
+            if human_review_required is not None
+            else resolved_require_human_review_before_merge
+        )
+        resolved_commit_status = (
+            str(commit_status).strip() if commit_status else None
+        )
+        resolved_commit_reason_code = (
+            str(commit_reason_code).strip() if commit_reason_code else None
+        )
+        resolved_merge_ready = bool(merge_ready) if merge_ready else False
 
-        commit_hash = None
+        resolved_commit_hash = str(commit_hash).strip() if commit_hash else None
         validation_results = None
         validation_attempt_count = None
         validation_attempts = None
@@ -1016,12 +1051,35 @@ class AgentStore:
         best_validation_result = None
         max_validation_attempts = None
         for artifact in artifact_rows:
-            if commit_hash is None:
+            if resolved_commit_hash is None:
                 candidate = artifact.get("commit_hash") or artifact.get(
                     "git_commit"
                 )
                 if isinstance(candidate, str) and candidate.strip():
-                    commit_hash = candidate.strip()
+                    resolved_commit_hash = candidate.strip()
+            if (
+                resolved_commit_status is None
+                and artifact.get("commit_status") is not None
+            ):
+                resolved_commit_status = str(
+                    artifact.get("commit_status")
+                ).strip()
+            if (
+                resolved_commit_reason_code is None
+                and artifact.get("commit_reason_code") is not None
+            ):
+                resolved_commit_reason_code = str(
+                    artifact.get("commit_reason_code")
+                ).strip()
+            if merge_ready is None and artifact.get("merge_ready") is not None:
+                resolved_merge_ready = bool(artifact.get("merge_ready"))
+            if (
+                human_review_required is None
+                and artifact.get("human_review_required") is not None
+            ):
+                resolved_human_review_required = bool(
+                    artifact.get("human_review_required")
+                )
             if (
                 validation_results is None
                 and artifact.get("validation_results") is not None
@@ -1087,7 +1145,15 @@ class AgentStore:
                 "errors": errors or [],
                 "error_code": error_code,
                 "error_message": error_message,
-                "commit_hash": commit_hash,
+                "commit_after_validation": resolved_commit_after_validation,
+                "commit_hash": resolved_commit_hash,
+                "commit_status": resolved_commit_status,
+                "commit_reason_code": resolved_commit_reason_code,
+                "merge_ready": resolved_merge_ready,
+                "human_review_required": resolved_human_review_required,
+                "require_human_review_before_merge": (
+                    resolved_require_human_review_before_merge
+                ),
                 "validation_results": validation_results,
                 "validation_result": validation_results,
                 "validation_attempt_count": validation_attempt_count,
@@ -1123,7 +1189,15 @@ class AgentStore:
             "errors": errors or [],
             "error_code": error_code,
             "error_message": error_message,
-            "commit_hash": commit_hash,
+            "commit_after_validation": resolved_commit_after_validation,
+            "commit_hash": resolved_commit_hash,
+            "commit_status": resolved_commit_status,
+            "commit_reason_code": resolved_commit_reason_code,
+            "merge_ready": resolved_merge_ready,
+            "human_review_required": resolved_human_review_required,
+            "require_human_review_before_merge": (
+                resolved_require_human_review_before_merge
+            ),
             "validation_results": validation_results,
             "validation_result": validation_results,
             "validation_attempt_count": validation_attempt_count,
@@ -1167,7 +1241,15 @@ class AgentStore:
                 files_changed=normalized_files_changed,
                 artifacts=artifact_rows,
                 errors=errors or [],
-                commit_hash=commit_hash,
+                commit_after_validation=resolved_commit_after_validation,
+                commit_hash=resolved_commit_hash,
+                commit_status=resolved_commit_status,
+                commit_reason_code=resolved_commit_reason_code,
+                merge_ready=resolved_merge_ready,
+                human_review_required=resolved_human_review_required,
+                require_human_review_before_merge=(
+                    resolved_require_human_review_before_merge
+                ),
                 validation_results=validation_results,
                 validation_attempt_count=validation_attempt_count,
                 validation_attempts=validation_attempts,
@@ -1238,7 +1320,15 @@ class AgentStore:
             "delivery_reason": delivery_reason,
             "files_changed": normalized_files_changed,
             "artifacts_count": len(artifact_rows),
-            "commit_hash": commit_hash,
+            "commit_hash": resolved_commit_hash,
+            "commit_after_validation": resolved_commit_after_validation,
+            "commit_status": resolved_commit_status,
+            "commit_reason_code": resolved_commit_reason_code,
+            "merge_ready": resolved_merge_ready,
+            "human_review_required": resolved_human_review_required,
+            "require_human_review_before_merge": (
+                resolved_require_human_review_before_merge
+            ),
             "validation_results": validation_results,
             "validation_attempt_count": validation_attempt_count,
             "validation_attempts": validation_attempts,
@@ -1264,7 +1354,13 @@ class AgentStore:
         files_changed: list[str],
         artifacts: list[dict[str, Any]],
         errors: list[str],
+        commit_after_validation: bool = False,
         commit_hash: str | None = None,
+        commit_status: str | None = None,
+        commit_reason_code: str | None = None,
+        merge_ready: bool = False,
+        human_review_required: bool = True,
+        require_human_review_before_merge: bool = True,
         validation_results: Any | None = None,
         validation_attempt_count: Any | None = None,
         validation_attempts: Any | None = None,
@@ -1349,6 +1445,14 @@ class AgentStore:
                     "result_captured_by_guardian": True,
                     "error_code": error_code,
                     "error_message": error_message,
+                    "commit_after_validation": commit_after_validation,
+                    "commit_status": commit_status,
+                    "commit_reason_code": commit_reason_code,
+                    "merge_ready": merge_ready,
+                    "human_review_required": human_review_required,
+                    "require_human_review_before_merge": (
+                        require_human_review_before_merge
+                    ),
                 }
             )
             if commit_hash:
@@ -1379,6 +1483,21 @@ class AgentStore:
 
             if commit_hash:
                 content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
+            if commit_after_validation:
+                content_parts.append(
+                    f"**Commit Gate Status**: `{commit_status or 'unknown'}`\n\n"
+                )
+                if commit_reason_code:
+                    content_parts.append(
+                        f"**Commit Gate Reason**: `{commit_reason_code}`\n\n"
+                    )
+                content_parts.append(
+                    f"**Merge Ready**: `{str(merge_ready).lower()}`\n\n"
+                )
+                content_parts.append(
+                    "**Human Review Required**: "
+                    f"`{str(human_review_required).lower()}`\n\n"
+                )
 
             if files_changed:
                 content_parts.append("**Files Changed**:\n")

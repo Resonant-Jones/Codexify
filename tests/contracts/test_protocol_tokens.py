@@ -615,6 +615,13 @@ def test_error_code_tokens() -> None:
         ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value
         == "WORKTREE_LEASE_HEARTBEAT_FAILED"
     )
+    assert ErrorCode.GIT_WORKTREE_REQUIRED.value == "GIT_WORKTREE_REQUIRED"
+    assert ErrorCode.GIT_WORKTREE_INVALID.value == "GIT_WORKTREE_INVALID"
+    assert (
+        ErrorCode.GIT_NO_CHANGES_TO_COMMIT.value == "GIT_NO_CHANGES_TO_COMMIT"
+    )
+    assert ErrorCode.GIT_COMMIT_FAILED.value == "GIT_COMMIT_FAILED"
+    assert ErrorCode.GIT_COMMIT_CREATED.value == "GIT_COMMIT_CREATED"
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
@@ -636,6 +643,11 @@ def test_error_code_tokens() -> None:
         "WORKTREE_LEASE_INVALID",
         "WORKTREE_LEASE_PATH_UNAVAILABLE",
         "WORKTREE_LEASE_HEARTBEAT_FAILED",
+        "GIT_WORKTREE_REQUIRED",
+        "GIT_WORKTREE_INVALID",
+        "GIT_NO_CHANGES_TO_COMMIT",
+        "GIT_COMMIT_FAILED",
+        "GIT_COMMIT_CREATED",
     }
 
 
