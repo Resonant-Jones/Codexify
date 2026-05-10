@@ -86,6 +86,11 @@ function resolveHealthUrl(definition: HealthDefinition, index: number): string {
 function resolveBackendHealthUrl(path: string): string {
   const runtimeConfig = getRuntimeConfigSync();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (runtimeConfig.mode === "web") {
+    // Browser requests should stay on browser-resolvable paths so Vite/nginx
+    // proxy rules can forward to backend instead of leaking container hostnames.
+    return normalizedPath;
+  }
   if (runtimeConfig.backendBaseUrl) {
     return resolveBackendUrl(normalizedPath, runtimeConfig);
   }

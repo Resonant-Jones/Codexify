@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
+import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
 import TraceWorkbench, {
   diffRetrievalPosture,
   describeRetrievalPostureChange,
@@ -576,6 +577,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           loading={loading}
           onRefresh={refresh}
         />
+
+        <CodingWorkOrdersPanel />
 
         <div
           className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden rounded-[var(--tile-radius)] border"

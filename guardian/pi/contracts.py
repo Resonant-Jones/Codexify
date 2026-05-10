@@ -1,5 +1,13 @@
+"""Typed contracts for the Pi invocation boundary.
+
+This module is intentionally dependency-light and only models contracts plus
+payload round-tripping. It does not execute adapters or providers.
+"""
+
+from __future__ import annotations
+
 import copy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
 from guardian.pi.tokens import (

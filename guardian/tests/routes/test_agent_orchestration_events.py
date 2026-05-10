@@ -7,6 +7,7 @@ from typing import Any, Literal
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import CheckConstraint
 
 from guardian.agents.coding_agent_contracts import (
@@ -389,7 +390,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         repo_root="/workspace/repo",
         context_summary="source thread summary",
         validation_command="pytest -q",
-        max_validation_attempts=4,
+        max_validation_attempts=3,
         permission_policy=CodingAgentPermissionPolicy(
             allow_shell=True,
             allow_network=False,
@@ -410,19 +411,146 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["user_id"] == "local-user"
     assert payload["project_id"] == 17
     assert payload["validation_command"] == "pytest -q"
-    assert payload["max_validation_attempts"] == 4
+    assert payload["max_validation_attempts"] == 3
     assert payload["permission_policy"]["allow_shell"] is True
+    assert payload["worktree_lease_id"] is None
+    assert payload["require_worktree_lease"] is False
+    assert payload["commit_after_validation"] is False
+    assert payload["commit_message"] is None
+    assert payload["require_human_review_before_merge"] is True
 
     deployment = local_store.get_deployment(result["deployment_id"])
     assert deployment is not None
     assert deployment["thread_id"] == 42
     assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
     assert deployment["spec_json"]["validation_command"] == "pytest -q"
-    assert deployment["spec_json"]["max_validation_attempts"] == 4
+    assert deployment["spec_json"]["max_validation_attempts"] == 3
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"
     assert deployment["spec_json"]["project_id"] == 17
+    assert deployment["spec_json"]["worktree_lease_id"] is None
+    assert deployment["spec_json"]["require_worktree_lease"] is False
+    assert deployment["spec_json"]["commit_after_validation"] is False
+    assert deployment["spec_json"]["commit_message"] is None
+    assert deployment["spec_json"]["require_human_review_before_merge"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_propagates_worktree_lease_fields(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    captured_payloads: list[dict[str, Any]] = []
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: captured_payloads.append(dict(payload)),
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-lease-123",
+        thread_id="42",
+        source_message_id="99",
+        attempt_id="attempt-1",
+        user_id="local-user",
+        project_id=17,
+        adapter_kind="pi_sdk",
+        instructions="Patch the failing seam.",
+        repo_root="/workspace/repo",
+        context_summary="source thread summary",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        worktree_lease_id="lease-abc",
+        require_worktree_lease=True,
+        permission_policy=CodingAgentPermissionPolicy(
+            allow_shell=True,
+            allow_network=False,
+            allow_write=True,
+            allowed_paths=("/workspace/repo",),
+            max_runtime_seconds=60,
+        ),
+    )
+
+    result = await agent_orchestration.execute_coding_task(envelope)
+
+    assert result["ok"] is True
+    assert captured_payloads
+    payload = captured_payloads[0]
+    assert payload["worktree_lease_id"] == "lease-abc"
+    assert payload["require_worktree_lease"] is True
+
+    deployment = local_store.get_deployment(result["deployment_id"])
+    assert deployment is not None
+    assert deployment["spec_json"]["worktree_lease_id"] == "lease-abc"
+    assert deployment["spec_json"]["require_worktree_lease"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_propagates_commit_gate_fields(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    captured_payloads: list[dict[str, Any]] = []
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: captured_payloads.append(dict(payload)),
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-commit-123",
+        thread_id="42",
+        source_message_id="99",
+        attempt_id="attempt-1",
+        user_id="local-user",
+        project_id=17,
+        adapter_kind="pi_sdk",
+        instructions="Patch the failing seam.",
+        repo_root="/workspace/repo",
+        context_summary="source thread summary",
+        validation_command="pytest -q",
+        max_validation_attempts=1,
+        worktree_lease_id="lease-commit-abc",
+        require_worktree_lease=True,
+        commit_after_validation=True,
+        commit_message="Commit after green",
+        require_human_review_before_merge=False,
+        permission_policy=CodingAgentPermissionPolicy(
+            allow_shell=True,
+            allow_network=False,
+            allow_write=True,
+            allowed_paths=("/workspace/repo",),
+            max_runtime_seconds=60,
+        ),
+    )
+
+    result = await agent_orchestration.execute_coding_task(envelope)
+
+    assert result["ok"] is True
+    assert captured_payloads
+    payload = captured_payloads[0]
+    assert payload["commit_after_validation"] is True
+    assert payload["commit_message"] == "Commit after green"
+    assert payload["require_human_review_before_merge"] is False
+
+    deployment = local_store.get_deployment(result["deployment_id"])
+    assert deployment is not None
+    assert deployment["spec_json"]["commit_after_validation"] is True
+    assert deployment["spec_json"]["commit_message"] == "Commit after green"
+    assert deployment["spec_json"]["require_human_review_before_merge"] is False
 
 
 def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:
@@ -501,7 +629,7 @@ def test_agent_run_migration_runtime_target_constraint_includes_terminal() -> (
     assert "runtime_target IN ('container', 'terminal')" in text
 
 
-def test_coding_execution_payload_carries_optional_validation_field() -> None:
+def test_coding_execution_payload_defaults_validation_attempts_to_one() -> None:
     body = agent_orchestration.CodingExecutionRequest(
         run_id="run-123",
         coding_task_id="coding-123",
@@ -523,13 +651,23 @@ def test_coding_execution_payload_carries_optional_validation_field() -> None:
     payload = agent_orchestration.build_coding_execution_task_payload(body)
     task = CodingExecutionTask.from_dict(payload)
 
-    assert "max_validation_attempts" not in payload
+    assert payload["max_validation_attempts"] == 1
+    assert "worktree_lease_id" not in payload
+    assert payload["require_worktree_lease"] is False
+    assert payload["commit_after_validation"] is False
+    assert "commit_message" not in payload
+    assert payload["require_human_review_before_merge"] is True
     assert task.run_id == "run-123"
-    assert task.max_validation_attempts is None
+    assert task.max_validation_attempts == 1
+    assert task.worktree_lease_id is None
+    assert task.require_worktree_lease is False
+    assert task.commit_after_validation is False
+    assert task.commit_message is None
+    assert task.require_human_review_before_merge is True
     assert task.permission_policy["allow_shell"] is True
 
 
-def test_coding_execution_payload_round_trips_validation_command() -> None:
+def test_coding_execution_payload_round_trips_retry_field() -> None:
     body = agent_orchestration.CodingExecutionRequest(
         run_id="run-456",
         coding_task_id="coding-456",
@@ -540,12 +678,45 @@ def test_coding_execution_payload_round_trips_validation_command() -> None:
         adapter_kind="codex",
         instructions="Fix the failing test.",
         validation_command="pytest -q",
-        max_validation_attempts=4,
+        max_validation_attempts=3,
+        worktree_lease_id="lease-xyz",
+        require_worktree_lease=True,
+        commit_after_validation=True,
+        commit_message="Commit after green",
+        require_human_review_before_merge=False,
     )
 
     payload = agent_orchestration.build_coding_execution_task_payload(body)
     task = CodingExecutionTask.from_dict(payload)
 
-    assert payload["max_validation_attempts"] == 4
-    assert task.max_validation_attempts == 4
+    assert payload["max_validation_attempts"] == 3
+    assert payload["worktree_lease_id"] == "lease-xyz"
+    assert payload["require_worktree_lease"] is True
+    assert payload["commit_after_validation"] is True
+    assert payload["commit_message"] == "Commit after green"
+    assert payload["require_human_review_before_merge"] is False
+    assert task.max_validation_attempts == 3
+    assert task.worktree_lease_id == "lease-xyz"
+    assert task.require_worktree_lease is True
+    assert task.commit_after_validation is True
+    assert task.commit_message == "Commit after green"
+    assert task.require_human_review_before_merge is False
     assert task.validation_command == "pytest -q"
+
+
+def test_coding_execution_request_rejects_validation_attempts_over_cap() -> (
+    None
+):
+    with pytest.raises(ValidationError):
+        agent_orchestration.CodingExecutionRequest(
+            run_id="run-789",
+            coding_task_id="coding-789",
+            thread_id="thread-789",
+            source_message_id="message-789",
+            attempt_id="attempt-789",
+            user_id="local",
+            adapter_kind="codex",
+            instructions="Fix the failing test.",
+            validation_command="pytest -q",
+            max_validation_attempts=4,
+        )
