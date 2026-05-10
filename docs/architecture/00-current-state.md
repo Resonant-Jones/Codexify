@@ -19,7 +19,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Supported-profile live proof on `main` re-validated the local-only provider posture, chat completion, image-turn containment, and runtime-target alignment.
 - Document upload/readback was re-proven on the supported path after the document identity contract repair.
 - The workspace-local Obsidian E2E harness remains the canonical proof path for workspace-scoped retrieval evidence.
-- The coding-result return path packaging blocker was fixed in `docker-compose.runtime.yml`, but the live end-to-end rerun still matters.
+- The coding-result return-path rerun after the packaging fix is now complete: `worker-coding` contains `/app/codex_runner/src/agent-wrapper.js`, but live runs still fail before source-thread `coding_result` injection and durable run-state convergence.
 - IDDB policy governance was added as a reference doc, which affects interpretation but not the supported runtime surface.
 
 ## Current supported reality
@@ -34,16 +34,16 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume the coding-result return path is fully release-evidenced until the live rerun lands on the corrected worker build.
+- Do not assume the coding-result return path is release-evidenced: the post-fix rerun still shows missing source-thread delivery and `agent_runs.status='queued'` after `task.failed`.
 - Do not assume workspace-local Obsidian retrieval is release signoff without a fresh current-tip proof run.
 
 ## Active blockers
-- The coding-result return path still needs a fresh live rerun on the corrected `worker-coding` build.
+- The coding-result return path still fails release gates after the post-fix rerun: no source-thread `coding_result` and durable run status remains `queued`.
 - The bounded tool-loop slice still regresses on the live runtime instead of staying bounded and returning blocked/tool states cleanly.
 - Release signoff still depends on keeping supported-profile, catalog, and health surfaces aligned on the current tip.
 
 ## This week's priorities
-1. Re-run the coding-result return-path proof on the fixed worker image and confirm durable source-thread return.
+1. Fix the post-rerun runtime failures in the coding-result path: Pi SDK dependency availability, durable terminal run-status writes, and source-thread `coding_result` delivery.
 2. Re-check the supported-profile, catalog, and health surfaces on the current `main` tip.
 3. Keep workspace-local retrieval proof separate from vector-store searchability and require completion-context influence.
 
@@ -66,7 +66,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - The live backend posture is now confirmed against the supported local-only profile on the current `main` tip.
 - Fresh live evidence now covers the supported beta path on the exact current `main` tip.
 - Any future runtime mismatch between supported profile, catalog, and health surfaces would still be a release hold, but the 2026-05-05 proof window did not show one.
-- The coding-result return path now has fresh live verification on the current tip.
+- The coding-result return path now has fresh failing live evidence on the current tip: events reach `task.failed`, but source-thread result delivery and durable terminal run status remain unresolved.
 
 ## This week's priorities
 1. Keep the fresh supported-path proof artifact synchronized with future runtime changes.
