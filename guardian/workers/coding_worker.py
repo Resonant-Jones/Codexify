@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -70,6 +71,12 @@ _VALIDATION_TIMEOUT_CAP_SECONDS = 120
 _VALIDATION_ATTEMPTS_DEFAULT = 1
 _VALIDATION_ATTEMPTS_CAP = 3
 _DEFAULT_COMMIT_MESSAGE_PREFIX = "Guardian commit-after-green"
+_WORKTREE_TRUE_VALUES = {"1", "true", "yes", "on"}
+_WORKTREE_FALSE_VALUES = {"0", "false", "no", "off"}
+_WORKTREE_METADATA_TEXT_LIMIT = 280
+_WORKTREE_CLEANUP_TIMEOUT_SECONDS = 30
+_WORKTREE_CREATE_TIMEOUT_SECONDS = 30
+_GIT_DISCOVERY_TIMEOUT_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -85,6 +92,337 @@ def _coerce_optional_text(raw: Any) -> str | None:
     return value or None
 
 
+def _bounded_text(
+    raw: Any, *, limit: int = _WORKTREE_METADATA_TEXT_LIMIT
+) -> str | None:
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}..."
+
+
+def _parse_env_bool(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in _WORKTREE_TRUE_VALUES:
+        return True
+    if value in _WORKTREE_FALSE_VALUES:
+        return False
+    logger.warning(
+        "[coding-worker] invalid boolean value for %s=%r; falling back to %s",
+        name,
+        raw,
+        str(default).lower(),
+    )
+    return default
+
+
+def _coding_worktree_isolation_enabled() -> bool:
+    return _parse_env_bool(
+        "CODING_WORKER_WORKTREE_ISOLATION",
+        default=False,
+    )
+
+
+def _coding_keep_worktree_on_failure() -> bool:
+    return _parse_env_bool(
+        "CODING_WORKER_KEEP_WORKTREE_ON_FAILURE",
+        default=True,
+    )
+
+
+def _coding_keep_worktree_on_success() -> bool:
+    return _parse_env_bool(
+        "CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS",
+        default=False,
+    )
+
+
+def _safe_worktree_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    if not slug:
+        return "unknown"
+    return slug[:80]
+
+
+def _resolve_worktree_root(repo_root: str) -> str:
+    default_root = os.path.join(
+        repo_root,
+        ".codexify",
+        "coding-worktrees",
+    )
+    raw = _coerce_optional_text(os.getenv("CODING_WORKER_WORKTREE_ROOT"))
+    if raw is None:
+        return default_root
+    if os.path.isabs(raw):
+        return os.path.abspath(raw)
+
+    normalized = os.path.normpath(raw)
+    if normalized.startswith(".."):
+        logger.warning(
+            "[coding-worker] rejecting unsafe CODING_WORKER_WORKTREE_ROOT=%r; using default",
+            raw,
+        )
+        return default_root
+    return os.path.abspath(os.path.join(repo_root, normalized))
+
+
+def _default_worktree_metadata(*, enabled: bool) -> dict[str, Any]:
+    return {
+        "enabled": enabled,
+        "status": "disabled" if not enabled else "pending",
+        "repo_root": None,
+        "worktree_path": None,
+        "base_head": None,
+        "created": False,
+        "cleanup_attempted": False,
+        "cleanup_ok": None,
+        "kept_for_inspection": None,
+        "error_code": None,
+        "error_message": None,
+    }
+
+
+def _normalize_worktree_metadata(
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is None:
+        return None
+    return {
+        "enabled": bool(metadata.get("enabled", False)),
+        "status": _bounded_text(metadata.get("status")) or "unknown",
+        "repo_root": _bounded_text(metadata.get("repo_root")),
+        "worktree_path": _bounded_text(metadata.get("worktree_path")),
+        "base_head": _bounded_text(metadata.get("base_head")),
+        "created": bool(metadata.get("created", False)),
+        "cleanup_attempted": bool(metadata.get("cleanup_attempted", False)),
+        "cleanup_ok": (
+            None
+            if metadata.get("cleanup_ok") is None
+            else bool(metadata.get("cleanup_ok"))
+        ),
+        "kept_for_inspection": (
+            None
+            if metadata.get("kept_for_inspection") is None
+            else bool(metadata.get("kept_for_inspection"))
+        ),
+        "error_code": _bounded_text(metadata.get("error_code")),
+        "error_message": _bounded_text(metadata.get("error_message")),
+    }
+
+
+def _run_git_command(
+    cwd: str,
+    argv: list[str],
+    *,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", cwd, *argv],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "[coding-worker] git command timed out cwd=%s argv=%s",
+            cwd,
+            argv,
+        )
+        return None
+    except Exception as exc:
+        logger.warning(
+            "[coding-worker] git command failed cwd=%s argv=%s error=%s",
+            cwd,
+            argv,
+            exc,
+        )
+        return None
+
+
+def _resolve_git_repo_root(cwd: str | None) -> tuple[str | None, str | None]:
+    resolved_cwd = _coerce_optional_text(cwd)
+    if not resolved_cwd:
+        return None, "cwd_missing"
+    completed = _run_git_command(
+        resolved_cwd,
+        ["rev-parse", "--show-toplevel"],
+        timeout_seconds=_GIT_DISCOVERY_TIMEOUT_SECONDS,
+    )
+    if completed is None:
+        return None, "git_discovery_failed"
+    if completed.returncode != 0:
+        return None, _bounded_text(completed.stderr) or "not_a_git_repository"
+    repo_root = _coerce_optional_text(completed.stdout)
+    if not repo_root:
+        return None, "git_repo_root_missing"
+    return os.path.abspath(repo_root), None
+
+
+def _create_isolated_worktree(
+    repo_root: str,
+    run_id: str,
+    coding_task_id: str,
+    attempt_id: str | None,
+) -> dict[str, Any]:
+    metadata = _default_worktree_metadata(enabled=True)
+    metadata.update(
+        {
+            "status": "creating",
+            "repo_root": os.path.abspath(repo_root),
+        }
+    )
+
+    head_resolved = _run_git_command(
+        repo_root,
+        ["rev-parse", "--verify", "HEAD"],
+        timeout_seconds=_GIT_DISCOVERY_TIMEOUT_SECONDS,
+    )
+    if head_resolved is None or head_resolved.returncode != 0:
+        metadata.update(
+            {
+                "status": "create_failed",
+                "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                "error_message": _bounded_text(
+                    (head_resolved.stderr if head_resolved else None)
+                    or "unable_to_resolve_head"
+                ),
+            }
+        )
+        return metadata
+
+    base_head = _coerce_optional_text(head_resolved.stdout)
+    if not base_head:
+        metadata.update(
+            {
+                "status": "create_failed",
+                "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                "error_message": "empty_head_ref",
+            }
+        )
+        return metadata
+
+    metadata["base_head"] = base_head
+    worktree_root = _resolve_worktree_root(repo_root)
+    os.makedirs(worktree_root, exist_ok=True)
+
+    slug_parts = [
+        _safe_worktree_slug(run_id),
+        _safe_worktree_slug(coding_task_id),
+        _safe_worktree_slug(attempt_id or "attempt"),
+    ]
+    worktree_path = os.path.abspath(
+        os.path.join(worktree_root, "-".join(slug_parts))
+    )
+    normalized_root = os.path.abspath(worktree_root)
+    try:
+        if (
+            os.path.commonpath([normalized_root, worktree_path])
+            != normalized_root
+        ):
+            metadata.update(
+                {
+                    "status": "create_failed",
+                    "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                    "error_message": "unsafe_worktree_path",
+                }
+            )
+            return metadata
+    except Exception:
+        metadata.update(
+            {
+                "status": "create_failed",
+                "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                "error_message": "invalid_worktree_path",
+            }
+        )
+        return metadata
+
+    metadata["worktree_path"] = worktree_path
+    if os.path.exists(worktree_path):
+        metadata.update(
+            {
+                "status": "create_failed",
+                "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                "error_message": "worktree_path_already_exists",
+            }
+        )
+        return metadata
+
+    created = _run_git_command(
+        repo_root,
+        ["worktree", "add", "--detach", worktree_path, base_head],
+        timeout_seconds=_WORKTREE_CREATE_TIMEOUT_SECONDS,
+    )
+    if created is None or created.returncode != 0:
+        metadata.update(
+            {
+                "status": "create_failed",
+                "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                "error_message": _bounded_text(
+                    (created.stderr if created else None)
+                    or "git_worktree_add_failed"
+                ),
+            }
+        )
+        return metadata
+
+    metadata.update({"status": "created", "created": True})
+    return metadata
+
+
+def _cleanup_isolated_worktree(
+    repo_root: str,
+    worktree_path: str,
+) -> dict[str, Any]:
+    result = {
+        "cleanup_attempted": True,
+        "cleanup_ok": False,
+        "error_code": ErrorCode.WORKTREE_CLEANUP_FAILED.value,
+        "error_message": None,
+    }
+    removed = _run_git_command(
+        repo_root,
+        ["worktree", "remove", "--force", worktree_path],
+        timeout_seconds=_WORKTREE_CLEANUP_TIMEOUT_SECONDS,
+    )
+    if removed is None or removed.returncode != 0:
+        result["error_message"] = _bounded_text(
+            (removed.stderr if removed else None)
+            or "git_worktree_remove_failed"
+        )
+        return result
+
+    _run_git_command(
+        repo_root,
+        ["worktree", "prune"],
+        timeout_seconds=_WORKTREE_CLEANUP_TIMEOUT_SECONDS,
+    )
+    result.update(
+        {
+            "cleanup_ok": not os.path.exists(worktree_path),
+            "error_code": None
+            if not os.path.exists(worktree_path)
+            else result["error_code"],
+            "error_message": (
+                None
+                if not os.path.exists(worktree_path)
+                else "worktree_path_still_exists_after_remove"
+            ),
+        }
+    )
+    return result
+
+
 def _lease_metadata(lease_ctx: LeaseExecutionContext | None) -> dict[str, Any]:
     if lease_ctx is None:
         return {}
@@ -97,10 +435,15 @@ def _lease_metadata(lease_ctx: LeaseExecutionContext | None) -> dict[str, Any]:
 
 
 def _merge_payload(
-    payload: dict[str, Any], lease_ctx: LeaseExecutionContext | None
+    payload: dict[str, Any],
+    lease_ctx: LeaseExecutionContext | None,
+    worktree: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     merged = dict(payload)
     merged.update(_lease_metadata(lease_ctx))
+    normalized_worktree = _normalize_worktree_metadata(worktree)
+    if normalized_worktree is not None:
+        merged["worktree"] = normalized_worktree
     return merged
 
 
@@ -209,6 +552,119 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
 
 def _coerce_permission_policy(raw: Any) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _collect_dirty_worktree_paths(
+    cwd: str,
+) -> tuple[list[str] | None, str | None]:
+    completed = _run_git_command(
+        cwd,
+        ["status", "--porcelain", "--untracked-files=all"],
+        timeout_seconds=_GIT_DISCOVERY_TIMEOUT_SECONDS,
+    )
+    if completed is None:
+        return None, "git_status_failed"
+    if completed.returncode != 0:
+        return None, _bounded_text(completed.stderr) or "git_status_failed"
+
+    dirty_paths: list[str] = []
+    for raw_line in (completed.stdout or "").splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        path_part = line[3:] if len(line) > 3 else line
+        if " -> " in path_part:
+            path_part = path_part.split(" -> ", 1)[1]
+        normalized = _coerce_optional_text(path_part.strip('"'))
+        if normalized:
+            dirty_paths.append(normalized)
+    return dirty_paths, None
+
+
+def _resolve_allowed_scope_prefixes(
+    permission_policy: dict[str, Any],
+    *,
+    repo_root: str,
+) -> list[str]:
+    raw_allowed_paths = permission_policy.get("allowed_paths")
+    if not isinstance(raw_allowed_paths, list):
+        return []
+
+    prefixes: list[str] = []
+    for item in raw_allowed_paths:
+        raw_path = _coerce_optional_text(item)
+        if not raw_path:
+            continue
+        absolute = (
+            raw_path
+            if os.path.isabs(raw_path)
+            else os.path.abspath(os.path.join(repo_root, raw_path))
+        )
+        try:
+            if os.path.commonpath([repo_root, absolute]) != repo_root:
+                continue
+            rel = os.path.relpath(absolute, repo_root)
+        except Exception:
+            continue
+        if rel in {".", ""}:
+            prefixes.append("")
+            continue
+        prefixes.append(rel.rstrip("/"))
+    return sorted(set(prefixes))
+
+
+def _enforce_isolated_dirty_preflight(
+    worktree_path: str,
+) -> tuple[bool, str | None, str | None]:
+    dirty_paths, error = _collect_dirty_worktree_paths(worktree_path)
+    if error:
+        return False, ErrorCode.MUTATION_SCOPE_UNVERIFIED.value, error
+    if dirty_paths:
+        return (
+            False,
+            ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value,
+            f"isolated worktree is not clean ({len(dirty_paths)} path(s) dirty)",
+        )
+    return True, None, None
+
+
+def _enforce_isolated_mutation_scope(
+    *,
+    worktree_path: str,
+    repo_root: str,
+    permission_policy: dict[str, Any],
+) -> tuple[bool, str | None, str | None]:
+    dirty_paths, error = _collect_dirty_worktree_paths(worktree_path)
+    if error:
+        return False, ErrorCode.MUTATION_SCOPE_UNVERIFIED.value, error
+
+    if not dirty_paths:
+        return True, None, None
+
+    allowed_prefixes = _resolve_allowed_scope_prefixes(
+        permission_policy,
+        repo_root=repo_root,
+    )
+    if not allowed_prefixes:
+        return True, None, None
+
+    for dirty_path in dirty_paths:
+        normalized = dirty_path.strip("/")
+        allowed = False
+        for prefix in allowed_prefixes:
+            if not prefix:
+                allowed = True
+                break
+            if normalized == prefix or normalized.startswith(f"{prefix}/"):
+                allowed = True
+                break
+        if not allowed:
+            return (
+                False,
+                ErrorCode.MUTATION_SCOPE_VIOLATION.value,
+                f"mutation outside allowed_paths: {dirty_path}",
+            )
+    return True, None, None
 
 
 def _validation_timeout_seconds(task_timeout_seconds: int) -> int:
@@ -503,6 +959,10 @@ class CodingWorker:
         lease_store: WorktreeLeaseStore | None = None
         lease_ctx: LeaseExecutionContext | None = None
         effective_cwd = task.cwd
+        worktree_metadata = _default_worktree_metadata(
+            enabled=_coding_worktree_isolation_enabled()
+        )
+        isolated_repo_root: str | None = None
 
         db = getattr(self.store, "db", None)
         if db is not None and hasattr(db, "get_session"):
@@ -644,8 +1104,128 @@ class CodingWorker:
             ):
                 return
 
+        if worktree_metadata["enabled"] and lease_ctx is not None:
+            worktree_metadata.update(
+                {
+                    "status": "skipped_for_lease_bound_execution",
+                    "error_code": None,
+                    "error_message": None,
+                }
+            )
+
+        if worktree_metadata["enabled"] and lease_ctx is None:
+            repo_root, discovery_error = _resolve_git_repo_root(effective_cwd)
+            if repo_root is None:
+                worktree_metadata.update(
+                    {
+                        "status": "unavailable",
+                        "error_code": (
+                            ErrorCode.WORKTREE_ISOLATION_UNAVAILABLE.value
+                        ),
+                        "error_message": _bounded_text(discovery_error),
+                    }
+                )
+                self._emit_worktree_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_ISOLATION_UNAVAILABLE.value,
+                    error_message=(
+                        "worktree isolation requested but cwd is not inside a git repository"
+                    ),
+                    worktree=_normalize_worktree_metadata(worktree_metadata),
+                )
+                return
+
+            isolated_repo_root = repo_root
+            created_worktree = _create_isolated_worktree(
+                repo_root=repo_root,
+                run_id=task.run_id,
+                coding_task_id=task.coding_task_id,
+                attempt_id=task.attempt_id,
+            )
+            worktree_metadata.update(created_worktree)
+            if not bool(worktree_metadata.get("created")):
+                self._emit_worktree_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=(
+                        _bounded_text(worktree_metadata.get("error_code"))
+                        or ErrorCode.WORKTREE_CREATE_FAILED.value
+                    ),
+                    error_message=(
+                        _bounded_text(worktree_metadata.get("error_message"))
+                        or "failed to create isolated worktree"
+                    ),
+                    worktree=_normalize_worktree_metadata(worktree_metadata),
+                )
+                return
+
+            worktree_path = _coerce_optional_text(
+                worktree_metadata.get("worktree_path")
+            )
+            if not worktree_path:
+                worktree_metadata.update(
+                    {
+                        "status": "create_failed",
+                        "error_code": ErrorCode.WORKTREE_CREATE_FAILED.value,
+                        "error_message": "worktree_path_missing",
+                    }
+                )
+                self._emit_worktree_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=ErrorCode.WORKTREE_CREATE_FAILED.value,
+                    error_message="failed to create isolated worktree",
+                    worktree=_normalize_worktree_metadata(worktree_metadata),
+                )
+                return
+
+            effective_cwd = worktree_path
+            (
+                preflight_ok,
+                preflight_error_code,
+                preflight_error_message,
+            ) = _enforce_isolated_dirty_preflight(worktree_path)
+            if not preflight_ok:
+                worktree_metadata.update(
+                    {
+                        "status": "dirty_preflight_failed",
+                        "error_code": preflight_error_code,
+                        "error_message": _bounded_text(preflight_error_message),
+                    }
+                )
+                self._emit_worktree_failure(
+                    task,
+                    adapter_kind=adapter_kind,
+                    error_code=(
+                        preflight_error_code
+                        or ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
+                    ),
+                    error_message=(
+                        _bounded_text(preflight_error_message)
+                        or "isolated worktree dirty preflight failed"
+                    ),
+                    worktree=_normalize_worktree_metadata(worktree_metadata),
+                )
+                return
+
+            self._emit_worktree_created(
+                task,
+                adapter_kind=adapter_kind,
+                worktree=_normalize_worktree_metadata(worktree_metadata),
+            )
+
         # Emit running event
-        self._emit_running(task, adapter_kind=adapter_kind, lease_ctx=lease_ctx)
+        self._emit_running(
+            task,
+            adapter_kind=adapter_kind,
+            lease_ctx=lease_ctx,
+            worktree=(
+                _normalize_worktree_metadata(worktree_metadata)
+                if bool(worktree_metadata.get("enabled"))
+                else None
+            ),
+        )
 
         # Get adapter
         adapter = ADAPTERS.get(adapter_kind)
@@ -656,6 +1236,11 @@ class CodingWorker:
                 error_message=f"coding adapter not configured: {adapter_kind}",
                 error_code="ADAPTER_NOT_FOUND",
                 lease_ctx=lease_ctx,
+                worktree=(
+                    _normalize_worktree_metadata(worktree_metadata)
+                    if bool(worktree_metadata.get("enabled"))
+                    else None
+                ),
             )
             return
 
@@ -666,6 +1251,87 @@ class CodingWorker:
         validation_stop_reason: str | None = None
         best_validation_result: NormalizedTestResult | None = None
         previous_fail_signature: str | None = None
+        worktree_cleanup_finalized = False
+
+        def _finalize_worktree_for_terminal(
+            *,
+            success_like: bool,
+        ) -> dict[str, Any] | None:
+            nonlocal worktree_cleanup_finalized, worktree_metadata
+            if not bool(worktree_metadata.get("enabled")):
+                return None
+            if worktree_cleanup_finalized:
+                return _normalize_worktree_metadata(worktree_metadata)
+            if not bool(worktree_metadata.get("created")):
+                worktree_cleanup_finalized = True
+                return _normalize_worktree_metadata(worktree_metadata)
+
+            keep_for_inspection = (
+                _coding_keep_worktree_on_success()
+                if success_like
+                else _coding_keep_worktree_on_failure()
+            )
+            worktree_metadata["kept_for_inspection"] = keep_for_inspection
+
+            if keep_for_inspection:
+                worktree_metadata.update(
+                    {
+                        "status": "retained_for_inspection",
+                        "cleanup_attempted": False,
+                        "cleanup_ok": None,
+                    }
+                )
+                worktree_cleanup_finalized = True
+                return _normalize_worktree_metadata(worktree_metadata)
+
+            repo_root = _coerce_optional_text(
+                worktree_metadata.get("repo_root")
+            )
+            worktree_path = _coerce_optional_text(
+                worktree_metadata.get("worktree_path")
+            )
+            if not repo_root or not worktree_path:
+                worktree_metadata.update(
+                    {
+                        "status": "cleanup_failed",
+                        "cleanup_attempted": True,
+                        "cleanup_ok": False,
+                        "error_code": ErrorCode.WORKTREE_CLEANUP_FAILED.value,
+                        "error_message": "missing_cleanup_paths",
+                    }
+                )
+                worktree_cleanup_finalized = True
+                return _normalize_worktree_metadata(worktree_metadata)
+
+            cleanup_result = _cleanup_isolated_worktree(
+                repo_root, worktree_path
+            )
+            worktree_metadata.update(cleanup_result)
+            if cleanup_result.get("cleanup_ok"):
+                worktree_metadata.update(
+                    {
+                        "status": "cleanup_succeeded",
+                        "error_code": worktree_metadata.get("error_code"),
+                        "error_message": worktree_metadata.get("error_message"),
+                    }
+                )
+            else:
+                worktree_metadata.update(
+                    {
+                        "status": "cleanup_failed",
+                        "error_code": (
+                            cleanup_result.get("error_code")
+                            or ErrorCode.WORKTREE_CLEANUP_FAILED.value
+                        ),
+                        "error_message": _bounded_text(
+                            cleanup_result.get("error_message")
+                        )
+                        or "worktree cleanup failed",
+                    }
+                )
+
+            worktree_cleanup_finalized = True
+            return _normalize_worktree_metadata(worktree_metadata)
 
         def _persist_and_emit_terminal(
             *,
@@ -693,6 +1359,9 @@ class CodingWorker:
             human_review_required: bool = True,
             require_human_review_before_merge: bool = True,
         ) -> None:
+            normalized_worktree = _finalize_worktree_for_terminal(
+                success_like=_is_success_like_coding_result(result_status)
+            )
             result_artifact_payload = list(artifacts)
             if validation_result is not None:
                 result_artifact_payload = [
@@ -719,6 +1388,7 @@ class CodingWorker:
                         "require_human_review_before_merge": (
                             require_human_review_before_merge
                         ),
+                        "worktree": normalized_worktree,
                     },
                     *result_artifact_payload,
                 ]
@@ -734,7 +1404,13 @@ class CodingWorker:
                         "require_human_review_before_merge": (
                             require_human_review_before_merge
                         ),
+                        "worktree": normalized_worktree,
                     },
+                    *result_artifact_payload,
+                ]
+            elif normalized_worktree is not None:
+                result_artifact_payload = [
+                    {"worktree": normalized_worktree},
                     *result_artifact_payload,
                 ]
 
@@ -805,6 +1481,7 @@ class CodingWorker:
                     ),
                     error_code="RESULT_DELIVERY_FAILED",
                     lease_ctx=lease_ctx,
+                    worktree=normalized_worktree,
                 )
                 return
 
@@ -853,6 +1530,7 @@ class CodingWorker:
                 require_human_review_before_merge=(
                     require_human_review_before_merge
                 ),
+                worktree=normalized_worktree,
             )
 
         for attempt_index in range(1, validation_attempt_budget + 1):
@@ -879,6 +1557,11 @@ class CodingWorker:
                     validation_attempt_count=attempt_index,
                     max_validation_attempts=validation_attempt_budget,
                     lease_ctx=lease_ctx,
+                    worktree=(
+                        _normalize_worktree_metadata(worktree_metadata)
+                        if bool(worktree_metadata.get("enabled"))
+                        else None
+                    ),
                 )
 
             if lease_ctx is not None and lease_store is not None:
@@ -921,6 +1604,55 @@ class CodingWorker:
             error_message = getattr(result, "error_message", None)
             if not error_message and not success_like:
                 error_message = getattr(result, "summary", None)
+            if (
+                bool(worktree_metadata.get("enabled"))
+                and bool(worktree_metadata.get("created"))
+                and isolated_repo_root
+                and effective_cwd
+            ):
+                (
+                    in_scope,
+                    scope_error_code,
+                    scope_error_message,
+                ) = _enforce_isolated_mutation_scope(
+                    worktree_path=effective_cwd,
+                    repo_root=isolated_repo_root,
+                    permission_policy=permission_policy,
+                )
+                if not in_scope:
+                    worktree_metadata.update(
+                        {
+                            "status": "mutation_scope_failed",
+                            "error_code": scope_error_code,
+                            "error_message": _bounded_text(scope_error_message),
+                        }
+                    )
+                    final_summary = getattr(result, "summary", "")
+                    final_errors = list(getattr(result, "errors", []) or [])
+                    if scope_error_code:
+                        final_errors.append(scope_error_code)
+                    _persist_and_emit_terminal(
+                        result=result,
+                        result_status="failed",
+                        summary=(
+                            f"{final_summary} | mutation scope verification failed"
+                            if final_summary
+                            else "mutation scope verification failed"
+                        ),
+                        files_changed=files_changed,
+                        artifacts=result_artifacts,
+                        adapter_session_ref=adapter_session_ref,
+                        errors=final_errors,
+                        error_code=(
+                            scope_error_code
+                            or ErrorCode.MUTATION_SCOPE_UNVERIFIED.value
+                        ),
+                        error_message=(
+                            _bounded_text(scope_error_message)
+                            or "mutation scope verification failed"
+                        ),
+                    )
+                    return
 
             if not success_like:
                 final_summary = getattr(result, "summary", "")
@@ -992,6 +1724,11 @@ class CodingWorker:
                         validation_attempt_count=attempt_index,
                         max_validation_attempts=validation_attempt_budget,
                         lease_ctx=lease_ctx,
+                        worktree=(
+                            _normalize_worktree_metadata(worktree_metadata)
+                            if bool(worktree_metadata.get("enabled"))
+                            else None
+                        ),
                     )
                     final_validation_result = _run_validation_command(
                         command=validation_command,
@@ -1036,6 +1773,11 @@ class CodingWorker:
                         validation_attempt_count=validation_attempt_count,
                         max_validation_attempts=validation_attempt_budget,
                         lease_ctx=lease_ctx,
+                        worktree=(
+                            _normalize_worktree_metadata(worktree_metadata)
+                            if bool(worktree_metadata.get("enabled"))
+                            else None
+                        ),
                     )
                     if commit_after_validation:
                         if lease_ctx is None:
@@ -1281,6 +2023,11 @@ class CodingWorker:
                     final_validation_status=final_validation_status,
                     final_fail_signature=final_fail_signature,
                     lease_ctx=lease_ctx,
+                    worktree=(
+                        _normalize_worktree_metadata(worktree_metadata)
+                        if bool(worktree_metadata.get("enabled"))
+                        else None
+                    ),
                 )
 
                 if final_validation_result.status == "error":
@@ -1350,6 +2097,11 @@ class CodingWorker:
                             validation_stop_reason=validation_stop_reason,
                             retry_feedback=retry_feedback,
                             lease_ctx=lease_ctx,
+                            worktree=(
+                                _normalize_worktree_metadata(worktree_metadata)
+                                if bool(worktree_metadata.get("enabled"))
+                                else None
+                            ),
                         )
                         previous_fail_signature = final_fail_signature
                         continue
@@ -1508,6 +2260,7 @@ class CodingWorker:
         *,
         adapter_kind: str | None,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.running event."""
         try:
@@ -1531,6 +2284,7 @@ class CodingWorker:
                         "status": "running",
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1538,6 +2292,85 @@ class CodingWorker:
                 "[coding-worker] failed to emit running event: %s",
                 exc,
             )
+
+    def _emit_worktree_created(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        worktree: dict[str, Any] | None,
+    ) -> None:
+        normalized_worktree = _normalize_worktree_metadata(worktree)
+        if normalized_worktree is None:
+            return
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_WORKTREE_CREATED.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "worktree_created",
+                    "worktree": normalized_worktree,
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit worktree created event: %s",
+                exc,
+            )
+
+    def _emit_worktree_failure(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        error_code: str,
+        error_message: str,
+        worktree: dict[str, Any] | None,
+    ) -> None:
+        normalized_worktree = _normalize_worktree_metadata(worktree)
+        self.store.store_coding_result(
+            run_id=task.run_id,
+            coding_task_id=task.coding_task_id,
+            attempt_id=task.attempt_id,
+            request_id=task.request_id or None,
+            thread_id=task.thread_id,
+            source_message_id=_coerce_optional_positive_int(
+                task.source_message_id
+            ),
+            result_status="failed",
+            result_summary=error_message,
+            adapter_kind=adapter_kind,
+            files_changed=[],
+            artifacts=[
+                {
+                    "stop_reason": "worktree_isolation_failed",
+                    "worktree": normalized_worktree,
+                }
+            ],
+            errors=[error_code],
+            error_code=error_code,
+            error_message=error_message,
+        )
+        self._emit_failure(
+            task,
+            adapter_kind=adapter_kind,
+            error_message=error_message,
+            error_code=error_code,
+            worktree=normalized_worktree,
+            result_captured_by_guardian=True,
+        )
 
     def _emit_attempt_started(
         self,
@@ -1548,6 +2381,7 @@ class CodingWorker:
         validation_attempt_count: int,
         max_validation_attempts: int,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.attempt_started for a validation-bearing attempt."""
         try:
@@ -1574,6 +2408,7 @@ class CodingWorker:
                         "validation_command": validation_command,
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1591,6 +2426,7 @@ class CodingWorker:
         validation_attempt_count: int,
         max_validation_attempts: int,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.validation_started for an upcoming validation run."""
         try:
@@ -1617,6 +2453,7 @@ class CodingWorker:
                         "validation_command": validation_command,
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1634,6 +2471,7 @@ class CodingWorker:
         validation_attempt_count: int,
         max_validation_attempts: int,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.validation_passed for a successful validation attempt."""
         try:
@@ -1661,6 +2499,7 @@ class CodingWorker:
                         "validation_result": validation_result.model_dump(),
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1681,6 +2520,7 @@ class CodingWorker:
         final_validation_status: str | None,
         final_fail_signature: str | None,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.validation_failed for a failed validation attempt."""
         try:
@@ -1711,6 +2551,7 @@ class CodingWorker:
                         "validation_result": validation_result.model_dump(),
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1731,6 +2572,7 @@ class CodingWorker:
         validation_stop_reason: str | None,
         retry_feedback: str,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
     ) -> None:
         """Emit task.validation_retrying with bounded retry feedback."""
         try:
@@ -1761,6 +2603,7 @@ class CodingWorker:
                         "retry_feedback": retry_feedback,
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1794,6 +2637,7 @@ class CodingWorker:
         best_validation_result: dict[str, Any] | None = None,
         max_validation_attempts: int | None = None,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
         commit_after_validation: bool = False,
         commit_hash: str | None = None,
         commit_status: str | None = None,
@@ -1854,6 +2698,7 @@ class CodingWorker:
                         ),
                     },
                     lease_ctx,
+                    worktree,
                 ),
             )
         except Exception as exc:
@@ -1870,6 +2715,7 @@ class CodingWorker:
         error_message: str,
         error_code: str,
         lease_ctx: LeaseExecutionContext | None = None,
+        worktree: dict[str, Any] | None = None,
         result_captured_by_guardian: bool = False,
         lease_id: str | None = None,
         branch_name: str | None = None,
@@ -1902,6 +2748,9 @@ class CodingWorker:
         }
         if lease_ctx is not None:
             payload.update(_lease_metadata(lease_ctx))
+        normalized_worktree = _normalize_worktree_metadata(worktree)
+        if normalized_worktree is not None:
+            payload["worktree"] = normalized_worktree
         if lease_id is not None:
             payload["worktree_lease_id"] = lease_id
         if branch_name is not None:

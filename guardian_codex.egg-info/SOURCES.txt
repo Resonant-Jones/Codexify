@@ -13,6 +13,7 @@ guardian/codexify.py
 guardian/config_loader.py
 guardian/conftest.py
 guardian/contracts.py
+guardian/depth.py
 guardian/desktop_keyring.py
 guardian/desktop_linker.py
 guardian/desktop_vault.py
@@ -36,6 +37,7 @@ guardian/plugin_host.py
 guardian/plugin_loader.py
 guardian/plugin_manager.py
 guardian/prompt_assembler.py
+guardian/protocol_tokens.py
 guardian/pulse_secretary.py
 guardian/research.py
 guardian/ritual_cli.py
@@ -61,11 +63,15 @@ guardian_codex.egg-info/requires.txt
 guardian_codex.egg-info/top_level.txt
 tests/test_alembic_config_contract.py
 tests/test_chat_message_guard.py
+tests/test_chat_payload_summary.py
 tests/test_chat_worker_blank_output.py
+tests/test_chat_worker_turn_integrity.py
 tests/test_flows_core.py
 tests/test_media_identity.py
 tests/test_migrations.py
+tests/test_persona_prompt_wiring.py
 tests/test_personal_facts_crud.py
+tests/test_retrieval_context_prompt.py
 tests/test_startup.py
 tests/test_temporal_facts_migration.py
 tests/test_temporal_ordering.py
