@@ -12,6 +12,11 @@ from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionRequest
+from guardian.agents.commit_gate import (
+    CommitGateError,
+    CommitGateResult,
+    commit_after_green,
+)
 from guardian.agents.events import build_coding_result_lineage_payload
 from guardian.agents.store import AgentStore, store
 from guardian.agents.test_results import (
@@ -64,6 +69,7 @@ _ADAPTER_KIND_ALIASES = {
 _VALIDATION_TIMEOUT_CAP_SECONDS = 120
 _VALIDATION_ATTEMPTS_DEFAULT = 1
 _VALIDATION_ATTEMPTS_CAP = 3
+_DEFAULT_COMMIT_MESSAGE_PREFIX = "Guardian commit-after-green"
 
 
 @dataclass(frozen=True)
@@ -96,6 +102,47 @@ def _merge_payload(
     merged = dict(payload)
     merged.update(_lease_metadata(lease_ctx))
     return merged
+
+
+def _resolve_commit_after_validation(
+    task: CodingExecutionTask, deployment_spec: dict[str, Any]
+) -> bool:
+    return bool(
+        task.commit_after_validation
+        or deployment_spec.get("commit_after_validation")
+        or deployment_spec.get("commitAfterValidation")
+        or False
+    )
+
+
+def _resolve_commit_message(
+    task: CodingExecutionTask,
+    deployment_spec: dict[str, Any],
+) -> str | None:
+    return _coerce_optional_text(
+        task.commit_message
+        or deployment_spec.get("commit_message")
+        or deployment_spec.get("commitMessage")
+    )
+
+
+def _resolve_human_review_requirement(
+    task: CodingExecutionTask,
+    deployment_spec: dict[str, Any],
+) -> bool:
+    if task.require_human_review_before_merge is not True:
+        return bool(task.require_human_review_before_merge)
+    if "require_human_review_before_merge" in deployment_spec:
+        return bool(deployment_spec.get("require_human_review_before_merge"))
+    if "requireHumanReviewBeforeMerge" in deployment_spec:
+        return bool(deployment_spec.get("requireHumanReviewBeforeMerge"))
+    return True
+
+
+def _default_commit_message(task: CodingExecutionTask) -> str:
+    task_id = _coerce_optional_text(task.coding_task_id) or "unknown-task"
+    attempt_id = _coerce_optional_text(task.attempt_id) or "attempt"
+    return f"{_DEFAULT_COMMIT_MESSAGE_PREFIX}: " f"{task_id} ({attempt_id})"
 
 
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
@@ -428,6 +475,13 @@ class CodingWorker:
         validation_attempt_budget = (
             max_validation_attempts if validation_command else 1
         )
+        commit_after_validation = _resolve_commit_after_validation(
+            task, deployment_spec
+        )
+        commit_message_override = _resolve_commit_message(task, deployment_spec)
+        require_human_review_before_merge = _resolve_human_review_requirement(
+            task, deployment_spec
+        )
         lease_required = bool(
             task.require_worktree_lease
             or deployment_spec.get("require_worktree_lease", False)
@@ -435,6 +489,17 @@ class CodingWorker:
         lease_id = _coerce_optional_text(
             task.worktree_lease_id or deployment_spec.get("worktree_lease_id")
         )
+        if commit_after_validation and not lease_id:
+            self._emit_lease_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_code=ErrorCode.GIT_WORKTREE_REQUIRED.value,
+                error_message=(
+                    "commit_after_validation requires an active worktree lease"
+                ),
+                lease_required=True,
+            )
+            return
         lease_store: WorktreeLeaseStore | None = None
         lease_ctx: LeaseExecutionContext | None = None
         effective_cwd = task.cwd
@@ -620,6 +685,13 @@ class CodingWorker:
             final_fail_signature: str | None = None,
             validation_attempts: list[dict[str, Any]] | None = None,
             max_validation_attempts: int | None = None,
+            commit_after_validation: bool = False,
+            commit_hash: str | None = None,
+            commit_status: str | None = None,
+            commit_reason_code: str | None = None,
+            merge_ready: bool = False,
+            human_review_required: bool = True,
+            require_human_review_before_merge: bool = True,
         ) -> None:
             result_artifact_payload = list(artifacts)
             if validation_result is not None:
@@ -638,6 +710,30 @@ class CodingWorker:
                             else None
                         ),
                         "validation_attempts": list(validation_attempts or []),
+                        "commit_after_validation": commit_after_validation,
+                        "commit_hash": commit_hash,
+                        "commit_status": commit_status,
+                        "commit_reason_code": commit_reason_code,
+                        "merge_ready": merge_ready,
+                        "human_review_required": human_review_required,
+                        "require_human_review_before_merge": (
+                            require_human_review_before_merge
+                        ),
+                    },
+                    *result_artifact_payload,
+                ]
+            elif commit_after_validation:
+                result_artifact_payload = [
+                    {
+                        "commit_after_validation": commit_after_validation,
+                        "commit_hash": commit_hash,
+                        "commit_status": commit_status,
+                        "commit_reason_code": commit_reason_code,
+                        "merge_ready": merge_ready,
+                        "human_review_required": human_review_required,
+                        "require_human_review_before_merge": (
+                            require_human_review_before_merge
+                        ),
                     },
                     *result_artifact_payload,
                 ]
@@ -685,6 +781,15 @@ class CodingWorker:
                 ),
                 lease_worktree_path=(
                     lease_ctx.worktree_path if lease_ctx is not None else None
+                ),
+                commit_after_validation=commit_after_validation,
+                commit_hash=commit_hash,
+                commit_status=commit_status,
+                commit_reason_code=commit_reason_code,
+                merge_ready=merge_ready,
+                human_review_required=human_review_required,
+                require_human_review_before_merge=(
+                    require_human_review_before_merge
                 ),
             )
 
@@ -739,6 +844,15 @@ class CodingWorker:
                     else None
                 ),
                 lease_ctx=lease_ctx,
+                commit_after_validation=commit_after_validation,
+                commit_hash=commit_hash,
+                commit_status=commit_status,
+                commit_reason_code=commit_reason_code,
+                merge_ready=merge_ready,
+                human_review_required=human_review_required,
+                require_human_review_before_merge=(
+                    require_human_review_before_merge
+                ),
             )
 
         for attempt_index in range(1, validation_attempt_budget + 1):
@@ -833,6 +947,17 @@ class CodingWorker:
             final_errors = list(getattr(result, "errors", []) or [])
             final_error_code = error_code
             final_error_message = error_message
+            final_commit_hash: str | None = None
+            final_commit_status: str | None = (
+                "not_requested" if not commit_after_validation else "skipped"
+            )
+            final_commit_reason_code: str | None = (
+                None
+                if not commit_after_validation
+                else "VALIDATION_NOT_CONFIGURED"
+            )
+            final_merge_ready = False
+            final_human_review_required = require_human_review_before_merge
             final_validation_result = None
             final_validation_status = None
             final_fail_signature = None
@@ -912,6 +1037,178 @@ class CodingWorker:
                         max_validation_attempts=validation_attempt_budget,
                         lease_ctx=lease_ctx,
                     )
+                    if commit_after_validation:
+                        if lease_ctx is None:
+                            _persist_and_emit_terminal(
+                                result=result,
+                                result_status="failed",
+                                summary=(
+                                    f"{final_summary} | commit-after-validation requires a lease-bound run"
+                                    if final_summary
+                                    else "commit-after-validation requires a lease-bound run"
+                                ),
+                                files_changed=files_changed,
+                                artifacts=result_artifacts,
+                                adapter_session_ref=adapter_session_ref,
+                                errors=[
+                                    *final_errors,
+                                    ErrorCode.GIT_WORKTREE_REQUIRED.value,
+                                ],
+                                error_code=ErrorCode.GIT_WORKTREE_REQUIRED.value,
+                                error_message=(
+                                    "commit_after_validation requires an active worktree lease"
+                                ),
+                                validation_result=final_validation_result,
+                                validation_attempt_count=validation_attempt_count,
+                                validation_stop_reason=validation_stop_reason,
+                                final_validation_status=final_validation_status,
+                                final_fail_signature=final_fail_signature,
+                                validation_attempts=list(validation_attempts),
+                                max_validation_attempts=validation_attempt_budget,
+                                commit_after_validation=True,
+                                commit_hash=None,
+                                commit_status="failed",
+                                commit_reason_code=ErrorCode.GIT_WORKTREE_REQUIRED.value,
+                                merge_ready=False,
+                                human_review_required=True,
+                                require_human_review_before_merge=(
+                                    require_human_review_before_merge
+                                ),
+                            )
+                            return
+
+                        if lease_store is not None:
+                            if not self._heartbeat_or_fail(
+                                task,
+                                adapter_kind=adapter_kind,
+                                lease_ctx=lease_ctx,
+                                lease_store=lease_store,
+                                reason="before_commit",
+                            ):
+                                return
+
+                        resolved_commit_message = (
+                            commit_message_override
+                            or _default_commit_message(task)
+                        )
+                        try:
+                            commit_gate_result = commit_after_green(
+                                lease_ctx.worktree_path,
+                                resolved_commit_message,
+                                lease_ctx.branch_name,
+                            )
+                        except CommitGateError as exc:
+                            _persist_and_emit_terminal(
+                                result=result,
+                                result_status="failed",
+                                summary=(
+                                    f"{final_summary} | commit gate execution failed"
+                                    if final_summary
+                                    else "commit gate execution failed"
+                                ),
+                                files_changed=files_changed,
+                                artifacts=result_artifacts,
+                                adapter_session_ref=adapter_session_ref,
+                                errors=[
+                                    *final_errors,
+                                    ErrorCode.GIT_COMMIT_FAILED.value,
+                                ],
+                                error_code=ErrorCode.GIT_COMMIT_FAILED.value,
+                                error_message=str(exc),
+                                validation_result=final_validation_result,
+                                validation_attempt_count=validation_attempt_count,
+                                validation_stop_reason=validation_stop_reason,
+                                final_validation_status=final_validation_status,
+                                final_fail_signature=final_fail_signature,
+                                validation_attempts=list(validation_attempts),
+                                max_validation_attempts=validation_attempt_budget,
+                                commit_after_validation=True,
+                                commit_hash=None,
+                                commit_status="failed",
+                                commit_reason_code=ErrorCode.GIT_COMMIT_FAILED.value,
+                                merge_ready=False,
+                                human_review_required=True,
+                                require_human_review_before_merge=(
+                                    require_human_review_before_merge
+                                ),
+                            )
+                            return
+
+                        final_commit_hash = commit_gate_result.commit_hash
+                        final_commit_status = commit_gate_result.status
+                        final_commit_reason_code = (
+                            commit_gate_result.reason_code
+                        )
+                        if commit_gate_result.files_changed:
+                            files_changed = list(
+                                commit_gate_result.files_changed
+                            )
+
+                        if commit_gate_result.committed:
+                            final_merge_ready = True
+                            final_human_review_required = (
+                                require_human_review_before_merge
+                            )
+                        elif (
+                            commit_gate_result.reason_code
+                            == ErrorCode.GIT_NO_CHANGES_TO_COMMIT.value
+                        ):
+                            final_merge_ready = False
+                            final_human_review_required = True
+                        else:
+                            final_merge_ready = False
+                            final_human_review_required = True
+                            _persist_and_emit_terminal(
+                                result=result,
+                                result_status="failed",
+                                summary=(
+                                    f"{final_summary} | commit gate failed"
+                                    if final_summary
+                                    else "commit gate failed"
+                                ),
+                                files_changed=files_changed,
+                                artifacts=result_artifacts,
+                                adapter_session_ref=adapter_session_ref,
+                                errors=[
+                                    *final_errors,
+                                    commit_gate_result.reason_code
+                                    or ErrorCode.GIT_COMMIT_FAILED.value,
+                                ],
+                                error_code=(
+                                    commit_gate_result.reason_code
+                                    or ErrorCode.GIT_COMMIT_FAILED.value
+                                ),
+                                error_message=(
+                                    commit_gate_result.message
+                                    or "commit gate failed"
+                                ),
+                                validation_result=final_validation_result,
+                                validation_attempt_count=validation_attempt_count,
+                                validation_stop_reason=validation_stop_reason,
+                                final_validation_status=final_validation_status,
+                                final_fail_signature=final_fail_signature,
+                                validation_attempts=list(validation_attempts),
+                                max_validation_attempts=validation_attempt_budget,
+                                commit_after_validation=True,
+                                commit_hash=final_commit_hash,
+                                commit_status=final_commit_status,
+                                commit_reason_code=final_commit_reason_code,
+                                merge_ready=False,
+                                human_review_required=True,
+                                require_human_review_before_merge=(
+                                    require_human_review_before_merge
+                                ),
+                            )
+                            return
+                    else:
+                        final_commit_hash = None
+                        final_commit_status = "not_requested"
+                        final_commit_reason_code = None
+                        final_merge_ready = False
+                        final_human_review_required = (
+                            require_human_review_before_merge
+                        )
+
                     _persist_and_emit_terminal(
                         result=result,
                         result_status=result_status,
@@ -929,10 +1226,22 @@ class CodingWorker:
                         final_fail_signature=final_fail_signature,
                         validation_attempts=list(validation_attempts),
                         max_validation_attempts=validation_attempt_budget,
+                        commit_after_validation=commit_after_validation,
+                        commit_hash=final_commit_hash,
+                        commit_status=final_commit_status,
+                        commit_reason_code=final_commit_reason_code,
+                        merge_ready=final_merge_ready,
+                        human_review_required=final_human_review_required,
+                        require_human_review_before_merge=(
+                            require_human_review_before_merge
+                        ),
                     )
                     return
 
                 if final_validation_result.status == "not_run":
+                    if commit_after_validation:
+                        final_commit_status = "skipped"
+                        final_commit_reason_code = "VALIDATION_NOT_RUN"
                     _persist_and_emit_terminal(
                         result=result,
                         result_status=result_status,
@@ -950,6 +1259,15 @@ class CodingWorker:
                         final_fail_signature=final_fail_signature,
                         validation_attempts=list(validation_attempts),
                         max_validation_attempts=validation_attempt_budget,
+                        commit_after_validation=commit_after_validation,
+                        commit_hash=final_commit_hash,
+                        commit_status=final_commit_status,
+                        commit_reason_code=final_commit_reason_code,
+                        merge_ready=False,
+                        human_review_required=True,
+                        require_human_review_before_merge=(
+                            require_human_review_before_merge
+                        ),
                     )
                     return
 
@@ -994,6 +1312,21 @@ class CodingWorker:
                         final_fail_signature=final_fail_signature,
                         validation_attempts=list(validation_attempts),
                         max_validation_attempts=validation_attempt_budget,
+                        commit_after_validation=commit_after_validation,
+                        commit_hash=final_commit_hash,
+                        commit_status="skipped"
+                        if commit_after_validation
+                        else final_commit_status,
+                        commit_reason_code=(
+                            "VALIDATION_ERROR"
+                            if commit_after_validation
+                            else final_commit_reason_code
+                        ),
+                        merge_ready=False,
+                        human_review_required=True,
+                        require_human_review_before_merge=(
+                            require_human_review_before_merge
+                        ),
                     )
                     return
 
@@ -1049,6 +1382,21 @@ class CodingWorker:
                         final_fail_signature=final_fail_signature,
                         validation_attempts=list(validation_attempts),
                         max_validation_attempts=validation_attempt_budget,
+                        commit_after_validation=commit_after_validation,
+                        commit_hash=final_commit_hash,
+                        commit_status="skipped"
+                        if commit_after_validation
+                        else final_commit_status,
+                        commit_reason_code=(
+                            "VALIDATION_FAILED"
+                            if commit_after_validation
+                            else final_commit_reason_code
+                        ),
+                        merge_ready=False,
+                        human_review_required=True,
+                        require_human_review_before_merge=(
+                            require_human_review_before_merge
+                        ),
                     )
                     return
 
@@ -1062,6 +1410,15 @@ class CodingWorker:
                 errors=final_errors,
                 error_code=final_error_code,
                 error_message=final_error_message,
+                commit_after_validation=commit_after_validation,
+                commit_hash=final_commit_hash,
+                commit_status=final_commit_status,
+                commit_reason_code=final_commit_reason_code,
+                merge_ready=False,
+                human_review_required=final_human_review_required,
+                require_human_review_before_merge=(
+                    require_human_review_before_merge
+                ),
             )
             return
 
@@ -1437,6 +1794,13 @@ class CodingWorker:
         best_validation_result: dict[str, Any] | None = None,
         max_validation_attempts: int | None = None,
         lease_ctx: LeaseExecutionContext | None = None,
+        commit_after_validation: bool = False,
+        commit_hash: str | None = None,
+        commit_status: str | None = None,
+        commit_reason_code: str | None = None,
+        merge_ready: bool = False,
+        human_review_required: bool = True,
+        require_human_review_before_merge: bool = True,
     ) -> None:
         """Emit terminal task event."""
         try:
@@ -1479,6 +1843,15 @@ class CodingWorker:
                         "final_fail_signature": final_fail_signature,
                         "best_validation_result": best_validation_result,
                         "max_validation_attempts": max_validation_attempts,
+                        "commit_after_validation": commit_after_validation,
+                        "commit_hash": commit_hash,
+                        "commit_status": commit_status,
+                        "commit_reason_code": commit_reason_code,
+                        "merge_ready": merge_ready,
+                        "human_review_required": human_review_required,
+                        "require_human_review_before_merge": (
+                            require_human_review_before_merge
+                        ),
                     },
                     lease_ctx,
                 ),

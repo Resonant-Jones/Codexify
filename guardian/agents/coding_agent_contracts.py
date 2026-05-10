@@ -46,6 +46,9 @@ class CodingAgentTaskEnvelope:
     max_validation_attempts: int = 1
     worktree_lease_id: str | None = None
     require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
 
 @dataclass(frozen=True)

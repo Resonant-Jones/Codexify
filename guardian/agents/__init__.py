@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from .commit_gate import CommitGateError, CommitGateResult, commit_after_green
 from .worktree_leases import (
     WORKTREE_LEASE_ACTIVE_STATUSES,
     WORKTREE_LEASE_CLEANUP_POLICIES,
@@ -48,6 +49,9 @@ __all__ = [
     "WorktreeLeaseNotFound",
     "WorktreeLeaseConflict",
     "WorktreeLeaseValidationError",
+    "CommitGateError",
+    "CommitGateResult",
+    "commit_after_green",
 ]
 
 

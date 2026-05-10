@@ -524,6 +524,9 @@ class CodingExecutionTask(BaseTask):
     max_validation_attempts: int = 1
     worktree_lease_id: str | None = None
     require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -589,6 +592,19 @@ class CodingExecutionTask(BaseTask):
                 payload.get("require_worktree_lease")
                 or payload.get("requireWorktreeLease")
                 or False
+            ),
+            commit_after_validation=bool(
+                payload.get("commit_after_validation")
+                or payload.get("commitAfterValidation")
+                or False
+            ),
+            commit_message=_coerce_optional_text(
+                payload.get("commit_message") or payload.get("commitMessage")
+            ),
+            require_human_review_before_merge=bool(
+                payload.get("require_human_review_before_merge", True)
+                if payload.get("require_human_review_before_merge") is not None
+                else payload.get("requireHumanReviewBeforeMerge", True)
             ),
             **base,
         )
@@ -852,6 +868,9 @@ class CodingExecutionTask(BaseTask):
     permission_policy: dict[str, Any] | None = None
     worktree_lease_id: str | None = None
     require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -895,6 +914,19 @@ class CodingExecutionTask(BaseTask):
                 payload.get("require_worktree_lease")
                 or payload.get("requireWorktreeLease")
                 or False
+            ),
+            commit_after_validation=bool(
+                payload.get("commit_after_validation")
+                or payload.get("commitAfterValidation")
+                or False
+            ),
+            commit_message=_coerce_optional_text(
+                payload.get("commit_message") or payload.get("commitMessage")
+            ),
+            require_human_review_before_merge=bool(
+                payload.get("require_human_review_before_merge", True)
+                if payload.get("require_human_review_before_merge") is not None
+                else payload.get("requireHumanReviewBeforeMerge", True)
             ),
             **base,
         )

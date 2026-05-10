@@ -27,6 +27,8 @@ Source anchors:
 6. Lease-bound execution now exists in the worker seam when `worktree_lease_id`
    is supplied.
 7. Guardian still does not allocate Git branches or Git worktrees in this phase.
+8. Commit-after-green is now an opt-in worker seam and remains bounded to
+   existing leased worktree paths.
 
 ## Bounded Validation Retry
 
@@ -146,6 +148,20 @@ not execution success.
 - This remains a backend seam only in this phase. There is no UI command center
   for lease inspection yet.
 - Guardian still does not create Git branches or Git worktrees in this phase.
+
+### Commit-After-Green Gate (Phase 4)
+
+- Commit behavior is opt-in via `commit_after_validation=true`.
+- Commit behavior requires a valid resolved worktree lease.
+- Commit behavior runs only after validation passes.
+- Commit behavior does not run when validation fails, errors, is skipped, or is
+  not configured.
+- Commit operations run inside the lease `worktree_path` only.
+- Commit hash and bounded commit metadata are captured in result/event envelopes.
+- Guardian still does not create Git branches or Git worktrees.
+- Guardian still does not merge branches or push branches.
+- This is a backend seam only in this phase. There is no UI command center for
+  commit-gate inspection yet.
 
 ### Normalized Test Results
 
