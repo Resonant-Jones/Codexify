@@ -1,5 +1,10 @@
 # Command Center Worker Control Plane Live Proof (2026-05-10)
 
+## Follow-up pointer
+- This original run remains **INCOMPLETE**.
+- Rerun artifact (after render repair commit `70addf6c1e74a93802067321df57caaf4fec5f10`): `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`.
+- Do not reinterpret this original artifact as passed.
+
 ## Title
 Phase 8 live proof for the Command Center worker-control seam on the supported local Docker Compose runtime.
 
