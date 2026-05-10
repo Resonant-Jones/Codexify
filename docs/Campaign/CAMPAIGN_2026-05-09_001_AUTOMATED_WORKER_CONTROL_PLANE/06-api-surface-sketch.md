@@ -64,3 +64,13 @@ Track the worker-control-plane backend route surface across rollout phases.
 
 - Implemented after Phase 6:
   - `GET /api/coding/orchestrator/next`
+
+- Implemented after Phase 7 (UI consumption):
+  - Command Center consumes:
+    - `POST /api/coding/work-orders`
+    - `GET /api/coding/work-orders`
+    - `GET /api/coding/work-orders/{id}`
+    - `POST /api/coding/work-orders/{id}/cancel`
+    - `GET /api/coding/orchestrator/next`
+  - Dispatch endpoint remains proposed only.
+  - Run/receipt endpoints remain proposed only.
