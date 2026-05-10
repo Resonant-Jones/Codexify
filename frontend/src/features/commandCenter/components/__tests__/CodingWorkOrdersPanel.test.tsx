@@ -326,6 +326,10 @@ describe("CodingWorkOrdersPanel", () => {
 
     render(<CodingWorkOrdersPanel />);
 
+    expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-orchestrator-recommendations")).toBeInTheDocument();
+
     expect(
       await screen.findByText("work order request failed")
     ).toBeInTheDocument();

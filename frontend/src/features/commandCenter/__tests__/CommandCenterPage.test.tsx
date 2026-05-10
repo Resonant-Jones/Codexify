@@ -6,6 +6,7 @@ import CommandCenterPage from "../CommandCenterPage";
 import {
   classifyRetrievalPostureTrend,
   RetrievalPosturePanel,
+  RetrievalPostureSummaryRow,
   type PinnedRetrievalPostureState,
   type RetrievalPostureHistoryFilter,
   type RetrievalPostureHistoryWindowSize,
@@ -1407,10 +1408,18 @@ describe("CommandCenterPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Runtime summary")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(screen.getByTestId("coding-orchestrator-recommendations")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-event-console")).toBeInTheDocument();
     expect(
       screen.getByTestId("command-center-retrieval-posture-history-panel")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Dispatch, lease allocation, merge automation, and worker launch are not enabled/i
+      )
     ).toBeInTheDocument();
 
     expect(screen.getAllByLabelText(/transport state open/i)).toHaveLength(2);
@@ -1496,6 +1505,20 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByRole("button", { name: /auto-scroll/i })).toBeInTheDocument();
     expect(within(console).getByRole("button", { name: /copy visible/i })).toBeInTheDocument();
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
+  });
+
+  it("renders retrieval posture history rows without runtime formatter errors", () => {
+    render(
+      <RetrievalPostureSummaryRow
+        createdAt="2026-04-01T15:58:45Z"
+        posture={mockedRetrievalPosture}
+        taskId="task-alpha"
+      />
+    );
+
+    const row = screen.getByTestId("command-center-retrieval-posture-history-item");
+    expect(row).toBeInTheDocument();
+    expect(within(row).getByText("Task: task-alpha")).toBeInTheDocument();
   });
 
   it("shows a generic fallback when the newest two history items differ in an unsupported combination", () => {

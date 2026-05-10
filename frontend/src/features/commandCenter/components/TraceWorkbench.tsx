@@ -227,12 +227,12 @@ export function describeRetrievalPostureChange(
   return lines.length > 0 ? { lines } : { lines: [RETRIEVAL_POSTURE_CHANGE_FALLBACK] };
 }
 
-function formatRetrievalPostureHistoryTimestampLegacy(value: string | null): string {
+function formatRetrievalPostureHistoryTimestamp(value: string | null): string {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString();
 }
 
-function renderRetrievalPostureBadgesLegacy(posture: CommandCenterRetrievalPosture): React.ReactNode[] {
+function renderRetrievalPostureBadges(posture: CommandCenterRetrievalPosture): React.ReactNode[] {
   return [
     <Badge
       key="source"
