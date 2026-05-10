@@ -225,3 +225,116 @@ In this environment, Docker is not available, so the packaging proof is recorded
 | 9. Failures bounded | ⚠️ PARTIAL (from prior proof) | Failure was visible but did not resolve into a source-thread result |
 
 **Full release readiness conclusion**: Still **no**. The packaging blocker is resolved, but targets 5, 7, 8, and 9 require a live rerun with the corrected `worker-coding` build to confirm whether the remaining failure signatures are packaging-related or represent a deeper issue in result-return or durable state convergence.
+
+## Live Rerun After Packaging Fix — 2026-05-10 17:43:20 EDT
+
+## Runtime Context
+
+- date/time: 2026-05-10 17:43:20 EDT
+- branch: `main`
+- HEAD commit: `b89916de7782dd6dc4a7a759bd21c82a4de02786`
+- compose stack used for checklist: `docker compose` (`docker-compose.yml`)
+- packaging validation stack: `docker compose -f docker-compose.runtime.yml`
+- source thread ID: `1243`
+- source message ID: `50259`
+- execution run ID: `run_efe058f2b50a4206`
+- failure-probe run ID: `run_cd1c5bc62ca6435c`
+
+## Packaging Validation
+
+Executed:
+
+```bash
+docker compose -f docker-compose.runtime.yml build worker-coding
+docker compose -f docker-compose.runtime.yml run --rm worker-coding test -f /app/codex_runner/src/agent-wrapper.js
+docker compose -f docker-compose.runtime.yml run --rm worker-coding ls -la /app/codex_runner/src/agent-wrapper.js
+```
+
+Observed:
+
+- Build succeeded and included `COPY codex_runner /app/codex_runner` in the runtime image build output.
+- Both exact `run --rm` checks were blocked by runtime-stack dependency startup because `migrator` failed with:
+  - `Can't locate revision identified by '9d4e1c7b2a6f'`
+- Direct image-level verification (entrypoint bypass) confirmed the packaging fix:
+  - `docker run --rm --entrypoint test codexify-worker-coding:latest -f /app/codex_runner/src/agent-wrapper.js` -> exit `0`
+  - `docker run --rm --entrypoint ls codexify-worker-coding:latest -la /app/codex_runner/src/agent-wrapper.js` ->
+    - `-rw-r--r-- 1 root root 9936 May  9 01:49 /app/codex_runner/src/agent-wrapper.js`
+
+Packaging blocker interpretation: resolved (`agent-wrapper.js` exists in the built `worker-coding` image).
+
+## Command Evidence (Abbreviated)
+
+```bash
+docker compose ps backend db redis worker-coding
+# backend healthy, db healthy, redis healthy, worker-coding running
+
+docker network inspect codexify_default | jq -r '.[0].Containers | to_entries[] | .value.Name'
+# includes codexify-backend-1, codexify-db-1, codexify-redis-1, codexify-worker-coding-1
+
+docker compose exec backend python -c "import redis; print(redis.from_url('redis://redis:6379/0').ping())"
+# True
+
+docker compose exec backend python -c "from guardian.core.db import load_guardian_db_from_env; print(load_guardian_db_from_env() is not None)"
+# True
+
+docker compose exec db psql -U codexify -d Codexify -Atc "select id, role, kind, left(content,120) from chat_messages where thread_id=1243 order by created_at desc limit 5;"
+# source user message id=50259 present
+
+docker compose stop worker-coding
+docker compose exec redis redis-cli LLEN codexify:queue:coding-execution
+# 0
+
+curl -sS -X POST http://localhost:8888/api/agents/coding/execute ...
+# {"ok":true,"run_id":"run_efe058f2b50a4206",...}
+
+docker compose exec redis redis-cli LLEN codexify:queue:coding-execution
+# 1
+
+docker compose up -d worker-coding
+sleep 10
+docker compose exec redis redis-cli LLEN codexify:queue:coding-execution
+# 0
+
+curl -m 12 -N -sS -H "X-API-Key: ..." \
+  "http://localhost:8888/api/agents/runs/run_efe058f2b50a4206/events"
+# created
+# task.running
+# task.failed
+# error: Pi SDK dependencies are not available ...
+
+docker compose exec db psql -U codexify -d Codexify -Atc \
+"select run_id,status,ended_at is not null,error from agent_runs where run_id='run_efe058f2b50a4206';"
+# run_efe058f2b50a4206|queued|f|
+
+docker compose exec db psql -U codexify -d Codexify -Atc \
+"select count(*) from chat_messages where thread_id=1243 and kind='coding_result';"
+# 0
+```
+
+## 9-Target Verification Matrix (Rerun)
+
+| # | Target | Status | Evidence | Notes |
+| - | ------ | ------ | -------- | ----- |
+| 1 | Services network | ✅ PASS | Compose network includes `backend`, `db`, `redis`, `worker-coding`; backend reached Redis and Postgres. | Same project network and healthy service reachability were live-verified. |
+| 2 | Real source thread | ✅ PASS | Source thread `1243` contains real user message `50259`. | Thread/message were queried directly from Postgres. |
+| 3 | POST enqueues | ✅ PASS | `POST /api/agents/coding/execute` returned `ok: true`, `run_id=run_efe058f2b50a4206`; queue depth `0 -> 1` with worker stopped. | Enqueue was observed before dequeue. |
+| 4 | Worker dequeues | ✅ PASS | After worker restart, queue depth returned `1 -> 0`; run stream emitted `task.running`. | Dequeue occurred on the live queue. |
+| 5 | Run reaches terminal | ⚠️ PARTIAL | Run stream emitted `task.failed`; DB row stayed `agent_runs.status='queued'`, `ended_at` unset. | Durable run-status divergence remains. |
+| 6 | Event lifecycle | ✅ PASS | `created -> task.running -> task.failed` observed on event stream. | Lifecycle events are present and ordered. |
+| 7 | Exactly one `coding_result` message | ❌ FAIL | `chat_messages` count for thread `1243`, `kind='coding_result'` is `0`. | No result injected to source thread. |
+| 8 | Idempotency | ⛔ BLOCKED | No `coding_result` landed in source thread. | Per interpretation rule: cannot exercise duplicate-delivery guard without an injected result. |
+| 9 | Failures bounded | ⚠️ PARTIAL | Explicit failure run (`run_cd1c5bc62ca6435c`) emitted `task.failed` with detailed error payload, but no source-thread `coding_result` and DB run status stayed `queued`. | Failure visibility exists in stream, but bounded thread-level failure delivery is missing. |
+
+## Release-Readiness Conclusion
+
+Release-ready for this path: **no**.
+
+Required gates are not met: no source-thread `coding_result` injection, no idempotency exercise on delivered results, and durable run status does not converge to terminal state.
+
+## Follow-up Bugs / Tasks
+
+1. Resolve worker runtime dependency failure (`Pi SDK dependencies are not available`) so the worker can produce deliverable coding results.
+2. Fix durable run-state convergence so `agent_runs.status` terminalizes (`completed`/`failed`) when terminal events are emitted.
+3. Restore source-thread delivery for both success and failure paths (`kind='coding_result'`) so bounded failure visibility lands in-thread.
+4. Re-run target #8 idempotency proof immediately after target #7 passes (must verify duplicate prevention on a real delivered `coding_result`).
+5. Investigate runtime-compose migration drift (`migrator` image missing revision `9d4e1c7b2a6f`) that blocked exact `docker-compose.runtime.yml run --rm worker-coding ...` checks.
