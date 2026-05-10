@@ -499,7 +499,7 @@ from backend import llm_overrides
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
-from guardian.routes import backfill
+from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
@@ -629,10 +629,11 @@ async def app_lifespan(app: FastAPI):
         share.configure_db(guardian_db)
         websocket_routes.configure_db(guardian_db)
         agent_orchestration.configure_db(guardian_db)
+        coding_work_orders.configure_db(guardian_db)
         command_bus_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/command_bus/delegations routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
@@ -1202,6 +1203,14 @@ _include_router(
     label="agent_orchestration_chat",
     flag_name="CODEXIFY_ENABLE_AGENT_ORCHESTRATION_ROUTES",
     include_fn=lambda: app.include_router(agent_orchestration.chat_router),
+)
+_include_router(
+    label="coding_work_orders",
+    flag_name="CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES",
+    include_fn=lambda: (
+        app.include_router(coding_work_orders.router),
+        app.include_router(coding_work_orders.orchestrator_router),
+    ),
 )
 _include_router(
     label="command_bus",

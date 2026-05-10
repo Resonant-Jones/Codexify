@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from contextlib import suppress
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +12,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.agents.commit_gate import CommitGateResult
 from guardian.agents.store import AgentStore
+from guardian.agents.worktree_lease_store import (
+    WorktreeLeaseStore,
+    WorktreeLeaseStoreError,
+)
+from guardian.agents.worktree_leases import WorktreeLeaseContract
 from guardian.db.models import (
     AgentDeployment,
     AgentRun,
@@ -20,6 +26,7 @@ from guardian.db.models import (
     Base,
     ChatMessage,
     ChatThread,
+    CodingWorktreeLease,
     Project,
     User,
 )
@@ -65,6 +72,7 @@ class _TestDB:
                 AgentDeployment.__table__,
                 AgentRun.__table__,
                 AgentRunArtifact.__table__,
+                CodingWorktreeLease.__table__,
             ],
         )
         self._session_factory = sessionmaker(
@@ -207,30 +215,111 @@ def _build_task(
     source_message_id: int | None,
     coding_task_id: str = "coding-task-1",
     attempt_id: str = "attempt-1",
+    cwd: str | None = "/workspace/repo",
     validation_command: str | None = None,
     max_validation_attempts: int | None = None,
     permission_policy: dict[str, Any] | None = None,
-    cwd: str = "/workspace/repo",
+    worktree_lease_id: str | None = None,
+    require_worktree_lease: bool | None = None,
+    commit_after_validation: bool | None = None,
+    commit_message: str | None = None,
+    require_human_review_before_merge: bool | None = None,
 ) -> CodingExecutionTask:
     payload: dict[str, Any] = {
         "task_id": f"task-{coding_task_id}",
         "run_id": run_id,
         "deployment_id": deployment_id,
         "instructions": "Patch the seam and keep the return path intact.",
-        "cwd": cwd,
         "timeout_seconds": 60,
         "coding_task_id": coding_task_id,
         "attempt_id": attempt_id,
         "thread_id": thread_id,
         "source_message_id": source_message_id,
     }
+    if cwd is not None:
+        payload["cwd"] = cwd
     if validation_command is not None:
         payload["validation_command"] = validation_command
     if max_validation_attempts is not None:
         payload["max_validation_attempts"] = max_validation_attempts
     if permission_policy is not None:
         payload["permission_policy"] = permission_policy
+    if worktree_lease_id is not None:
+        payload["worktree_lease_id"] = worktree_lease_id
+    if require_worktree_lease is not None:
+        payload["require_worktree_lease"] = require_worktree_lease
+    if commit_after_validation is not None:
+        payload["commit_after_validation"] = commit_after_validation
+    if commit_message is not None:
+        payload["commit_message"] = commit_message
+    if require_human_review_before_merge is not None:
+        payload[
+            "require_human_review_before_merge"
+        ] = require_human_review_before_merge
     return CodingExecutionTask.from_dict(payload)
+
+
+def _create_active_worktree_lease(
+    db: _TestDB,
+    *,
+    lease_id: str,
+    work_order_id: str,
+    run_id: str,
+    worker_id: str,
+    branch_name: str,
+    worktree_path: str,
+) -> WorktreeLeaseContract:
+    created_at = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    lease = WorktreeLeaseContract(
+        lease_id=lease_id,
+        work_order_id=work_order_id,
+        run_id=run_id,
+        worker_id=worker_id,
+        base_ref="origin/main",
+        branch_name=branch_name,
+        worktree_path=worktree_path,
+        status="active",
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+        preserve_on_failure=False,
+        cleanup_policy="cleanup_on_merge",
+        last_heartbeat_at=created_at + timedelta(minutes=1),
+    )
+    store = WorktreeLeaseStore(db=db)
+    return store.create_lease(lease)
+
+
+def _insert_invalid_worktree_lease_row(
+    db: _TestDB,
+    *,
+    lease_id: str,
+    work_order_id: str,
+    run_id: str,
+    worker_id: str,
+    branch_name: str,
+    worktree_path: str,
+) -> None:
+    created_at = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+    with db.get_session() as session:
+        session.add(
+            CodingWorktreeLease(
+                lease_id=lease_id,
+                work_order_id=work_order_id,
+                run_id=run_id,
+                worker_id=worker_id,
+                base_ref="origin/main",
+                branch_name=branch_name,
+                worktree_path=worktree_path,
+                status="active",
+                created_at=created_at,
+                expires_at=created_at - timedelta(minutes=5),
+                preserve_on_failure=False,
+                cleanup_policy="cleanup_on_merge",
+                last_heartbeat_at=created_at + timedelta(minutes=1),
+                extra_meta={},
+            )
+        )
+        session.commit()
 
 
 def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> (
@@ -252,7 +341,12 @@ def test_coding_execution_task_from_dict_accepts_missing_validation_fields() -> 
     )
 
     assert task.validation_command is None
-    assert task.max_validation_attempts is None
+    assert task.max_validation_attempts == 1
+    assert task.worktree_lease_id is None
+    assert task.require_worktree_lease is False
+    assert task.commit_after_validation is False
+    assert task.commit_message is None
+    assert task.require_human_review_before_merge is True
 
 
 def _install_fake_adapter(
@@ -274,27 +368,6 @@ def _install_fake_adapter(
     return calls
 
 
-def _install_mutating_adapter(
-    monkeypatch,
-    mutate: Any,
-    result: Any,
-    *,
-    adapter_kind: str = "pi_codex_runner",
-) -> list[SimpleNamespace]:
-    calls: list[SimpleNamespace] = []
-
-    class _FakeAdapter:
-        def execute(self, request: Any) -> Any:
-            calls.append(request)
-            mutate(request)
-            return result
-
-    monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {adapter_kind: _FakeAdapter()}
-    )
-    return calls
-
-
 def _install_fake_validation_runner(
     monkeypatch,
     *,
@@ -302,7 +375,6 @@ def _install_fake_validation_runner(
     side_effect: BaseException | None = None,
 ) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
-    original_run = subprocess.run
 
     def _fake_run(
         argv: list[str],
@@ -313,15 +385,6 @@ def _install_fake_validation_runner(
         check: bool | None = None,
         timeout: int | float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        if argv and argv[0] == "git":
-            return original_run(
-                argv,
-                cwd=cwd,
-                capture_output=capture_output,
-                text=text,
-                check=check,
-                timeout=timeout,
-            )
         calls.append(
             {
                 "argv": list(argv),
@@ -345,38 +408,42 @@ def _install_fake_validation_runner(
     return calls
 
 
-def _install_fake_validation_result(
+def _install_fake_commit_gate(
     monkeypatch,
     *,
-    result: Any | None = None,
+    result: CommitGateResult | None = None,
     side_effect: BaseException | None = None,
 ) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
 
-    def _fake_validation(
-        *,
-        command: str,
-        cwd: str,
-        timeout_seconds: int,
-    ) -> Any:
+    def _fake_commit_after_green(
+        worktree_path: str,
+        commit_message: str,
+        branch_name: str | None = None,
+    ) -> CommitGateResult:
         calls.append(
             {
-                "command": command,
-                "cwd": cwd,
-                "timeout_seconds": timeout_seconds,
+                "worktree_path": worktree_path,
+                "commit_message": commit_message,
+                "branch_name": branch_name,
             }
         )
         if side_effect is not None:
             raise side_effect
-        return result or subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
+        return result or CommitGateResult(
+            attempted=True,
+            committed=True,
+            commit_hash="abc123def456",
+            status="committed",
+            reason_code="GIT_COMMIT_CREATED",
+            message="commit created",
+            files_changed=["README.md"],
+            worktree_path=worktree_path,
+            branch_name=branch_name,
         )
 
     monkeypatch.setattr(
-        coding_worker, "_run_validation_command", _fake_validation
+        coding_worker, "commit_after_green", _fake_commit_after_green
     )
     return calls
 
@@ -411,56 +478,6 @@ def _capture_task_events(monkeypatch) -> list[tuple[str, str, dict[str, Any]]]:
         },
     )
     return published
-
-
-def _init_git_repo(
-    tmp_path: Path, *, files: dict[str, str] | None = None
-) -> Path:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(
-        ["git", "init"], cwd=repo, check=True, capture_output=True, text=True
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "codex@example.com"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Codex"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    seed_files = files or {"README.md": "seed\n"}
-    for rel_path, content in seed_files.items():
-        file_path = repo / rel_path
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content)
-    subprocess.run(
-        ["git", "add", "."],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return repo
-
-
-def _mutate_file(repo: Path, rel_path: str, content: str) -> None:
-    file_path = repo / rel_path
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(content)
 
 
 def _fetch_thread_messages(db: _TestDB, thread_id: int) -> list[ChatMessage]:
@@ -662,6 +679,953 @@ def test_unknown_adapter_kind_fails_closed_with_adapter_not_found(
     assert run_state["status"] == "failed"
 
 
+def test_lease_bound_execution_uses_leased_worktree_and_metadata(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-bound-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "lease-worktree"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-bound-1",
+        work_order_id="wo-lease-bound-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/lease-bound-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Lease-bound adapter completed.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    heartbeat_calls: list[str] = []
+    original_heartbeat = coding_worker.WorktreeLeaseStore.heartbeat
+
+    def _spy_heartbeat(
+        self, lease_id: str, at: datetime | None = None
+    ) -> WorktreeLeaseContract:
+        heartbeat_calls.append(lease_id)
+        return original_heartbeat(self, lease_id, at=at)
+
+    monkeypatch.setattr(
+        coding_worker.WorktreeLeaseStore, "heartbeat", _spy_heartbeat
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-lease-bound",
+        cwd="/tmp/ignored-cwd",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": [str(lease_path)],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(adapter_calls) == 1
+    assert adapter_calls[0].cwd == str(lease_path)
+    assert len(validation_calls) == 1
+    assert validation_calls[0]["cwd"] == str(lease_path)
+    assert len(heartbeat_calls) >= 4
+    terminal_payload = published[-1][2]
+    assert published[-1][1] == "task.completed"
+    assert terminal_payload["worktree_lease_id"] == lease.lease_id
+    assert terminal_payload["branch_name"] == lease.branch_name
+    assert terminal_payload["worktree_path"] == str(lease_path)
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["worktree_lease_id"] == lease.lease_id
+    assert content["branch_name"] == lease.branch_name
+    assert content["worktree_path"] == str(lease_path)
+    assert content["lease_required"] is True
+
+
+def test_missing_required_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-required-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-required-lease",
+        require_worktree_lease=True,
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert validation_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_REQUIRED"
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+
+
+def test_unknown_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-unknown-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-unknown-lease",
+        worktree_lease_id="lease-does-not-exist",
+        require_worktree_lease=False,
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_NOT_FOUND"
+    assert published[-1][2]["worktree_lease_id"] == "lease-does-not-exist"
+
+
+def test_inactive_lease_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-inactive-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "inactive-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    released_lease = WorktreeLeaseContract(
+        lease_id="lease-inactive-1",
+        work_order_id="wo-inactive-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        base_ref="origin/main",
+        branch_name="codex/inactive-1",
+        worktree_path=str(lease_path),
+        status="released",
+        created_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 5, 10, 13, 0, tzinfo=UTC),
+        preserve_on_failure=False,
+        cleanup_policy="cleanup_on_merge",
+        last_heartbeat_at=datetime(2026, 5, 10, 12, 5, tzinfo=UTC),
+    )
+    WorktreeLeaseStore(db=db).create_lease(released_lease)
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-inactive-lease",
+        worktree_lease_id="lease-inactive-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_NOT_ACTIVE"
+
+
+def test_invalid_lease_contract_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-invalid-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "invalid-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    _insert_invalid_worktree_lease_row(
+        db,
+        lease_id="lease-invalid-1",
+        work_order_id="wo-invalid-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/invalid-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-invalid-lease",
+        worktree_lease_id="lease-invalid-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_INVALID"
+
+
+def test_missing_lease_path_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-missing-path-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    missing_path = tmp_path / "missing-lease-path"
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-missing-path-1",
+        work_order_id="wo-missing-path-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/missing-path-1",
+        worktree_path=str(missing_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-lease-path",
+        worktree_lease_id="lease-missing-path-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+
+
+def test_lease_path_file_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-file-path-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    file_path = tmp_path / "not-a-dir.txt"
+    file_path.write_text("lease path file", encoding="utf-8")
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-file-path-1",
+        work_order_id="wo-file-path-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/file-path-1",
+        worktree_path=str(file_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-file-lease-path",
+        worktree_lease_id="lease-file-path-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_PATH_UNAVAILABLE"
+
+
+def test_lease_heartbeat_failure_fails_before_adapter_execution(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(db, user_id="lease-heartbeat-fail-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "lease-heartbeat-fail"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    _create_active_worktree_lease(
+        db,
+        lease_id="lease-heartbeat-fail-1",
+        work_order_id="wo-heartbeat-fail-1",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/heartbeat-fail-1",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+
+    def _boom_heartbeat(
+        _self, _lease_id: str, at: datetime | None = None
+    ) -> WorktreeLeaseContract:
+        _ = at
+        raise WorktreeLeaseStoreError("heartbeat unavailable")
+
+    monkeypatch.setattr(
+        coding_worker.WorktreeLeaseStore, "heartbeat", _boom_heartbeat
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-lease-heartbeat-fail",
+        worktree_lease_id="lease-heartbeat-fail-1",
+        require_worktree_lease=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert [event for _, event, _ in published] == ["task.failed"]
+    assert published[-1][2]["error_code"] == "WORKTREE_LEASE_HEARTBEAT_FAILED"
+
+
+def test_commit_after_validation_omitted_preserves_existing_behavior(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-omitted-user", project_name="commit-omitted"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(monkeypatch)
+    commit_calls = _install_fake_commit_gate(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-commit-omitted",
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+    )
+
+    worker._process_task(task)
+
+    assert commit_calls == []
+    assert published[-1][1] == "task.completed"
+    assert published[-1][2]["commit_after_validation"] is False
+
+
+def test_commit_after_validation_without_lease_fails_closed(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-missing-lease-user", project_name="commit-missing"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="should not run"),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    commit_calls = _install_fake_commit_gate(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-commit-missing-lease",
+        validation_command="pytest -q",
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert adapter_calls == []
+    assert validation_calls == []
+    assert commit_calls == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["error_code"] == "GIT_WORKTREE_REQUIRED"
+
+
+def test_validation_failure_does_not_run_commit_gate(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-validation-fail-user", project_name="commit-fail"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-validation-fail"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-validation-fail",
+        work_order_id="wo-commit-validation-fail",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-validation-fail",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(
+        monkeypatch,
+        result=subprocess.CompletedProcess(
+            args=["pytest", "-q"],
+            returncode=1,
+            stdout="1 failed\n",
+            stderr="failure\n",
+        ),
+    )
+    commit_calls = _install_fake_commit_gate(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-fail-no-commit",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert commit_calls == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["commit_after_validation"] is True
+    assert published[-1][2]["commit_status"] == "skipped"
+    assert published[-1][2]["merge_ready"] is False
+
+
+def test_validation_error_does_not_run_commit_gate(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-validation-error-user", project_name="commit-error"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-validation-error"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-validation-error",
+        work_order_id="wo-commit-validation-error",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-validation-error",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(
+        monkeypatch,
+        side_effect=subprocess.TimeoutExpired(["pytest", "-q"], timeout=1),
+    )
+    commit_calls = _install_fake_commit_gate(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-error-no-commit",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert commit_calls == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["commit_after_validation"] is True
+    assert published[-1][2]["commit_status"] == "skipped"
+    assert published[-1][2]["merge_ready"] is False
+
+
+def test_validation_not_run_does_not_run_commit_gate(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db,
+        user_id="commit-validation-not-run-user",
+        project_name="commit-not-run",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-validation-not-run"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-validation-not-run",
+        work_order_id="wo-commit-validation-not-run",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-validation-not-run",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    commit_calls = _install_fake_commit_gate(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-not-run-no-commit",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": False},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert commit_calls == []
+    assert published[-1][1] == "task.completed"
+    assert published[-1][2]["commit_after_validation"] is True
+    assert published[-1][2]["commit_status"] == "skipped"
+    assert published[-1][2]["commit_reason_code"] == "VALIDATION_NOT_RUN"
+    assert published[-1][2]["merge_ready"] is False
+
+
+def test_validation_pass_with_lease_runs_commit_gate_and_emits_metadata(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-success-user", project_name="commit-success"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-success-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-success",
+        work_order_id="wo-commit-success",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-success",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(monkeypatch)
+    commit_calls = _install_fake_commit_gate(
+        monkeypatch,
+        result=CommitGateResult(
+            attempted=True,
+            committed=True,
+            commit_hash="abc123def456",
+            status="committed",
+            reason_code="GIT_COMMIT_CREATED",
+            message="commit created",
+            files_changed=["README.md"],
+            worktree_path=str(lease_path),
+            branch_name=lease.branch_name,
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-commit-success",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+        commit_message="Commit after green from worker test",
+        require_human_review_before_merge=False,
+    )
+
+    worker._process_task(task)
+
+    assert len(commit_calls) == 1
+    assert commit_calls[0]["worktree_path"] == str(lease_path)
+    assert commit_calls[0]["branch_name"] == lease.branch_name
+    assert (
+        commit_calls[0]["commit_message"]
+        == "Commit after green from worker test"
+    )
+    assert published[-1][1] == "task.completed"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["commit_hash"] == "abc123def456"
+    assert terminal_payload["commit_status"] == "committed"
+    assert terminal_payload["merge_ready"] is True
+    assert terminal_payload["worktree_lease_id"] == lease.lease_id
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert artifacts[0]["content_json"]["commit_hash"] == "abc123def456"
+    assert artifacts[0]["content_json"]["merge_ready"] is True
+
+
+def test_commit_no_changes_records_non_merge_ready_completion(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-no-changes-user", project_name="commit-no-changes"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-no-changes-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-no-changes",
+        work_order_id="wo-commit-no-changes",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-no-changes",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(monkeypatch)
+    _install_fake_commit_gate(
+        monkeypatch,
+        result=CommitGateResult(
+            attempted=True,
+            committed=False,
+            commit_hash=None,
+            status="skipped",
+            reason_code="GIT_NO_CHANGES_TO_COMMIT",
+            message="no changes to commit",
+            files_changed=[],
+            worktree_path=str(lease_path),
+            branch_name=lease.branch_name,
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-commit-no-changes",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert published[-1][1] == "task.completed"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["commit_status"] == "skipped"
+    assert terminal_payload["commit_reason_code"] == "GIT_NO_CHANGES_TO_COMMIT"
+    assert terminal_payload["merge_ready"] is False
+
+
+def test_commit_failure_marks_terminal_failed_and_not_merge_ready(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="commit-failure-user", project_name="commit-failure"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    lease_path = tmp_path / "commit-failure-lease"
+    lease_path.mkdir(parents=True, exist_ok=True)
+    lease = _create_active_worktree_lease(
+        db,
+        lease_id="lease-commit-failure",
+        work_order_id="wo-commit-failure",
+        run_id=run_id,
+        worker_id="coding-worker",
+        branch_name="codex/commit-failure",
+        worktree_path=str(lease_path),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Adapter succeeded."),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(monkeypatch)
+    _install_fake_commit_gate(
+        monkeypatch,
+        result=CommitGateResult(
+            attempted=True,
+            committed=False,
+            commit_hash=None,
+            status="failed",
+            reason_code="GIT_COMMIT_FAILED",
+            message="commit failure",
+            files_changed=["README.md"],
+            worktree_path=str(lease_path),
+            branch_name=lease.branch_name,
+        ),
+    )
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-commit-failure",
+        validation_command="pytest -q",
+        worktree_lease_id=lease.lease_id,
+        require_worktree_lease=True,
+        permission_policy={"allow_shell": True},
+        commit_after_validation=True,
+    )
+
+    worker._process_task(task)
+
+    assert published[-1][1] == "task.failed"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["error_code"] == "GIT_COMMIT_FAILED"
+    assert terminal_payload["commit_status"] == "failed"
+    assert terminal_payload["merge_ready"] is False
+
+
 def test_passing_validation_is_persisted_and_emitted(
     db,
     monkeypatch,
@@ -724,13 +1688,20 @@ def test_passing_validation_is_persisted_and_emitted(
     assert [event for _, event, _ in published] == [
         "task.running",
         "task.attempt_started",
+        "task.validation_started",
+        "task.validation_passed",
         "task.completed",
     ]
     terminal_payload = published[-1][2]
     assert terminal_payload["coding_result_status"] == "ok"
-    assert terminal_payload["validation_result"]["status"] == "passed"
-    assert terminal_payload["validation_result"]["tests_passed"] == 2
+    assert terminal_payload["validation_results"]["status"] == "passed"
+    assert terminal_payload["validation_results"]["tests_passed"] == 2
     assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["validation_stop_reason"] == "validation_passed"
+    assert terminal_payload["final_validation_status"] == "passed"
+    assert terminal_payload["final_fail_signature"] is None
+    assert len(terminal_payload["validation_attempts"]) == 1
+    assert terminal_payload["best_validation_result"]["status"] == "passed"
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
     message = messages[0]
@@ -747,6 +1718,9 @@ def test_passing_validation_is_persisted_and_emitted(
         == "pytest -q"
     )
     assert artifacts[0]["content_json"]["validation_attempt_count"] == 1
+    assert artifacts[0]["content_json"]["validation_stop_reason"] == (
+        "validation_passed"
+    )
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "succeeded"
@@ -796,7 +1770,6 @@ def test_failing_validation_marks_attempt_failed(
         source_message_id=seeded["source_message_id"],
         coding_task_id="coding-task-validation-fail",
         validation_command="pytest -q",
-        max_validation_attempts=1,
         permission_policy={
             "allow_shell": True,
             "allow_network": False,
@@ -812,14 +1785,21 @@ def test_failing_validation_marks_attempt_failed(
     assert [event for _, event, _ in published] == [
         "task.running",
         "task.attempt_started",
+        "task.validation_started",
         "task.validation_failed",
         "task.failed",
     ]
     terminal_payload = published[-1][2]
     assert terminal_payload["coding_result_status"] == "failed"
-    assert terminal_payload["validation_result"]["status"] == "failed"
+    assert terminal_payload["validation_results"]["status"] == "failed"
     assert terminal_payload["errors"][-1] == "validation_failed"
     assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["validation_stop_reason"] == (
+        "max_validation_attempts_reached"
+    )
+    assert terminal_payload["final_validation_status"] == "failed"
+    assert terminal_payload["final_fail_signature"] is not None
+    assert terminal_payload["best_validation_result"]["status"] == "failed"
     assert terminal_payload["error_code"] == "VALIDATION_FAILED"
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert messages == []
@@ -830,6 +1810,10 @@ def test_failing_validation_marks_attempt_failed(
     assert content["validation_results"]["status"] == "failed"
     assert content["validation_results"]["fail_signature"] is not None
     assert content["validation_attempt_count"] == 1
+    assert (
+        content["validation_stop_reason"] == "max_validation_attempts_reached"
+    )
+    assert content["best_validation_result"]["status"] == "failed"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
@@ -948,10 +1932,14 @@ def test_validation_command_with_shell_blocked_records_not_run(
         "task.completed",
     ]
     terminal_payload = published[-1][2]
-    assert terminal_payload["validation_result"]["status"] == "not_run"
+    assert terminal_payload["validation_results"]["status"] == "not_run"
     assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["validation_stop_reason"] == (
+        "validation_shell_not_allowed"
+    )
+    assert terminal_payload["final_validation_status"] == "not_run"
     assert (
-        terminal_payload["validation_result"]["error_message"]
+        terminal_payload["validation_results"]["error_message"]
         == "validation_shell_not_allowed"
     )
     messages = _fetch_thread_messages(db, seeded["thread_id"])
@@ -980,8 +1968,8 @@ def test_omitted_validation_command_preserves_existing_behavior(
         adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
-    _capture_task_events(monkeypatch)
-    _install_fake_adapter(
+    published = _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(
             status="ok",
@@ -1009,6 +1997,10 @@ def test_omitted_validation_command_preserves_existing_behavior(
 
     worker._process_task(task)
 
+    assert len(adapter_calls) == 1
+    assert adapter_calls[0].cwd == "/workspace/repo"
+    terminal_payload = published[-1][2]
+    assert terminal_payload.get("worktree_lease_id") is None
     assert validation_calls == []
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
@@ -1073,16 +2065,21 @@ def test_validation_timeout_is_normalized_and_fails_closed(
     assert [event for _, event, _ in published] == [
         "task.running",
         "task.attempt_started",
+        "task.validation_started",
         "task.validation_failed",
         "task.failed",
     ]
     terminal_payload = published[-1][2]
-    assert terminal_payload["validation_result"]["status"] == "error"
+    assert terminal_payload["validation_results"]["status"] == "error"
     assert (
-        terminal_payload["validation_result"]["error_message"]
+        terminal_payload["validation_results"]["error_message"]
         == "validation_command_timeout"
     )
     assert terminal_payload["validation_attempt_count"] == 1
+    assert terminal_payload["validation_stop_reason"] == (
+        "validation_command_timeout"
+    )
+    assert terminal_payload["final_validation_status"] == "error"
     assert terminal_payload["error_code"] == "VALIDATION_FAILED"
     assert terminal_payload["errors"][-1] == "validation_failed"
     artifacts = _fetch_coding_result_artifacts(store, run_id)
@@ -1095,17 +2092,254 @@ def test_validation_timeout_is_normalized_and_fails_closed(
         == "validation_command_timeout"
     )
     assert artifacts[0]["content_json"]["validation_attempt_count"] == 1
+    assert artifacts[0]["content_json"]["validation_stop_reason"] == (
+        "validation_command_timeout"
+    )
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
 
 
-def test_validation_runtime_error_is_normalized_and_fails_closed(
+def test_validation_failure_retries_once_and_completes(
     db,
     monkeypatch,
 ) -> None:
     seeded = _seed_source_context(
-        db, user_id="validation-error-user", project_name="validation-error"
+        db, user_id="validation-retry-user", project_name="validation-retry"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=0,
+                stdout="2 passed in 0.02s\n",
+                stderr="",
+            ),
+        ]
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-retry",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(calls) == 2
+    assert len(validation_calls) == 2
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_failed",
+        "task.validation_retrying",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_passed",
+        "task.completed",
+    ]
+    second_prompt = calls[1].prompt
+    assert "Validation feedback:" in second_prompt
+    assert "pytest -q" in second_prompt
+    assert "Fail signature:" in second_prompt
+    assert "Repair the previous attempt" in second_prompt
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "ok"
+    assert terminal_payload["validation_results"]["status"] == "passed"
+    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["validation_stop_reason"] == "validation_passed"
+    assert terminal_payload["final_validation_status"] == "passed"
+    assert terminal_payload["best_validation_result"]["status"] == "passed"
+    assert len(terminal_payload["validation_attempts"]) == 2
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["validation_results"]["status"] == "passed"
+    assert content["validation_attempt_count"] == 2
+    assert content["validation_stop_reason"] == "validation_passed"
+    assert len(content["validation_attempts"]) == 2
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].extra_meta["validation_results"]["status"] == "passed"
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "succeeded"
+
+
+def test_retry_prompt_uses_bounded_validation_feedback(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="validation-bounded-user", project_name="validation-bounded"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    long_stdout = "A" * 6000
+    long_stderr = "B" * 6000
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout=f"FAILED tests/unit/test_alpha.py::test_something - boom\n{long_stdout}\n",
+                stderr=f"E AssertionError: boom\n{long_stderr}\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=0,
+                stdout="2 passed in 0.02s\n",
+                stderr="",
+            ),
+        ]
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-bounded",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(calls) == 2
+    assert len(validation_calls) == 2
+    second_prompt = calls[1].prompt
+    assert "Validation feedback:" in second_prompt
+    assert "Fail signature:" in second_prompt
+    assert "A" * 3000 not in second_prompt
+    assert "B" * 3000 not in second_prompt
+
+
+def test_validation_failure_across_all_attempts_emits_terminal_failure(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db,
+        user_id="validation-exhausted-user",
+        project_name="validation-exhausted",
     )
     store = _make_store(db)
     deployment_id, run_id = _seed_execution_run(
@@ -1128,16 +2362,269 @@ def test_validation_runtime_error_is_normalized_and_fails_closed(
         ),
         adapter_kind="codex",
     )
-    validation_calls = _install_fake_validation_runner(
-        monkeypatch,
-        side_effect=RuntimeError("boom"),
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_beta.py::test_other - still broken\n",
+                stderr="E AssertionError: still broken\n",
+            ),
+        ]
     )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
     task = _build_task(
         run_id=run_id,
         deployment_id=deployment_id,
         thread_id=seeded["thread_id"],
         source_message_id=seeded["source_message_id"],
-        coding_task_id="coding-task-validation-error",
+        coding_task_id="coding-task-validation-exhausted",
+        validation_command="pytest -q",
+        max_validation_attempts=2,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(validation_calls) == 2
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_failed",
+        "task.validation_retrying",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_failed",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "failed"
+    assert terminal_payload["validation_results"]["status"] == "failed"
+    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["validation_stop_reason"] == (
+        "max_validation_attempts_reached"
+    )
+    assert terminal_payload["final_validation_status"] == "failed"
+    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
+    assert terminal_payload["best_validation_result"]["tests_failed"] == 1
+    assert len(terminal_payload["validation_attempts"]) == 2
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["validation_results"]["status"] == "failed"
+    assert content["validation_attempt_count"] == 2
+    assert (
+        content["validation_stop_reason"] == "max_validation_attempts_reached"
+    )
+    assert content["best_validation_result"]["tests_failed"] == 1
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert messages == []
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_repeated_fail_signature_stops_before_budget_exhausted(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db,
+        user_id="validation-repeat-user",
+        project_name="validation-repeat",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+            subprocess.CompletedProcess(
+                args=["pytest", "-q"],
+                returncode=1,
+                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
+                stderr="E AssertionError: boom\n",
+            ),
+        ]
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    def _sequenced_validation_run(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool | None = None,
+        text: bool | None = None,
+        check: bool | None = None,
+        timeout: int | float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        validation_calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": text,
+                "check": check,
+                "timeout": timeout,
+            }
+        )
+        return next(validation_results)
+
+    monkeypatch.setattr(
+        coding_worker.subprocess, "run", _sequenced_validation_run
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-validation-repeat",
+        validation_command="pytest -q",
+        max_validation_attempts=3,
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(calls) == 2
+    assert len(validation_calls) == 2
+    assert [event for _, event, _ in published] == [
+        "task.running",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_failed",
+        "task.validation_retrying",
+        "task.attempt_started",
+        "task.validation_started",
+        "task.validation_failed",
+        "task.failed",
+    ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["coding_result_status"] == "failed"
+    assert terminal_payload["validation_results"]["status"] == "failed"
+    assert terminal_payload["validation_attempt_count"] == 2
+    assert terminal_payload["validation_stop_reason"] == (
+        "repeated_fail_signature"
+    )
+    assert terminal_payload["final_validation_status"] == "failed"
+    assert terminal_payload["final_fail_signature"] is not None
+    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
+    assert len(terminal_payload["validation_attempts"]) == 2
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["validation_stop_reason"] == "repeated_fail_signature"
+    assert content["validation_attempt_count"] == 2
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+def test_validation_command_with_missing_cwd_records_not_run(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="missing-cwd-user", project_name="missing-cwd"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Adapter succeeded.",
+            artifacts=(),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        cwd=None,
+        coding_task_id="coding-task-missing-cwd",
         validation_command="pytest -q",
         permission_policy={
             "allow_shell": True,
@@ -1150,32 +2637,22 @@ def test_validation_runtime_error_is_normalized_and_fails_closed(
 
     worker._process_task(task)
 
-    assert len(validation_calls) == 1
+    assert validation_calls == []
     assert [event for _, event, _ in published] == [
         "task.running",
         "task.attempt_started",
-        "task.validation_failed",
-        "task.failed",
+        "task.completed",
     ]
     terminal_payload = published[-1][2]
-    assert terminal_payload["coding_result_status"] == "failed"
-    assert terminal_payload["validation_result"]["status"] == "error"
-    assert terminal_payload["validation_result"]["error_message"].startswith(
-        "validation_command_error:"
+    assert terminal_payload["validation_results"]["status"] == "not_run"
+    assert (
+        terminal_payload["validation_stop_reason"] == "validation_cwd_missing"
     )
-    assert terminal_payload["error_code"] == "VALIDATION_FAILED"
-    artifacts = _fetch_coding_result_artifacts(store, run_id)
-    assert len(artifacts) == 1
-    content = artifacts[0]["content_json"]
-    assert content["validation_results"]["status"] == "error"
-    assert content["validation_results"]["error_message"].startswith(
-        "validation_command_error:"
-    )
+    assert terminal_payload["final_validation_status"] == "not_run"
+    assert terminal_payload["validation_attempt_count"] == 1
     messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert messages == []
-    run_state = _fetch_run_state(store, run_id)
-    assert run_state is not None
-    assert run_state["status"] == "failed"
+    assert len(messages) == 1
+    assert messages[0].extra_meta["validation_results"]["status"] == "not_run"
 
 
 def test_successful_completion_writes_one_result_message_with_lineage(
@@ -1600,693 +3077,3 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
         artifacts[0]["content_json"]["delivery_reason"]
         == "delivery_database_unavailable"
     )
-
-
-def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"allowed.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "allowed.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Allowed mutation completed."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.completed",
-    ]
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "within_allowed_paths"
-    assert terminal_payload["mutation_guard_error_code"] is None
-    assert terminal_payload["changed_paths"] == ["allowed.txt"]
-    assert terminal_payload["disallowed_paths"] == []
-    assert terminal_payload["allowed_paths"] == ["allowed.txt"]
-    messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert len(messages) == 1
-    assert messages[0].extra_meta["artifacts"][0]["mutation_guard_status"] == (
-        "within_allowed_paths"
-    )
-
-
-def test_clean_git_repo_disallowed_path_mutation_fails_with_scope_violation(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"allowed.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "other.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Disallowed mutation occurred."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.failed",
-    ]
-    terminal_payload = published[-1][2]
-    assert (
-        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
-    )
-    assert terminal_payload["mutation_guard_error_code"] == (
-        "MUTATION_SCOPE_VIOLATION"
-    )
-    assert terminal_payload["changed_paths"] == ["other.txt"]
-    assert terminal_payload["disallowed_paths"] == ["other.txt"]
-    assert terminal_payload["allowed_paths"] == ["allowed.txt"]
-    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
-    run_state = _fetch_run_state(store, run_id)
-    assert run_state is not None
-    assert run_state["status"] == "failed"
-
-
-def test_validation_retry_continues_when_scope_is_clean_and_allowed(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"allowed.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "allowed.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Allowed mutation completed."),
-    )
-    validation_results = iter(
-        [
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=1,
-                stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
-                stderr="E AssertionError: boom\n",
-            ),
-            subprocess.CompletedProcess(
-                args=["pytest", "-q"],
-                returncode=0,
-                stdout="1 passed in 0.01s\n",
-                stderr="",
-            ),
-        ]
-    )
-    validation_calls: list[dict[str, Any]] = []
-
-    def _fake_validation(
-        *,
-        command: str,
-        cwd: str,
-        timeout_seconds: int,
-    ) -> subprocess.CompletedProcess[str]:
-        validation_calls.append(
-            {
-                "command": command,
-                "cwd": cwd,
-                "timeout_seconds": timeout_seconds,
-            }
-        )
-        return next(validation_results)
-
-    monkeypatch.setattr(
-        coding_worker, "_run_validation_command", _fake_validation
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        max_validation_attempts=2,
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 2
-    assert len(validation_calls) == 2
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.validation_failed",
-        "task.retrying",
-        "task.attempt_started",
-        "task.completed",
-    ]
-    second_prompt = calls[1].prompt
-    assert "Validation feedback:" in second_prompt
-    assert "pytest -q" in second_prompt
-    assert "Fail signature:" in second_prompt
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "within_allowed_paths"
-    assert terminal_payload["validation_attempt_count"] == 2
-    assert terminal_payload["best_validation_result"]["status"] == "passed"
-    assert len(terminal_payload["validation_attempts"]) == 2
-    run_state = _fetch_run_state(store, run_id)
-    assert run_state is not None
-    assert run_state["status"] == "succeeded"
-
-
-def test_allow_write_false_blocks_any_mutation(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"locked.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "locked.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Mutation should be blocked."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": False,
-            "allowed_paths": ["locked.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.failed",
-    ]
-    terminal_payload = published[-1][2]
-    assert (
-        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
-    )
-    assert terminal_payload["mutation_guard_error_code"] == (
-        "MUTATION_SCOPE_VIOLATION"
-    )
-    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
-
-
-def test_dirty_preflight_fails_before_adapter_execution(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"dirty.txt": "seed\n"})
-    _mutate_file(repo, "dirty.txt", "dirty\n")
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_fake_adapter(
-        monkeypatch,
-        SimpleNamespace(status="ok", summary="Should never run."),
-    )
-    validation_calls = _install_fake_validation_result(monkeypatch)
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["dirty.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert calls == []
-    assert validation_calls == []
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.failed",
-    ]
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == (
-        "dirty_worktree_precheck_failed"
-    )
-    assert terminal_payload["mutation_guard_error_code"] == (
-        "DIRTY_WORKTREE_PRECHECK_FAILED"
-    )
-    assert terminal_payload["changed_paths"] == ["dirty.txt"]
-    assert terminal_payload["error_code"] == "DIRTY_WORKTREE_PRECHECK_FAILED"
-
-
-def test_validation_retry_does_not_continue_after_scope_violation(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"allowed.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "other.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Disallowed mutation occurred."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=1,
-            stdout="FAILED tests/unit/test_alpha.py::test_something - boom\n",
-            stderr="E AssertionError: boom\n",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        max_validation_attempts=2,
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.attempt_started",
-        "task.validation_failed",
-        "task.failed",
-    ]
-    assert "task.retrying" not in [event for _, event, _ in published]
-    terminal_payload = published[-1][2]
-    assert (
-        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
-    )
-    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
-
-
-@pytest.mark.parametrize(
-    "allowed_paths, mutated_path, expected_status",
-    [
-        (["allowed/"], "allowed/nested/file.txt", "within_allowed_paths"),
-        (["src/*.py"], "src/app.py", "within_allowed_paths"),
-    ],
-)
-def test_allowed_directory_prefix_and_glob_patterns_work(
-    tmp_path,
-    db,
-    monkeypatch,
-    allowed_paths,
-    mutated_path,
-    expected_status,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={mutated_path: "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, mutated_path, "changed\n"),
-        SimpleNamespace(status="ok", summary="Allowed mutation completed."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": allowed_paths,
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == expected_status
-    assert terminal_payload["changed_paths"] == [mutated_path]
-    assert terminal_payload["disallowed_paths"] == []
-
-
-def test_absolute_and_parent_policy_paths_do_not_escape_repo(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    repo = _init_git_repo(tmp_path, files={"escape.txt": "seed\n"})
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: _mutate_file(repo, "escape.txt", "changed\n"),
-        SimpleNamespace(status="ok", summary="Escape should be blocked."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["/tmp/outside", "../escape"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    terminal_payload = published[-1][2]
-    assert terminal_payload["allowed_paths"] == []
-    assert (
-        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
-    )
-    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
-
-
-def test_non_git_cwd_emits_unverified_scope_metadata_without_crashing(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    workdir = tmp_path / "plain-workdir"
-    workdir.mkdir()
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_fake_adapter(
-        monkeypatch,
-        SimpleNamespace(
-            status="ok",
-            summary="Non-git cwd should stay unverified but not crash.",
-            artifacts=(),
-            errors=(),
-        ),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed.txt"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(workdir),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "unverified"
-    assert terminal_payload["mutation_guard_error_code"] == (
-        "MUTATION_SCOPE_UNVERIFIED"
-    )
-    assert terminal_payload["changed_paths"] == []
-    messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert len(messages) == 1
-    assert (
-        messages[0].extra_meta["artifacts"][0]["mutation_guard_status"]
-        == "unverified"
-    )
-
-
-def test_changed_path_metadata_is_bounded_and_truncated(
-    tmp_path,
-    db,
-    monkeypatch,
-) -> None:
-    files = {f"allowed/file-{index:02d}.txt": "seed\n" for index in range(60)}
-    repo = _init_git_repo(tmp_path, files=files)
-    seeded = _seed_source_context(db)
-    store = _make_store(db)
-    deployment_id, run_id = _seed_execution_run(
-        store,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        user_id=seeded["user_id"],
-        project_id=seeded["project_id"],
-    )
-    worker = coding_worker.CodingWorker(agent_store=store)
-    published = _capture_task_events(monkeypatch)
-    calls = _install_mutating_adapter(
-        monkeypatch,
-        lambda request: [
-            _mutate_file(repo, rel_path, f"changed {rel_path}\n")
-            for rel_path in files
-        ],
-        SimpleNamespace(status="ok", summary="Bulk mutation completed."),
-    )
-    validation_calls = _install_fake_validation_result(
-        monkeypatch,
-        result=subprocess.CompletedProcess(
-            args=["pytest", "-q"],
-            returncode=0,
-            stdout="1 passed in 0.01s\n",
-            stderr="",
-        ),
-    )
-
-    task = _build_task(
-        run_id=run_id,
-        deployment_id=deployment_id,
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        validation_command="pytest -q",
-        permission_policy={
-            "allow_shell": True,
-            "allow_network": False,
-            "allow_write": True,
-            "allowed_paths": ["allowed/"],
-            "max_runtime_seconds": 60,
-        },
-        cwd=str(repo),
-    )
-    worker._process_task(task)
-
-    assert len(calls) == 1
-    assert len(validation_calls) == 1
-    terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "within_allowed_paths"
-    assert terminal_payload["changed_paths_truncated"] is True
-    assert terminal_payload["changed_paths_total"] == 60
-    assert len(terminal_payload["changed_paths"]) == 50
