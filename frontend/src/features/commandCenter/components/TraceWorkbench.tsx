@@ -508,10 +508,11 @@ function isRetrievalPostureHistoryItem(
  * The comparison is chronological: oldest to newest, retaining only change points.
  */
 export function filterRetrievalPostureHistory(
-  items: Array<RetrievalPostureHistoryItem>,
+  items: Array<RetrievalPostureHistoryItem> | null | undefined,
   mode: RetrievalPostureHistoryFilter
 ): Array<RetrievalPostureHistoryItem> {
-  const validItems = items.filter(isRetrievalPostureHistoryItem);
+  const safeItems = Array.isArray(items) ? items : [];
+  const validItems = safeItems.filter(isRetrievalPostureHistoryItem);
 
   if (mode === "all") {
     return validItems.slice();
@@ -548,10 +549,11 @@ export function filterRetrievalPostureHistory(
  * history, so this helper is a pure presentation filter rather than a data source.
  */
 export function limitRetrievalPostureHistory(
-  items: Array<RetrievalPostureHistoryItem>,
+  items: Array<RetrievalPostureHistoryItem> | null | undefined,
   windowSize: RetrievalPostureHistoryWindowSize
 ): Array<RetrievalPostureHistoryItem> {
-  return items.slice(0, windowSize);
+  const safeItems = Array.isArray(items) ? items : [];
+  return safeItems.slice(0, windowSize);
 }
 
 /**
@@ -561,9 +563,10 @@ export function limitRetrievalPostureHistory(
  * flapping if the recent window contains repeated transitions, otherwise insufficient.
  */
 export function classifyRetrievalPostureTrend(
-  items: Array<RetrievalPostureHistoryItem>
+  items: Array<RetrievalPostureHistoryItem> | null | undefined
 ): RetrievalPostureTrend {
-  const signatures = items
+  const safeItems = Array.isArray(items) ? items : [];
+  const signatures = safeItems
     .slice(0, 5)
     .map((item) => postureSignature(item.retrieval_posture))
     .filter((signature): signature is string => Boolean(signature));
