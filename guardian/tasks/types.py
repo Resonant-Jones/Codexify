@@ -45,6 +45,18 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _coerce_bounded_positive_int(
+    raw: Any,
+    *,
+    default: int = 1,
+    cap: int = 3,
+) -> int:
+    value = _coerce_optional_positive_int(raw)
+    if value is None:
+        return max(1, default)
+    return max(1, min(value, cap))
+
+
 class TaskLifecycleState(str, Enum):
     QUEUED = "QUEUED"
     DISPATCHING = "DISPATCHING"
@@ -509,7 +521,12 @@ class CodingExecutionTask(BaseTask):
         default_factory=_default_coding_permission_policy
     )
     validation_command: str | None = None
-    max_validation_attempts: int | None = None
+    max_validation_attempts: int = 1
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -563,9 +580,31 @@ class CodingExecutionTask(BaseTask):
                 payload.get("validation_command")
                 or payload.get("validationCommand")
             ),
-            max_validation_attempts=_coerce_optional_positive_int(
+            max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
-                or payload.get("maxValidationAttempts")
+                or payload.get("maxValidationAttempts"),
+            ),
+            worktree_lease_id=_coerce_optional_text(
+                payload.get("worktree_lease_id")
+                or payload.get("worktreeLeaseId")
+            ),
+            require_worktree_lease=bool(
+                payload.get("require_worktree_lease")
+                or payload.get("requireWorktreeLease")
+                or False
+            ),
+            commit_after_validation=bool(
+                payload.get("commit_after_validation")
+                or payload.get("commitAfterValidation")
+                or False
+            ),
+            commit_message=_coerce_optional_text(
+                payload.get("commit_message") or payload.get("commitMessage")
+            ),
+            require_human_review_before_merge=bool(
+                payload.get("require_human_review_before_merge", True)
+                if payload.get("require_human_review_before_merge") is not None
+                else payload.get("requireHumanReviewBeforeMerge", True)
             ),
             **base,
         )
@@ -812,7 +851,6 @@ class CodingExecutionTask(BaseTask):
 
     Used for async delegation of coding tasks through the queue/worker
     system, enabling proper SSE event visibility and lifecycle tracking.
-    Optional validation runs are supervised and single-attempt only.
     """
 
     type: str = "coding_execution"
@@ -826,10 +864,13 @@ class CodingExecutionTask(BaseTask):
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
-    # Legacy compatibility for older payloads; the worker now performs a single
-    # validation pass and ignores this as a live retry control.
-    max_validation_attempts: int | None = None
+    max_validation_attempts: int = 1
     permission_policy: dict[str, Any] | None = None
+    worktree_lease_id: str | None = None
+    require_worktree_lease: bool = False
+    commit_after_validation: bool = False
+    commit_message: str | None = None
+    require_human_review_before_merge: bool = True
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CodingExecutionTask:
@@ -854,9 +895,9 @@ class CodingExecutionTask(BaseTask):
                 payload.get("validation_command")
                 or payload.get("validationCommand")
             ),
-            max_validation_attempts=_coerce_optional_positive_int(
+            max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
-                or payload.get("maxValidationAttempts")
+                or payload.get("maxValidationAttempts"),
             ),
             permission_policy=(
                 _coerce_mapping(
@@ -864,6 +905,28 @@ class CodingExecutionTask(BaseTask):
                     or payload.get("permissionPolicy")
                 )
                 or None
+            ),
+            worktree_lease_id=_coerce_optional_text(
+                payload.get("worktree_lease_id")
+                or payload.get("worktreeLeaseId")
+            ),
+            require_worktree_lease=bool(
+                payload.get("require_worktree_lease")
+                or payload.get("requireWorktreeLease")
+                or False
+            ),
+            commit_after_validation=bool(
+                payload.get("commit_after_validation")
+                or payload.get("commitAfterValidation")
+                or False
+            ),
+            commit_message=_coerce_optional_text(
+                payload.get("commit_message") or payload.get("commitMessage")
+            ),
+            require_human_review_before_merge=bool(
+                payload.get("require_human_review_before_merge", True)
+                if payload.get("require_human_review_before_merge") is not None
+                else payload.get("requireHumanReviewBeforeMerge", True)
             ),
             **base,
         )

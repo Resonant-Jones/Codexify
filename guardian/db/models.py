@@ -29,6 +29,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.agents.work_orders import WORK_ORDER_STATUSES
+from guardian.agents.worktree_leases import (
+    WORKTREE_LEASE_CLEANUP_POLICIES,
+    WORKTREE_LEASE_STATUSES,
+)
 from guardian.core.capability_tokens import (
     CapabilityFamily,
     CapabilityGrantKind,
@@ -83,6 +88,18 @@ DELEGATION_STATUS_VALUES_SQL = "','".join(
     status.value for status in DelegationJobStatus
 )
 DELEGATION_STATUS_CHECK = f"status IN ('{DELEGATION_STATUS_VALUES_SQL}')"
+WORKTREE_LEASE_STATUS_VALUES_SQL = "','".join(sorted(WORKTREE_LEASE_STATUSES))
+WORKTREE_LEASE_STATUS_CHECK = (
+    f"status IN ('{WORKTREE_LEASE_STATUS_VALUES_SQL}')"
+)
+WORKTREE_LEASE_CLEANUP_POLICY_VALUES_SQL = "','".join(
+    sorted(WORKTREE_LEASE_CLEANUP_POLICIES)
+)
+WORKTREE_LEASE_CLEANUP_POLICY_CHECK = (
+    f"cleanup_policy IN ('{WORKTREE_LEASE_CLEANUP_POLICY_VALUES_SQL}')"
+)
+WORK_ORDER_STATUS_VALUES_SQL = "','".join(sorted(WORK_ORDER_STATUSES))
+WORK_ORDER_STATUS_CHECK = f"status IN ('{WORK_ORDER_STATUS_VALUES_SQL}')"
 CAPABILITY_FAMILY_VALUES_SQL = "','".join(
     family.value for family in CapabilityFamily
 )
@@ -3710,6 +3727,184 @@ class CommandRunEvent(Base):
         ),
         Index("ix_command_run_events_run_id", "run_id"),
         Index("ix_command_run_events_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CodingWorktreeLease(Base):
+    """Durable control-plane lease metadata for coding worktrees."""
+
+    __tablename__ = "coding_worktree_leases"
+
+    lease_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    work_order_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    worker_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    branch_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    worktree_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    preserve_on_failure: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    cleanup_policy: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    released_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    cleanup_completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    cleanup_error: Mapped[str | None] = mapped_column(Text)
+    extra_meta: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            WORKTREE_LEASE_STATUS_CHECK,
+            name="coding_worktree_leases_status_check",
+        ),
+        CheckConstraint(
+            WORKTREE_LEASE_CLEANUP_POLICY_CHECK,
+            name="coding_worktree_leases_cleanup_policy_check",
+        ),
+        Index(
+            "ix_coding_worktree_leases_work_order_id",
+            "work_order_id",
+        ),
+        Index(
+            "ix_coding_worktree_leases_run_id",
+            "run_id",
+        ),
+        Index(
+            "ix_coding_worktree_leases_worker_id",
+            "worker_id",
+        ),
+        Index(
+            "ix_coding_worktree_leases_status",
+            "status",
+        ),
+        Index(
+            "ix_coding_worktree_leases_branch_name",
+            "branch_name",
+        ),
+        Index(
+            "ix_coding_worktree_leases_worktree_path",
+            "worktree_path",
+        ),
+        Index(
+            "uq_coding_worktree_leases_active_branch_name",
+            "branch_name",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+        Index(
+            "uq_coding_worktree_leases_active_worktree_path",
+            "worktree_path",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CodingWorkOrder(Base):
+    """Durable task-board control-plane state for coding work orders."""
+
+    __tablename__ = "coding_work_orders"
+
+    work_order_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(128))
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="ready"
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255))
+    assigned_worker_id: Mapped[str | None] = mapped_column(String(255))
+    source_thread_id: Mapped[str | None] = mapped_column(String(128))
+    source_message_id: Mapped[str | None] = mapped_column(String(128))
+    dependency_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    file_scope: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    validation_command: Mapped[str | None] = mapped_column(Text)
+    adapter_kind: Mapped[str | None] = mapped_column(String(64))
+    max_validation_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    require_worktree_lease: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    commit_after_validation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    require_human_review_before_merge: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    latest_run_id: Mapped[str | None] = mapped_column(String(64))
+    latest_lease_id: Mapped[str | None] = mapped_column(String(64))
+    latest_receipt_id: Mapped[str | None] = mapped_column(String(64))
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
+    extra_meta: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            WORK_ORDER_STATUS_CHECK,
+            name="coding_work_orders_status_check",
+        ),
+        Index("ix_coding_work_orders_campaign_id", "campaign_id"),
+        Index("ix_coding_work_orders_status", "status"),
+        Index("ix_coding_work_orders_priority", "priority"),
+        Index(
+            "ix_coding_work_orders_assigned_worker_id",
+            "assigned_worker_id",
+        ),
+        Index("ix_coding_work_orders_source_thread_id", "source_thread_id"),
+        Index("ix_coding_work_orders_latest_run_id", "latest_run_id"),
+        Index("ix_coding_work_orders_latest_lease_id", "latest_lease_id"),
     )
     __mapper_args__ = {"eager_defaults": True}
 

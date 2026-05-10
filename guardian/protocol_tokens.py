@@ -25,7 +25,10 @@ class TaskEventType(str, Enum):
     TASK_CANCELLED = "task.cancelled"
     TASK_EVENT = "task.event"
     TASK_ATTEMPT_STARTED = "task.attempt_started"
+    TASK_VALIDATION_STARTED = "task.validation_started"
     TASK_VALIDATION_FAILED = "task.validation_failed"
+    TASK_VALIDATION_PASSED = "task.validation_passed"
+    TASK_VALIDATION_RETRYING = "task.validation_retrying"
     TASK_RETRYING = "task.retrying"
 
 
@@ -172,6 +175,38 @@ class ErrorCode(str, Enum):
     DELEGATION_EXECUTOR_TIMEOUT = "DELEGATION_EXECUTOR_TIMEOUT"
     DELEGATION_EXECUTOR_NONZERO_EXIT = "DELEGATION_EXECUTOR_NONZERO_EXIT"
     DELEGATION_EXECUTOR_SPAWN_FAILED = "DELEGATION_EXECUTOR_SPAWN_FAILED"
+    WORKTREE_LEASE_REQUIRED = "WORKTREE_LEASE_REQUIRED"
+    WORKTREE_LEASE_NOT_FOUND = "WORKTREE_LEASE_NOT_FOUND"
+    WORKTREE_LEASE_NOT_ACTIVE = "WORKTREE_LEASE_NOT_ACTIVE"
+    WORKTREE_LEASE_INVALID = "WORKTREE_LEASE_INVALID"
+    WORKTREE_LEASE_PATH_UNAVAILABLE = "WORKTREE_LEASE_PATH_UNAVAILABLE"
+    WORKTREE_LEASE_HEARTBEAT_FAILED = "WORKTREE_LEASE_HEARTBEAT_FAILED"
+    GIT_WORKTREE_REQUIRED = "GIT_WORKTREE_REQUIRED"
+    GIT_WORKTREE_INVALID = "GIT_WORKTREE_INVALID"
+    GIT_NO_CHANGES_TO_COMMIT = "GIT_NO_CHANGES_TO_COMMIT"
+    GIT_COMMIT_FAILED = "GIT_COMMIT_FAILED"
+    GIT_COMMIT_CREATED = "GIT_COMMIT_CREATED"
+    WORK_ORDER_NOT_FOUND = "WORK_ORDER_NOT_FOUND"
+    WORK_ORDER_INVALID = "WORK_ORDER_INVALID"
+    WORK_ORDER_INVALID_STATUS = "WORK_ORDER_INVALID_STATUS"
+    WORK_ORDER_INVALID_TRANSITION = "WORK_ORDER_INVALID_TRANSITION"
+
+
+class OrchestratorDecisionToken(str, Enum):
+    RECOMMEND = "recommend"
+    SKIP = "skip"
+    BLOCKED = "blocked"
+    RECOMMENDATION_ONLY = "recommendation_only"
+
+
+class OrchestratorReasonCode(str, Enum):
+    DEPENDENCY_NOT_SATISFIED = "DEPENDENCY_NOT_SATISFIED"
+    ACTIVE_LEASE_CONFLICT = "ACTIVE_LEASE_CONFLICT"
+    FILE_SCOPE_CONFLICT = "FILE_SCOPE_CONFLICT"
+    STATUS_NOT_READY = "STATUS_NOT_READY"
+    HUMAN_REVIEW_REQUIRED = "HUMAN_REVIEW_REQUIRED"
+    AMBIGUOUS_STATE = "AMBIGUOUS_STATE"
+    READY_FOR_DISPATCH = "READY_FOR_DISPATCH"
 
 
 class EmbeddingLifecycleStatus(str, Enum):
@@ -274,6 +309,12 @@ DELEGATION_TERMINAL_EVENT_TYPES: frozenset[str] = frozenset(
 ERROR_CODES: frozenset[str] = frozenset(
     {error_code.value for error_code in ErrorCode}
 )
+ORCHESTRATOR_DECISION_TOKENS: frozenset[str] = frozenset(
+    {token.value for token in OrchestratorDecisionToken}
+)
+ORCHESTRATOR_REASON_CODES: frozenset[str] = frozenset(
+    {reason.value for reason in OrchestratorReasonCode}
+)
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
@@ -306,6 +347,8 @@ __all__ = [
     "ExecutorEscalationKind",
     "DelegationEventType",
     "ErrorCode",
+    "OrchestratorDecisionToken",
+    "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
@@ -330,6 +373,8 @@ __all__ = [
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",
+    "ORCHESTRATOR_DECISION_TOKENS",
+    "ORCHESTRATOR_REASON_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",

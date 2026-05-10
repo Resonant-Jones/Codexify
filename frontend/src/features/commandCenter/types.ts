@@ -158,6 +158,128 @@ export const COMMAND_CENTER_RUN_KINDS = {
 export type CommandCenterRunKind =
   (typeof COMMAND_CENTER_RUN_KINDS)[keyof typeof COMMAND_CENTER_RUN_KINDS];
 
+export const COMMAND_CENTER_WORK_ORDER_STATUSES = {
+  DRAFT: "draft",
+  READY: "ready",
+  LEASED: "leased",
+  RUNNING: "running",
+  VALIDATING: "validating",
+  RETRYING: "retrying",
+  PASSED: "passed",
+  FAILED: "failed",
+  BLOCKED: "blocked",
+  ESCALATED: "escalated",
+  MERGE_READY: "merge_ready",
+  MERGED: "merged",
+  ARCHIVED: "archived",
+  CANCELLED: "cancelled",
+} as const;
+
+export type CommandCenterWorkOrderStatus =
+  (typeof COMMAND_CENTER_WORK_ORDER_STATUSES)[keyof typeof COMMAND_CENTER_WORK_ORDER_STATUSES];
+
+export interface CommandCenterCodingWorkOrder {
+  work_order_id: string;
+  campaign_id: string | null;
+  title: string;
+  objective: string;
+  scope: string | null;
+  status: CommandCenterWorkOrderStatus | string;
+  priority: number;
+  created_by: string | null;
+  assigned_worker_id: string | null;
+  source_thread_id: string | null;
+  source_message_id: string | null;
+  dependency_ids: string[];
+  file_scope: string[];
+  validation_command: string | null;
+  adapter_kind: string | null;
+  max_validation_attempts: number;
+  require_worktree_lease: boolean;
+  commit_after_validation: boolean;
+  require_human_review_before_merge: boolean;
+  latest_run_id: string | null;
+  latest_lease_id: string | null;
+  latest_receipt_id: string | null;
+  blocked_reason: string | null;
+  extra_meta: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface CommandCenterWorkOrderCreateInput {
+  campaign_id?: string | null;
+  title: string;
+  objective: string;
+  scope?: string | null;
+  status?: CommandCenterWorkOrderStatus | "ready" | "draft";
+  priority?: number;
+  created_by?: string | null;
+  assigned_worker_id?: string | null;
+  source_thread_id?: string | null;
+  source_message_id?: string | null;
+  dependency_ids?: string[];
+  file_scope?: string[];
+  validation_command?: string | null;
+  adapter_kind?: string | null;
+  max_validation_attempts?: number;
+  require_worktree_lease?: boolean;
+  commit_after_validation?: boolean;
+  require_human_review_before_merge?: boolean;
+  blocked_reason?: string | null;
+  extra_meta?: Record<string, unknown>;
+}
+
+export interface CommandCenterWorkOrderListResponse {
+  ok: boolean;
+  items: CommandCenterCodingWorkOrder[];
+  count: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CommandCenterWorkOrderMutationResponse {
+  ok: boolean;
+  work_order: CommandCenterCodingWorkOrder;
+}
+
+export interface CommandCenterWorkOrderDetailResponse {
+  ok: boolean;
+  work_order: CommandCenterCodingWorkOrder;
+}
+
+export interface CommandCenterOrchestratorRecommendation {
+  work_order_id: string;
+  title: string;
+  status: string;
+  priority: number;
+  rank: number;
+  decision: string;
+  reason_codes: string[];
+  dependency_ids: string[];
+  file_scope: string[];
+  requires_human_review: boolean;
+  latest_run_id: string | null;
+  latest_lease_id: string | null;
+}
+
+export interface CommandCenterOrchestratorSkipReason {
+  work_order_id: string;
+  reason_code: string;
+  message: string;
+}
+
+export interface CommandCenterOrchestratorNextResponse {
+  ok: boolean;
+  recommendations: CommandCenterOrchestratorRecommendation[];
+  skipped: CommandCenterOrchestratorSkipReason[];
+  decision_reasons: string[];
+  generated_at: string;
+  campaign_id: string | null;
+  limit: number;
+}
+
 export type CommandCenterRunIdentityKind =
   | "task"
   | "request"

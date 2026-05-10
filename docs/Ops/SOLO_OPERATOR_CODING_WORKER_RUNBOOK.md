@@ -97,6 +97,28 @@ Source anchors:
 - Validation failures can retry only when the guard status is verified.
 - This still does not add commits, worktree isolation, auto-merge, or infinite
   retry.
+6. Lease-bound execution now exists in the worker seam when `worktree_lease_id`
+   is supplied.
+7. Guardian still does not allocate Git branches or Git worktrees in this phase.
+8. Commit-after-green is now an opt-in worker seam and remains bounded to
+   existing leased worktree paths.
+
+## Bounded Validation Retry
+
+- The worker now supports bounded supervised validation retries.
+- Default maximum validation attempts: `3`.
+- Environment override: `CODING_WORKER_MAX_VALIDATION_ATTEMPTS`.
+- Valid values clamp to the range `1..10`.
+- `1` preserves the old single-attempt behavior.
+- Retries happen only after a success-like adapter result and a failing
+  validation command.
+- Retries do not happen when the adapter fails, when no validation command is
+  present, or when shell execution is blocked by policy.
+- The retry prompt includes bounded validation feedback: command, status, exit
+  code, fail signature, and truncated stdout/stderr previews.
+- Final validation failure is still a terminal failure.
+- The worker stops when attempts are exhausted; this is still not autonomous
+  commit/merge behavior.
 
 ## Operator Interpretation
 
@@ -117,6 +139,7 @@ Source anchors:
   this seam is wired into the worker path.
 - MiniMax may run behind the `codex` adapter, but Guardian still owns the loop
   boundary and stops at the bounded validation attempts.
+  boundary and stops after the bounded attempts are exhausted.
 
 ## Follow-Through Rule
 
@@ -186,6 +209,35 @@ Supported values:
 Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
 not execution success.
 
+### Lease-Bound Execution
+
+- Optional request/spec/task fields:
+  - `worktree_lease_id`
+  - `require_worktree_lease`
+- If a lease is provided, the worker resolves durable lease state and requires
+  an active, valid lease contract.
+- When lease-bound, the worker uses lease `worktree_path` as the effective cwd
+  for both adapter execution and validation commands.
+- Lease heartbeats are attempted during execution.
+- Missing, inactive, invalid, or unavailable lease context fails closed.
+- This remains a backend seam only in this phase. There is no UI command center
+  for lease inspection yet.
+- Guardian still does not create Git branches or Git worktrees in this phase.
+
+### Commit-After-Green Gate (Phase 4)
+
+- Commit behavior is opt-in via `commit_after_validation=true`.
+- Commit behavior requires a valid resolved worktree lease.
+- Commit behavior runs only after validation passes.
+- Commit behavior does not run when validation fails, errors, is skipped, or is
+  not configured.
+- Commit operations run inside the lease `worktree_path` only.
+- Commit hash and bounded commit metadata are captured in result/event envelopes.
+- Guardian still does not create Git branches or Git worktrees.
+- Guardian still does not merge branches or push branches.
+- This is a backend seam only in this phase. There is no UI command center for
+  commit-gate inspection yet.
+
 ### Normalized Test Results
 
 A normalized test-result contract now exists in `guardian/agents/test_results.py`.
@@ -230,26 +282,50 @@ the task cwd resolves to a Git repository.
 - Scope violations stop the retry loop immediately.
 - Validation failures may retry only when the mutation scope is clean or
   within the allowed path set.
+The coding worker can run one optional validation command after the adapter
+returns, as long as the task permits shell execution and a working directory
+is available. Validation evidence is normalized before it is stored or
+emitted.
 
-### Single-Attempt Validation Command
+This remains supervised and bounded. A missing validation command means no
+validation run happened. Validation failure may feed the bounded retry loop
+described below, but this section does not imply worktree isolation, commit
+behavior, or autonomous convergence.
+
+### Bounded Validation Retry
+
+The worker can retry a coding attempt when the adapter succeeds but validation
+fails. Retry boundaries are controlled by `max_validation_attempts` on the
+task, with a default of `1` and a hard cap of `3`. Values below `1` normalize
+to `1`; values above the cap are rejected at the route boundary and bounded in
+the worker path as a defense-in-depth check.
 
 The worker may perform a supervised validation pass after a success-like
 adapter result when `validation_command` is configured and shell execution is
 allowed. The command runs in the task `cwd`, the subprocess result is
 normalized through `guardian/agents/test_results.py`, and the normalized
 evidence is stored on the coding result and emitted on the terminal event.
+Retries happen only when all of the following are true:
 
-Validation outcomes are bounded and explicit:
+- the adapter returned a success-like result,
+- a validation command is configured,
+- shell execution is allowed by policy,
+- the task has a working directory, and
+- the validation result is `failed`.
 
-- `passed` keeps the attempt successful.
-- `not_run` records a supervised skip, usually because shell execution is
-  blocked or the working directory is missing.
-- `failed` and `error` fail closed for the current attempt and emit
-  `task.failed` with `VALIDATION_FAILED`.
+Retries do not happen when validation is `not_run`, when shell execution is
+blocked, when no validation command is configured, when the adapter itself
+fails before validation can run, when validation returns `error`, when the same
+fail signature repeats, or when the configured attempt budget is exhausted.
+Validation evidence stays normalized and bounded, and retry prompts only reuse
+the previous attempt’s bounded failure evidence.
 
 `max_validation_attempts` is the bounded retry ceiling. Values clamp to the
 worker policy range, and retries only happen when the mutation scope guard
 remains clean or within the allowed path set.
+This is still not autonomous commit/merge behavior. MiniMax can run behind the
+`codex` adapter, but Guardian owns the retry boundary and future convergence
+work must consume the normalized validation results instead of raw logs.
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
@@ -303,7 +379,8 @@ curl -N -sS \
 **Expected event progression:**
 1. `created` - Run created, task enqueued
 2. `task.running` - Worker picked up task
-3. `task.completed` or `task.failed` - Execution finished
+3. `task.validation_started` and, if configured, `task.validation_passed`, `task.validation_failed`, or `task.validation_retrying`
+4. `task.completed` or `task.failed` - Execution finished
 
 ## Operational Drill
 
@@ -420,7 +497,7 @@ worker-coding:
 | Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
 | Tasks stuck in queue | Worker not running | Start worker or check logs |
-| Idempotency not working | Stale or duplicated task payload | Each attempt should have unique `attempt_id` |
+| Idempotency not working | Old run_id in retry | Each attempt should have unique `attempt_id` |
 
 ## Environment Variables
 
@@ -442,10 +519,9 @@ Codex adapter. If needed, set `CODEX_ADAPTER_COMMAND` to point the Codex adapter
 at the desired Codex CLI profile.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
-current coding worker executes a single adapter attempt with at most one
-optional validation pass, returns the result through
-`AgentStore.store_coding_result()`, and records failure events when execution
-or result delivery fails.
+current coding worker executes a single adapter attempt, returns the result
+through `AgentStore.store_coding_result()`, and records failure events when
+execution or result delivery fails.
 
 ## Monitoring
 
