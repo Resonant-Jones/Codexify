@@ -858,6 +858,7 @@ class CodingExecutionTask(BaseTask):
     deployment_id: str = ""
     instructions: str = ""
     cwd: str | None = None
+    repo_root: str | None = None
     timeout_seconds: int = 300
     coding_task_id: str = ""
     attempt_id: str = ""
@@ -883,6 +884,9 @@ class CodingExecutionTask(BaseTask):
                 payload.get("instructions") or payload.get("task_prompt") or ""
             ).strip(),
             cwd=_coerce_optional_text(payload.get("cwd")),
+            repo_root=_coerce_optional_text(
+                payload.get("repo_root") or payload.get("repoRoot")
+            ),
             timeout_seconds=int(payload.get("timeout_seconds") or 300),
             coding_task_id=str(payload.get("coding_task_id") or "").strip(),
             attempt_id=str(payload.get("attempt_id") or "").strip(),

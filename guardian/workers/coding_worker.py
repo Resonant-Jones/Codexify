@@ -211,6 +211,12 @@ def _coerce_permission_policy(raw: Any) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+def _coerce_optional_mapping(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    return dict(raw)
+
+
 def _validation_timeout_seconds(task_timeout_seconds: int) -> int:
     return max(
         1, min(int(task_timeout_seconds or 0), _VALIDATION_TIMEOUT_CAP_SECONDS)
@@ -502,7 +508,11 @@ class CodingWorker:
             return
         lease_store: WorktreeLeaseStore | None = None
         lease_ctx: LeaseExecutionContext | None = None
-        effective_cwd = task.cwd
+        effective_cwd = _coerce_optional_text(task.cwd)
+        if not effective_cwd:
+            effective_cwd = _coerce_optional_text(
+                getattr(task, "repo_root", None)
+            )
 
         db = getattr(self.store, "db", None)
         if db is not None and hasattr(db, "get_session"):
@@ -685,6 +695,7 @@ class CodingWorker:
             final_fail_signature: str | None = None,
             validation_attempts: list[dict[str, Any]] | None = None,
             max_validation_attempts: int | None = None,
+            mutation_guard: dict[str, Any] | None = None,
             commit_after_validation: bool = False,
             commit_hash: str | None = None,
             commit_status: str | None = None,
@@ -694,8 +705,9 @@ class CodingWorker:
             require_human_review_before_merge: bool = True,
         ) -> None:
             result_artifact_payload = list(artifacts)
+            terminal_result_metadata: dict[str, Any] = {}
             if validation_result is not None:
-                result_artifact_payload = [
+                terminal_result_metadata.update(
                     {
                         "validation_results": validation_result.model_dump(),
                         "validation_attempt_count": validation_attempt_count,
@@ -710,20 +722,10 @@ class CodingWorker:
                             else None
                         ),
                         "validation_attempts": list(validation_attempts or []),
-                        "commit_after_validation": commit_after_validation,
-                        "commit_hash": commit_hash,
-                        "commit_status": commit_status,
-                        "commit_reason_code": commit_reason_code,
-                        "merge_ready": merge_ready,
-                        "human_review_required": human_review_required,
-                        "require_human_review_before_merge": (
-                            require_human_review_before_merge
-                        ),
-                    },
-                    *result_artifact_payload,
-                ]
-            elif commit_after_validation:
-                result_artifact_payload = [
+                    }
+                )
+            if commit_after_validation:
+                terminal_result_metadata.update(
                     {
                         "commit_after_validation": commit_after_validation,
                         "commit_hash": commit_hash,
@@ -734,7 +736,13 @@ class CodingWorker:
                         "require_human_review_before_merge": (
                             require_human_review_before_merge
                         ),
-                    },
+                    }
+                )
+            if mutation_guard is not None:
+                terminal_result_metadata.update(dict(mutation_guard))
+            if terminal_result_metadata:
+                result_artifact_payload = [
+                    terminal_result_metadata,
                     *result_artifact_payload,
                 ]
 
@@ -843,6 +851,7 @@ class CodingWorker:
                     if best_validation_result is not None
                     else None
                 ),
+                mutation_guard=mutation_guard,
                 lease_ctx=lease_ctx,
                 commit_after_validation=commit_after_validation,
                 commit_hash=commit_hash,
@@ -919,6 +928,9 @@ class CodingWorker:
             adapter_session_ref = getattr(result, "adapter_session_ref", None)
             error_code = getattr(result, "error_code", None)
             error_message = getattr(result, "error_message", None)
+            mutation_guard = _coerce_optional_mapping(
+                getattr(result, "mutation_guard", None)
+            )
             if not error_message and not success_like:
                 error_message = getattr(result, "summary", None)
 
@@ -940,6 +952,7 @@ class CodingWorker:
                     error_code=error_code,
                     error_message=error_message
                     or "coding adapter execution failed",
+                    mutation_guard=mutation_guard,
                 )
                 return
 
@@ -1074,6 +1087,7 @@ class CodingWorker:
                                 require_human_review_before_merge=(
                                     require_human_review_before_merge
                                 ),
+                                mutation_guard=mutation_guard,
                             )
                             return
 
@@ -1131,6 +1145,7 @@ class CodingWorker:
                                 require_human_review_before_merge=(
                                     require_human_review_before_merge
                                 ),
+                                mutation_guard=mutation_guard,
                             )
                             return
 
@@ -1198,6 +1213,7 @@ class CodingWorker:
                                 require_human_review_before_merge=(
                                     require_human_review_before_merge
                                 ),
+                                mutation_guard=mutation_guard,
                             )
                             return
                     else:
@@ -1235,6 +1251,7 @@ class CodingWorker:
                         require_human_review_before_merge=(
                             require_human_review_before_merge
                         ),
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -1268,6 +1285,7 @@ class CodingWorker:
                         require_human_review_before_merge=(
                             require_human_review_before_merge
                         ),
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -1327,6 +1345,7 @@ class CodingWorker:
                         require_human_review_before_merge=(
                             require_human_review_before_merge
                         ),
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -1397,6 +1416,7 @@ class CodingWorker:
                         require_human_review_before_merge=(
                             require_human_review_before_merge
                         ),
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -1419,6 +1439,7 @@ class CodingWorker:
                 require_human_review_before_merge=(
                     require_human_review_before_merge
                 ),
+                mutation_guard=mutation_guard,
             )
             return
 
@@ -1793,6 +1814,7 @@ class CodingWorker:
         final_fail_signature: str | None = None,
         best_validation_result: dict[str, Any] | None = None,
         max_validation_attempts: int | None = None,
+        mutation_guard: dict[str, Any] | None = None,
         lease_ctx: LeaseExecutionContext | None = None,
         commit_after_validation: bool = False,
         commit_hash: str | None = None,
@@ -1804,57 +1826,60 @@ class CodingWorker:
     ) -> None:
         """Emit terminal task event."""
         try:
+            payload = _merge_payload(
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": event_type,
+                    "coding_result_status": result_status,
+                    "result_captured_by_guardian": True,
+                    "summary": summary,
+                    "files_changed": files_changed,
+                    "artifacts": artifacts,
+                    "adapter_session_ref": adapter_session_ref,
+                    "message_id": delivery.get("message_id"),
+                    "delivery_ok": bool(delivery.get("delivery_ok", False)),
+                    "delivery_reason": delivery.get("delivery_reason"),
+                    "errors": errors,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "validation_results": validation_results,
+                    "validation_result": validation_results,
+                    "validation_attempt_count": validation_attempt_count,
+                    "validation_attempts": validation_attempts,
+                    "validation_stop_reason": validation_stop_reason,
+                    "final_validation_status": final_validation_status,
+                    "final_fail_signature": final_fail_signature,
+                    "best_validation_result": best_validation_result,
+                    "max_validation_attempts": max_validation_attempts,
+                    "commit_after_validation": commit_after_validation,
+                    "commit_hash": commit_hash,
+                    "commit_status": commit_status,
+                    "commit_reason_code": commit_reason_code,
+                    "merge_ready": merge_ready,
+                    "human_review_required": human_review_required,
+                    "require_human_review_before_merge": (
+                        require_human_review_before_merge
+                    ),
+                },
+                lease_ctx,
+            )
+            if mutation_guard is not None:
+                payload.update(dict(mutation_guard))
             task_events.publish_with_visibility(
                 task.run_id,
                 f"task.{event_type}",
-                _merge_payload(
-                    {
-                        **build_coding_result_lineage_payload(
-                            run_id=task.run_id,
-                            queue_task_id=task.task_id,
-                            coding_task_id=task.coding_task_id,
-                            attempt_id=task.attempt_id,
-                            request_id=task.request_id or None,
-                            source_thread_id=task.thread_id,
-                            source_message_id=_coerce_optional_positive_int(
-                                task.source_message_id
-                            ),
-                            adapter_kind=adapter_kind,
-                        ),
-                        "status": event_type,
-                        "coding_result_status": result_status,
-                        "result_captured_by_guardian": True,
-                        "summary": summary,
-                        "files_changed": files_changed,
-                        "artifacts": artifacts,
-                        "adapter_session_ref": adapter_session_ref,
-                        "message_id": delivery.get("message_id"),
-                        "delivery_ok": bool(delivery.get("delivery_ok", False)),
-                        "delivery_reason": delivery.get("delivery_reason"),
-                        "errors": errors,
-                        "error_code": error_code,
-                        "error_message": error_message,
-                        "validation_results": validation_results,
-                        "validation_result": validation_results,
-                        "validation_attempt_count": validation_attempt_count,
-                        "validation_attempts": validation_attempts,
-                        "validation_stop_reason": validation_stop_reason,
-                        "final_validation_status": final_validation_status,
-                        "final_fail_signature": final_fail_signature,
-                        "best_validation_result": best_validation_result,
-                        "max_validation_attempts": max_validation_attempts,
-                        "commit_after_validation": commit_after_validation,
-                        "commit_hash": commit_hash,
-                        "commit_status": commit_status,
-                        "commit_reason_code": commit_reason_code,
-                        "merge_ready": merge_ready,
-                        "human_review_required": human_review_required,
-                        "require_human_review_before_merge": (
-                            require_human_review_before_merge
-                        ),
-                    },
-                    lease_ctx,
-                ),
+                payload,
             )
         except Exception as exc:
             logger.warning(
