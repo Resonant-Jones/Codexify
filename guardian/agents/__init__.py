@@ -5,6 +5,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .commit_gate import CommitGateError, CommitGateResult, commit_after_green
+from .work_orders import (
+    WORK_ORDER_ACTIVE_STATUSES,
+    WORK_ORDER_ALLOWED_TRANSITIONS,
+    WORK_ORDER_STATUSES,
+    WORK_ORDER_TERMINAL_STATUSES,
+    WorkOrderContract,
+    WorkOrderCreate,
+    WorkOrderStatus,
+    WorkOrderUpdate,
+    WorkOrderValidationResult,
+    is_active_work_order_status,
+    is_terminal_work_order_status,
+    validate_work_order_transition,
+)
 from .worktree_leases import (
     WORKTREE_LEASE_ACTIVE_STATUSES,
     WORKTREE_LEASE_CLEANUP_POLICIES,
@@ -22,6 +36,13 @@ from .worktree_leases import (
 )
 
 if TYPE_CHECKING:
+    from .work_order_store import (
+        WorkOrderNotFound,
+        WorkOrderStore,
+        WorkOrderStoreError,
+        WorkOrderTransitionError,
+        WorkOrderValidationError,
+    )
     from .worktree_lease_store import (
         WorktreeLeaseConflict,
         WorktreeLeaseNotFound,
@@ -31,6 +52,23 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "WorkOrderStatus",
+    "WorkOrderCreate",
+    "WorkOrderUpdate",
+    "WorkOrderContract",
+    "WorkOrderValidationResult",
+    "WORK_ORDER_STATUSES",
+    "WORK_ORDER_TERMINAL_STATUSES",
+    "WORK_ORDER_ACTIVE_STATUSES",
+    "WORK_ORDER_ALLOWED_TRANSITIONS",
+    "is_terminal_work_order_status",
+    "is_active_work_order_status",
+    "validate_work_order_transition",
+    "WorkOrderStore",
+    "WorkOrderStoreError",
+    "WorkOrderNotFound",
+    "WorkOrderValidationError",
+    "WorkOrderTransitionError",
     "WorktreeLeaseCleanupPolicy",
     "WorktreeLeaseContract",
     "WorktreeLeaseRequest",
@@ -56,6 +94,30 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "WorkOrderStore",
+        "WorkOrderStoreError",
+        "WorkOrderNotFound",
+        "WorkOrderValidationError",
+        "WorkOrderTransitionError",
+    }:
+        from .work_order_store import (
+            WorkOrderNotFound,
+            WorkOrderStore,
+            WorkOrderStoreError,
+            WorkOrderTransitionError,
+            WorkOrderValidationError,
+        )
+
+        mapping = {
+            "WorkOrderStore": WorkOrderStore,
+            "WorkOrderStoreError": WorkOrderStoreError,
+            "WorkOrderNotFound": WorkOrderNotFound,
+            "WorkOrderValidationError": WorkOrderValidationError,
+            "WorkOrderTransitionError": WorkOrderTransitionError,
+        }
+        return mapping[name]
+
     if name in {
         "WorktreeLeaseStore",
         "WorktreeLeaseStoreError",

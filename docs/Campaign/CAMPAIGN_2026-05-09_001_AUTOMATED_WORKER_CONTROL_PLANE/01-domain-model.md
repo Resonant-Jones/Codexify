@@ -8,7 +8,8 @@ This model is a proposed control-plane shape for future implementation. It is no
 - Proposed fields: `work_order_id`, `campaign_id`, `title`, `objective`, `scope`, `priority`, `status`, `dependency_policy`, `created_by`, `created_at`, `updated_at`, `cancel_reason`.
 - Lifecycle ownership: Guardian control-plane intake and policy boundary.
 - Durable vs ephemeral: Durable.
-- Future likely storage table or module: `coding_work_orders` via `guardian/agents/store.py` or a future `guardian/control_plane/store.py`.
+- Implementation anchor: `guardian/agents/work_orders.py`, `guardian/agents/work_order_store.py`, `guardian/routes/coding_work_orders.py`.
+- Durable storage table/module: `coding_work_orders` via `guardian/agents/work_order_store.py`.
 
 ## WorkerRun
 - Purpose: Attempt-scoped execution record for a `WorkOrder`.
@@ -16,6 +17,7 @@ This model is a proposed control-plane shape for future implementation. It is no
 - Lifecycle ownership: Coding worker runtime under Guardian-issued envelope.
 - Durable vs ephemeral: Durable with event-stream side channel.
 - Future likely storage table or module: `coding_worker_runs` plus run-event append path.
+- Implementation status: still represented through existing run/deployment seams; no task-board run table/API was added in this phase.
 
 ## WorktreeLease
 - Purpose: Enforce isolated branch/worktree ownership for one run at a time.
@@ -44,6 +46,7 @@ This model is a proposed control-plane shape for future implementation. It is no
 - Lifecycle ownership: Guardian merge policy module with human review gate.
 - Durable vs ephemeral: Durable.
 - Future likely storage table or module: `coding_merge_candidates` and policy evaluator module.
+- Implementation status: not implemented in this phase.
 
 ## OrchestratorDecision
 - Purpose: Durable policy decision stating why a specific next action was recommended or dispatched.
@@ -51,6 +54,7 @@ This model is a proposed control-plane shape for future implementation. It is no
 - Lifecycle ownership: Orchestrator policy engine (not persona).
 - Durable vs ephemeral: Durable decision summary with optional ephemeral scoring details.
 - Future likely storage table or module: `coding_orchestrator_decisions` in a control-plane policy package.
+- Implementation status: not implemented in this phase.
 
 ## Campaign
 - Purpose: Top-level planning container for related work orders and rollout phases.

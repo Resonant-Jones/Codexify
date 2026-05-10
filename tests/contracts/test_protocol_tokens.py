@@ -1,3 +1,4 @@
+from guardian.agents.work_orders import WORK_ORDER_STATUSES
 from guardian.agents.worktree_leases import (
     WORKTREE_LEASE_CLEANUP_POLICIES,
     WORKTREE_LEASE_STATUSES,
@@ -104,6 +105,25 @@ def test_worktree_lease_contract_tokens() -> None:
         "cleanup_on_merge",
         "preserve_on_fail",
         "manual_cleanup_required",
+    }
+
+
+def test_work_order_contract_tokens() -> None:
+    assert WORK_ORDER_STATUSES == {
+        "draft",
+        "ready",
+        "leased",
+        "running",
+        "validating",
+        "retrying",
+        "passed",
+        "failed",
+        "blocked",
+        "escalated",
+        "merge_ready",
+        "merged",
+        "archived",
+        "cancelled",
     }
 
 
@@ -622,6 +642,15 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.GIT_COMMIT_FAILED.value == "GIT_COMMIT_FAILED"
     assert ErrorCode.GIT_COMMIT_CREATED.value == "GIT_COMMIT_CREATED"
+    assert ErrorCode.WORK_ORDER_NOT_FOUND.value == "WORK_ORDER_NOT_FOUND"
+    assert ErrorCode.WORK_ORDER_INVALID.value == "WORK_ORDER_INVALID"
+    assert (
+        ErrorCode.WORK_ORDER_INVALID_STATUS.value == "WORK_ORDER_INVALID_STATUS"
+    )
+    assert (
+        ErrorCode.WORK_ORDER_INVALID_TRANSITION.value
+        == "WORK_ORDER_INVALID_TRANSITION"
+    )
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
@@ -648,6 +677,10 @@ def test_error_code_tokens() -> None:
         "GIT_NO_CHANGES_TO_COMMIT",
         "GIT_COMMIT_FAILED",
         "GIT_COMMIT_CREATED",
+        "WORK_ORDER_NOT_FOUND",
+        "WORK_ORDER_INVALID",
+        "WORK_ORDER_INVALID_STATUS",
+        "WORK_ORDER_INVALID_TRANSITION",
     }
 
 

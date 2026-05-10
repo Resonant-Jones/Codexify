@@ -1,41 +1,49 @@
 # 06 API Surface Sketch (Proposed)
 
 ## Purpose
-Sketch possible future backend routes for the worker control plane. These routes are proposed only and are not implemented.
+Track the worker-control-plane backend route surface across rollout phases.
 
-## Route list (all proposed)
+## Route list
 
 ### `POST /api/coding/work-orders`
 - Proposed purpose: create a `WorkOrder` with objective, scope, dependency metadata, and policy constraints.
 - Proposed output: accepted work-order envelope and initial state.
+- Implementation status: implemented in Phase 5 as durable create-only work-order intake (no dispatch side effects).
 
 ### `GET /api/coding/work-orders`
 - Proposed purpose: list work orders with state filters, campaign filters, and dependency/readiness metadata.
 - Proposed output: paginated work-order summaries.
+- Implementation status: implemented in Phase 5 with `status`, `campaign_id`, `limit`, `offset` filters.
 
 ### `GET /api/coding/work-orders/{id}`
 - Proposed purpose: fetch one work order with lifecycle history, dependencies, receipts, and active gates.
 - Proposed output: detailed work-order record.
+- Implementation status: implemented in Phase 5 for durable work-order detail reads.
 
 ### `POST /api/coding/work-orders/{id}/runs`
 - Proposed purpose: request or authorize run creation for a work order, including lease acquisition path.
 - Proposed output: run identity, lease identity (if granted), and task-event stream reference.
+- Implementation status: proposed only.
 
 ### `POST /api/coding/work-orders/{id}/cancel`
 - Proposed purpose: request cancellation for active/queued work order execution.
 - Proposed output: cancellation acceptance and resulting lifecycle state.
+- Implementation status: implemented in Phase 5 as state transition only (no worker cancellation side effects).
 
 ### `GET /api/coding/runs/{id}/receipt`
 - Proposed purpose: return the terminal structured `WorkerReceipt` plus bounded validation evidence.
 - Proposed output: receipt payload.
+- Implementation status: proposed only.
 
 ### `GET /api/coding/orchestrator/next`
 - Proposed purpose: recommendation-only endpoint for next safe task selection.
 - Proposed output: ranked recommendation list + decision reasons.
+- Implementation status: proposed only.
 
 ### `POST /api/coding/orchestrator/dispatch`
 - Proposed purpose: policy-authorized dispatch endpoint that turns a recommendation into execution.
 - Proposed output: dispatch decision record, created run, and event references.
+- Implementation status: proposed only.
 
 ## Proposed guardrails
 1. Route acceptance must not be interpreted as completion.
@@ -44,4 +52,13 @@ Sketch possible future backend routes for the worker control plane. These routes
 4. Receipt endpoints must return bounded normalized evidence only.
 
 ## Implementation status
-No routes in this file are live runtime claims.
+- Implemented after Phase 5:
+  - `POST /api/coding/work-orders`
+  - `GET /api/coding/work-orders`
+  - `GET /api/coding/work-orders/{id}`
+  - `POST /api/coding/work-orders/{id}/cancel`
+- Still proposed:
+  - `POST /api/coding/work-orders/{id}/runs`
+  - `GET /api/coding/runs/{id}/receipt`
+  - `GET /api/coding/orchestrator/next`
+  - `POST /api/coding/orchestrator/dispatch`
