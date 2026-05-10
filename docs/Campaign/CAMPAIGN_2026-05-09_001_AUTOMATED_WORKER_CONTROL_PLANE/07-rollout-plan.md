@@ -42,6 +42,7 @@ Define a phased implementation sequence for future work while preserving current
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
 - Proof expectation: durable proof artifact with branch/worktree/commands/validation/cleanup evidence and explicit limitations.
 - Status (2026-05-10): **INCOMPLETE** for Command Center worker-control seam live proof. Backend task-board/orchestrator API checks passed, but Command Center UI panel test IDs were not present during live runtime proof, so Phase 8 is not complete.
+- Rerun status (2026-05-10, post-render-repair): backend seam re-passed and panel test IDs appeared immediately, but Command Center still crashed after load (`TraceWorkbench` runtime error from `commandCenterObservability.ts`), so Phase 8 remains incomplete. See `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`.
 
 ### Phase 9 (optional): external tracker/workflow adaptation
 - Scope:
