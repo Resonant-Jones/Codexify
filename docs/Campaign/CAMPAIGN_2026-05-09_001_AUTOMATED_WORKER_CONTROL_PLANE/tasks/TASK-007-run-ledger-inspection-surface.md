@@ -1,35 +1,56 @@
 # TASK-007 Run Ledger Inspection Surface
 
 ## Objective
-Provide an operator inspection surface for work orders, runs, leases, validation receipts, and cleanup outcomes.
+Implement Phase 7 by adding a Command Center worker-control panel that surfaces durable work-order state and recommendation-only orchestration output.
 
 ## Scope
-- Add read-only backend inspection endpoints and/or frontend pane.
-- Render run lifecycle, receipt summaries, and cleanup evidence.
-- Surface limitations and ambiguity explicitly.
+- Add a Guardian-visible Command Center panel for:
+  - listing work orders
+  - creating work orders
+  - cancelling work orders
+  - viewing recommendation-only next-task results
+- Keep explicit non-dispatch boundaries visible in the UI.
+- Preserve operator-safe truth semantics: acceptance/state visibility does not imply execution.
 
 ## Files likely to edit
-- `guardian/routes/` inspection endpoints
-- `guardian/agents/store.py`
-- `frontend/src/` operator inspection components
-- `tests/routes/`
-- `frontend/src/**/__tests__/`
+- `frontend/src/features/commandCenter/types.ts`
+- `frontend/src/features/commandCenter/hooks/useCodingWorkOrders.ts`
+- `frontend/src/features/commandCenter/hooks/useOrchestratorRecommendations.ts`
+- `frontend/src/features/commandCenter/components/CodingWorkOrdersPanel.tsx`
+- `frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx`
+- `frontend/src/features/commandCenter/CommandCenterPage.tsx`
+- campaign docs for Phase 7 status updates
 
 ## Validation expectations
-- API contract tests for inspection payloads.
-- UI render tests for loading/empty/error/data states.
-- Evidence redaction checks (no secrets/unbounded logs).
+- Frontend panel tests prove:
+  - render of work orders/recommendations/skipped reasons
+  - create/cancel API actions
+  - loading/error states
+  - explicit non-dispatch boundary
+- Existing backend route/policy tests remain green.
+- Docs validation and diff hygiene checks pass.
+
+## Validation commands
+- `pnpm --dir frontend test -- CodingWorkOrdersPanel`
+- `./.venv/bin/python -m pytest -v guardian/tests/routes/test_coding_work_orders.py`
+- `./.venv/bin/python -m pytest -v guardian/tests/agents/test_orchestrator_policy.py`
+- `./.venv/bin/python scripts/validate_docs.py`
+- `git diff --check`
 
 ## Non-goals
-- No new execution authority.
-- No runtime side effects from inspection views.
-- No release claim changes without fresh live proof.
+- No worker dispatch from UI.
+- No lease allocation.
+- No run creation.
+- No Git branch/worktree creation.
+- No commit/merge/push behavior.
+- No orchestrator dispatch endpoint.
+- No live MiniMax/Codex proof.
 
 ## Dependencies
 - TASK-005 task-board API.
 - TASK-006 orchestrator selector.
 
 ## Completion criteria
-- Operators can inspect run/receipt/lease/cleanup lineage in one bounded surface.
-- Visibility gaps are explicit and auditable.
-- Inspection data aligns with durable backend records.
+- Command Center exposes durable work-order visibility and create/cancel control.
+- Command Center exposes recommendation-only next-task output with explicit skip reasons.
+- UI explicitly states dispatch/lease allocation/merge automation are not enabled.

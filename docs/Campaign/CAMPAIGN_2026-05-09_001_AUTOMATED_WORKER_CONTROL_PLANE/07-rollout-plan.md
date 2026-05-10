@@ -35,7 +35,7 @@ Define a phased implementation sequence for future work while preserving current
 
 ### Phase 7: inspection/UI surface
 - Scope: operator-facing run ledger and receipt inspection surfaces.
-- Proof expectation: UI/backend contract tests proving visibility for run, receipt, lease, and gate states.
+- Proof expectation: Command Center panel tests (`frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx`) prove work-order list/create/cancel visibility plus recommendation-only rendering and explicit non-dispatch boundaries.
 
 ### Phase 8: live MiniMax/Codex proof
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
