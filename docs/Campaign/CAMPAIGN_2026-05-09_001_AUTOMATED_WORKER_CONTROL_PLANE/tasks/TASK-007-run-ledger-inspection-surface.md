@@ -54,3 +54,9 @@ Implement Phase 7 by adding a Command Center worker-control panel that surfaces 
 - Command Center exposes durable work-order visibility and create/cancel control.
 - Command Center exposes recommendation-only next-task output with explicit skip reasons.
 - UI explicitly states dispatch/lease allocation/merge automation are not enabled.
+
+## Proof follow-through (Phase 8)
+- Live proof artifact: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`.
+- Backend API seam (create/list/detail/cancel + recommendation-only next-task) was proven live on Compose runtime.
+- No-dispatch boundary remained explicit (no dispatch endpoint calls, no lease allocation evidence, no queue growth).
+- UI route proof remained incomplete on this run due frontend runtime blockers; do not treat this task as dispatch-capable.
