@@ -194,6 +194,11 @@ class ErrorCode(str, Enum):
     WORK_ORDER_INVALID = "WORK_ORDER_INVALID"
     WORK_ORDER_INVALID_STATUS = "WORK_ORDER_INVALID_STATUS"
     WORK_ORDER_INVALID_TRANSITION = "WORK_ORDER_INVALID_TRANSITION"
+    CAMPAIGN_GOAL_NOT_FOUND = "CAMPAIGN_GOAL_NOT_FOUND"
+    CAMPAIGN_GOAL_INVALID = "CAMPAIGN_GOAL_INVALID"
+    CAMPAIGN_NOT_FOUND = "CAMPAIGN_NOT_FOUND"
+    CAMPAIGN_INVALID = "CAMPAIGN_INVALID"
+    CAMPAIGN_EXECUTION_ATTEMPT_INVALID = "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
 
 
 class OrchestratorDecisionToken(str, Enum):
@@ -218,6 +223,30 @@ class EmbeddingLifecycleStatus(str, Enum):
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+
+
+class CampaignGoalStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class CampaignStatus(str, Enum):
+    DRAFT = "draft"
+    PLANNED = "planned"
+    ACTIVE = "active"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class CampaignExecutionAttemptStatus(str, Enum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class TraceSnapshotAbsenceReason(str, Enum):
@@ -322,6 +351,15 @@ ORCHESTRATOR_REASON_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+CAMPAIGN_GOAL_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in CampaignGoalStatus}
+)
+CAMPAIGN_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in CampaignStatus}
+)
+CAMPAIGN_EXECUTION_ATTEMPT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in CampaignExecutionAttemptStatus}
+)
 TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in TraceSnapshotAbsenceReason}
 )
@@ -354,6 +392,9 @@ __all__ = [
     "OrchestratorDecisionToken",
     "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
+    "CampaignGoalStatus",
+    "CampaignStatus",
+    "CampaignExecutionAttemptStatus",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
@@ -380,6 +421,9 @@ __all__ = [
     "ORCHESTRATOR_DECISION_TOKENS",
     "ORCHESTRATOR_REASON_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "CAMPAIGN_GOAL_STATUSES",
+    "CAMPAIGN_STATUSES",
+    "CAMPAIGN_EXECUTION_ATTEMPT_STATUSES",
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",

@@ -91,6 +91,8 @@ class AgentRunStartRequest(BaseModel):
 class CodingExecutionRequest(BaseModel):
     run_id: str = Field(min_length=1)
     coding_task_id: str = Field(min_length=1)
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     thread_id: str = Field(min_length=1)
     source_message_id: str = Field(min_length=1)
     attempt_id: str = Field(min_length=1)
@@ -216,6 +218,8 @@ async def execute_coding_task(
         thread_id=int(envelope.thread_id) if envelope.thread_id else None,
         spec_json={
             "coding_task_id": envelope.coding_task_id,
+            "campaign_id": envelope.campaign_id,
+            "work_order_id": envelope.work_order_id,
             "adapter_kind": envelope.adapter_kind,
             "validation_command": envelope.validation_command,
             "max_validation_attempts": envelope.max_validation_attempts,
@@ -249,6 +253,8 @@ async def execute_coding_task(
         spec_hash=_stable_hash(
             {
                 "coding_task_id": envelope.coding_task_id,
+                "campaign_id": envelope.campaign_id,
+                "work_order_id": envelope.work_order_id,
                 "attempt_id": envelope.attempt_id,
                 "adapter_kind": envelope.adapter_kind,
                 "validation_command": envelope.validation_command,
@@ -298,6 +304,8 @@ async def execute_coding_task(
         "cwd": envelope.repo_root,
         "timeout_seconds": envelope.permission_policy.max_runtime_seconds,
         "coding_task_id": envelope.coding_task_id,
+        "campaign_id": envelope.campaign_id,
+        "work_order_id": envelope.work_order_id,
         "attempt_id": envelope.attempt_id,
         "thread_id": int(envelope.thread_id) if envelope.thread_id else None,
         "source_message_id": _coerce_optional_positive_int(
@@ -333,6 +341,8 @@ async def execute_coding_task(
         "run_id": run["run_id"],
         "deployment_id": deployment["deployment_id"],
         "coding_task_id": envelope.coding_task_id,
+        "campaign_id": envelope.campaign_id,
+        "work_order_id": envelope.work_order_id,
     }
 
 

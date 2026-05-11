@@ -10,7 +10,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.db.models import CodingWorkOrder, CodingWorktreeLease
+from guardian.agents.campaign_runner_store import CampaignRunnerStore
+from guardian.db.models import (
+    Campaign,
+    CampaignExecutionAttempt,
+    CampaignGoal,
+    CodingWorkOrder,
+    CodingWorktreeLease,
+)
 from guardian.routes import coding_work_orders
 
 
@@ -22,6 +29,9 @@ class _TestDB:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        CampaignGoal.__table__.create(bind=self._engine)
+        Campaign.__table__.create(bind=self._engine)
+        CampaignExecutionAttempt.__table__.create(bind=self._engine)
         CodingWorkOrder.__table__.create(bind=self._engine)
         CodingWorktreeLease.__table__.create(bind=self._engine)
         self._session_factory = sessionmaker(
@@ -36,6 +46,12 @@ class _TestDB:
 
     def close(self) -> None:
         with suppress(Exception):
+            CampaignExecutionAttempt.__table__.drop(bind=self._engine)
+        with suppress(Exception):
+            Campaign.__table__.drop(bind=self._engine)
+        with suppress(Exception):
+            CampaignGoal.__table__.drop(bind=self._engine)
+        with suppress(Exception):
             CodingWorkOrder.__table__.drop(bind=self._engine)
         with suppress(Exception):
             CodingWorktreeLease.__table__.drop(bind=self._engine)
@@ -46,6 +62,7 @@ def _build_client(db: _TestDB) -> TestClient:
     app = FastAPI()
     coding_work_orders.configure_db(db)
     app.include_router(coding_work_orders.router)
+    app.include_router(coding_work_orders.campaign_runner_router)
     app.include_router(coding_work_orders.orchestrator_router)
     return TestClient(app)
 
@@ -439,3 +456,123 @@ def test_orchestrator_next_output_is_json_safe_and_stable(
     comparable_one.pop("generated_at", None)
     comparable_two.pop("generated_at", None)
     assert comparable_one == comparable_two
+
+
+def test_campaign_runner_goal_and_campaign_routes(client: TestClient) -> None:
+    goal_response = client.post(
+        "/api/coding/campaign-runner/goals",
+        json={
+            "title": "Ship Campaign Runner MVP",
+            "summary": "Operator-owned build desk loop",
+            "source_thread_id": "42",
+            "source_message_id": "99",
+        },
+        headers=_headers(),
+    )
+    assert goal_response.status_code == 200
+    goal_payload = goal_response.json()
+    assert goal_payload["ok"] is True
+    goal_id = goal_payload["goal"]["goal_id"]
+
+    campaign_response = client.post(
+        "/api/coding/campaign-runner/campaigns",
+        json={
+            "goal_id": goal_id,
+            "title": "Campaign Runner Control Plane",
+            "summary": "MVP spine for goal -> work order -> attempts",
+        },
+        headers=_headers(),
+    )
+    assert campaign_response.status_code == 200
+    campaign_payload = campaign_response.json()
+    assert campaign_payload["ok"] is True
+    campaign_id = campaign_payload["campaign"]["campaign_id"]
+
+    work_order_response = client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(
+            campaign_id=campaign_id,
+            title="Add durable campaign attempt ledger",
+        ),
+        headers=_headers(),
+    )
+    assert work_order_response.status_code == 200
+    work_order_id = work_order_response.json()["work_order"]["work_order_id"]
+
+    detail_response = client.get(
+        f"/api/coding/campaign-runner/campaigns/{campaign_id}",
+        headers=_headers(),
+    )
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["ok"] is True
+    assert detail_payload["campaign"]["campaign_id"] == campaign_id
+    assert detail_payload["goal"]["goal_id"] == goal_id
+    assert detail_payload["current_work_order_id"] == work_order_id
+    assert detail_payload["next_recommended_work_order"]["work_order_id"] == (
+        work_order_id
+    )
+
+
+def test_campaign_runner_detail_includes_latest_attempt_ledger(
+    client: TestClient,
+) -> None:
+    goal_response = client.post(
+        "/api/coding/campaign-runner/goals",
+        json={"title": "Goal with execution evidence"},
+        headers=_headers(),
+    )
+    goal_id = goal_response.json()["goal"]["goal_id"]
+    campaign_response = client.post(
+        "/api/coding/campaign-runner/campaigns",
+        json={"goal_id": goal_id, "title": "Evidence campaign"},
+        headers=_headers(),
+    )
+    campaign_id = campaign_response.json()["campaign"]["campaign_id"]
+    work_order_response = client.post(
+        "/api/coding/work-orders",
+        json=_create_payload(
+            campaign_id=campaign_id, title="Evidence work order"
+        ),
+        headers=_headers(),
+    )
+    work_order_id = work_order_response.json()["work_order"]["work_order_id"]
+
+    store = CampaignRunnerStore(db=coding_work_orders._campaign_runner_store.db)
+    store.record_execution_attempt(
+        run_id="run-123",
+        attempt_id="attempt-1",
+        status="failed",
+        campaign_id=campaign_id,
+        goal_id=goal_id,
+        work_order_id=work_order_id,
+        coding_task_id="coding-task-123",
+        adapter_kind="codex",
+        runtime_target="container",
+        error_code="VALIDATION_FAILED",
+        error_message="validation failed",
+        validation_summary={
+            "validation_attempt_count": 1,
+            "final_validation_status": "failed",
+        },
+        commit_hash=None,
+        delivery_ok=False,
+        delivered_message_id=None,
+        delivery_reason="result_status_not_persisted_as_assistant_message",
+        source_thread_id=42,
+        source_message_id=99,
+        evidence_json={"summary": "validation failed"},
+    )
+
+    detail_response = client.get(
+        f"/api/coding/campaign-runner/campaigns/{campaign_id}",
+        headers=_headers(),
+    )
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert len(detail_payload["attempts"]) == 1
+    latest = detail_payload["latest_attempts_by_work_order"][work_order_id]
+    assert latest["status"] == "failed"
+    assert latest["work_order_id"] == work_order_id
+    assert latest["validation_summary"]["final_validation_status"] == "failed"
+    assert latest["error_code"] == "VALIDATION_FAILED"
