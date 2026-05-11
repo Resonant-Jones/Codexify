@@ -8,7 +8,7 @@ last_updated: 2026-04-02
 related_docs:
   - docs/architecture/00-current-state.md
   - docs/architecture/README.md
-  - docs/architecture/iddb_policy_v1.md
+  - docs/iddb_policy_v1.md
   - docs/architecture/codexify_workspace_surface_spec_v_1.md
   - docs/architecture/runtime-protocol-token-contract.md
   - docs/architecture/canonical-token-philosophy.md
