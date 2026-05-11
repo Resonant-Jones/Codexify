@@ -4,7 +4,7 @@ Purpose: give a solo operator the current truth surface for Guardian-mediated
 coding-worker work without implying autonomous convergence, commit behavior,
 or unbounded retry loops.
 
-Last updated: 2026-05-09
+Last updated: 2026-05-10
 
 Source anchors:
 - `docs/architecture/00-current-state.md`
@@ -99,7 +99,8 @@ Source anchors:
   retry.
 6. Lease-bound execution now exists in the worker seam when `worktree_lease_id`
    is supplied.
-7. Guardian still does not allocate Git branches or Git worktrees in this phase.
+7. Guardian can optionally create a disposable detached Git worktree when
+   `CODING_WORKER_WORKTREE_ISOLATION` is enabled.
 8. Commit-after-green is now an opt-in worker seam and remains bounded to
    existing leased worktree paths.
 
@@ -152,7 +153,7 @@ When the worker-side loop is implemented later, it must:
 # Codexify Coding Worker Runbook
 
 Purpose: Operating runbook for the Guardian coding-worker adapter pipeline (ADR-020).
-Last updated: 2026-05-09
+Last updated: 2026-05-10
 Source anchors:
 - `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
 - `guardian/agents/adapters/__init__.py` - adapter registry
@@ -222,7 +223,29 @@ not execution success.
 - Missing, inactive, invalid, or unavailable lease context fails closed.
 - This remains a backend seam only in this phase. There is no UI command center
   for lease inspection yet.
-- Guardian still does not create Git branches or Git worktrees in this phase.
+
+### Optional Worktree Isolation
+
+- Optional flag: `CODING_WORKER_WORKTREE_ISOLATION`.
+- Default: disabled (`false`).
+- Accepted truthy values: `1`, `true`, `yes`, `on`.
+- When enabled and `cwd` resolves inside a Git repository:
+  - Guardian creates a detached disposable worktree from current `HEAD`.
+  - Adapter execution and optional validation run inside that isolated path.
+  - Mutation-scope preflight and scope checks run against the isolated worktree,
+    not the operator's active checkout.
+  - Success cleanup default: remove isolated worktree
+    (`CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS=false`).
+  - Failure retention default: keep isolated worktree for inspection
+    (`CODING_WORKER_KEEP_WORKTREE_ON_FAILURE=true`).
+- Optional root override: `CODING_WORKER_WORKTREE_ROOT`.
+  - Default root when enabled: `<repo_root>/.codexify/coding-worktrees`.
+- When enabled and `cwd` is not inside a Git repository:
+  - Worker fails closed with `WORKTREE_ISOLATION_UNAVAILABLE`.
+  - Worker does not silently fall back to direct execution.
+- This seam does not promote changes back to the operator checkout.
+- Dirty source checkouts can still be processed in isolation mode because the
+  disposable worktree is created from `HEAD`.
 
 ### Commit-After-Green Gate (Phase 4)
 
@@ -233,7 +256,7 @@ not execution success.
   not configured.
 - Commit operations run inside the lease `worktree_path` only.
 - Commit hash and bounded commit metadata are captured in result/event envelopes.
-- Guardian still does not create Git branches or Git worktrees.
+- Guardian still does not auto-create long-lived branches for commit-gated flow.
 - Guardian still does not merge branches or push branches.
 - This is a backend seam only in this phase. There is no UI command center for
   commit-gate inspection yet.
@@ -289,8 +312,8 @@ emitted.
 
 This remains supervised and bounded. A missing validation command means no
 validation run happened. Validation failure may feed the bounded retry loop
-described below, but this section does not imply worktree isolation, commit
-behavior, or autonomous convergence.
+described below, but this section does not imply commit behavior or autonomous
+convergence.
 
 ### Bounded Validation Retry
 
@@ -326,6 +349,15 @@ remains clean or within the allowed path set.
 This is still not autonomous commit/merge behavior. MiniMax can run behind the
 `codex` adapter, but Guardian owns the retry boundary and future convergence
 work must consume the normalized validation results instead of raw logs.
+
+### Explicit Non-Goals Still In Effect
+
+- No auto-commit loop from generic coding-worker runs.
+- No auto-merge.
+- No branch push.
+- No promotion of isolated worktree output into the operator checkout.
+- No infinite retry behavior.
+- No release-readiness claim from this seam by itself.
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8888}"
