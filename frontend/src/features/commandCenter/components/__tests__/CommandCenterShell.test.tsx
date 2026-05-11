@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import CommandCenterShell from "../CommandCenterShell";
 import type {
@@ -257,6 +257,7 @@ describe("CommandCenterShell", () => {
 
   it("renders the parent shell card", () => {
     render(<CommandCenterShell {...defaultProps} />);
+    expect(screen.getByTestId("command-center-workspace-card")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-shell")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-scroll-shell")).toBeInTheDocument();
   });
@@ -280,8 +281,14 @@ describe("CommandCenterShell", () => {
 
   it("Worker Control panel is visible in the Agent Command lens", async () => {
     render(<CommandCenterShell {...defaultProps} />);
+    expect(screen.getByTestId("command-center-agent-lens-header")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-agent-lens-title")).toHaveTextContent(
+      "Agent Command Center"
+    );
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-worker-control-card")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-summary-cards")).toBeInTheDocument();
     expect(
       screen.getByText(
         /Dispatch, lease allocation, merge automation, and worker launch are not enabled/i
@@ -363,10 +370,11 @@ describe("CommandCenterShell", () => {
   it("bottom drawer opens when toggled from rail", () => {
     render(<CommandCenterShell {...defaultProps} />);
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("0px");
+    expect(drawer.style.height).toBe("44px");
+    expect(screen.getByTestId("command-center-drawer-collapsed-affordance")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("command-center-rail-drawer-toggle"));
-    expect(drawer.style.height).not.toBe("0px");
+    expect(drawer.style.height).toBe("280px");
   });
 
   it("bottom drawer can be closed", () => {
@@ -376,7 +384,7 @@ describe("CommandCenterShell", () => {
     // close via drawer close button
     fireEvent.click(screen.getByTestId("command-center-drawer-close"));
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("0px");
+    expect(drawer.style.height).toBe("44px");
   });
 
   it("Terminal tab in drawer is non-executable", () => {

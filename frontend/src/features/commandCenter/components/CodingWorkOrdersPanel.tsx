@@ -330,236 +330,348 @@ export default function CodingWorkOrdersPanel() {
   );
 
   return (
-    <Card
-      className="bezel-none border"
-      data-testid="coding-work-orders-panel"
-      style={{
-        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-    >
-      <CardHeader className="space-y-2 border-b border-[var(--panel-border)] pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-            Automated Worker Control Plane
-          </CardTitle>
-          <div className="flex gap-2">
-            <Button size="sm" type="button" variant="ghost" onClick={() => void refreshWorkOrders()}>
-              {workOrderLoading ? "Refreshing…" : "Refresh work orders"}
-            </Button>
-            <Button size="sm" type="button" variant="ghost" onClick={() => void refreshRecommendations()}>
-              {recommendationsLoading ? "Refreshing…" : "Refresh recommendations"}
-            </Button>
-          </div>
-        </div>
-        <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-          Work orders are durable control-plane state. Recommendations are read-only guidance.
-          Dispatch, lease allocation, merge automation, and worker launch are not enabled in this panel.
-        </p>
-      </CardHeader>
-
-      <CardContent className="space-y-4 p-[var(--card-pad)]">
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
-            Total: <strong style={{ color: "var(--text)" }}>{summary.total}</strong>
-          </div>
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
-            Ready: <strong style={{ color: "var(--text)" }}>{summary.ready}</strong>
-          </div>
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
-            Active-ish: <strong style={{ color: "var(--text)" }}>{summary.activeish}</strong>
-          </div>
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
-            Blocked/escalated: <strong style={{ color: "var(--text)" }}>{summary.blocked}</strong>
-          </div>
-          <div className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs" style={{ borderColor: "var(--panel-border)" }}>
-            Merge-ready: <strong style={{ color: "var(--text)" }}>{summary.mergeReady}</strong>
-          </div>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <div className="space-y-4">
-            <div
-              className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]"
-              style={{ borderColor: "var(--panel-border)", background: "var(--surface-soft)" }}
+    <div className="space-y-4">
+      <section
+        className="rounded-[var(--tile-radius)] border px-4 py-3"
+        data-testid="command-center-agent-lens-header"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "color-mix(in oklab, var(--panel-bg) 95%, transparent)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+        }}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2
+              className="text-base font-semibold leading-tight"
+              data-testid="command-center-agent-lens-title"
+              style={{ color: "var(--text)" }}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                  Create work order
-                </div>
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setCreateFormExpanded((current) => !current)}
-                >
-                  {createFormExpanded ? "Collapse form" : "Expand form"}
-                </Button>
-              </div>
-              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                Keep this bounded for operator speed. Expand to set full task metadata.
-              </p>
+              Agent Command Center
+            </h2>
+            <p
+              className="text-xs leading-5"
+              data-testid="command-center-agent-lens-subtitle"
+              style={{ color: "var(--muted)" }}
+            >
+              Recommendations are read-only guidance. No dispatch action is exposed in this surface.
+            </p>
+          </div>
 
-              <form
-                className={createFormExpanded ? "space-y-3" : "hidden"}
-                data-testid="coding-work-order-create-form"
-                onSubmit={onSubmit}
+          <div
+            className="flex flex-wrap gap-2"
+            data-testid="command-center-agent-lens-chips"
+          >
+            <Badge
+              className="border text-[11px] font-medium"
+              data-testid="command-center-agent-chip-work-orders"
+              style={toneStyle("info")}
+            >
+              Work orders: {summary.total}
+            </Badge>
+            <Badge
+              className="border text-[11px] font-medium"
+              data-testid="command-center-agent-chip-recommendations"
+              style={toneStyle("subtle")}
+            >
+              Recommendation posture: advisory
+            </Badge>
+            <Badge
+              className="border text-[11px] font-medium"
+              data-testid="command-center-agent-chip-dispatch"
+              style={toneStyle("attention")}
+            >
+              Dispatch: disabled
+            </Badge>
+          </div>
+        </div>
+      </section>
+
+      <Card
+        className="bezel-none border"
+        data-testid="coding-work-orders-panel"
+        style={{
+          background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+          borderColor: "var(--panel-border)",
+        }}
+      >
+        <CardHeader className="space-y-2 border-b border-[var(--panel-border)] pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-1">
+              <div
+                className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                style={{ color: "var(--muted)" }}
               >
+                Worker Control
+              </div>
+              <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+                Automated Worker Control Plane
+              </CardTitle>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" type="button" variant="ghost" onClick={() => void refreshWorkOrders()}>
+                {workOrderLoading ? "Refreshing…" : "Refresh work orders"}
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => void refreshRecommendations()}
+              >
+                {recommendationsLoading ? "Refreshing…" : "Refresh recommendations"}
+              </Button>
+            </div>
+          </div>
+          <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+            Work orders are durable control-plane state. Recommendations are read-only guidance.
+            Dispatch, lease allocation, merge automation, and worker launch are not enabled in this panel.
+          </p>
+        </CardHeader>
+
+        <CardContent className="space-y-4 p-[var(--card-pad)]">
+          <div
+            className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5"
+            data-testid="command-center-work-order-summary-cards"
+          >
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2"
+              data-testid="command-center-work-order-summary-total"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--surface-soft)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                Total
+              </div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                {summary.total}
+              </div>
+            </div>
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2"
+              data-testid="command-center-work-order-summary-ready"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--surface-soft)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                Ready
+              </div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                {summary.ready}
+              </div>
+            </div>
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2"
+              data-testid="command-center-work-order-summary-active"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--surface-soft)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                Active-ish
+              </div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                {summary.activeish}
+              </div>
+            </div>
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2"
+              data-testid="command-center-work-order-summary-blocked"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--surface-soft)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                Blocked/escalated
+              </div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                {summary.blocked}
+              </div>
+            </div>
+            <div
+              className="rounded-[var(--tile-radius)] border px-3 py-2"
+              data-testid="command-center-work-order-summary-merge-ready"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--surface-soft)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                Merge-ready
+              </div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                {summary.mergeReady}
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]"
+            data-testid="command-center-worker-control-card"
+            style={{
+              borderColor: "color-mix(in oklab, var(--accent-strong) 28%, var(--panel-border))",
+              background:
+                "linear-gradient(120deg, color-mix(in oklab, var(--panel-bg) 94%, transparent), color-mix(in oklab, var(--surface-soft) 76%, transparent))",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Create work order
+              </div>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => setCreateFormExpanded((current) => !current)}
+              >
+                {createFormExpanded ? "Collapse form" : "Expand form"}
+              </Button>
+            </div>
+            <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+              Keep this bounded for operator speed. Expand to set full task metadata.
+            </p>
+
+            <form
+              className={createFormExpanded ? "space-y-3" : "hidden"}
+              data-testid="coding-work-order-create-form"
+              onSubmit={onSubmit}
+            >
+              <div className="grid gap-2">
+                <label className="text-xs" htmlFor="coding-wo-title" style={{ color: "var(--muted)" }}>
+                  Title
+                </label>
+                <Input
+                  id="coding-wo-title"
+                  onChange={(event) => setTitle(event.target.value)}
+                  value={title}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-xs" htmlFor="coding-wo-objective" style={{ color: "var(--muted)" }}>
+                  Objective
+                </label>
+                <Textarea
+                  id="coding-wo-objective"
+                  onChange={(event) => setObjective(event.target.value)}
+                  rows={3}
+                  value={objective}
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-title" style={{ color: "var(--muted)" }}>
-                    Title
+                  <label className="text-xs" htmlFor="coding-wo-campaign-id" style={{ color: "var(--muted)" }}>
+                    Campaign ID (optional)
                   </label>
                   <Input
-                    id="coding-wo-title"
-                    onChange={(event) => setTitle(event.target.value)}
-                    value={title}
+                    id="coding-wo-campaign-id"
+                    onChange={(event) => setCampaignId(event.target.value)}
+                    value={campaignId}
                   />
                 </div>
-
                 <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-objective" style={{ color: "var(--muted)" }}>
-                    Objective
+                  <label className="text-xs" htmlFor="coding-wo-priority" style={{ color: "var(--muted)" }}>
+                    Priority
                   </label>
-                  <Textarea
-                    id="coding-wo-objective"
-                    onChange={(event) => setObjective(event.target.value)}
-                    rows={3}
-                    value={objective}
+                  <Input
+                    id="coding-wo-priority"
+                    onChange={(event) => setPriority(event.target.value)}
+                    type="number"
+                    value={priority}
                   />
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <label className="text-xs" htmlFor="coding-wo-campaign-id" style={{ color: "var(--muted)" }}>
-                      Campaign ID (optional)
-                    </label>
-                    <Input
-                      id="coding-wo-campaign-id"
-                      onChange={(event) => setCampaignId(event.target.value)}
-                      value={campaignId}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-xs" htmlFor="coding-wo-priority" style={{ color: "var(--muted)" }}>
-                      Priority
-                    </label>
-                    <Input
-                      id="coding-wo-priority"
-                      onChange={(event) => setPriority(event.target.value)}
-                      type="number"
-                      value={priority}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <label className="text-xs" htmlFor="coding-wo-validation-command" style={{ color: "var(--muted)" }}>
-                      Validation command (optional)
-                    </label>
-                    <Input
-                      id="coding-wo-validation-command"
-                      onChange={(event) => setValidationCommand(event.target.value)}
-                      value={validationCommand}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-xs" htmlFor="coding-wo-adapter-kind" style={{ color: "var(--muted)" }}>
-                      Adapter kind (optional)
-                    </label>
-                    <Input
-                      id="coding-wo-adapter-kind"
-                      onChange={(event) => setAdapterKind(event.target.value)}
-                      value={adapterKind}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-file-scope" style={{ color: "var(--muted)" }}>
-                    File scope (comma or newline separated)
-                  </label>
-                  <Textarea
-                    id="coding-wo-file-scope"
-                    onChange={(event) => setFileScopeInput(event.target.value)}
-                    rows={3}
-                    value={fileScopeInput}
-                  />
-                </div>
-
-                <div className="grid gap-2 text-xs" style={{ color: "var(--muted)" }}>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      checked={requireWorktreeLease}
-                      className="h-4 w-4 rounded border"
-                      onChange={(event) => setRequireWorktreeLease(event.target.checked)}
-                      type="checkbox"
-                    />
-                    Require worktree lease
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      checked={commitAfterValidation}
-                      className="h-4 w-4 rounded border"
-                      onChange={(event) => setCommitAfterValidation(event.target.checked)}
-                      type="checkbox"
-                    />
-                    Commit after validation
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      checked={requireHumanReviewBeforeMerge}
-                      className="h-4 w-4 rounded border"
-                      onChange={(event) =>
-                        setRequireHumanReviewBeforeMerge(event.target.checked)
-                      }
-                      type="checkbox"
-                    />
-                    Require human review before merge
-                  </label>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button disabled={submitting} type="submit">
-                    {submitting ? "Creating…" : "Create work order"}
-                  </Button>
-                  {actionNotice ? (
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      {actionNotice}
-                    </span>
-                  ) : null}
-                </div>
-
-                {actionError ? (
-                  <div
-                    className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
-                    style={{
-                      background: "var(--danger-surface)",
-                      borderColor: "var(--danger-border)",
-                      color: "var(--danger-text)",
-                    }}
-                  >
-                    {actionError}
-                  </div>
-                ) : null}
-              </form>
-            </div>
-
-            <div className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                  Work orders
-                </div>
-                <span className="text-xs" style={{ color: "var(--muted)" }}>
-                  {items.length} total
-                </span>
               </div>
-              {workOrderLoading ? (
-                <div className="text-sm" style={{ color: "var(--muted)" }}>
-                  Loading work orders…
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <label
+                    className="text-xs"
+                    htmlFor="coding-wo-validation-command"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Validation command (optional)
+                  </label>
+                  <Input
+                    id="coding-wo-validation-command"
+                    onChange={(event) => setValidationCommand(event.target.value)}
+                    value={validationCommand}
+                  />
                 </div>
-              ) : null}
-              {workOrderError ? (
+                <div className="grid gap-2">
+                  <label className="text-xs" htmlFor="coding-wo-adapter-kind" style={{ color: "var(--muted)" }}>
+                    Adapter kind (optional)
+                  </label>
+                  <Input
+                    id="coding-wo-adapter-kind"
+                    onChange={(event) => setAdapterKind(event.target.value)}
+                    value={adapterKind}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-xs" htmlFor="coding-wo-file-scope" style={{ color: "var(--muted)" }}>
+                  File scope (comma or newline separated)
+                </label>
+                <Textarea
+                  id="coding-wo-file-scope"
+                  onChange={(event) => setFileScopeInput(event.target.value)}
+                  rows={3}
+                  value={fileScopeInput}
+                />
+              </div>
+
+              <div className="grid gap-2 text-xs" style={{ color: "var(--muted)" }}>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    checked={requireWorktreeLease}
+                    className="h-4 w-4 rounded border"
+                    onChange={(event) => setRequireWorktreeLease(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Require worktree lease
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    checked={commitAfterValidation}
+                    className="h-4 w-4 rounded border"
+                    onChange={(event) => setCommitAfterValidation(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Commit after validation
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    checked={requireHumanReviewBeforeMerge}
+                    className="h-4 w-4 rounded border"
+                    onChange={(event) =>
+                      setRequireHumanReviewBeforeMerge(event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  Require human review before merge
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button disabled={submitting} type="submit">
+                  {submitting ? "Creating…" : "Create work order"}
+                </Button>
+                {actionNotice ? (
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
+                    {actionNotice}
+                  </span>
+                ) : null}
+              </div>
+
+              {actionError ? (
                 <div
                   className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
                   style={{
@@ -568,86 +680,129 @@ export default function CodingWorkOrdersPanel() {
                     color: "var(--danger-text)",
                   }}
                 >
-                  {workOrderError}
+                  {actionError}
                 </div>
               ) : null}
+            </form>
+          </div>
 
-              {!workOrderLoading && items.length === 0 ? (
-                <div className="text-sm" style={{ color: "var(--muted)" }}>
-                  No coding work orders yet. Expand the create form above to add one.
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="space-y-4">
+              <div
+                className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]"
+                data-testid="command-center-work-orders-card"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  background: "color-mix(in oklab, var(--surface-soft) 90%, var(--panel-bg))",
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                    Work orders
+                  </div>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
+                    {items.length} total
+                  </span>
                 </div>
-              ) : null}
-
-              <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
-                {items.map((order) => (
+                {workOrderLoading ? (
+                  <div className="text-sm" style={{ color: "var(--muted)" }}>
+                    Loading work orders…
+                  </div>
+                ) : null}
+                {workOrderError ? (
                   <div
-                    key={order.work_order_id}
-                    className="space-y-2 rounded-[var(--tile-radius)] border p-3"
-                    data-testid="coding-work-order-row"
+                    className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
                     style={{
-                      borderColor:
-                        order.work_order_id === selectedWorkOrderId
-                          ? "var(--accent)"
-                          : "var(--panel-border)",
-                      background: "var(--surface-soft)",
+                      background: "var(--danger-surface)",
+                      borderColor: "var(--danger-border)",
+                      color: "var(--danger-text)",
                     }}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                          {order.title}
+                    {workOrderError}
+                  </div>
+                ) : null}
+
+                {!workOrderLoading && items.length === 0 ? (
+                  <div className="text-sm" style={{ color: "var(--muted)" }}>
+                    No coding work orders yet. Expand the create form above to add one.
+                  </div>
+                ) : null}
+
+                <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
+                  {items.map((order) => (
+                    <div
+                      key={order.work_order_id}
+                      className="space-y-2 rounded-[var(--tile-radius)] border p-3"
+                      data-testid="coding-work-order-row"
+                      style={{
+                        borderColor:
+                          order.work_order_id === selectedWorkOrderId
+                            ? "var(--accent)"
+                            : "var(--panel-border)",
+                        background: "var(--surface-soft)",
+                      }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                            {order.title}
+                          </div>
+                          <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                            {order.objective}
+                          </div>
+                          <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+                            ID: {order.work_order_id}
+                          </div>
                         </div>
+                        <Badge className="border text-[11px] font-medium" style={toneStyle(statusTone(order.status))}>
+                          {formatStatus(order.status)}
+                        </Badge>
+                      </div>
+
+                      <WorkOrderMeta order={order} />
+
+                      {order.blocked_reason ? (
                         <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                          {order.objective}
+                          Blocked reason: {order.blocked_reason}
                         </div>
-                        <div className="text-[11px]" style={{ color: "var(--muted)" }}>
-                          ID: {order.work_order_id}
-                        </div>
-                      </div>
-                      <Badge className="border text-[11px] font-medium" style={toneStyle(statusTone(order.status))}>
-                        {formatStatus(order.status)}
-                      </Badge>
-                    </div>
+                      ) : null}
 
-                    <WorkOrderMeta order={order} />
-
-                    {order.blocked_reason ? (
-                      <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                        Blocked reason: {order.blocked_reason}
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        onClick={() => setSelectedWorkOrderId(order.work_order_id)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        {order.work_order_id === selectedWorkOrderId
-                          ? "Inspecting"
-                          : "Inspect detail"}
-                      </Button>
-                      {isNonTerminalStatus(order.status) ? (
+                      <div className="flex flex-wrap gap-2">
                         <Button
-                          aria-label={`Cancel ${order.work_order_id}`}
-                          disabled={cancelingId === order.work_order_id}
-                          onClick={() => void onCancel(order.work_order_id)}
+                          onClick={() => setSelectedWorkOrderId(order.work_order_id)}
                           size="sm"
                           type="button"
                           variant="ghost"
                         >
-                          {cancelingId === order.work_order_id ? "Cancelling…" : "Cancel"}
+                          {order.work_order_id === selectedWorkOrderId
+                            ? "Inspecting"
+                            : "Inspect detail"}
                         </Button>
-                      ) : null}
+                        {isNonTerminalStatus(order.status) ? (
+                          <Button
+                            aria-label={`Cancel ${order.work_order_id}`}
+                            disabled={cancelingId === order.work_order_id}
+                            onClick={() => void onCancel(order.work_order_id)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            {cancelingId === order.work_order_id ? "Cancelling…" : "Cancel"}
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
               <div
                 className="space-y-2 rounded-[var(--tile-radius)] border p-3"
-                style={{ borderColor: "var(--panel-border)", background: "var(--surface-soft)" }}
+                data-testid="command-center-work-order-detail-card"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  background: "color-mix(in oklab, var(--surface-soft) 90%, var(--panel-bg))",
+                }}
               >
                 <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
                   Work-order detail
@@ -684,15 +839,21 @@ export default function CodingWorkOrdersPanel() {
                 ) : null}
               </div>
             </div>
-          </div>
 
-          <div className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
-            <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-              Recommendation-only next tasks
-            </div>
-            <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-              Recommendations are advisory only. Dispatch is not implemented in this panel.
-            </p>
+            <div
+              className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]"
+              data-testid="command-center-recommendations-card"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "color-mix(in oklab, var(--surface-soft) 90%, var(--panel-bg))",
+              }}
+            >
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Recommendation-only next tasks
+              </div>
+              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                Recommendations are advisory only. Dispatch is not implemented in this panel.
+              </p>
 
             {recommendationsLoading ? (
               <div className="text-sm" style={{ color: "var(--muted)" }}>
@@ -808,6 +969,7 @@ export default function CodingWorkOrdersPanel() {
           </div>
         </div>
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   );
 }
