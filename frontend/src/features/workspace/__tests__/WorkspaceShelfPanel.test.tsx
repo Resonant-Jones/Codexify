@@ -48,6 +48,7 @@ describe("WorkspaceShelfPanel", () => {
   let globalFetch: jest.Mock;
 
   beforeEach(() => {
+    localStorage.clear();
     globalFetch = mockFetch({ documents: [], images: [] });
     vi.stubGlobal("fetch", globalFetch);
   });
@@ -322,6 +323,57 @@ describe("WorkspaceShelfPanel", () => {
           item: expect.objectContaining({ id: "doc-1" }),
         })
       );
+    });
+
+    it("shows unread indicator for agent-updated items and clears it after open", async () => {
+      const user = userEvent.setup();
+      const threadDocs = {
+        documents: [
+          {
+            id: "doc-agent-1",
+            filename: "assistant-notes.md",
+            src_url: "/media/documents/doc-agent-1.md",
+            source_tag: "generated",
+            created_at: "2026-05-10T00:00:00Z",
+          },
+        ],
+        images: [],
+      };
+      const threadImgs = { images: [] };
+
+      globalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(threadDocs),
+      });
+      globalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(threadImgs),
+      });
+
+      const onItemClick = vi.fn();
+      render(
+        <WorkspaceShelfPanel
+          threadIdentity="123"
+          projectId={null}
+          onItemClick={onItemClick}
+        />
+      );
+
+      expect(
+        await screen.findByTestId("workspace-shelf-unread-document-doc-agent-1")
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByText("assistant-notes.md"));
+
+      expect(onItemClick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "document",
+          item: expect.objectContaining({ id: "doc-agent-1" }),
+        })
+      );
+      expect(
+        screen.queryByTestId("workspace-shelf-unread-document-doc-agent-1")
+      ).not.toBeInTheDocument();
     });
   });
 });
