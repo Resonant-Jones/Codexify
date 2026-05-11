@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
 import PreviewTile from "@/components/ui/PreviewTile";
+import { isAgentUpdatedWorkspaceItem } from "../workspaceArtifactSignals";
 
 type MediaBase = {
   id: string;
@@ -22,14 +23,6 @@ type ImageItem = MediaBase;
 type ShelfItem = { kind: "document"; item: DocumentItem } | { kind: "image"; item: ImageItem };
 
 const WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY = "cfy.workspace.shelf.agent-read.v1";
-const AGENT_UPDATE_SOURCE_TAG_HINTS = [
-  "assistant",
-  "agent",
-  "generated",
-  "automation",
-  "system",
-  "codex",
-];
 
 type ShelfReadState = Record<string, string>;
 
@@ -56,20 +49,6 @@ function persistShelfReadState(state: ShelfReadState) {
   } catch {
     // Local persistence is best effort for this first-pass UX state.
   }
-}
-
-function normalizeSourceTag(tag: string | null | undefined): string {
-  return String(tag ?? "")
-    .trim()
-    .toLowerCase();
-}
-
-function hasAgentUpdateSource(item: MediaBase): boolean {
-  const normalizedTag = normalizeSourceTag(item.source_tag);
-  if (!normalizedTag) return false;
-  return AGENT_UPDATE_SOURCE_TAG_HINTS.some((hint) =>
-    normalizedTag.includes(hint)
-  );
 }
 
 function getShelfItemKey(item: ShelfItem): string {
@@ -300,7 +279,7 @@ export default function WorkspaceShelfPanel({
   }, [shelfReadState]);
 
   const markShelfItemAsRead = useCallback((item: ShelfItem) => {
-    if (!hasAgentUpdateSource(item.item)) return;
+    if (!isAgentUpdatedWorkspaceItem(item.item)) return;
     const key = getShelfItemKey(item);
     const version = getShelfItemVersion(item.item);
     setShelfReadState((previous) => {
@@ -311,7 +290,7 @@ export default function WorkspaceShelfPanel({
 
   const hasUnreadAgentUpdate = useCallback(
     (item: ShelfItem) => {
-      if (!hasAgentUpdateSource(item.item)) return false;
+      if (!isAgentUpdatedWorkspaceItem(item.item)) return false;
       const key = getShelfItemKey(item);
       const version = getShelfItemVersion(item.item);
       return shelfReadState[key] !== version;
