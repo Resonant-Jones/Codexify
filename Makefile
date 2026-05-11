@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -98,6 +98,23 @@ check: format lint test
 # Build documentation
 docs:
 	$(PYTHON) scripts/validate_docs.py
+	$(PYTHON) scripts/check_diagram_freshness.py
+
+docs-diagram-freshness:
+	$(PYTHON) scripts/check_diagram_freshness.py
+
+docs-diagram-freshness-strict:
+	$(PYTHON) scripts/check_diagram_freshness.py --strict
+
+docs-diagram-freshness-auto:
+	$(PYTHON) scripts/check_diagram_freshness.py --auto-regenerate --regenerate-cmd "make docs-diagram-regenerate"
+
+docs-diagram-watch:
+	$(PYTHON) scripts/check_diagram_freshness.py --watch --regenerate-cmd "make docs-diagram-regenerate"
+
+docs-diagram-regenerate:
+	@echo "No repo-local diagram generator is configured yet."
+	@echo "Replace target docs-diagram-regenerate with your generation command."
 
 # Serve documentation locally
 docs-serve:

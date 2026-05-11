@@ -25,8 +25,12 @@ from guardian.db.models import (
     AgentRun,
     AgentRunArtifact,
     Base,
+    Campaign,
+    CampaignExecutionAttempt,
+    CampaignGoal,
     ChatMessage,
     ChatThread,
+    CodingWorkOrder,
     CodingWorktreeLease,
     Project,
     User,
@@ -73,6 +77,10 @@ class _TestDB:
                 AgentDeployment.__table__,
                 AgentRun.__table__,
                 AgentRunArtifact.__table__,
+                CampaignGoal.__table__,
+                Campaign.__table__,
+                CodingWorkOrder.__table__,
+                CampaignExecutionAttempt.__table__,
                 CodingWorktreeLease.__table__,
             ],
         )
@@ -166,6 +174,58 @@ def _seed_source_context(
     }
 
 
+def _seed_campaign_entities(
+    db: _TestDB,
+    *,
+    goal_id: str,
+    campaign_id: str,
+    work_order_id: str,
+) -> None:
+    now = datetime.now(UTC)
+    with db.get_session() as session:
+        session.add(
+            CampaignGoal(
+                goal_id=goal_id,
+                title="Goal",
+                summary="Goal summary",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            Campaign(
+                campaign_id=campaign_id,
+                goal_id=goal_id,
+                title="Campaign",
+                summary="Campaign summary",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            CodingWorkOrder(
+                work_order_id=work_order_id,
+                campaign_id=campaign_id,
+                title="Work order",
+                objective="Objective",
+                status="ready",
+                priority=1,
+                dependency_ids=[],
+                file_scope=[],
+                max_validation_attempts=1,
+                require_worktree_lease=False,
+                commit_after_validation=False,
+                require_human_review_before_merge=True,
+                extra_meta={},
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+
 def _make_store(db: _TestDB) -> AgentStore:
     return AgentStore(db=db)
 
@@ -182,6 +242,7 @@ def _seed_execution_run(
     project_id: int | None,
     runtime_target: str = "container",
     adapter_kind: Any = "pi_sdk",
+    extra_spec: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     spec_json = {
         "source_thread_id": thread_id,
@@ -189,6 +250,8 @@ def _seed_execution_run(
         "user_id": user_id,
         "project_id": project_id,
     }
+    if isinstance(extra_spec, dict):
+        spec_json.update(extra_spec)
     if adapter_kind is not _MISSING:
         spec_json["adapter_kind"] = adapter_kind
     deployment = store.create_deployment(
@@ -216,6 +279,8 @@ def _build_task(
     source_message_id: int | None,
     coding_task_id: str = "coding-task-1",
     attempt_id: str = "attempt-1",
+    campaign_id: str | None = None,
+    work_order_id: str | None = None,
     cwd: str | None = "/workspace/repo",
     validation_command: str | None = None,
     max_validation_attempts: int | None = None,
@@ -237,6 +302,10 @@ def _build_task(
         "thread_id": thread_id,
         "source_message_id": source_message_id,
     }
+    if campaign_id is not None:
+        payload["campaign_id"] = campaign_id
+    if work_order_id is not None:
+        payload["work_order_id"] = work_order_id
     if cwd is not None:
         payload["cwd"] = cwd
     if validation_command is not None:
@@ -654,6 +723,29 @@ def _fetch_coding_result_artifacts(
     return store.list_artifacts(run_id=run_id, artifact_type="coding_result")
 
 
+def _fetch_campaign_attempts(
+    db: _TestDB, campaign_id: str
+) -> list[CampaignExecutionAttempt]:
+    with db.get_session() as session:
+        return (
+            session.query(CampaignExecutionAttempt)
+            .filter_by(campaign_id=campaign_id)
+            .order_by(CampaignExecutionAttempt.created_at.asc())
+            .all()
+        )
+
+
+def _fetch_work_order(
+    db: _TestDB, work_order_id: str
+) -> CodingWorkOrder | None:
+    with db.get_session() as session:
+        return (
+            session.query(CodingWorkOrder)
+            .filter_by(work_order_id=work_order_id)
+            .first()
+        )
+
+
 def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
     db,
     monkeypatch,
@@ -826,6 +918,82 @@ def test_unknown_adapter_kind_fails_closed_with_adapter_not_found(
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
+
+
+def test_worker_records_campaign_attempt_ledger_and_work_order_markers(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(db, user_id="campaign-ledger-user")
+    _seed_campaign_entities(
+        db,
+        goal_id="goal-ledger-1",
+        campaign_id="campaign-ledger-1",
+        work_order_id="wo-ledger-1",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+        extra_spec={
+            "campaign_id": "campaign-ledger-1",
+            "work_order_id": "wo-ledger-1",
+        },
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(
+            status="ok",
+            summary="Campaign attempt succeeded.",
+            artifacts=({"commit_hash": "abc123def456"},),
+            errors=(),
+        ),
+        adapter_kind="codex",
+    )
+    _install_fake_validation_runner(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-campaign-ledger",
+        campaign_id="campaign-ledger-1",
+        work_order_id="wo-ledger-1",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": ["/workspace/repo"],
+            "max_runtime_seconds": 60,
+        },
+    )
+
+    worker._process_task(task)
+
+    attempts = _fetch_campaign_attempts(db, "campaign-ledger-1")
+    assert len(attempts) == 1
+    attempt = attempts[0]
+    assert attempt.work_order_id == "wo-ledger-1"
+    assert attempt.run_id == run_id
+    assert attempt.attempt_id == task.attempt_id
+    assert attempt.status == "succeeded"
+    assert attempt.commit_hash == "abc123def456"
+    assert attempt.delivery_ok is True
+    assert attempt.delivered_message_id is not None
+    assert attempt.validation_summary.get("final_validation_status") == "passed"
+
+    work_order = _fetch_work_order(db, "wo-ledger-1")
+    assert work_order is not None
+    assert work_order.latest_run_id == run_id
+    assert work_order.latest_receipt_id is not None
 
 
 def test_lease_bound_execution_uses_leased_worktree_and_metadata(
