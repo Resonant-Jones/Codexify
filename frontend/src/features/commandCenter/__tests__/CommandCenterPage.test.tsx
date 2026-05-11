@@ -1371,7 +1371,7 @@ describe("CommandCenterPage", () => {
     expect(() => render(<CommandCenterPage enabled />)).not.toThrow();
 
     const scrollShell = screen.getByTestId("command-center-scroll-shell");
-    expect(scrollShell).toHaveClass("min-h-screen", "overflow-y-auto");
+    expect(scrollShell).toHaveClass("h-screen", "overflow-hidden");
     expect(screen.getByTestId("command-center-shell")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /automated worker control plane/i })

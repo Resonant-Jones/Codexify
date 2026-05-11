@@ -81,10 +81,7 @@ describe("CommandCenterUtilityRail", () => {
     const container = screen.getByTestId("command-center-utility-rail-container");
     fireEvent.mouseEnter(container);
     fireEvent.mouseLeave(container);
-    // after the 150ms timeout, width should be 0
-    // For testing, we check that the transition would collapse
     const rail = screen.getByTestId("command-center-utility-rail");
-    // We can't easily test the timeout, but we verify it transitions
     expect(rail).toBeInTheDocument();
   });
 
@@ -92,7 +89,6 @@ describe("CommandCenterUtilityRail", () => {
     renderRail();
     const pinBtn = screen.getByTestId("command-center-rail-pin-toggle");
     fireEvent.click(pinBtn);
-    // After pin, rail should stay expanded
     const rail = screen.getByTestId("command-center-utility-rail");
     expect(rail.style.width).toBe("52px");
     expect(localStorage.getItem("codexify-command-center-rail-pinned")).toBe("true");
@@ -101,7 +97,6 @@ describe("CommandCenterUtilityRail", () => {
   it("unpin collapses the rail when not hovered", () => {
     renderRail();
     const pinBtn = screen.getByTestId("command-center-rail-pin-toggle");
-    // pin then unpin
     fireEvent.click(pinBtn);
     fireEvent.click(pinBtn);
     expect(localStorage.getItem("codexify-command-center-rail-pinned")).toBe("false");
@@ -109,11 +104,29 @@ describe("CommandCenterUtilityRail", () => {
     expect(rail.style.width).toBe("10px");
   });
 
-  it("rail side toggle switches placement", () => {
+  it("rail side toggle switches side and writes localStorage", () => {
     renderRail();
     expect(localStorage.getItem("codexify-command-center-rail-side")).toBeFalsy();
     const sideBtn = screen.getByTestId("command-center-rail-side-toggle");
     fireEvent.click(sideBtn);
+    expect(localStorage.getItem("codexify-command-center-rail-side")).toBe("right");
+  });
+
+  it("rail side toggle calls onRailSideChange when controlled", () => {
+    const onRailSideChange = vi.fn();
+    render(
+      <CommandCenterUtilityRail
+        activeLens="agent-command"
+        onLensChange={onLensChange}
+        onToggleDrawer={onToggleDrawer}
+        railSide="left"
+        onRailSideChange={onRailSideChange}
+      />
+    );
+
+    const sideBtn = screen.getByTestId("command-center-rail-side-toggle");
+    fireEvent.click(sideBtn);
+    expect(onRailSideChange).toHaveBeenCalledWith("right");
     expect(localStorage.getItem("codexify-command-center-rail-side")).toBe("right");
   });
 
@@ -153,5 +166,18 @@ describe("CommandCenterUtilityRail", () => {
     expect(
       screen.getByRole("navigation", { name: "Command Center lens navigation" })
     ).toBeInTheDocument();
+  });
+
+  it("active lens state is correct on both sides", () => {
+    const { rerender } = renderRail("observability");
+    expect(screen.getByTestId("command-center-rail-item-observability")).toHaveAttribute("aria-current", "true");
+
+    // Toggle to right side
+    fireEvent.click(screen.getByTestId("command-center-rail-side-toggle"));
+    expect(screen.getByTestId("command-center-rail-item-observability")).toHaveAttribute("aria-current", "true");
+
+    // Switch lens while on right side
+    fireEvent.click(screen.getByTestId("command-center-rail-item-runtime-health"));
+    expect(onLensChange).toHaveBeenCalledWith("runtime-health");
   });
 });

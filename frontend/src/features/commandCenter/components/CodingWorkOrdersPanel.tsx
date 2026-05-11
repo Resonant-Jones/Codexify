@@ -335,9 +335,10 @@ export default function CodingWorkOrdersPanel() {
         className="rounded-[var(--tile-radius)] border px-4 py-3"
         data-testid="command-center-agent-lens-header"
         style={{
-          borderColor: "var(--panel-border)",
-          background: "color-mix(in oklab, var(--panel-bg) 95%, transparent)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+          borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
+          background:
+            "linear-gradient(105deg, color-mix(in oklab, var(--accent-weak) 14%, var(--panel-bg)), color-mix(in oklab, var(--panel-bg) 96%, transparent))",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
         }}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">

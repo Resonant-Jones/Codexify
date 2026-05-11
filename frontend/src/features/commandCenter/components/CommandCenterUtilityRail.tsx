@@ -70,14 +70,22 @@ export interface CommandCenterUtilityRailProps {
   activeLens: CommandCenterLensId;
   onLensChange: (lensId: CommandCenterLensId) => void;
   onToggleDrawer: () => void;
+  /** External rail side control. When provided, side toggle calls onRailSideChange. */
+  railSide?: RailSide;
+  onRailSideChange?: (side: RailSide) => void;
 }
 
 export default function CommandCenterUtilityRail({
   activeLens,
   onLensChange,
   onToggleDrawer,
+  railSide: externalRailSide,
+  onRailSideChange,
 }: CommandCenterUtilityRailProps) {
-  const [railSide, setRailSide] = React.useState<RailSide>(readStoredRailSide);
+  const isControlled = externalRailSide !== undefined;
+  const [internalRailSide, setInternalRailSide] = React.useState<RailSide>(readStoredRailSide);
+  const railSide = isControlled ? externalRailSide : internalRailSide;
+
   const [pinned, setPinned] = React.useState<boolean>(readStoredRailPinned);
   const [hovered, setHovered] = React.useState(false);
   const [focusWithin, setFocusWithin] = React.useState(false);
@@ -86,8 +94,6 @@ export default function CommandCenterUtilityRail({
 
   const expanded = pinned || hovered || focusWithin;
   const activeLensEntry = LENSES.find((lens) => lens.id === activeLens) ?? LENSES[0];
-
-  const sideClass = railSide === "left" ? "" : "flex-row-reverse";
 
   const handleMouseEnter = React.useCallback(() => {
     if (hoverTimeoutRef.current) {
@@ -98,7 +104,6 @@ export default function CommandCenterUtilityRail({
   }, []);
 
   const handleMouseLeave = React.useCallback(() => {
-    // brief delay before collapsing to avoid flicker
     hoverTimeoutRef.current = setTimeout(() => {
       setHovered(false);
     }, 150);
@@ -125,12 +130,14 @@ export default function CommandCenterUtilityRail({
   }, []);
 
   const handleToggleSide = React.useCallback(() => {
-    setRailSide((current) => {
-      const next: RailSide = current === "left" ? "right" : "left";
-      writeStoredRailSide(next);
-      return next;
-    });
-  }, []);
+    const nextSide: RailSide = railSide === "left" ? "right" : "left";
+    writeStoredRailSide(nextSide);
+    if (isControlled && onRailSideChange) {
+      onRailSideChange(nextSide);
+    } else {
+      setInternalRailSide(nextSide);
+    }
+  }, [railSide, isControlled, onRailSideChange]);
 
   // keyboard navigation for the rail
   const handleRailKeyDown = React.useCallback(
@@ -160,7 +167,7 @@ export default function CommandCenterUtilityRail({
   return (
     <div
       ref={railRef}
-      className={`flex ${sideClass}`}
+      className="flex"
       data-testid="command-center-utility-rail-container"
       style={{
         flexShrink: 0,
@@ -174,7 +181,7 @@ export default function CommandCenterUtilityRail({
       role="navigation"
       aria-label="Command Center lens navigation"
     >
-      {/* Edge affordance / handle — always visible for discoverability */}
+      {/* Edge affordance — always visible for discoverability */}
       <button
         type="button"
         data-testid="command-center-utility-rail-edge"
@@ -195,13 +202,14 @@ export default function CommandCenterUtilityRail({
           flexShrink: 0,
           borderLeft:
             railSide === "left"
-              ? "1px solid color-mix(in oklab, var(--panel-border) 65%, transparent)"
-              : "1px solid color-mix(in oklab, var(--panel-border) 88%, transparent)",
-          borderRight:
-            railSide === "left"
               ? "1px solid color-mix(in oklab, var(--panel-border) 88%, transparent)"
               : "1px solid color-mix(in oklab, var(--panel-border) 65%, transparent)",
-          borderRadius: railSide === "left" ? "8px 0 0 8px" : "0 8px 8px 0",
+          borderRight:
+            railSide === "left"
+              ? "1px solid color-mix(in oklab, var(--panel-border) 65%, transparent)"
+              : "1px solid color-mix(in oklab, var(--panel-border) 88%, transparent)",
+          borderRadius:
+            railSide === "left" ? "0 8px 8px 0" : "8px 0 0 8px",
           color: activeLens === "agent-command" ? "var(--text)" : "var(--muted)",
           boxShadow:
             "inset 0 0 0 1px color-mix(in oklab, var(--panel-border) 42%, transparent), inset 0 1px 0 rgba(255,255,255,0.06)",
@@ -231,7 +239,14 @@ export default function CommandCenterUtilityRail({
             fontSize: "12px",
             lineHeight: 1,
             opacity: expanded ? 0 : 1,
-            transform: expanded ? "translateX(-2px)" : "translateX(0)",
+            transform:
+              railSide === "left"
+                ? expanded
+                  ? "translateX(-2px)"
+                  : "translateX(0)"
+                : expanded
+                  ? "translateX(2px)"
+                  : "translateX(0)",
             transition: "opacity 120ms ease-out, transform 120ms ease-out",
           }}
         >
@@ -249,8 +264,8 @@ export default function CommandCenterUtilityRail({
           transition: "width 180ms ease-out",
           flexShrink: 0,
           padding: expanded ? "var(--card-pad) 6px" : "10px 0",
-          borderLeft: railSide === "left" ? "1px solid var(--panel-border)" : undefined,
-          borderRight: railSide === "right" ? "1px solid var(--panel-border)" : undefined,
+          borderRight: railSide === "left" ? "1px solid var(--panel-border)" : undefined,
+          borderLeft: railSide === "right" ? "1px solid var(--panel-border)" : undefined,
           background: "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
         }}
