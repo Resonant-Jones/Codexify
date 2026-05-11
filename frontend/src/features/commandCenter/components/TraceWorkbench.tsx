@@ -2313,7 +2313,7 @@ export default function TraceWorkbench({
 
   return (
     <Card
-      className="bezel-none border flex h-full min-h-0 flex-col overflow-hidden"
+      className="bezel-none border flex min-h-[26rem] flex-col overflow-hidden"
       role="region"
       aria-label="Command Center trace workbench"
       data-testid="command-center-trace-workbench"
