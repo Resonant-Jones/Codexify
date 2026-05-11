@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceShelfPanel from "../components/WorkspaceShelfPanel";
+import { isAgentUpdatedWorkspaceItem } from "../workspaceArtifactSignals";
 
 vi.mock("@/components/ui/PreviewTile", () => ({
   default: ({
@@ -56,6 +57,29 @@ describe("WorkspaceShelfPanel", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  describe("agent update signal classification", () => {
+    it("matches the existing assistant/agent source-tag hints", () => {
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "assistant" })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "agent" })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "generated" })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "automation" })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "system" })).toBe(true);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "codex" })).toBe(true);
+    });
+
+    it("is case-insensitive and ignores unknown or empty source tags", () => {
+      expect(
+        isAgentUpdatedWorkspaceItem({ source_tag: "  Assistant-Update  " })
+      ).toBe(true);
+      expect(
+        isAgentUpdatedWorkspaceItem({ source_tag: "user-uploaded" })
+      ).toBe(false);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: "" })).toBe(false);
+      expect(isAgentUpdatedWorkspaceItem({ source_tag: null })).toBe(false);
+      expect(isAgentUpdatedWorkspaceItem(undefined)).toBe(false);
+    });
   });
 
   describe("empty states", () => {

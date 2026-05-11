@@ -20,6 +20,9 @@ from guardian.pi.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
+    CAMPAIGN_GOAL_STATUSES,
+    CAMPAIGN_STATUSES,
     CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
@@ -47,6 +50,9 @@ from guardian.protocol_tokens import (
     TRACE_SNAPSHOT_ABSENCE_REASONS,
     TRACE_SUPPRESSION_REASONS,
     AcceptanceStatus,
+    CampaignExecutionAttemptStatus,
+    CampaignGoalStatus,
+    CampaignStatus,
     ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -315,6 +321,47 @@ def test_delegation_status_tokens() -> None:
 def test_delegation_executor_tokens() -> None:
     assert DelegationExecutorName.CODEX.value == "codex"
     assert DELEGATION_EXECUTOR_NAMES == {"codex"}
+
+
+def test_campaign_runner_status_tokens() -> None:
+    assert CampaignGoalStatus.DRAFT.value == "draft"
+    assert CampaignGoalStatus.ACTIVE.value == "active"
+    assert CampaignGoalStatus.BLOCKED.value == "blocked"
+    assert CampaignGoalStatus.COMPLETED.value == "completed"
+    assert CampaignGoalStatus.ARCHIVED.value == "archived"
+    assert CAMPAIGN_GOAL_STATUSES == {
+        "draft",
+        "active",
+        "blocked",
+        "completed",
+        "archived",
+    }
+
+    assert CampaignStatus.DRAFT.value == "draft"
+    assert CampaignStatus.PLANNED.value == "planned"
+    assert CampaignStatus.ACTIVE.value == "active"
+    assert CampaignStatus.BLOCKED.value == "blocked"
+    assert CampaignStatus.COMPLETED.value == "completed"
+    assert CampaignStatus.ARCHIVED.value == "archived"
+    assert CAMPAIGN_STATUSES == {
+        "draft",
+        "planned",
+        "active",
+        "blocked",
+        "completed",
+        "archived",
+    }
+
+    assert CampaignExecutionAttemptStatus.RUNNING.value == "running"
+    assert CampaignExecutionAttemptStatus.SUCCEEDED.value == "succeeded"
+    assert CampaignExecutionAttemptStatus.FAILED.value == "failed"
+    assert CampaignExecutionAttemptStatus.CANCELLED.value == "cancelled"
+    assert CAMPAIGN_EXECUTION_ATTEMPT_STATUSES == {
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+    }
 
 
 def test_executor_protocol_tokens() -> None:
@@ -674,6 +721,14 @@ def test_error_code_tokens() -> None:
         ErrorCode.WORK_ORDER_INVALID_TRANSITION.value
         == "WORK_ORDER_INVALID_TRANSITION"
     )
+    assert ErrorCode.CAMPAIGN_GOAL_NOT_FOUND.value == "CAMPAIGN_GOAL_NOT_FOUND"
+    assert ErrorCode.CAMPAIGN_GOAL_INVALID.value == "CAMPAIGN_GOAL_INVALID"
+    assert ErrorCode.CAMPAIGN_NOT_FOUND.value == "CAMPAIGN_NOT_FOUND"
+    assert ErrorCode.CAMPAIGN_INVALID.value == "CAMPAIGN_INVALID"
+    assert (
+        ErrorCode.CAMPAIGN_EXECUTION_ATTEMPT_INVALID.value
+        == "CAMPAIGN_EXECUTION_ATTEMPT_INVALID"
+    )
     assert ERROR_CODES == {
         "QUEUE_ENQUEUE_FAILED",
         "CHAT_COMPLETE_ENQUEUE_FAILED",
@@ -710,6 +765,11 @@ def test_error_code_tokens() -> None:
         "WORK_ORDER_INVALID",
         "WORK_ORDER_INVALID_STATUS",
         "WORK_ORDER_INVALID_TRANSITION",
+        "CAMPAIGN_GOAL_NOT_FOUND",
+        "CAMPAIGN_GOAL_INVALID",
+        "CAMPAIGN_NOT_FOUND",
+        "CAMPAIGN_INVALID",
+        "CAMPAIGN_EXECUTION_ATTEMPT_INVALID",
     }
 
 

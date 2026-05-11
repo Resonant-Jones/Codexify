@@ -39,7 +39,18 @@ inline literals.
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,
   `CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED`,
-  `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING`
+  `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING`,
+  `CAMPAIGN_GOAL_NOT_FOUND`, `CAMPAIGN_GOAL_INVALID`,
+  `CAMPAIGN_NOT_FOUND`, `CAMPAIGN_INVALID`,
+  `CAMPAIGN_EXECUTION_ATTEMPT_INVALID`
+
+- Campaign Runner statuses:
+  `campaign_goals.status` uses `draft`, `active`, `blocked`, `completed`,
+  `archived`.
+  `campaigns.status` uses `draft`, `planned`, `active`, `blocked`,
+  `completed`, `archived`.
+  `campaign_execution_attempts.status` uses `running`, `succeeded`,
+  `failed`, `cancelled`.
 
 - Trace suppression reasons:
   `assistant_vision_refusal_on_image_turn`

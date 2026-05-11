@@ -12,6 +12,8 @@ ARCH = ROOT / "docs" / "architecture"
 README = ARCH / "README.md"
 VALIDITY_MATRIX = ARCH / "kb-validity-matrix.md"
 RUNTIME_DIAGRAMS = ARCH / "runtime-diagrams-v1.md"
+DIAGRAM_GOVERNANCE = ARCH / "diagram-governance.md"
+MODULE_DIAGRAM_MATRIX = ARCH / "module-diagram-coverage-matrix.md"
 DELEGATION_RUNTIME = ARCH / "delegation-runtime.md"
 DELEGATION_OPERATOR_MANUAL = ARCH / "delegation-operator-manual.md"
 
@@ -25,6 +27,8 @@ REQUIRED_FILES = (
     ARCH / "data-and-storage.md",
     ARCH / "config-and-ops.md",
     ARCH / "modules-and-ownership.md",
+    DIAGRAM_GOVERNANCE,
+    MODULE_DIAGRAM_MATRIX,
     DELEGATION_RUNTIME,
     DELEGATION_OPERATOR_MANUAL,
 )
@@ -38,6 +42,8 @@ README_LINK_TARGETS = (
     "./data-and-storage.md",
     "./config-and-ops.md",
     "./modules-and-ownership.md",
+    "./diagram-governance.md",
+    "./module-diagram-coverage-matrix.md",
     "./chat-runtime-contract.md",
     "./runtime-protocol-token-contract.md",
     "./account-export-restore-contract.md",
@@ -68,6 +74,21 @@ RUNTIME_DIAGRAMS_HEADINGS = (
     "## Diagram 3: Data and Storage Boundaries",
     "## Diagram 4: Subsystem / Ownership Map",
     "## Reviewer guidance",
+)
+
+DIAGRAM_GOVERNANCE_HEADINGS = (
+    "# Diagram Governance",
+    "## Runtime Source Set Policy",
+    "## Module Eligibility Gate",
+    "## Required Metadata Per Diagram Section",
+    "## Standard Diagram Templates",
+    "## Freshness Workflow",
+)
+
+MODULE_DIAGRAM_MATRIX_HEADINGS = (
+    "# Module Diagram Coverage Matrix",
+    "## Coverage Matrix",
+    "## Maintenance Rule",
 )
 
 DELEGATION_RUNTIME_HEADINGS = (
@@ -192,6 +213,10 @@ def main() -> int:
     check_readme_links(failures)
     check_headings(failures, VALIDITY_MATRIX, VALIDITY_MATRIX_HEADINGS)
     check_headings(failures, RUNTIME_DIAGRAMS, RUNTIME_DIAGRAMS_HEADINGS)
+    check_headings(failures, DIAGRAM_GOVERNANCE, DIAGRAM_GOVERNANCE_HEADINGS)
+    check_headings(
+        failures, MODULE_DIAGRAM_MATRIX, MODULE_DIAGRAM_MATRIX_HEADINGS
+    )
     check_headings(failures, DELEGATION_RUNTIME, DELEGATION_RUNTIME_HEADINGS)
     check_headings(
         failures,

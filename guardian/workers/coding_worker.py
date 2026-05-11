@@ -1922,6 +1922,8 @@ class CodingWorker:
                 run_id=task.run_id,
                 coding_task_id=task.coding_task_id,
                 attempt_id=task.attempt_id,
+                campaign_id=task.campaign_id,
+                work_order_id=task.work_order_id,
                 request_id=task.request_id or None,
                 thread_id=task.thread_id,
                 source_message_id=task.source_message_id,
@@ -2848,6 +2850,76 @@ class CodingWorker:
             )
             return
 
+    def _heartbeat_or_fail(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        lease_ctx: LeaseExecutionContext,
+        lease_store: WorktreeLeaseStore,
+        reason: str,
+    ) -> bool:
+        try:
+            lease_store.heartbeat(lease_ctx.lease_id)
+            return True
+        except WorktreeLeaseStoreError as exc:
+            self._emit_lease_failure(
+                task,
+                adapter_kind=adapter_kind,
+                error_code=ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value,
+                error_message=f"worktree lease heartbeat failed ({reason}): {exc}",
+                lease_id=lease_ctx.lease_id,
+                lease_required=lease_ctx.lease_required,
+                branch_name=lease_ctx.branch_name,
+                worktree_path=lease_ctx.worktree_path,
+            )
+            return False
+
+    def _emit_lease_failure(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        error_code: str,
+        error_message: str,
+        lease_id: str | None = None,
+        lease_required: bool = False,
+        branch_name: str | None = None,
+        worktree_path: str | None = None,
+    ) -> None:
+        artifacts = [
+            {
+                "stop_reason": "worktree_lease_preflight_failed",
+                "worktree_lease_id": lease_id,
+                "branch_name": branch_name,
+                "worktree_path": worktree_path,
+                "lease_required": lease_required,
+            }
+        ]
+        self.store.store_coding_result(
+            run_id=task.run_id,
+            coding_task_id=task.coding_task_id,
+            attempt_id=task.attempt_id,
+            campaign_id=task.campaign_id,
+            work_order_id=task.work_order_id,
+            request_id=task.request_id or None,
+            thread_id=task.thread_id,
+            source_message_id=_coerce_optional_positive_int(
+                task.source_message_id
+            ),
+            result_status="failed",
+            result_summary=error_message,
+            adapter_kind=adapter_kind,
+            files_changed=[],
+            artifacts=artifacts,
+            errors=[error_code],
+            error_code=error_code,
+            error_message=error_message,
+            worktree_lease_id=lease_id,
+            lease_required=lease_required,
+            lease_branch_name=branch_name,
+            lease_worktree_path=worktree_path,
+        )
         self._emit_failure(
             task,
             adapter_kind=adapter_kind,
