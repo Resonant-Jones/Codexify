@@ -140,6 +140,7 @@ def test_work_order_contract_tokens() -> None:
 def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value == "task.created"
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
+    assert TaskEventType.TASK_WORKTREE_CREATED.value == "task.worktree_created"
     assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
     assert (
         TaskEventType.TASK_VALIDATION_STARTED.value == "task.validation_started"
@@ -161,6 +162,7 @@ def test_task_event_tokens() -> None:
     assert "task.validation_passed" in TASK_EVENT_TYPES
     assert "task.validation_retrying" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
+    assert "task.worktree_created" in TASK_EVENT_TYPES
     assert TaskEventType.TASK_VALIDATION_FAILED.value == (
         "task.validation_failed"
     )
@@ -168,6 +170,7 @@ def test_task_event_tokens() -> None:
     assert TASK_EVENT_TYPES.issuperset(
         {
             "task.created",
+            "task.worktree_created",
             "task.attempt_started",
             "task.validation_started",
             "task.validation_failed",
@@ -632,6 +635,16 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
+        ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
+        == "DIRTY_WORKTREE_PRECHECK_FAILED"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_VIOLATION.value == "MUTATION_SCOPE_VIOLATION"
+    )
+    assert (
+        ErrorCode.MUTATION_SCOPE_UNVERIFIED.value == "MUTATION_SCOPE_UNVERIFIED"
+    )
+    assert (
         ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     )
     assert (
@@ -686,6 +699,12 @@ def test_error_code_tokens() -> None:
         ErrorCode.WORKTREE_LEASE_HEARTBEAT_FAILED.value
         == "WORKTREE_LEASE_HEARTBEAT_FAILED"
     )
+    assert (
+        ErrorCode.WORKTREE_ISOLATION_UNAVAILABLE.value
+        == "WORKTREE_ISOLATION_UNAVAILABLE"
+    )
+    assert ErrorCode.WORKTREE_CREATE_FAILED.value == "WORKTREE_CREATE_FAILED"
+    assert ErrorCode.WORKTREE_CLEANUP_FAILED.value == "WORKTREE_CLEANUP_FAILED"
     assert ErrorCode.GIT_WORKTREE_REQUIRED.value == "GIT_WORKTREE_REQUIRED"
     assert ErrorCode.GIT_WORKTREE_INVALID.value == "GIT_WORKTREE_INVALID"
     assert (
@@ -731,6 +750,9 @@ def test_error_code_tokens() -> None:
         "WORKTREE_LEASE_INVALID",
         "WORKTREE_LEASE_PATH_UNAVAILABLE",
         "WORKTREE_LEASE_HEARTBEAT_FAILED",
+        "WORKTREE_ISOLATION_UNAVAILABLE",
+        "WORKTREE_CREATE_FAILED",
+        "WORKTREE_CLEANUP_FAILED",
         "DIRTY_WORKTREE_PRECHECK_FAILED",
         "MUTATION_SCOPE_VIOLATION",
         "MUTATION_SCOPE_UNVERIFIED",
