@@ -57,6 +57,8 @@ Implement Phase 7 by adding a Command Center worker-control panel that surfaces 
 
 ## Proof follow-through (Phase 8)
 - Live proof artifact: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`.
+- Live proof rerun artifact after render repair: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`.
+- Live proof rerun artifact after null-safety repair: `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`.
 - Backend API seam (create/list/detail/cancel + recommendation-only next-task) was proven live on Compose runtime.
 - No-dispatch boundary remained explicit (no dispatch endpoint calls, no lease allocation evidence, no queue growth).
-- UI route proof remained incomplete on this run due frontend runtime blockers; do not treat this task as dispatch-capable.
+- UI route proof is now stable on rerun after null-safety repair: worker-control panel remains visible after observability load wait, while dispatch stays disabled and unimplemented.
