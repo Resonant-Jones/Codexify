@@ -742,6 +742,8 @@ class CodingWorker:
                 run_id=task.run_id,
                 coding_task_id=task.coding_task_id,
                 attempt_id=task.attempt_id,
+                campaign_id=task.campaign_id,
+                work_order_id=task.work_order_id,
                 request_id=task.request_id or None,
                 thread_id=task.thread_id,
                 source_message_id=task.source_message_id,
@@ -1472,6 +1474,8 @@ class CodingWorker:
             run_id=task.run_id,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
+            campaign_id=task.campaign_id,
+            work_order_id=task.work_order_id,
             request_id=task.request_id or None,
             thread_id=task.thread_id,
             source_message_id=_coerce_optional_positive_int(
