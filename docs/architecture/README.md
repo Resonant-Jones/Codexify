@@ -98,6 +98,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Tool Jobs Cleanup Live Proof](./2026-04-28-tool-jobs-cleanup-live-proof.md): supported Compose schema proof that the dedicated `tool_jobs` cleanup migration restores downgrade shape, removes the table again on upgrade, and leaves `command_runs` / `command_run_events` intact.
 - [Supported Profile Live Proof](./2026-05-05-supported-profile-live-proof.md): fresh live proof for the supported local-first beta path after the posture, return-path, trace, and runtime-target fixes; not a release promise.
 - [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
+- [Diagram Governance](./diagram-governance.md): policy for runtime-source-only diagram generation, module eligibility gates, required metadata, and freshness marker workflow.
+- [Module Diagram Coverage Matrix](./module-diagram-coverage-matrix.md): high-coupling module coverage decisions, required diagram types, and review-marker tracking.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.

@@ -42,6 +42,8 @@ class CodingAgentTaskEnvelope:
     repo_root: str | None
     context_summary: str | None
     permission_policy: CodingAgentPermissionPolicy
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     # Optional supervised validation command executed once after adapter return.
     validation_command: str | None = None
     max_validation_attempts: int = 1

@@ -1373,6 +1373,9 @@ describe("CommandCenterPage", () => {
     const scrollShell = screen.getByTestId("command-center-scroll-shell");
     expect(scrollShell).toHaveClass("min-h-screen", "overflow-y-auto");
 
+    expect(
+      screen.getByRole("heading", { name: /agent command center/i })
+    ).toBeInTheDocument();
     // Shell card exists
     expect(screen.getByTestId("command-center-shell")).toBeInTheDocument();
 
@@ -1383,12 +1386,118 @@ describe("CommandCenterPage", () => {
     // Worker Control panel is visible
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(screen.getByText("Runtime summary")).toBeInTheDocument();
     expect(screen.getByTestId("coding-orchestrator-recommendations")).toBeInTheDocument();
     expect(
       screen.getByText(
         /Dispatch, lease allocation, merge automation, and worker launch are not enabled/i
       )
     ).toBeInTheDocument();
+
+    expect(screen.getAllByLabelText(/transport state open/i)).toHaveLength(2);
+    expect(screen.getAllByText(/last event: .*2026/i)).toHaveLength(2);
+    expect(screen.getByLabelText(/unknown items 2/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /expand health details/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /collapse observability workbench/i })
+    ).toBeInTheDocument();
+
+    const workerPanel = screen.getByTestId("coding-work-orders-panel");
+    const summaryHeading = screen.getByText("Runtime summary");
+    expect(
+      workerPanel.compareDocumentPosition(summaryHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).not.toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /expand health details/i }));
+    const healthOverview = screen.getByTestId("command-center-health-overview");
+    expect(within(healthOverview).getByText("Core")).toBeInTheDocument();
+    expect(within(healthOverview).getByText("LLM")).toBeInTheDocument();
+    expect(within(healthOverview).getByText("Deps")).toBeInTheDocument();
+    expect(within(healthOverview).getByText("Vector")).toBeInTheDocument();
+    expect(within(healthOverview).getByText("Memory")).toBeInTheDocument();
+
+    const historyPanel = screen.getByTestId("command-center-retrieval-posture-history-panel");
+    expect(within(historyPanel).getByText("Recent retrieval posture")).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /Newest-first thread history from completed debug evidence only\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(
+        /no recent retrieval posture history for this thread/i
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(healthOverview).getByRole("button", { name: /core/i }));
+    expect(screen.getByText("Health detail: Core")).toBeInTheDocument();
+    expect(screen.getByText("Parsed health detail")).toBeInTheDocument();
+    expect(screen.getByText("Raw response")).toBeInTheDocument();
+
+    const root = screen.getByTestId("command-center-root");
+    expect(root).toHaveClass("flex", "min-h-0", "flex-col", "gap-4", "overflow-visible");
+
+    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-event-console")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("command-center-retrieval-posture-history-panel")
+    ).toBeInTheDocument();
+
+    const workbench = screen.getByTestId("command-center-trace-workbench");
+    expect(workbench).toHaveClass("flex", "min-h-[26rem]", "flex-col", "overflow-hidden");
+    expect(within(workbench).getByText("RAG trace workbench")).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /report/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /raw trace/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /payload summary/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /task-alpha/i })).toBeInTheDocument();
+    expect(within(workbench).getByRole("button", { name: /task-bravo/i })).toBeInTheDocument();
+
+    expect(within(workbench).getAllByText("Verdict")).toHaveLength(2);
+    expect(within(workbench).getByText("Request")).toBeInTheDocument();
+    expect(within(workbench).getByText("Retrieval Plan")).toBeInTheDocument();
+    expect(within(workbench).getByText("Retrieval Outcome")).toBeInTheDocument();
+    expect(within(workbench).getByText("Execution")).toBeInTheDocument();
+    expect(
+      within(workbench).getByRole("heading", { name: "Payload Summary" })
+    ).toBeInTheDocument();
+    expect(within(workbench).getByText("Notes / Warnings")).toBeInTheDocument();
+
+    const listPane = within(workbench).getByTestId("command-center-trace-list-pane");
+    const listScroll = within(workbench).getByTestId("command-center-trace-list-scroll");
+    const viewerPane = within(workbench).getByTestId("command-center-trace-viewer-pane");
+    const viewerScroll = within(workbench).getByTestId("command-center-trace-viewer-scroll");
+    expect(listPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(listScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
+    expect(viewerPane).toHaveClass("overflow-hidden", "min-h-0", "flex", "flex-col");
+    expect(viewerScroll).toHaveClass("overflow-auto", "min-h-0", "flex-1");
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /raw trace/i }));
+    expect(
+      within(workbench).queryByRole("heading", { name: "Verdict" })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /payload summary/i }));
+    expect(within(workbench).getByText("Selection source")).toBeInTheDocument();
+    expect(within(workbench).getByText("Persistence outcome")).toBeInTheDocument();
+    expect(within(workbench).getByText("Attempted provider")).toBeInTheDocument();
+    expect(within(workbench).getByText("Attempted model")).toBeInTheDocument();
+
+    fireEvent.click(within(workbench).getByRole("button", { name: /task-bravo/i }));
+    expect(within(workbench).getByText("Selected: task-bravo")).toBeInTheDocument();
+    expect(within(workbench).getByText(/trace: unavailable/i)).toBeInTheDocument();
+    expect(
+      within(historyPanel).getByText(/no recent retrieval posture history for this thread/i)
+    ).toBeInTheDocument();
+
+    const console = screen.getByTestId("command-center-event-console");
+    expect(within(console).getByText("Event console")).toBeInTheDocument();
+    expect(within(console).getByRole("button", { name: /pause/i })).toBeInTheDocument();
+    expect(within(console).getByRole("button", { name: /clear/i })).toBeInTheDocument();
+    expect(within(console).getByRole("button", { name: /wrap/i })).toBeInTheDocument();
+    expect(within(console).getByRole("button", { name: /auto-scroll/i })).toBeInTheDocument();
+    expect(within(console).getByRole("button", { name: /copy visible/i })).toBeInTheDocument();
+    expect(within(console).getByText("No classification yet")).toBeInTheDocument();
+  }, 15000);
   });
 
   it("renders retrieval posture history rows without runtime formatter errors", () => {
@@ -1413,6 +1522,7 @@ describe("CommandCenterPage", () => {
     expect(
       screen.getByTestId("coding-orchestrator-recommendations")
     ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /dispatch/i })
     ).not.toBeInTheDocument();

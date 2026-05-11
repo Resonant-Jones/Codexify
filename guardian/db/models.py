@@ -51,6 +51,9 @@ from guardian.extensions.tokens import (
     INSTALL_GATE_DECISION_TOKENS,
 )
 from guardian.protocol_tokens import (
+    CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
+    CAMPAIGN_GOAL_STATUSES,
+    CAMPAIGN_STATUSES,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
 )
@@ -100,6 +103,16 @@ WORKTREE_LEASE_CLEANUP_POLICY_CHECK = (
 )
 WORK_ORDER_STATUS_VALUES_SQL = "','".join(sorted(WORK_ORDER_STATUSES))
 WORK_ORDER_STATUS_CHECK = f"status IN ('{WORK_ORDER_STATUS_VALUES_SQL}')"
+CAMPAIGN_GOAL_STATUS_VALUES_SQL = "','".join(sorted(CAMPAIGN_GOAL_STATUSES))
+CAMPAIGN_GOAL_STATUS_CHECK = f"status IN ('{CAMPAIGN_GOAL_STATUS_VALUES_SQL}')"
+CAMPAIGN_STATUS_VALUES_SQL = "','".join(sorted(CAMPAIGN_STATUSES))
+CAMPAIGN_STATUS_CHECK = f"status IN ('{CAMPAIGN_STATUS_VALUES_SQL}')"
+CAMPAIGN_EXECUTION_ATTEMPT_STATUS_VALUES_SQL = "','".join(
+    sorted(CAMPAIGN_EXECUTION_ATTEMPT_STATUSES)
+)
+CAMPAIGN_EXECUTION_ATTEMPT_STATUS_CHECK = (
+    "status IN " f"('{CAMPAIGN_EXECUTION_ATTEMPT_STATUS_VALUES_SQL}')"
+)
 CAPABILITY_FAMILY_VALUES_SQL = "','".join(
     family.value for family in CapabilityFamily
 )
@@ -3727,6 +3740,161 @@ class CommandRunEvent(Base):
         ),
         Index("ix_command_run_events_run_id", "run_id"),
         Index("ix_command_run_events_created_at", "created_at"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CampaignGoal(Base):
+    """User-authored goal container for Campaign Runner work."""
+
+    __tablename__ = "campaign_goals"
+
+    goal_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    source_thread_id: Mapped[str | None] = mapped_column(String(128))
+    source_message_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            CAMPAIGN_GOAL_STATUS_CHECK,
+            name="campaign_goals_status_check",
+        ),
+        Index("ix_campaign_goals_status", "status"),
+        Index("ix_campaign_goals_source_thread_id", "source_thread_id"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class Campaign(Base):
+    """Grouped execution arc for ordered coding work orders."""
+
+    __tablename__ = "campaigns"
+
+    campaign_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    goal_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("campaign_goals.goal_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
+    source_thread_id: Mapped[str | None] = mapped_column(String(128))
+    source_message_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            CAMPAIGN_STATUS_CHECK,
+            name="campaigns_status_check",
+        ),
+        Index("ix_campaigns_goal_id", "goal_id"),
+        Index("ix_campaigns_status", "status"),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class CampaignExecutionAttempt(Base):
+    """Durable append-friendly execution evidence for campaign work orders."""
+
+    __tablename__ = "campaign_execution_attempts"
+
+    attempt_record_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    campaign_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("campaigns.campaign_id", ondelete="SET NULL"),
+    )
+    goal_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("campaign_goals.goal_id", ondelete="SET NULL"),
+    )
+    work_order_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("coding_work_orders.work_order_id", ondelete="SET NULL"),
+    )
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    coding_task_id: Mapped[str | None] = mapped_column(String(128))
+    adapter_kind: Mapped[str | None] = mapped_column(String(64))
+    runtime_target: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="running"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    failed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    validation_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    commit_hash: Mapped[str | None] = mapped_column(String(64))
+    delivery_ok: Mapped[bool | None] = mapped_column(Boolean)
+    delivered_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    delivery_reason: Mapped[str | None] = mapped_column(String(255))
+    source_thread_id: Mapped[int | None] = mapped_column(Integer)
+    source_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            CAMPAIGN_EXECUTION_ATTEMPT_STATUS_CHECK,
+            name="campaign_execution_attempts_status_check",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "attempt_id",
+            name="uq_campaign_execution_attempts_run_attempt",
+        ),
+        Index("ix_campaign_execution_attempts_campaign_id", "campaign_id"),
+        Index("ix_campaign_execution_attempts_goal_id", "goal_id"),
+        Index("ix_campaign_execution_attempts_work_order_id", "work_order_id"),
+        Index("ix_campaign_execution_attempts_status", "status"),
+        Index("ix_campaign_execution_attempts_created_at", "created_at"),
     )
     __mapper_args__ = {"eager_defaults": True}
 
