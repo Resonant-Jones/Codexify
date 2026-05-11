@@ -42,7 +42,6 @@ export default function CommandCenterBottomDrawer({
 }: CommandCenterBottomDrawerProps) {
   const [activeTab, setActiveTab] = React.useState<DrawerTab>("terminal");
   const [drawerHeight, setDrawerHeight] = React.useState<number>(readStoredDrawerHeight);
-  const resizeRef = React.useRef<HTMLDivElement>(null);
   const resizeStartY = React.useRef<number>(0);
   const resizeStartHeight = React.useRef<number>(0);
   const latestDrawerHeightRef = React.useRef<number>(drawerHeight);
@@ -72,7 +71,7 @@ export default function CommandCenterBottomDrawer({
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
     },
-    []
+    [drawerHeight]
   );
 
   const drawerBody = React.useMemo((): React.ReactNode => {
@@ -85,6 +84,7 @@ export default function CommandCenterBottomDrawer({
               display: "flex",
               flexDirection: "column",
               height: "100%",
+              overflow: "hidden",
               padding: "12px",
               gap: "8px",
             }}
@@ -92,6 +92,7 @@ export default function CommandCenterBottomDrawer({
             <div
               style={{
                 flex: 1,
+                minHeight: 0,
                 borderRadius: "var(--tile-radius)",
                 border: "1px solid var(--panel-border)",
                 background: "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
@@ -244,7 +245,14 @@ export default function CommandCenterBottomDrawer({
             }}
           >
             Drawer
-            <span style={{ color: "var(--muted)", fontWeight: 500, letterSpacing: "0.01em", textTransform: "none" }}>
+            <span
+              style={{
+                color: "var(--muted)",
+                fontWeight: 500,
+                letterSpacing: "0.01em",
+                textTransform: "none",
+              }}
+            >
               Terminal tab stays non-executable
             </span>
           </span>
@@ -254,7 +262,6 @@ export default function CommandCenterBottomDrawer({
         <>
           {/* Resize handle */}
           <div
-            ref={resizeRef}
             data-testid="command-center-drawer-resize-handle"
             role="separator"
             aria-label="Resize drawer height"
@@ -296,8 +303,7 @@ export default function CommandCenterBottomDrawer({
                       ? "2px solid var(--accent-strong)"
                       : "2px solid transparent",
                   background: "transparent",
-                  color:
-                    activeTab === tab.id ? "var(--text)" : "var(--muted)",
+                  color: activeTab === tab.id ? "var(--text)" : "var(--muted)",
                   cursor: "pointer",
                   fontSize: "12px",
                   fontWeight: activeTab === tab.id ? 600 : 400,
