@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -391,7 +390,6 @@ def _install_mutating_adapter(
     return calls
 
 
-
 def _install_fake_validation_runner(
     monkeypatch,
     *,
@@ -446,8 +444,6 @@ def _install_fake_validation_runner(
     return calls
 
 
-
-
 def _install_fake_validation_result(
     monkeypatch,
     *,
@@ -479,9 +475,13 @@ def _install_fake_validation_result(
         )
 
     monkeypatch.setattr(
-        coding_worker, "_run_validation_command", _fake_validation, raising=False
+        coding_worker,
+        "_run_validation_command",
+        _fake_validation,
+        raising=False,
     )
     return calls
+
 
 def _install_fake_commit_gate(
     monkeypatch,
@@ -3417,7 +3417,6 @@ def test_validation_command_with_missing_cwd_records_not_run(
     assert messages[0].extra_meta["validation_results"]["status"] == "not_run"
 
 
-
 def test_validation_command_error_is_normalized_and_fails_closed(
     db,
     monkeypatch,
@@ -3607,7 +3606,9 @@ def test_clean_git_repo_disallowed_path_mutation_fails_with_scope_violation(
     assert len(validation_calls) == 1
     assert published[-1][1] == "task.failed"
     terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert (
+        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    )
     assert terminal_payload["mutation_guard_error_code"] == (
         "MUTATION_SCOPE_VIOLATION"
     )
@@ -3741,7 +3742,9 @@ def test_allow_write_false_blocks_any_mutation(
     assert len(validation_calls) == 1
     assert published[-1][1] == "task.failed"
     terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert (
+        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    )
     assert terminal_payload["mutation_guard_error_code"] == (
         "MUTATION_SCOPE_VIOLATION"
     )
@@ -3858,10 +3861,14 @@ def test_validation_retry_does_not_continue_after_scope_violation(
 
     assert len(calls) == 1
     assert len(validation_calls) == 1
-    assert "task.validation_retrying" not in [event for _, event, _ in published]
+    assert "task.validation_retrying" not in [
+        event for _, event, _ in published
+    ]
     assert published[-1][1] == "task.failed"
     terminal_payload = published[-1][2]
-    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert (
+        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    )
     assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
 
 
@@ -3972,7 +3979,9 @@ def test_absolute_and_parent_policy_paths_do_not_escape_repo(
     assert len(validation_calls) == 1
     terminal_payload = published[-1][2]
     assert terminal_payload["allowed_paths"] == []
-    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert (
+        terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    )
     assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
 
 
@@ -4093,6 +4102,7 @@ def test_changed_path_metadata_is_bounded_and_truncated(
     assert terminal_payload["changed_paths_truncated"] is True
     assert terminal_payload["changed_paths_total"] == 60
     assert len(terminal_payload["changed_paths"]) == 50
+
 
 def test_successful_completion_writes_one_result_message_with_lineage(
     db,

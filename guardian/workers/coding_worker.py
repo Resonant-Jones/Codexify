@@ -1136,9 +1136,11 @@ def _mutation_guard_metadata(
     bounded_changed_paths, changed_total, changed_truncated = _bound_paths(
         changed_paths
     )
-    bounded_disallowed_paths, _disallowed_total, disallowed_truncated = (
-        _bound_paths(disallowed_paths)
-    )
+    (
+        bounded_disallowed_paths,
+        _disallowed_total,
+        disallowed_truncated,
+    ) = _bound_paths(disallowed_paths)
     metadata: dict[str, Any] = {
         "mutation_guard_enabled": enabled,
         "mutation_guard_status": status,
@@ -1389,8 +1391,17 @@ class CodingWorker:
         adapter_kind: str | None,
         deployment_spec: dict[str, Any],
         commit_after_validation: bool,
-    ) -> tuple[LeaseExecutionContext | None, WorktreeLeaseStore | None, str | None, bool]:
-        task_workdir = str(task.cwd or task.repo_root or "").strip() or None
+    ) -> tuple[
+        LeaseExecutionContext | None,
+        WorktreeLeaseStore | None,
+        str | None,
+        bool,
+    ]:
+        task_workdir = _coerce_optional_text(task.cwd)
+        if not task_workdir:
+            task_workdir = _coerce_optional_text(
+                getattr(task, "repo_root", None)
+            )
         lease_required = bool(
             task.require_worktree_lease
             or deployment_spec.get("require_worktree_lease", False)
@@ -1569,13 +1580,16 @@ class CodingWorker:
             task, deployment_spec
         )
 
-        lease_ctx, lease_store, effective_cwd, lease_ok = (
-            self._resolve_lease_context(
-                task,
-                adapter_kind=adapter_kind,
-                deployment_spec=deployment_spec,
-                commit_after_validation=commit_after_validation,
-            )
+        (
+            lease_ctx,
+            lease_store,
+            effective_cwd,
+            lease_ok,
+        ) = self._resolve_lease_context(
+            task,
+            adapter_kind=adapter_kind,
+            deployment_spec=deployment_spec,
+            commit_after_validation=commit_after_validation,
         )
         if not lease_ok:
             return
@@ -1921,8 +1935,12 @@ class CodingWorker:
                 error_code=error_code,
                 error_message=error_message,
                 worktree_lease_id=(lease_ctx.lease_id if lease_ctx else None),
-                lease_required=(lease_ctx.lease_required if lease_ctx else False),
-                lease_branch_name=(lease_ctx.branch_name if lease_ctx else None),
+                lease_required=(
+                    lease_ctx.lease_required if lease_ctx else False
+                ),
+                lease_branch_name=(
+                    lease_ctx.branch_name if lease_ctx else None
+                ),
                 lease_worktree_path=(
                     lease_ctx.worktree_path if lease_ctx else None
                 ),
@@ -2404,7 +2422,9 @@ class CodingWorker:
                     max_validation_attempts=validation_attempt_budget,
                     commit_after_validation=commit_after_validation,
                     commit_status=(
-                        "skipped" if commit_after_validation else "not_requested"
+                        "skipped"
+                        if commit_after_validation
+                        else "not_requested"
                     ),
                     commit_reason_code=(
                         _error_value("MUTATION_SCOPE_VIOLATION")
@@ -2439,7 +2459,9 @@ class CodingWorker:
                     require_human_review_before_merge=(
                         require_human_review_before_merge
                     ),
-                    mutation_guard=mutation_guard if validation_command else None,
+                    mutation_guard=mutation_guard
+                    if validation_command
+                    else None,
                 )
                 return
 
@@ -2479,12 +2501,16 @@ class CodingWorker:
                             validation_stop_reason=validation_stop_reason,
                             final_validation_status=final_validation_status,
                             final_fail_signature=final_fail_signature,
-                            validation_attempts_payload=list(validation_attempts),
+                            validation_attempts_payload=list(
+                                validation_attempts
+                            ),
                             max_validation_attempts=validation_attempt_budget,
                             commit_after_validation=True,
                             commit_hash=None,
                             commit_status="failed",
-                            commit_reason_code=_error_value("GIT_WORKTREE_REQUIRED"),
+                            commit_reason_code=_error_value(
+                                "GIT_WORKTREE_REQUIRED"
+                            ),
                             merge_ready=False,
                             human_review_required=True,
                             require_human_review_before_merge=(
@@ -2535,12 +2561,16 @@ class CodingWorker:
                             validation_stop_reason=validation_stop_reason,
                             final_validation_status=final_validation_status,
                             final_fail_signature=final_fail_signature,
-                            validation_attempts_payload=list(validation_attempts),
+                            validation_attempts_payload=list(
+                                validation_attempts
+                            ),
                             max_validation_attempts=validation_attempt_budget,
                             commit_after_validation=True,
                             commit_hash=None,
                             commit_status="failed",
-                            commit_reason_code=_error_value("GIT_COMMIT_FAILED"),
+                            commit_reason_code=_error_value(
+                                "GIT_COMMIT_FAILED"
+                            ),
                             merge_ready=False,
                             human_review_required=True,
                             require_human_review_before_merge=(
@@ -2572,12 +2602,16 @@ class CodingWorker:
                             validation_stop_reason=validation_stop_reason,
                             final_validation_status=final_validation_status,
                             final_fail_signature=final_fail_signature,
-                            validation_attempts_payload=list(validation_attempts),
+                            validation_attempts_payload=list(
+                                validation_attempts
+                            ),
                             max_validation_attempts=validation_attempt_budget,
                             commit_after_validation=True,
                             commit_hash=None,
                             commit_status="failed",
-                            commit_reason_code=_error_value("GIT_COMMIT_FAILED"),
+                            commit_reason_code=_error_value(
+                                "GIT_COMMIT_FAILED"
+                            ),
                             merge_ready=False,
                             human_review_required=True,
                             require_human_review_before_merge=(
@@ -2597,9 +2631,8 @@ class CodingWorker:
                         final_human_review_required = (
                             require_human_review_before_merge
                         )
-                    elif (
-                        commit_gate_result.reason_code
-                        == _error_value("GIT_NO_CHANGES_TO_COMMIT")
+                    elif commit_gate_result.reason_code == _error_value(
+                        "GIT_NO_CHANGES_TO_COMMIT"
                     ):
                         final_merge_ready = False
                         final_human_review_required = True
@@ -2633,7 +2666,9 @@ class CodingWorker:
                             validation_stop_reason=validation_stop_reason,
                             final_validation_status=final_validation_status,
                             final_fail_signature=final_fail_signature,
-                            validation_attempts_payload=list(validation_attempts),
+                            validation_attempts_payload=list(
+                                validation_attempts
+                            ),
                             max_validation_attempts=validation_attempt_budget,
                             commit_after_validation=True,
                             commit_hash=final_commit_hash,
@@ -2698,10 +2733,14 @@ class CodingWorker:
                     commit_after_validation=commit_after_validation,
                     commit_hash=None,
                     commit_status=(
-                        "skipped" if commit_after_validation else "not_requested"
+                        "skipped"
+                        if commit_after_validation
+                        else "not_requested"
                     ),
                     commit_reason_code=(
-                        "VALIDATION_NOT_RUN" if commit_after_validation else None
+                        "VALIDATION_NOT_RUN"
+                        if commit_after_validation
+                        else None
                     ),
                     merge_ready=False,
                     human_review_required=True,
@@ -2770,9 +2809,7 @@ class CodingWorker:
                     or f"validation failed after {validation_attempt_count} attempt(s)"
                 )
                 commit_reason = "VALIDATION_FAILED"
-                summary_suffix = (
-                    f"validation failed after {validation_attempt_count} attempt(s)"
-                )
+                summary_suffix = f"validation failed after {validation_attempt_count} attempt(s)"
             _persist_and_emit_terminal(
                 result=result,
                 result_status="failed",
@@ -2799,7 +2836,9 @@ class CodingWorker:
                 commit_status=(
                     "skipped" if commit_after_validation else "not_requested"
                 ),
-                commit_reason_code=(commit_reason if commit_after_validation else None),
+                commit_reason_code=(
+                    commit_reason if commit_after_validation else None
+                ),
                 merge_ready=False,
                 human_review_required=True,
                 require_human_review_before_merge=(
