@@ -4,34 +4,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import EventConsole from "@/features/commandCenter/components/EventConsole";
-import HealthOverview from "@/features/commandCenter/components/HealthOverview";
-import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
-import TraceWorkbench, {
-  diffRetrievalPosture,
-  describeRetrievalPostureChange,
-  RetrievalPosturePanel,
-  RetrievalPostureSummaryRow,
-  type PinnedRetrievalPostureState,
-  type RetrievalPostureDiff,
-  type RetrievalPostureHistoryFilter,
-  type RetrievalPostureHistoryWindowSize,
-} from "@/features/commandCenter/components/TraceWorkbench";
-import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
-import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
-import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
-import {
-  buildCommandCenterEventConsoleRows,
-  countCommandCenterUnknownItems,
-  countCommandCenterWarningSignals,
-  filterCommandCenterRuns,
-} from "@/features/commandCenter/commandCenterObservability";
+import CommandCenterShell from "@/features/commandCenter/components/CommandCenterShell";
 import type {
   CommandCenterRetrievalPosture,
   CommandCenterRetrievalPostureHistoryItem,
   CommandCenterRun,
   CommandCenterTraceFilters,
 } from "@/features/commandCenter/types";
+import type { PinnedRetrievalPostureState } from "@/features/commandCenter/components/TraceWorkbench";
+import type {
+  RetrievalPostureHistoryFilter,
+  RetrievalPostureHistoryWindowSize,
+} from "@/features/commandCenter/components/TraceWorkbench";
+import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCenterEvents";
+import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
+import {
+  buildCommandCenterEventConsoleRows,
+  countCommandCenterUnknownItems,
+  countCommandCenterWarningSignals,
+  filterCommandCenterRuns,
+} from "@/features/commandCenter/commandCenterObservability";
 import {
   describeRuntimeStatusPresentation,
   type RuntimeStatusTone,
@@ -119,307 +111,6 @@ function BadgePill({
   );
 }
 
-function SummaryTile({
-  children,
-  label,
-  note,
-}: {
-  children: React.ReactNode;
-  label: string;
-  note: React.ReactNode;
-}) {
-  return (
-    <div
-      className="space-y-2 border p-[var(--card-pad)]"
-      style={{
-        background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
-        borderColor: "var(--panel-border)",
-        borderRadius: "var(--tile-radius)",
-      }}
-    >
-      <div
-        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-        style={{ color: "var(--muted)" }}
-      >
-        {label}
-      </div>
-      <div className="flex min-h-10 items-start justify-between gap-3">{children}</div>
-      <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-        {note}
-      </div>
-    </div>
-  );
-}
-
-function DashboardHeader({
-  connectionDetail,
-  lastEventAt,
-  transportLabel,
-  transportTone,
-}: {
-  connectionDetail: string | null;
-  lastEventAt: number | null;
-  transportLabel: string;
-  transportTone: BadgeTone;
-}) {
-  return (
-    <Card
-      className="bezel-none border"
-      style={{
-        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-    >
-      <CardContent className="flex flex-col gap-4 p-[var(--card-pad)] sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--muted)" }}
-          >
-            Command Center
-          </div>
-          <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>
-            Agent Command Center
-          </h1>
-          <p className="max-w-3xl text-sm leading-6" style={{ color: "var(--muted)" }}>
-            Split observability surface for health, RAG diagnostics, and raw transport truth.
-          </p>
-          {connectionDetail ? (
-            <div className="text-xs" style={{ color: "var(--muted)" }}>
-              {connectionDetail}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <BadgePill ariaLabel={`Transport state ${transportLabel}`} tone={transportTone}>
-            {transportLabel}
-          </BadgePill>
-          <BadgePill tone="subtle">Last event: {formatTimestamp(lastEventAt)}</BadgePill>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function DashboardSummary({
-  healthCount,
-  unknownCount,
-  visibleRunCount,
-  warningCount,
-  transportLabel,
-  transportTone,
-  lastEventAt,
-}: {
-  healthCount: number;
-  lastEventAt: number | null;
-  transportLabel: string;
-  transportTone: BadgeTone;
-  unknownCount: number;
-  visibleRunCount: number;
-  warningCount: number;
-}) {
-  return (
-    <Card
-      className="bezel-none border"
-      style={{
-        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-    >
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-          Runtime summary
-        </CardTitle>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Compact high-value state only. Raw payloads remain in the trace report and console panes.
-        </p>
-      </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <SummaryTile
-          label="Transport state"
-          note="Current SSE connection state."
-        >
-          <BadgePill tone={transportTone} ariaLabel={`Transport state ${transportLabel}`}>
-            {transportLabel}
-          </BadgePill>
-        </SummaryTile>
-
-        <SummaryTile label="Last event" note="Most recent event timestamp.">
-          <div className="text-lg font-semibold leading-tight" style={{ color: "var(--text)" }}>
-            {formatTimestamp(lastEventAt)}
-          </div>
-        </SummaryTile>
-
-        <SummaryTile label="Health surfaces" note="Visible service checks.">
-          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
-            {healthCount}
-          </div>
-        </SummaryTile>
-
-        <SummaryTile label="Visible runs" note="Runs after current trace filters.">
-          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
-            {visibleRunCount}
-          </div>
-        </SummaryTile>
-
-        <SummaryTile label="Unknown items" note="Promoted unknowns are suppressed; raw noise stays in the console.">
-          <div
-            className="text-2xl font-semibold leading-none"
-            aria-label={`Unknown items ${unknownCount}`}
-            style={{ color: "var(--text)" }}
-          >
-            {unknownCount}
-          </div>
-        </SummaryTile>
-
-        <SummaryTile label="Warnings / failures" note="Health failures + trace warnings + console warnings.">
-          <div className="text-2xl font-semibold leading-none" style={{ color: "var(--text)" }}>
-            {warningCount}
-          </div>
-        </SummaryTile>
-      </CardContent>
-    </Card>
-  );
-}
-
-function latestRetrievalPostureComparison(
-  items: CommandCenterRetrievalPostureHistoryItem[]
-): {
-  comparison: RetrievalPostureDiff | null;
-  explanationLines: string[] | null;
-  label: string | null;
-  changedFields: string[] | null;
-  state: "changed" | "unchanged" | "no-previous" | "none";
-} {
-  const current = items[0] ?? null;
-  if (!current) {
-    return {
-      comparison: null,
-      explanationLines: null,
-      changedFields: null,
-      label: null,
-      state: "none",
-    };
-  }
-
-  const previous = items[1] ?? null;
-  if (!previous) {
-    return {
-      comparison: { changed: false, changedFields: [] },
-      explanationLines: null,
-      changedFields: null,
-      label: "No previous posture to compare",
-      state: "no-previous",
-    };
-  }
-
-  const comparison = diffRetrievalPosture(current.retrieval_posture, previous.retrieval_posture);
-  const explanation = describeRetrievalPostureChange(
-    comparison,
-    current.retrieval_posture,
-    previous.retrieval_posture
-  );
-  return {
-    comparison,
-    explanationLines: comparison.changed ? explanation.lines : null,
-    changedFields: comparison.changed ? comparison.changedFields : null,
-    label: comparison.changed
-      ? "Posture changed since previous run"
-      : "Posture unchanged since previous run",
-    state: comparison.changed ? "changed" : "unchanged",
-  };
-}
-
-function RecentRetrievalPosturePanel({
-  onPinHistoryPosture,
-  threadId,
-}: {
-  onPinHistoryPosture?: (item: CommandCenterRetrievalPostureHistoryItem) => void;
-  threadId: number | null;
-}) {
-  const { error, items, loading, status } = useRetrievalPostureHistory(threadId);
-  const comparison = React.useMemo(() => latestRetrievalPostureComparison(items), [items]);
-
-  if (threadId === null) return null;
-
-  return (
-    <Card
-      className="bezel-none border"
-      data-testid="command-center-retrieval-posture-history-panel"
-      style={{
-        background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-        borderColor: "var(--panel-border)",
-      }}
-    >
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-          Recent retrieval posture
-        </CardTitle>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Newest-first thread history from completed debug evidence only.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {loading ? (
-          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
-            Loading recent retrieval posture history…
-          </div>
-        ) : error ? (
-          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--danger-border)", color: "var(--danger-text)" }}>
-            {error}
-          </div>
-        ) : status === "empty" || items.length === 0 ? (
-          <div className="rounded-[var(--tile-radius)] border p-3 text-sm" style={{ background: "var(--surface-soft)", borderColor: "var(--panel-border)", color: "var(--muted)" }}>
-            No recent retrieval posture history for this thread.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {comparison.label ? (
-              <div
-                className="flex flex-wrap items-center gap-2 rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
-                style={{
-                  background: "var(--surface-soft)",
-                  borderColor: "var(--panel-border)",
-                  color: "var(--muted)",
-                }}
-              >
-                <BadgePill
-                  tone={comparison.state === "changed" ? "attention" : "subtle"}
-                  ariaLabel={comparison.label}
-                >
-                  {comparison.label}
-                </BadgePill>
-                {comparison.changedFields ? (
-                  <div className="space-y-1">
-                    <span>Changed: {comparison.changedFields.join(", ")}</span>
-                    {comparison.explanationLines ? (
-                      <div className="space-y-0.5 leading-5" style={{ color: "var(--text)" }}>
-                        {comparison.explanationLines.map((line) => (
-                          <p key={line}>{line}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {items.map((item) => (
-              <RetrievalPostureSummaryRow
-                key={`${item.task_id}:${item.created_at}`}
-                createdAt={item.created_at}
-                onPinPosture={onPinHistoryPosture ? () => onPinHistoryPosture(item) : undefined}
-                posture={item.retrieval_posture}
-                taskId={item.task_id}
-              />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const {
     connectionDetail,
@@ -504,26 +195,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     const presentation = describeRuntimeStatusPresentation(connectionState);
     return { label: presentation.label, tone: presentation.tone as BadgeTone };
   }, [connectionState, unauthorized]);
-
-  const unknownCount = React.useMemo(
-    () =>
-      countCommandCenterUnknownItems({
-        healthItems,
-        runs: visibleRuns,
-        consoleRows,
-      }),
-    [consoleRows, healthItems, visibleRuns]
-  );
-
-  const warningCount = React.useMemo(
-    () =>
-      countCommandCenterWarningSignals({
-        healthItems,
-        runs: visibleRuns,
-        consoleRows,
-      }),
-    [consoleRows, healthItems, visibleRuns]
-  );
 
   if (!enabled) {
     return (
@@ -713,5 +384,31 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
         </Card>
       </div>
     </main>
+    <CommandCenterShell
+      connectionDetail={connectionDetail}
+      connectionState={connectionState}
+      consoleRows={consoleRows}
+      healthItems={healthItems}
+      lastCheckedAt={lastCheckedAt}
+      lastEventAt={lastEventAt}
+      loading={loading}
+      onRefresh={refresh}
+      onPinCurrentRetrievalPosture={onPinCurrentRetrievalPosture}
+      onPinHistoryRetrievalPosture={onPinHistoryRetrievalPosture}
+      pinnedRetrievalPosture={pinnedRetrievalPosture}
+      onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
+      retrievalPostureHistoryFilter={retrievalPostureHistoryFilter}
+      retrievalPostureHistoryWindowSize={retrievalPostureHistoryWindowSize}
+      onHistoryFilterChange={setRetrievalPostureHistoryFilter}
+      onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+      onSelectRun={setSelectedRunKey}
+      onFiltersChange={setTraceFilters}
+      runs={runs}
+      selectedRun={selectedRun}
+      selectedRunKey={selectedRunKey}
+      traceFilters={traceFilters}
+      visibleRuns={visibleRuns}
+      activeThreadId={activeThreadId}
+    />
   );
 }
