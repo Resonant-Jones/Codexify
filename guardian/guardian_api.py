@@ -1210,6 +1210,7 @@ _include_router(
     include_fn=lambda: (
         app.include_router(coding_work_orders.router),
         app.include_router(coding_work_orders.orchestrator_router),
+        app.include_router(coding_work_orders.campaign_runner_router),
     ),
 )
 _include_router(

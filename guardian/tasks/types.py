@@ -511,6 +511,8 @@ class CodingExecutionTask(BaseTask):
     thread_id: str = ""
     source_message_id: str = ""
     attempt_id: str = ""
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     user_id: str = ""
     project_id: int | None = None
     adapter_kind: CodingAgentAdapterKind = "mock"
@@ -553,6 +555,12 @@ class CodingExecutionTask(BaseTask):
             attempt_id=str(
                 payload.get("attempt_id") or payload.get("attemptId") or ""
             ).strip(),
+            campaign_id=_coerce_optional_text(
+                payload.get("campaign_id") or payload.get("campaignId")
+            ),
+            work_order_id=_coerce_optional_text(
+                payload.get("work_order_id") or payload.get("workOrderId")
+            ),
             user_id=str(
                 payload.get("user_id") or payload.get("userId") or ""
             ).strip(),
@@ -861,6 +869,8 @@ class CodingExecutionTask(BaseTask):
     timeout_seconds: int = 300
     coding_task_id: str = ""
     attempt_id: str = ""
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
@@ -886,6 +896,12 @@ class CodingExecutionTask(BaseTask):
             timeout_seconds=int(payload.get("timeout_seconds") or 300),
             coding_task_id=str(payload.get("coding_task_id") or "").strip(),
             attempt_id=str(payload.get("attempt_id") or "").strip(),
+            campaign_id=_coerce_optional_text(
+                payload.get("campaign_id") or payload.get("campaignId")
+            ),
+            work_order_id=_coerce_optional_text(
+                payload.get("work_order_id") or payload.get("workOrderId")
+            ),
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
             source_message_id=_coerce_optional_identifier(
                 payload.get("source_message_id")

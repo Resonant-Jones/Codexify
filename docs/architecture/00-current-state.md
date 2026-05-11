@@ -30,6 +30,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Upload -> embed -> readback works on the supported path after the document detail route repair.
 - Graph writes remain default-off on the supported Compose path.
 - Command Center now has a live-proofed non-dispatch worker-control panel for coding work-order visibility, create/cancel, and recommendation-only next-task inspection (`docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`).
+- Campaign Runner MVP control-plane spine now exists on backend surfaces for goal/campaign representation and durable execution-attempt ledger evidence, while remaining recommendation-only for next-work selection (no recursive autonomous loop claim).
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
