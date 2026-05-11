@@ -80,11 +80,12 @@ export default function CommandCenterUtilityRail({
   const [railSide, setRailSide] = React.useState<RailSide>(readStoredRailSide);
   const [pinned, setPinned] = React.useState<boolean>(readStoredRailPinned);
   const [hovered, setHovered] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
   const railRef = React.useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // collapse on blur if not pinned
-  const expanded = pinned || hovered;
+  const expanded = pinned || hovered || focusWithin;
+  const activeLensEntry = LENSES.find((lens) => lens.id === activeLens) ?? LENSES[0];
 
   const sideClass = railSide === "left" ? "" : "flex-row-reverse";
 
@@ -101,6 +102,18 @@ export default function CommandCenterUtilityRail({
     hoverTimeoutRef.current = setTimeout(() => {
       setHovered(false);
     }, 150);
+  }, []);
+
+  const handleFocusCapture = React.useCallback(() => {
+    setFocusWithin(true);
+  }, []);
+
+  const handleBlurCapture = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && railRef.current?.contains(nextTarget)) {
+      return;
+    }
+    setFocusWithin(false);
   }, []);
 
   const handleTogglePin = React.useCallback(() => {
@@ -136,13 +149,6 @@ export default function CommandCenterUtilityRail({
     [activeLens, onLensChange]
   );
 
-  // force focus edge affordance on mount so keyboard users can Tab into rail
-  React.useEffect(() => {
-    if (!pinned && railRef.current) {
-      // ensure rail has tabIndex so keyboard users can discover it
-    }
-  }, [pinned]);
-
   React.useEffect(() => {
     return () => {
       if (hoverTimeoutRef.current) {
@@ -163,43 +169,90 @@ export default function CommandCenterUtilityRail({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onKeyDown={handleRailKeyDown}
+      onFocusCapture={handleFocusCapture}
+      onBlurCapture={handleBlurCapture}
       role="navigation"
       aria-label="Command Center lens navigation"
     >
       {/* Edge affordance / handle — always visible for discoverability */}
-      <div
+      <button
+        type="button"
         data-testid="command-center-utility-rail-edge"
+        data-state={expanded ? "expanded" : "collapsed"}
         style={{
-          width: "4px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "18px",
+          minWidth: "18px",
+          border: "none",
+          padding: 0,
           cursor: "pointer",
-          background: "transparent",
+          background:
+            activeLens === "agent-command"
+              ? "color-mix(in oklab, var(--accent-strong) 36%, var(--panel-bg))"
+              : "color-mix(in oklab, var(--panel-border) 34%, var(--panel-bg))",
           flexShrink: 0,
-          borderLeft: railSide === "left" ? undefined : "1px solid var(--panel-border)",
-          borderRight: railSide === "left" ? "1px solid var(--panel-border)" : undefined,
+          borderLeft:
+            railSide === "left"
+              ? "1px solid color-mix(in oklab, var(--panel-border) 65%, transparent)"
+              : "1px solid color-mix(in oklab, var(--panel-border) 88%, transparent)",
+          borderRight:
+            railSide === "left"
+              ? "1px solid color-mix(in oklab, var(--panel-border) 88%, transparent)"
+              : "1px solid color-mix(in oklab, var(--panel-border) 65%, transparent)",
+          borderRadius: railSide === "left" ? "8px 0 0 8px" : "0 8px 8px 0",
+          color: activeLens === "agent-command" ? "var(--text)" : "var(--muted)",
+          boxShadow:
+            "inset 0 0 0 1px color-mix(in oklab, var(--panel-border) 42%, transparent), inset 0 1px 0 rgba(255,255,255,0.06)",
+          transition: "background 140ms ease-out, color 140ms ease-out, box-shadow 140ms ease-out",
         }}
         tabIndex={0}
-        aria-label={`Command Center rail — ${railSide} side, ${pinned ? "pinned" : "unpinned"}. Press Enter to toggle pin.`}
+        aria-expanded={expanded}
+        aria-label={`Command Center rail — ${railSide} side, ${pinned ? "pinned" : "unpinned"}. Press Enter to ${pinned ? "unpin" : "pin"}.`}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setHovered((current) => !current);
+            handleTogglePin();
           }
         }}
-      />
+        onClick={() => {
+          if (!expanded) {
+            setHovered(true);
+            return;
+          }
+          handleTogglePin();
+        }}
+      >
+        <span
+          data-testid="command-center-utility-rail-collapsed-spine"
+          aria-hidden="true"
+          style={{
+            fontSize: "12px",
+            lineHeight: 1,
+            opacity: expanded ? 0 : 1,
+            transform: expanded ? "translateX(-2px)" : "translateX(0)",
+            transition: "opacity 120ms ease-out, transform 120ms ease-out",
+          }}
+        >
+          {activeLensEntry.icon}
+        </span>
+      </button>
 
       {/* Rail content */}
       <div
         data-testid="command-center-utility-rail"
         className="flex flex-col gap-1"
         style={{
-          width: expanded ? "48px" : "0px",
+          width: expanded ? "52px" : "10px",
           overflow: "hidden",
           transition: "width 180ms ease-out",
           flexShrink: 0,
-          padding: expanded ? "var(--card-pad) 6px" : "0",
+          padding: expanded ? "var(--card-pad) 6px" : "10px 0",
           borderLeft: railSide === "left" ? "1px solid var(--panel-border)" : undefined,
           borderRight: railSide === "right" ? "1px solid var(--panel-border)" : undefined,
-          background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
+          background: "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
         }}
       >
         {LENSES.map((lens) => (

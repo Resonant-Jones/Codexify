@@ -1466,13 +1466,14 @@ describe("CommandCenterPage", () => {
     render(<CommandCenterPage enabled />);
 
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("0px");
+    expect(drawer.style.height).toBe("44px");
+    expect(screen.getByTestId("command-center-drawer-collapsed-affordance")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("command-center-rail-drawer-toggle"));
-    expect(drawer.style.height).not.toBe("0px");
+    expect(drawer.style.height).toBe("280px");
 
     fireEvent.click(screen.getByTestId("command-center-drawer-close"));
-    expect(drawer.style.height).toBe("0px");
+    expect(drawer.style.height).toBe("44px");
   });
 
   it("Terminal drawer tab is non-executable", () => {

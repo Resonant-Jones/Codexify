@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import CommandCenterUtilityRail from "../CommandCenterUtilityRail";
 import type { CommandCenterLensId } from "../CommandCenterUtilityRail";
@@ -57,10 +57,15 @@ describe("CommandCenterUtilityRail", () => {
     expect(onLensChange).toHaveBeenCalledWith("observability");
   });
 
-  it("rail starts collapsed (unpinned, not hovered)", () => {
+  it("rail starts with a visible collapsed spine affordance", () => {
     renderRail();
     const rail = screen.getByTestId("command-center-utility-rail");
-    expect(rail.style.width).toBe("0px");
+    expect(rail.style.width).toBe("10px");
+    expect(screen.getByTestId("command-center-utility-rail-collapsed-spine")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-utility-rail-edge")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
   });
 
   it("rail reveals on mouse enter (edge zone hover)", () => {
@@ -68,7 +73,7 @@ describe("CommandCenterUtilityRail", () => {
     const container = screen.getByTestId("command-center-utility-rail-container");
     fireEvent.mouseEnter(container);
     const rail = screen.getByTestId("command-center-utility-rail");
-    expect(rail.style.width).toBe("48px");
+    expect(rail.style.width).toBe("52px");
   });
 
   it("rail collapses on mouse leave when unpinned", () => {
@@ -89,7 +94,7 @@ describe("CommandCenterUtilityRail", () => {
     fireEvent.click(pinBtn);
     // After pin, rail should stay expanded
     const rail = screen.getByTestId("command-center-utility-rail");
-    expect(rail.style.width).toBe("48px");
+    expect(rail.style.width).toBe("52px");
     expect(localStorage.getItem("codexify-command-center-rail-pinned")).toBe("true");
   });
 
@@ -101,7 +106,7 @@ describe("CommandCenterUtilityRail", () => {
     fireEvent.click(pinBtn);
     expect(localStorage.getItem("codexify-command-center-rail-pinned")).toBe("false");
     const rail = screen.getByTestId("command-center-utility-rail");
-    expect(rail.style.width).toBe("0px");
+    expect(rail.style.width).toBe("10px");
   });
 
   it("rail side toggle switches placement", () => {
@@ -127,7 +132,7 @@ describe("CommandCenterUtilityRail", () => {
     unmount();
     renderRail();
     const rail = screen.getByTestId("command-center-utility-rail");
-    expect(rail.style.width).toBe("48px");
+    expect(rail.style.width).toBe("52px");
   });
 
   it("drawer toggle calls onToggleDrawer", () => {
@@ -136,10 +141,11 @@ describe("CommandCenterUtilityRail", () => {
     expect(onToggleDrawer).toHaveBeenCalledTimes(1);
   });
 
-  it("edge affordance is keyboard focusable", () => {
+  it("edge affordance is keyboard discoverable", () => {
     renderRail();
     const edge = screen.getByTestId("command-center-utility-rail-edge");
-    expect(edge).toHaveAttribute("tabindex", "0");
+    fireEvent.focus(edge);
+    expect(edge).toHaveAttribute("aria-expanded", "true");
   });
 
   it("rail container has navigation role", () => {

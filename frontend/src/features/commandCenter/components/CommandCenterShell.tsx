@@ -15,7 +15,6 @@ import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
 import useRetrievalPosture from "@/features/commandCenter/hooks/useRetrievalPosture";
@@ -419,37 +418,51 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
       className="min-h-screen overflow-y-auto"
       data-testid="command-center-scroll-shell"
       style={{
-        background: "var(--panel-bg)",
+        background:
+          "radial-gradient(circle at 12% 8%, color-mix(in oklab, var(--accent-weak) 22%, transparent), transparent 46%), var(--surface-soft)",
         color: "var(--text)",
-        padding: "var(--card-pad)",
+        padding: "max(var(--card-pad), 16px)",
       }}
     >
-      <div
-        className="mx-auto flex w-full max-w-7xl gap-0 pb-8"
-        data-testid="command-center-shell"
-        style={{
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--panel-border)",
-          background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-          minHeight: "calc(100vh - 4rem)",
-        }}
-      >
-        <CommandCenterUtilityRail
-          activeLens={activeLens}
-          onLensChange={setActiveLens}
-          onToggleDrawer={() => setDrawerOpen((current) => !current)}
-        />
+      <div className="mx-auto w-full max-w-7xl pb-8">
+        <section
+          className="w-full"
+          data-testid="command-center-workspace-card"
+          style={{
+            borderRadius: "calc(var(--radius) + 2px)",
+            border: "1px solid color-mix(in oklab, var(--panel-border) 92%, transparent)",
+            background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -18px 42px rgba(0,0,0,0.14), 0 20px 48px rgba(0,0,0,0.2)",
+            minHeight: "calc(100vh - 4rem)",
+          }}
+        >
+          <div className="flex w-full overflow-hidden" data-testid="command-center-shell">
+            <CommandCenterUtilityRail
+              activeLens={activeLens}
+              onLensChange={setActiveLens}
+              onToggleDrawer={() => setDrawerOpen((current) => !current)}
+            />
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" style={{ padding: "var(--card-pad)" }}>
-            {lensContent}
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div
+                className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+                data-testid="command-center-lens-zone"
+                style={{
+                  paddingInline: "var(--card-pad)",
+                  paddingBlock: "calc(var(--card-pad) - 2px) var(--card-pad)",
+                }}
+              >
+                {lensContent}
+              </div>
+
+              <CommandCenterBottomDrawer
+                open={drawerOpen}
+                onToggle={() => setDrawerOpen((current) => !current)}
+              />
+            </div>
           </div>
-
-          <CommandCenterBottomDrawer
-            open={drawerOpen}
-            onToggle={() => setDrawerOpen((current) => !current)}
-          />
-        </div>
+        </section>
       </div>
     </main>
   );

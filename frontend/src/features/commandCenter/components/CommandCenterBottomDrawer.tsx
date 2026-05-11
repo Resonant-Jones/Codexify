@@ -10,6 +10,7 @@ const DRAWER_TABS: Array<{ id: DrawerTab; label: string }> = [
 ];
 
 const STORAGE_KEY_DRAWER_HEIGHT = "codexify-command-center-drawer-height";
+const COLLAPSED_DRAWER_HEIGHT = 44;
 
 function readStoredDrawerHeight(): number {
   try {
@@ -44,6 +45,11 @@ export default function CommandCenterBottomDrawer({
   const resizeRef = React.useRef<HTMLDivElement>(null);
   const resizeStartY = React.useRef<number>(0);
   const resizeStartHeight = React.useRef<number>(0);
+  const latestDrawerHeightRef = React.useRef<number>(drawerHeight);
+
+  React.useEffect(() => {
+    latestDrawerHeightRef.current = drawerHeight;
+  }, [drawerHeight]);
 
   const handleResizeMouseDown = React.useCallback(
     (event: React.MouseEvent) => {
@@ -60,13 +66,13 @@ export default function CommandCenterBottomDrawer({
       const handleMouseUp = () => {
         window.removeEventListener("mousemove", handleMouseMove);
         window.removeEventListener("mouseup", handleMouseUp);
-        writeStoredDrawerHeight(drawerHeight);
+        writeStoredDrawerHeight(latestDrawerHeightRef.current);
       };
 
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
     },
-    [drawerHeight]
+    []
   );
 
   const drawerBody = React.useMemo((): React.ReactNode => {
@@ -201,101 +207,140 @@ export default function CommandCenterBottomDrawer({
         borderTop: "1px solid var(--panel-border)",
         display: "flex",
         flexDirection: "column",
-        height: open ? `${drawerHeight}px` : "0px",
+        height: open ? `${drawerHeight}px` : `${COLLAPSED_DRAWER_HEIGHT}px`,
         overflow: "hidden",
         transition: "height 200ms ease-out",
         background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
       }}
     >
-      {/* Resize handle */}
-      {open && (
-        <div
-          ref={resizeRef}
-          data-testid="command-center-drawer-resize-handle"
-          role="separator"
-          aria-label="Resize drawer height"
-          tabIndex={0}
-          onMouseDown={handleResizeMouseDown}
-          style={{
-            height: "6px",
-            cursor: "ns-resize",
-            background: "transparent",
-            borderTop: "1px solid var(--panel-border)",
-            flexShrink: 0,
-          }}
-        />
-      )}
-
-      {/* Header with tabs */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "2px",
-          padding: "0 var(--card-pad)",
-          borderBottom: "1px solid var(--panel-border)",
-          flexShrink: 0,
-          minHeight: "36px",
-        }}
-      >
-        {DRAWER_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            data-testid={`command-center-drawer-tab-${tab.id}`}
-            aria-selected={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              padding: "6px 12px",
-              border: "none",
-              borderBottom:
-                activeTab === tab.id
-                  ? "2px solid var(--accent-strong)"
-                  : "2px solid transparent",
-              background: "transparent",
-              color:
-                activeTab === tab.id ? "var(--text)" : "var(--muted)",
-              cursor: "pointer",
-              fontSize: "12px",
-              fontWeight: activeTab === tab.id ? 600 : 400,
-              lineHeight: 1,
-              transition: "color 120ms ease-out, border-color 120ms ease-out",
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-
-        <div style={{ flex: 1 }} />
-
+      {!open ? (
         <button
           type="button"
-          aria-label="Close drawer"
-          data-testid="command-center-drawer-close"
+          data-testid="command-center-drawer-collapsed-affordance"
+          aria-label="Open command center drawer"
           onClick={onToggle}
           style={{
+            width: "100%",
+            height: `${COLLAPSED_DRAWER_HEIGHT}px`,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            width: "28px",
-            height: "28px",
+            justifyContent: "space-between",
+            padding: "0 var(--card-pad)",
             border: "none",
-            borderRadius: "var(--tile-radius)",
             background: "transparent",
-            color: "var(--muted)",
+            color: "var(--text)",
             cursor: "pointer",
-            fontSize: "14px",
-            lineHeight: 1,
           }}
         >
-          ✕
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "12px",
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            Drawer
+            <span style={{ color: "var(--muted)", fontWeight: 500, letterSpacing: "0.01em", textTransform: "none" }}>
+              Terminal tab stays non-executable
+            </span>
+          </span>
+          <span style={{ color: "var(--muted)", fontSize: "12px" }}>Open</span>
         </button>
-      </div>
+      ) : (
+        <>
+          {/* Resize handle */}
+          <div
+            ref={resizeRef}
+            data-testid="command-center-drawer-resize-handle"
+            role="separator"
+            aria-label="Resize drawer height"
+            tabIndex={0}
+            onMouseDown={handleResizeMouseDown}
+            style={{
+              height: "6px",
+              cursor: "ns-resize",
+              background: "transparent",
+              borderTop: "1px solid var(--panel-border)",
+              flexShrink: 0,
+            }}
+          />
 
-      {/* Body */}
-      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        {drawerBody}
-      </div>
+          {/* Header with tabs */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "2px",
+              padding: "0 var(--card-pad)",
+              borderBottom: "1px solid var(--panel-border)",
+              flexShrink: 0,
+              minHeight: "36px",
+            }}
+          >
+            {DRAWER_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-testid={`command-center-drawer-tab-${tab.id}`}
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: "6px 12px",
+                  border: "none",
+                  borderBottom:
+                    activeTab === tab.id
+                      ? "2px solid var(--accent-strong)"
+                      : "2px solid transparent",
+                  background: "transparent",
+                  color:
+                    activeTab === tab.id ? "var(--text)" : "var(--muted)",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: activeTab === tab.id ? 600 : 400,
+                  lineHeight: 1,
+                  transition: "color 120ms ease-out, border-color 120ms ease-out",
+                }}
+              >
+                {tab.id === "terminal" ? "Terminal (Read-only)" : tab.label}
+              </button>
+            ))}
+
+            <div style={{ flex: 1 }} />
+
+            <button
+              type="button"
+              aria-label="Collapse drawer"
+              data-testid="command-center-drawer-close"
+              onClick={onToggle}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "28px",
+                height: "28px",
+                border: "none",
+                borderRadius: "var(--tile-radius)",
+                background: "transparent",
+                color: "var(--muted)",
+                cursor: "pointer",
+                fontSize: "14px",
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {drawerBody}
+          </div>
+        </>
+      )}
     </div>
   );
 }

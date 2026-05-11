@@ -146,11 +146,20 @@ describe("CodingWorkOrdersPanel", () => {
     render(<CodingWorkOrdersPanel />);
 
     expect(
+      screen.getByTestId("command-center-agent-lens-title")
+    ).toHaveTextContent("Agent Command Center");
+    expect(screen.getByTestId("command-center-agent-chip-work-orders")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-agent-chip-dispatch")).toHaveTextContent(
+      "Dispatch: disabled"
+    );
+    expect(
       screen.getByRole("heading", { name: "Automated Worker Control Plane" })
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Dispatch, lease allocation, merge automation, and worker launch are not enabled/i)
     ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-summary-cards")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-worker-control-card")).toBeInTheDocument();
 
     expect(await screen.findByTestId("coding-work-orders-panel")).toBeInTheDocument();
   });
@@ -167,6 +176,8 @@ describe("CodingWorkOrdersPanel", () => {
     expect(await screen.findByText("Ready one")).toBeInTheDocument();
     expect(screen.getByText("Blocked one")).toBeInTheDocument();
     expect(screen.getAllByTestId("coding-work-order-row")).toHaveLength(2);
+    expect(screen.getByTestId("command-center-work-orders-card")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-detail-card")).toBeInTheDocument();
   });
 
   it("renders orchestrator recommendations and skipped reasons", async () => {
@@ -369,20 +380,10 @@ describe("CodingWorkOrdersPanel", () => {
     render(<CodingWorkOrdersPanel />);
     await screen.findAllByTestId("coding-work-order-row");
 
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Total: 4")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Ready: 1")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Active-ish: 2")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Blocked/escalated: 1")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Merge-ready: 1")
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-summary-total")).toHaveTextContent("4");
+    expect(screen.getByTestId("command-center-work-order-summary-ready")).toHaveTextContent("1");
+    expect(screen.getByTestId("command-center-work-order-summary-active")).toHaveTextContent("2");
+    expect(screen.getByTestId("command-center-work-order-summary-blocked")).toHaveTextContent("1");
+    expect(screen.getByTestId("command-center-work-order-summary-merge-ready")).toHaveTextContent("1");
   });
 });
