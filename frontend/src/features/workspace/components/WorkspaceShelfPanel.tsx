@@ -13,12 +13,84 @@ type MediaBase = {
   created_at?: string;
   project_id?: string | number;
   thread_id?: string | number;
+  source_tag?: string | null;
 };
 
 type DocumentItem = MediaBase;
 type ImageItem = MediaBase;
 
 type ShelfItem = { kind: "document"; item: DocumentItem } | { kind: "image"; item: ImageItem };
+
+const WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY = "cfy.workspace.shelf.agent-read.v1";
+const AGENT_UPDATE_SOURCE_TAG_HINTS = [
+  "assistant",
+  "agent",
+  "generated",
+  "automation",
+  "system",
+  "codex",
+];
+
+type ShelfReadState = Record<string, string>;
+
+function loadShelfReadState(): ShelfReadState {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as ShelfReadState;
+  } catch {
+    return {};
+  }
+}
+
+function persistShelfReadState(state: ShelfReadState) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      WORKSPACE_SHELF_AGENT_READ_STORAGE_KEY,
+      JSON.stringify(state)
+    );
+  } catch {
+    // Local persistence is best effort for this first-pass UX state.
+  }
+}
+
+function normalizeSourceTag(tag: string | null | undefined): string {
+  return String(tag ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function hasAgentUpdateSource(item: MediaBase): boolean {
+  const normalizedTag = normalizeSourceTag(item.source_tag);
+  if (!normalizedTag) return false;
+  return AGENT_UPDATE_SOURCE_TAG_HINTS.some((hint) =>
+    normalizedTag.includes(hint)
+  );
+}
+
+function getShelfItemKey(item: ShelfItem): string {
+  return `${item.kind}:${item.item.id}`;
+}
+
+function getShelfItemVersion(item: MediaBase): string {
+  const createdAt = String(item.created_at ?? "").trim();
+  if (createdAt) return createdAt;
+  const source = String(item.src_url ?? "").trim();
+  if (source) return source;
+  return item.id;
+}
+
+function sanitizeTestIdSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-");
+}
+
+function getUnreadIndicatorTestId(item: ShelfItem): string {
+  return `workspace-shelf-unread-${item.kind}-${sanitizeTestIdSegment(item.item.id)}`;
+}
 
 function documentItemToFile(doc: DocumentItem) {
   const name = doc.filename || "Untitled";
@@ -97,6 +169,9 @@ export default function WorkspaceShelfPanel({
     projectDocuments: [],
     projectImages: [],
   });
+  const [shelfReadState, setShelfReadState] = useState<ShelfReadState>(() =>
+    loadShelfReadState()
+  );
 
   const apiKey = (import.meta as any).env?.VITE_GUARDIAN_API_KEY as string | undefined;
 
@@ -220,16 +295,60 @@ export default function WorkspaceShelfPanel({
     fetchShelfData();
   }, [fetchShelfData]);
 
-  const handleItemClick = useCallback(
+  useEffect(() => {
+    persistShelfReadState(shelfReadState);
+  }, [shelfReadState]);
+
+  const markShelfItemAsRead = useCallback((item: ShelfItem) => {
+    if (!hasAgentUpdateSource(item.item)) return;
+    const key = getShelfItemKey(item);
+    const version = getShelfItemVersion(item.item);
+    setShelfReadState((previous) => {
+      if (previous[key] === version) return previous;
+      return { ...previous, [key]: version };
+    });
+  }, []);
+
+  const hasUnreadAgentUpdate = useCallback(
     (item: ShelfItem) => {
-      onItemClick?.(item);
+      if (!hasAgentUpdateSource(item.item)) return false;
+      const key = getShelfItemKey(item);
+      const version = getShelfItemVersion(item.item);
+      return shelfReadState[key] !== version;
     },
-    [onItemClick]
+    [shelfReadState]
   );
 
-  const renderDocumentTile = (doc: DocumentItem) => (
-    <div
+  const handleItemClick = useCallback(
+    (item: ShelfItem) => {
+      markShelfItemAsRead(item);
+      onItemClick?.(item);
+    },
+    [markShelfItemAsRead, onItemClick]
+  );
+
+  const renderUnreadIndicator = (item: ShelfItem) => {
+    if (!hasUnreadAgentUpdate(item)) return null;
+    return (
+      <span
+        className="pointer-events-none absolute right-2 top-2 z-10 inline-flex h-2.5 w-2.5 rounded-full border"
+        style={{
+          background: "var(--accent-strong)",
+          borderColor: "var(--panel-bg)",
+        }}
+        data-testid={getUnreadIndicatorTestId(item)}
+        aria-label="Unread agent update"
+        title="Unread agent update"
+      />
+    );
+  };
+
+  const renderDocumentTile = (doc: DocumentItem) => {
+    const shelfItem: ShelfItem = { kind: "document", item: doc };
+    return (
+      <div
       key={doc.id}
+      className="relative"
       draggable
       onDragStart={(event) => {
         try {
@@ -241,16 +360,21 @@ export default function WorkspaceShelfPanel({
         } catch {}
       }}
     >
+      {renderUnreadIndicator(shelfItem)}
       <DocumentTile
         file={documentItemToFile(doc)}
-        onClick={() => handleItemClick({ kind: "document", item: doc })}
+        onClick={() => handleItemClick(shelfItem)}
       />
     </div>
-  );
+    );
+  };
 
-  const renderImageTile = (img: ImageItem) => (
-    <div
+  const renderImageTile = (img: ImageItem) => {
+    const shelfItem: ShelfItem = { kind: "image", item: img };
+    return (
+      <div
       key={img.id}
+      className="relative"
       draggable
       onDragStart={(event) => {
         try {
@@ -262,10 +386,11 @@ export default function WorkspaceShelfPanel({
         } catch {}
       }}
     >
+      {renderUnreadIndicator(shelfItem)}
       <PreviewTile
         tone="panel"
         className="cursor-pointer transition-transform duration-150 ease-[cubic-bezier(.2,.7,.2,1)] hover:-translate-y-0.5 active:translate-y-0"
-        onClick={() => handleItemClick({ kind: "image", item: img })}
+        onClick={() => handleItemClick(shelfItem)}
       >
         <div className="min-h-[112px]">
           <div className="rounded-[10px] aspect-[4/3] overflow-hidden">
@@ -283,7 +408,8 @@ export default function WorkspaceShelfPanel({
         </div>
       </PreviewTile>
     </div>
-  );
+    );
+  };
 
   const hasThreadItems = state.threadDocuments.length > 0 || state.threadImages.length > 0;
   const hasProjectItems = state.projectDocuments.length > 0 || state.projectImages.length > 0;
