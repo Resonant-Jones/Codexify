@@ -1,8 +1,6 @@
 import * as React from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
 import CommandCenterShell from "@/features/commandCenter/components/CommandCenterShell";
 import type {
@@ -20,20 +18,12 @@ import useCommandCenterEvents from "@/features/commandCenter/hooks/useCommandCen
 import useHealthSummary from "@/features/commandCenter/hooks/useHealthSummary";
 import {
   buildCommandCenterEventConsoleRows,
-  countCommandCenterUnknownItems,
-  countCommandCenterWarningSignals,
   filterCommandCenterRuns,
 } from "@/features/commandCenter/commandCenterObservability";
-import {
-  describeRuntimeStatusPresentation,
-  type RuntimeStatusTone,
-} from "@/contracts/runtimeTokens";
 
 type CommandCenterPageProps = {
   enabled: boolean;
 };
-
-type BadgeTone = RuntimeStatusTone | "danger";
 
 const filtersDefault: CommandCenterTraceFilters = {
   model: "",
@@ -44,73 +34,6 @@ const filtersDefault: CommandCenterTraceFilters = {
   warningsOnly: false,
 };
 
-function formatTimestamp(value: number | null): string {
-  if (!value) return "Not yet";
-  return new Date(value).toLocaleString();
-}
-
-function toneStyle(tone: BadgeTone): React.CSSProperties {
-  switch (tone) {
-    case "active":
-      return {
-        background: "var(--accent-weak)",
-        borderColor: "color-mix(in oklab, var(--accent-strong) 35%, var(--panel-border))",
-        color: "var(--text-on-accent)",
-      };
-    case "attention":
-      return {
-        background: "color-mix(in oklab, var(--chip-bg) 82%, var(--accent-strong) 18%)",
-        borderColor: "color-mix(in oklab, var(--accent-strong) 42%, var(--panel-border))",
-        color: "var(--text)",
-      };
-    case "danger":
-      return {
-        background: "var(--danger-surface)",
-        borderColor: "var(--danger-border)",
-        color: "var(--danger-text)",
-      };
-    case "info":
-      return {
-        background: "var(--info-surface)",
-        borderColor: "var(--panel-border)",
-        color: "var(--info-text)",
-      };
-    case "neutral":
-      return {
-        background: "var(--chip-bg)",
-        borderColor: "var(--panel-border)",
-        color: "var(--text)",
-      };
-    case "subtle":
-    default:
-      return {
-        background: "var(--surface-soft)",
-        borderColor: "var(--panel-border)",
-        color: "var(--muted)",
-      };
-  }
-}
-
-function BadgePill({
-  ariaLabel,
-  children,
-  tone,
-}: {
-  ariaLabel?: string;
-  children: React.ReactNode;
-  tone: BadgeTone;
-}) {
-  return (
-    <Badge
-      aria-label={ariaLabel}
-      className="border text-[11px] font-medium leading-none"
-      style={toneStyle(tone)}
-    >
-      {children}
-    </Badge>
-  );
-}
-
 export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   const {
     connectionDetail,
@@ -118,7 +41,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     events,
     lastEventAt,
     runs,
-    unauthorized,
   } = useCommandCenterEvents({ enabled });
   const { healthItems, lastCheckedAt, loading, refresh } = useHealthSummary({
     enabled,
@@ -130,8 +52,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     React.useState<RetrievalPostureHistoryFilter>("all");
   const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
     React.useState<RetrievalPostureHistoryWindowSize>(5);
-  const [showHealthOverview, setShowHealthOverview] = React.useState(false);
-  const [showObservabilityWorkbench, setShowObservabilityWorkbench] = React.useState(true);
   const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
     React.useState<PinnedRetrievalPostureState>(null);
 
@@ -188,14 +108,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     }
   }, [selectedRunKey, visibleRuns]);
 
-  const transportPresentation = React.useMemo(() => {
-    if (unauthorized) {
-      return { label: "Unauthorized", tone: "danger" as BadgeTone };
-    }
-    const presentation = describeRuntimeStatusPresentation(connectionState);
-    return { label: presentation.label, tone: presentation.tone as BadgeTone };
-  }, [connectionState, unauthorized]);
-
   if (!enabled) {
     return (
       <main
@@ -223,167 +135,6 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
   }
 
   return (
-    <main
-      className="min-h-screen overflow-y-auto p-[var(--card-pad)]"
-      data-testid="command-center-scroll-shell"
-      style={{ background: "var(--panel-bg)", color: "var(--text)" }}
-    >
-      <div
-        className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8"
-        data-testid="command-center-scroll-content"
-      >
-        <DashboardHeader
-          connectionDetail={connectionDetail}
-          lastEventAt={lastEventAt}
-          transportLabel={transportPresentation.label}
-          transportTone={transportPresentation.tone}
-        />
-
-        <CodingWorkOrdersPanel />
-
-        <DashboardSummary
-          healthCount={healthItems.length}
-          lastEventAt={lastEventAt}
-          transportLabel={transportPresentation.label}
-          transportTone={transportPresentation.tone}
-          unknownCount={unknownCount}
-          visibleRunCount={visibleRuns.length}
-          warningCount={warningCount}
-        />
-
-        <Card
-          className="bezel-none border"
-          data-testid="command-center-health-section"
-          style={{
-            background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-            borderColor: "var(--panel-border)",
-          }}
-        >
-          <CardHeader className="flex flex-col gap-3 border-b border-[var(--panel-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-                Health overview
-              </CardTitle>
-              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                Collapsed by default so Worker Control remains primary. Expand for endpoint-level health details.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              onClick={() => setShowHealthOverview((current) => !current)}
-            >
-              {showHealthOverview ? "Collapse health details" : "Expand health details"}
-            </Button>
-          </CardHeader>
-          <CardContent className="p-[var(--card-pad)]">
-            {showHealthOverview ? (
-              <HealthOverview
-                healthItems={healthItems}
-                lastCheckedAt={lastCheckedAt}
-                loading={loading}
-                onRefresh={refresh}
-              />
-            ) : (
-              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                Health detail cards are available on demand. Runtime summary above stays visible for quick triage.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card
-          className="bezel-none border"
-          data-testid="command-center-observability-shell"
-          style={{
-            background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-            borderColor: "var(--panel-border)",
-          }}
-        >
-          <CardHeader className="flex flex-col gap-3 border-b border-[var(--panel-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-base" style={{ color: "var(--text)" }}>
-                Trace and observability workbench
-              </CardTitle>
-              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                Deep diagnostics stay available here while Worker Control remains the top-level operator flow.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              onClick={() => setShowObservabilityWorkbench((current) => !current)}
-            >
-              {showObservabilityWorkbench
-                ? "Collapse observability workbench"
-                : "Expand observability workbench"}
-            </Button>
-          </CardHeader>
-          <CardContent className="p-[var(--card-pad)]">
-            {showObservabilityWorkbench ? (
-              <div
-                className="flex min-h-0 flex-col gap-4 overflow-visible"
-                data-testid="command-center-root"
-              >
-                {activeThreadId !== null ? (
-                  <div>
-                    <RetrievalPosturePanel
-                      compact
-                      historyFilter={retrievalPostureHistoryFilter}
-                      historyWindowSize={retrievalPostureHistoryWindowSize}
-                      onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
-                      onHistoryFilterChange={setRetrievalPostureHistoryFilter}
-                      onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
-                      onPinCurrentPosture={onPinCurrentRetrievalPosture}
-                      onPinHistoryPosture={onPinHistoryRetrievalPosture}
-                      pinnedRetrievalPosture={pinnedRetrievalPosture}
-                      showHistorySection
-                      showComparisonStrip
-                      showTrendBadge
-                      testId="command-center-thread-posture-panel"
-                      threadId={activeThreadId}
-                      title="Thread retrieval posture"
-                    />
-                  </div>
-                ) : null}
-                <TraceWorkbench
-                  allRuns={runs}
-                  filters={traceFilters}
-                  onFiltersChange={setTraceFilters}
-                  onSelectRun={setSelectedRunKey}
-                  selectedRun={selectedRun}
-                  selectedRunKey={selectedRunKey}
-                  visibleRuns={visibleRuns}
-                />
-
-                <RecentRetrievalPosturePanel
-                  onPinHistoryPosture={onPinHistoryRetrievalPosture}
-                  threadId={activeThreadId}
-                />
-
-                <div
-                  className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
-                  style={{ borderColor: "var(--panel-border)" }}
-                >
-                  <EventConsole
-                    connectionDetail={connectionDetail}
-                    connectionState={connectionState}
-                    lastEventAt={lastEventAt}
-                    rows={consoleRows}
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                Expand to inspect trace payloads, retrieval posture history, and raw event transport diagnostics.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </main>
     <CommandCenterShell
       connectionDetail={connectionDetail}
       connectionState={connectionState}
