@@ -38,6 +38,7 @@ Define a phased implementation sequence for future work while preserving current
 - Proof expectation: Command Center panel tests (`frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx`) prove work-order list/create/cancel visibility plus recommendation-only rendering and explicit non-dispatch boundaries.
 - Live proof status (2026-05-10): attempted through Compose-supported runtime in `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`, but UI route proof was blocked by frontend runtime errors; backend API seam proof passed.
 - Usability hardening note (2026-05-10): Command Center layout is now scroll-safe with Worker Control promoted near the top, health details collapsed by default, and observability workbench controls kept explicit while preserving non-dispatch boundaries.
+- UI shell hardening note (2026-05-11): Command Center refactored into a shell-with-lenses layout with gesture utility rail (Agent Command / Observability / Runtime Health / Event Console / Deep Settings / Extensions), bottom slide-up drawer scaffold (Terminal / Logs / Receipts / Problems), and left/right rail placement with localStorage persistence. Agent Command is the default lens. Terminal tab is non-executable. No dispatch, lease allocation, plugin runtime, or merge automation implemented.
 
 ### Phase 8: live MiniMax/Codex proof
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
