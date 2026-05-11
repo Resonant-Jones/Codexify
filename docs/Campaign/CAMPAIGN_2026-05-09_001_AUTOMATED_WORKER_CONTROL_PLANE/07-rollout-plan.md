@@ -37,12 +37,14 @@ Define a phased implementation sequence for future work while preserving current
 - Scope: operator-facing run ledger and receipt inspection surfaces.
 - Proof expectation: Command Center panel tests (`frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx`) prove work-order list/create/cancel visibility plus recommendation-only rendering and explicit non-dispatch boundaries.
 - Live proof status (2026-05-10): attempted through Compose-supported runtime in `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`, but UI route proof was blocked by frontend runtime errors; backend API seam proof passed.
+- Usability hardening note (2026-05-10): Command Center layout is now scroll-safe with Worker Control promoted near the top, health details collapsed by default, and observability workbench controls kept explicit while preserving non-dispatch boundaries.
 
 ### Phase 8: live MiniMax/Codex proof
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
 - Proof expectation: durable proof artifact with branch/worktree/commands/validation/cleanup evidence and explicit limitations.
 - Prior status (2026-05-10): initial run and render-repair rerun were incomplete due Command Center runtime instability (see `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md` and `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`).
 - Rerun status (2026-05-10, post-null-safety-repair): **PASSED** for the non-dispatch Command Center worker-control seam on supported Compose runtime. Backend work-order/orchestrator APIs passed, panel test IDs stayed present after observability load wait, and no-dispatch boundaries held. See `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`.
+- Usability hardening note (2026-05-10): this phase remains non-dispatch; improvements were limited to operator layout/ergonomics (scrolling, hierarchy, and panel compactness) without adding dispatch authority.
 
 ### Phase 9 (optional): external tracker/workflow adaptation
 - Scope:

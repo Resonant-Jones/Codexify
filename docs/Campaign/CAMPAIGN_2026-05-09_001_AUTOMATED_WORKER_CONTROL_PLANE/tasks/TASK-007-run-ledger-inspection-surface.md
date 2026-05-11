@@ -62,3 +62,11 @@ Implement Phase 7 by adding a Command Center worker-control panel that surfaces 
 - Backend API seam (create/list/detail/cancel + recommendation-only next-task) was proven live on Compose runtime.
 - No-dispatch boundary remained explicit (no dispatch endpoint calls, no lease allocation evidence, no queue growth).
 - UI route proof is now stable on rerun after null-safety repair: worker-control panel remains visible after observability load wait, while dispatch stays disabled and unimplemented.
+
+## Usability hardening follow-through
+- Command Center worker-control layout was hardened for operator use without widening authority:
+  - page-level vertical scrolling is explicit and resilient
+  - Worker Control remains near the top
+  - health detail cards are collapsible by default
+  - observability panes remain available but no longer bury work-order actions
+- Non-dispatch boundary remains unchanged: no dispatch button, no worker launch, no lease allocation, no merge automation.

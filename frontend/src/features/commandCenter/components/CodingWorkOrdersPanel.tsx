@@ -173,7 +173,9 @@ export default function CodingWorkOrdersPanel() {
   const [commitAfterValidation, setCommitAfterValidation] = React.useState(false);
   const [requireHumanReviewBeforeMerge, setRequireHumanReviewBeforeMerge] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
+  const [createFormExpanded, setCreateFormExpanded] = React.useState(false);
   const [cancelingId, setCancelingId] = React.useState<string | null>(null);
+  const [showSkippedReasons, setShowSkippedReasons] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [actionNotice, setActionNotice] = React.useState<string | null>(null);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = React.useState<string | null>(null);
@@ -377,158 +379,180 @@ export default function CodingWorkOrdersPanel() {
 
         <div className="grid gap-4 xl:grid-cols-2">
           <div className="space-y-4">
-            <form
+            <div
               className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]"
-              data-testid="coding-work-order-create-form"
-              onSubmit={onSubmit}
               style={{ borderColor: "var(--panel-border)", background: "var(--surface-soft)" }}
             >
-              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                Create work order
-              </div>
-
-              <div className="grid gap-2">
-                <label className="text-xs" htmlFor="coding-wo-title" style={{ color: "var(--muted)" }}>
-                  Title
-                </label>
-                <Input
-                  id="coding-wo-title"
-                  onChange={(event) => setTitle(event.target.value)}
-                  value={title}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <label className="text-xs" htmlFor="coding-wo-objective" style={{ color: "var(--muted)" }}>
-                  Objective
-                </label>
-                <Textarea
-                  id="coding-wo-objective"
-                  onChange={(event) => setObjective(event.target.value)}
-                  rows={3}
-                  value={objective}
-                />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-campaign-id" style={{ color: "var(--muted)" }}>
-                    Campaign ID (optional)
-                  </label>
-                  <Input
-                    id="coding-wo-campaign-id"
-                    onChange={(event) => setCampaignId(event.target.value)}
-                    value={campaignId}
-                  />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                  Create work order
                 </div>
-                <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-priority" style={{ color: "var(--muted)" }}>
-                    Priority
-                  </label>
-                  <Input
-                    id="coding-wo-priority"
-                    onChange={(event) => setPriority(event.target.value)}
-                    type="number"
-                    value={priority}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-validation-command" style={{ color: "var(--muted)" }}>
-                    Validation command (optional)
-                  </label>
-                  <Input
-                    id="coding-wo-validation-command"
-                    onChange={(event) => setValidationCommand(event.target.value)}
-                    value={validationCommand}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <label className="text-xs" htmlFor="coding-wo-adapter-kind" style={{ color: "var(--muted)" }}>
-                    Adapter kind (optional)
-                  </label>
-                  <Input
-                    id="coding-wo-adapter-kind"
-                    onChange={(event) => setAdapterKind(event.target.value)}
-                    value={adapterKind}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <label className="text-xs" htmlFor="coding-wo-file-scope" style={{ color: "var(--muted)" }}>
-                  File scope (comma or newline separated)
-                </label>
-                <Textarea
-                  id="coding-wo-file-scope"
-                  onChange={(event) => setFileScopeInput(event.target.value)}
-                  rows={3}
-                  value={fileScopeInput}
-                />
-              </div>
-
-              <div className="grid gap-2 text-xs" style={{ color: "var(--muted)" }}>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    checked={requireWorktreeLease}
-                    className="h-4 w-4 rounded border"
-                    onChange={(event) => setRequireWorktreeLease(event.target.checked)}
-                    type="checkbox"
-                  />
-                  Require worktree lease
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    checked={commitAfterValidation}
-                    className="h-4 w-4 rounded border"
-                    onChange={(event) => setCommitAfterValidation(event.target.checked)}
-                    type="checkbox"
-                  />
-                  Commit after validation
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    checked={requireHumanReviewBeforeMerge}
-                    className="h-4 w-4 rounded border"
-                    onChange={(event) =>
-                      setRequireHumanReviewBeforeMerge(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  Require human review before merge
-                </label>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button disabled={submitting} type="submit">
-                  {submitting ? "Creating…" : "Create work order"}
-                </Button>
-                {actionNotice ? (
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>
-                    {actionNotice}
-                  </span>
-                ) : null}
-              </div>
-
-              {actionError ? (
-                <div
-                  className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
-                  style={{
-                    background: "var(--danger-surface)",
-                    borderColor: "var(--danger-border)",
-                    color: "var(--danger-text)",
-                  }}
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setCreateFormExpanded((current) => !current)}
                 >
-                  {actionError}
+                  {createFormExpanded ? "Collapse form" : "Expand form"}
+                </Button>
+              </div>
+              <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+                Keep this bounded for operator speed. Expand to set full task metadata.
+              </p>
+
+              <form
+                className={createFormExpanded ? "space-y-3" : "hidden"}
+                data-testid="coding-work-order-create-form"
+                onSubmit={onSubmit}
+              >
+                <div className="grid gap-2">
+                  <label className="text-xs" htmlFor="coding-wo-title" style={{ color: "var(--muted)" }}>
+                    Title
+                  </label>
+                  <Input
+                    id="coding-wo-title"
+                    onChange={(event) => setTitle(event.target.value)}
+                    value={title}
+                  />
                 </div>
-              ) : null}
-            </form>
+
+                <div className="grid gap-2">
+                  <label className="text-xs" htmlFor="coding-wo-objective" style={{ color: "var(--muted)" }}>
+                    Objective
+                  </label>
+                  <Textarea
+                    id="coding-wo-objective"
+                    onChange={(event) => setObjective(event.target.value)}
+                    rows={3}
+                    value={objective}
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="text-xs" htmlFor="coding-wo-campaign-id" style={{ color: "var(--muted)" }}>
+                      Campaign ID (optional)
+                    </label>
+                    <Input
+                      id="coding-wo-campaign-id"
+                      onChange={(event) => setCampaignId(event.target.value)}
+                      value={campaignId}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-xs" htmlFor="coding-wo-priority" style={{ color: "var(--muted)" }}>
+                      Priority
+                    </label>
+                    <Input
+                      id="coding-wo-priority"
+                      onChange={(event) => setPriority(event.target.value)}
+                      type="number"
+                      value={priority}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="text-xs" htmlFor="coding-wo-validation-command" style={{ color: "var(--muted)" }}>
+                      Validation command (optional)
+                    </label>
+                    <Input
+                      id="coding-wo-validation-command"
+                      onChange={(event) => setValidationCommand(event.target.value)}
+                      value={validationCommand}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-xs" htmlFor="coding-wo-adapter-kind" style={{ color: "var(--muted)" }}>
+                      Adapter kind (optional)
+                    </label>
+                    <Input
+                      id="coding-wo-adapter-kind"
+                      onChange={(event) => setAdapterKind(event.target.value)}
+                      value={adapterKind}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="text-xs" htmlFor="coding-wo-file-scope" style={{ color: "var(--muted)" }}>
+                    File scope (comma or newline separated)
+                  </label>
+                  <Textarea
+                    id="coding-wo-file-scope"
+                    onChange={(event) => setFileScopeInput(event.target.value)}
+                    rows={3}
+                    value={fileScopeInput}
+                  />
+                </div>
+
+                <div className="grid gap-2 text-xs" style={{ color: "var(--muted)" }}>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      checked={requireWorktreeLease}
+                      className="h-4 w-4 rounded border"
+                      onChange={(event) => setRequireWorktreeLease(event.target.checked)}
+                      type="checkbox"
+                    />
+                    Require worktree lease
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      checked={commitAfterValidation}
+                      className="h-4 w-4 rounded border"
+                      onChange={(event) => setCommitAfterValidation(event.target.checked)}
+                      type="checkbox"
+                    />
+                    Commit after validation
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      checked={requireHumanReviewBeforeMerge}
+                      className="h-4 w-4 rounded border"
+                      onChange={(event) =>
+                        setRequireHumanReviewBeforeMerge(event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    Require human review before merge
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button disabled={submitting} type="submit">
+                    {submitting ? "Creating…" : "Create work order"}
+                  </Button>
+                  {actionNotice ? (
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>
+                      {actionNotice}
+                    </span>
+                  ) : null}
+                </div>
+
+                {actionError ? (
+                  <div
+                    className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+                    style={{
+                      background: "var(--danger-surface)",
+                      borderColor: "var(--danger-border)",
+                      color: "var(--danger-text)",
+                    }}
+                  >
+                    {actionError}
+                  </div>
+                ) : null}
+              </form>
+            </div>
 
             <div className="space-y-3 rounded-[var(--tile-radius)] border p-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
-              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-                Work orders
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                  Work orders
+                </div>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>
+                  {items.length} total
+                </span>
               </div>
               {workOrderLoading ? (
                 <div className="text-sm" style={{ color: "var(--muted)" }}>
@@ -550,11 +574,11 @@ export default function CodingWorkOrdersPanel() {
 
               {!workOrderLoading && items.length === 0 ? (
                 <div className="text-sm" style={{ color: "var(--muted)" }}>
-                  No coding work orders yet.
+                  No coding work orders yet. Expand the create form above to add one.
                 </div>
               ) : null}
 
-              <div className="space-y-2">
+              <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
                 {items.map((order) => (
                   <div
                     key={order.work_order_id}
@@ -575,6 +599,9 @@ export default function CodingWorkOrdersPanel() {
                         </div>
                         <div className="text-xs leading-5" style={{ color: "var(--muted)" }}>
                           {order.objective}
+                        </div>
+                        <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+                          ID: {order.work_order_id}
                         </div>
                       </div>
                       <Badge className="border text-[11px] font-medium" style={toneStyle(statusTone(order.status))}>
@@ -685,10 +712,10 @@ export default function CodingWorkOrdersPanel() {
               </div>
             ) : null}
 
-            <div className="space-y-2" data-testid="coding-orchestrator-recommendations">
+            <div className="max-h-[18rem] space-y-2 overflow-auto pr-1" data-testid="coding-orchestrator-recommendations">
               {recommendations.length === 0 && !recommendationsLoading ? (
                 <div className="text-sm" style={{ color: "var(--muted)" }}>
-                  No recommendations available right now.
+                  No recommendations available right now. This is expected when ready work is unavailable.
                 </div>
               ) : (
                 recommendations.map((recommendation) => (
@@ -725,14 +752,28 @@ export default function CodingWorkOrdersPanel() {
             </div>
 
             <div className="space-y-2" data-testid="coding-orchestrator-skipped">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
-                Skipped
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
+                  Skipped
+                </div>
+                {skipped.length > 0 ? (
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowSkippedReasons((current) => !current)}
+                  >
+                    {showSkippedReasons
+                      ? "Hide skipped reasons"
+                      : `Show skipped reasons (${skipped.length})`}
+                  </Button>
+                ) : null}
               </div>
               {skipped.length === 0 ? (
                 <div className="text-sm" style={{ color: "var(--muted)" }}>
                   No skipped work orders.
                 </div>
-              ) : (
+              ) : showSkippedReasons ? (
                 skipped.map((entry) => (
                   <div
                     key={`${entry.work_order_id}:${entry.reason_code}`}
@@ -745,6 +786,10 @@ export default function CodingWorkOrdersPanel() {
                     <div>{entry.message}</div>
                   </div>
                 ))
+              ) : (
+                <div className="text-sm" style={{ color: "var(--muted)" }}>
+                  Skipped reasons are collapsed to keep recommendations scannable.
+                </div>
               )}
             </div>
 
