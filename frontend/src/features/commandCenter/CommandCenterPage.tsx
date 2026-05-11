@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import EventConsole from "@/features/commandCenter/components/EventConsole";
@@ -438,6 +439,8 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
     React.useState<RetrievalPostureHistoryFilter>("all");
   const [retrievalPostureHistoryWindowSize, setRetrievalPostureHistoryWindowSize] =
     React.useState<RetrievalPostureHistoryWindowSize>(5);
+  const [showHealthOverview, setShowHealthOverview] = React.useState(false);
+  const [showObservabilityWorkbench, setShowObservabilityWorkbench] = React.useState(true);
   const [pinnedRetrievalPosture, setPinnedRetrievalPosture] =
     React.useState<PinnedRetrievalPostureState>(null);
 
@@ -550,16 +553,22 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
 
   return (
     <main
-      className="flex min-h-0 flex-1 flex-col overflow-hidden p-[var(--card-pad)]"
+      className="min-h-screen overflow-y-auto p-[var(--card-pad)]"
+      data-testid="command-center-scroll-shell"
       style={{ background: "var(--panel-bg)", color: "var(--text)" }}
     >
-      <div className="mx-auto flex min-h-0 flex-1 flex-col gap-4 w-full max-w-7xl overflow-hidden">
+      <div
+        className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8"
+        data-testid="command-center-scroll-content"
+      >
         <DashboardHeader
           connectionDetail={connectionDetail}
           lastEventAt={lastEventAt}
           transportLabel={transportPresentation.label}
           transportTone={transportPresentation.tone}
         />
+
+        <CodingWorkOrdersPanel />
 
         <DashboardSummary
           healthCount={healthItems.length}
@@ -571,69 +580,137 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
           warningCount={warningCount}
         />
 
-        <HealthOverview
-          healthItems={healthItems}
-          lastCheckedAt={lastCheckedAt}
-          loading={loading}
-          onRefresh={refresh}
-        />
-
-        <CodingWorkOrdersPanel />
-
-        <div
-          className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden rounded-[var(--tile-radius)] border"
-          data-testid="command-center-root"
+        <Card
+          className="bezel-none border"
+          data-testid="command-center-health-section"
           style={{
             background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
             borderColor: "var(--panel-border)",
-            padding: "var(--card-pad)",
           }}
         >
-          {activeThreadId !== null ? (
-            <div className="mb-4">
-              <RetrievalPosturePanel
-                compact
-                historyFilter={retrievalPostureHistoryFilter}
-                historyWindowSize={retrievalPostureHistoryWindowSize}
-                onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
-                onHistoryFilterChange={setRetrievalPostureHistoryFilter}
-                onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
-                onPinCurrentPosture={onPinCurrentRetrievalPosture}
-                onPinHistoryPosture={onPinHistoryRetrievalPosture}
-                pinnedRetrievalPosture={pinnedRetrievalPosture}
-                showHistorySection
-                showComparisonStrip
-                showTrendBadge
-                testId="command-center-thread-posture-panel"
-                threadId={activeThreadId}
-                title="Thread retrieval posture"
-              />
+          <CardHeader className="flex flex-col gap-3 border-b border-[var(--panel-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+                Health overview
+              </CardTitle>
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                Collapsed by default so Worker Control remains primary. Expand for endpoint-level health details.
+              </p>
             </div>
-          ) : null}
-          <TraceWorkbench
-            allRuns={runs}
-            filters={traceFilters}
-            onFiltersChange={setTraceFilters}
-            onSelectRun={setSelectedRunKey}
-            selectedRun={selectedRun}
-            selectedRunKey={selectedRunKey}
-            visibleRuns={visibleRuns}
-          />
-        </div>
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={() => setShowHealthOverview((current) => !current)}
+            >
+              {showHealthOverview ? "Collapse health details" : "Expand health details"}
+            </Button>
+          </CardHeader>
+          <CardContent className="p-[var(--card-pad)]">
+            {showHealthOverview ? (
+              <HealthOverview
+                healthItems={healthItems}
+                lastCheckedAt={lastCheckedAt}
+                loading={loading}
+                onRefresh={refresh}
+              />
+            ) : (
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                Health detail cards are available on demand. Runtime summary above stays visible for quick triage.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
-        <RecentRetrievalPosturePanel
-          onPinHistoryPosture={onPinHistoryRetrievalPosture}
-          threadId={activeThreadId}
-        />
+        <Card
+          className="bezel-none border"
+          data-testid="command-center-observability-shell"
+          style={{
+            background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+            borderColor: "var(--panel-border)",
+          }}
+        >
+          <CardHeader className="flex flex-col gap-3 border-b border-[var(--panel-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-base" style={{ color: "var(--text)" }}>
+                Trace and observability workbench
+              </CardTitle>
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                Deep diagnostics stay available here while Worker Control remains the top-level operator flow.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={() => setShowObservabilityWorkbench((current) => !current)}
+            >
+              {showObservabilityWorkbench
+                ? "Collapse observability workbench"
+                : "Expand observability workbench"}
+            </Button>
+          </CardHeader>
+          <CardContent className="p-[var(--card-pad)]">
+            {showObservabilityWorkbench ? (
+              <div
+                className="flex min-h-0 flex-col gap-4 overflow-visible"
+                data-testid="command-center-root"
+              >
+                {activeThreadId !== null ? (
+                  <div>
+                    <RetrievalPosturePanel
+                      compact
+                      historyFilter={retrievalPostureHistoryFilter}
+                      historyWindowSize={retrievalPostureHistoryWindowSize}
+                      onClearPinnedPosture={() => setPinnedRetrievalPosture(null)}
+                      onHistoryFilterChange={setRetrievalPostureHistoryFilter}
+                      onHistoryWindowSizeChange={setRetrievalPostureHistoryWindowSize}
+                      onPinCurrentPosture={onPinCurrentRetrievalPosture}
+                      onPinHistoryPosture={onPinHistoryRetrievalPosture}
+                      pinnedRetrievalPosture={pinnedRetrievalPosture}
+                      showHistorySection
+                      showComparisonStrip
+                      showTrendBadge
+                      testId="command-center-thread-posture-panel"
+                      threadId={activeThreadId}
+                      title="Thread retrieval posture"
+                    />
+                  </div>
+                ) : null}
+                <TraceWorkbench
+                  allRuns={runs}
+                  filters={traceFilters}
+                  onFiltersChange={setTraceFilters}
+                  onSelectRun={setSelectedRunKey}
+                  selectedRun={selectedRun}
+                  selectedRunKey={selectedRunKey}
+                  visibleRuns={visibleRuns}
+                />
 
-          <div className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border" style={{ borderColor: "var(--panel-border)" }}>
-            <EventConsole
-              connectionDetail={connectionDetail}
-              connectionState={connectionState}
-              lastEventAt={lastEventAt}
-              rows={consoleRows}
-            />
-          </div>
+                <RecentRetrievalPosturePanel
+                  onPinHistoryPosture={onPinHistoryRetrievalPosture}
+                  threadId={activeThreadId}
+                />
+
+                <div
+                  className="h-64 min-h-0 overflow-hidden rounded-[var(--tile-radius)] border"
+                  style={{ borderColor: "var(--panel-border)" }}
+                >
+                  <EventConsole
+                    connectionDetail={connectionDetail}
+                    connectionState={connectionState}
+                    lastEventAt={lastEventAt}
+                    rows={consoleRows}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+                Expand to inspect trace payloads, retrieval posture history, and raw event transport diagnostics.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

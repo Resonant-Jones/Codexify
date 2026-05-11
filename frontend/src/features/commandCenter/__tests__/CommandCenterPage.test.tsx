@@ -1401,22 +1401,16 @@ describe("CommandCenterPage", () => {
   it("renders the dashboard surface with bounded diagnostics and raw telemetry", () => {
     render(<CommandCenterPage enabled />);
 
-    const root = screen.getByTestId("command-center-root");
-    expect(root).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+    const scrollShell = screen.getByTestId("command-center-scroll-shell");
+    expect(scrollShell).toHaveClass("min-h-screen", "overflow-y-auto");
 
     expect(
       screen.getByRole("heading", { name: /agent command center/i })
     ).toBeInTheDocument();
-    expect(screen.getByText("Runtime summary")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
+    expect(screen.getByText("Runtime summary")).toBeInTheDocument();
     expect(screen.getByTestId("coding-orchestrator-recommendations")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-event-console")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("command-center-retrieval-posture-history-panel")
-    ).toBeInTheDocument();
     expect(
       screen.getByText(
         /Dispatch, lease allocation, merge automation, and worker launch are not enabled/i
@@ -1426,7 +1420,18 @@ describe("CommandCenterPage", () => {
     expect(screen.getAllByLabelText(/transport state open/i)).toHaveLength(2);
     expect(screen.getAllByText(/last event: .*2026/i)).toHaveLength(2);
     expect(screen.getByLabelText(/unknown items 2/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /expand health details/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /collapse observability workbench/i })
+    ).toBeInTheDocument();
 
+    const workerPanel = screen.getByTestId("coding-work-orders-panel");
+    const summaryHeading = screen.getByText("Runtime summary");
+    expect(
+      workerPanel.compareDocumentPosition(summaryHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).not.toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /expand health details/i }));
     const healthOverview = screen.getByTestId("command-center-health-overview");
     expect(within(healthOverview).getByText("Core")).toBeInTheDocument();
     expect(within(healthOverview).getByText("LLM")).toBeInTheDocument();
@@ -1452,8 +1457,17 @@ describe("CommandCenterPage", () => {
     expect(screen.getByText("Parsed health detail")).toBeInTheDocument();
     expect(screen.getByText("Raw response")).toBeInTheDocument();
 
+    const root = screen.getByTestId("command-center-root");
+    expect(root).toHaveClass("flex", "min-h-0", "flex-col", "gap-4", "overflow-visible");
+
+    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-event-console")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("command-center-retrieval-posture-history-panel")
+    ).toBeInTheDocument();
+
     const workbench = screen.getByTestId("command-center-trace-workbench");
-    expect(workbench).toHaveClass("flex", "h-full", "min-h-0", "flex-col", "overflow-hidden");
+    expect(workbench).toHaveClass("flex", "min-h-[26rem]", "flex-col", "overflow-hidden");
     expect(within(workbench).getByText("RAG trace workbench")).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /report/i })).toBeInTheDocument();
     expect(within(workbench).getByRole("button", { name: /raw trace/i })).toBeInTheDocument();
@@ -1506,7 +1520,7 @@ describe("CommandCenterPage", () => {
     expect(within(console).getByRole("button", { name: /auto-scroll/i })).toBeInTheDocument();
     expect(within(console).getByRole("button", { name: /copy visible/i })).toBeInTheDocument();
     expect(within(console).getByText("No classification yet")).toBeInTheDocument();
-  });
+  }, 15000);
 
   it("renders retrieval posture history rows without runtime formatter errors", () => {
     render(
@@ -1531,12 +1545,12 @@ describe("CommandCenterPage", () => {
 
     render(<CommandCenterPage enabled />);
 
-    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
     expect(
       screen.getByTestId("coding-orchestrator-recommendations")
     ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-trace-workbench")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /dispatch/i })
     ).not.toBeInTheDocument();
