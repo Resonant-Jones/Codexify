@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from scripts.marketing.pipeline import (
+    CANDIDATE_MARKETABLE_CLAIM,
+    CANDIDATE_METADATA_REFERENCE,
+    CANDIDATE_RISK_OR_BLOCKER,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
     Claim,
@@ -21,7 +24,22 @@ from scripts.marketing.pipeline import (
 )
 
 FIXTURE_ROOT = Path("tests/fixtures/marketing/source")
+SUITABILITY_FIXTURE_ROOT = Path("tests/fixtures/marketing/suitability/source")
 GOLDEN_ROOT = Path("tests/fixtures/marketing/golden/CAMPAIGN_TEST")
+
+FORBIDDEN_PUBLIC_PHRASES = [
+    "not release-ready",
+    "release-ready for this path: no",
+    "failed before",
+    "migrator failed",
+    "task.failed",
+    "blocked",
+    "missing revision",
+    "restore the missing",
+    "re-run",
+    "not yet runtime-owned",
+    "worker runtime artifact",
+]
 
 
 def test_truth_extraction_and_precedence() -> None:
@@ -69,6 +87,101 @@ def test_evidence_and_banned_phrase_gates() -> None:
             "This is guaranteed to be public launch ready.",
             ["guaranteed", "public launch ready"],
         )
+
+
+def test_claim_suitability_classification() -> None:
+    documents = collect_source_documents(SUITABILITY_FIXTURE_ROOT)
+    candidates = extract_claim_candidates(documents)
+    merged = merge_claims_by_precedence(candidates)
+
+    by_claim = {item.claim: item for item in merged}
+    assert (
+        by_claim[
+            "Codexify includes a deterministic draft marketing pipeline with evidence-ledger outputs."
+        ].candidate_class
+        == CANDIDATE_MARKETABLE_CLAIM
+    )
+    assert (
+        by_claim[
+            "Release-ready for this path: no; not release-ready until runtime proof passes."
+        ].candidate_class
+        == CANDIDATE_RISK_OR_BLOCKER
+    )
+    assert (
+        by_claim[
+            "The migrator failed before compose startup in the latest run."
+        ].candidate_class
+        == CANDIDATE_RISK_OR_BLOCKER
+    )
+    assert (
+        by_claim[
+            "Re-run the live Compose proof after the blocked dependency install path is restored."
+        ].candidate_class
+        == CANDIDATE_RISK_OR_BLOCKER
+    )
+    assert (
+        by_claim[
+            "Proof artifact: docs/proofs/2026-05-12-compose-proof.md"
+        ].candidate_class
+        == CANDIDATE_METADATA_REFERENCE
+    )
+
+
+def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    shutil.copytree(SUITABILITY_FIXTURE_ROOT, source_root)
+
+    generate_marketing_artifacts(
+        source_root=source_root,
+        campaign_id="CAMPAIGN_CLAIM_HYGIENE",
+        audience="local-first-builders",
+        channels=["website", "social", "community"],
+        mode="draft",
+        output_root=output_root,
+        generated_at="2026-05-12T00:00:00Z",
+    )
+
+    campaign_dir = output_root / "CAMPAIGN_CLAIM_HYGIENE"
+    public_files = [
+        "channel-website.md",
+        "channel-social.md",
+        "channel-community.md",
+        "ad-copy.md",
+    ]
+    for name in public_files:
+        content = (campaign_dir / name).read_text(encoding="utf-8").lower()
+        for phrase in FORBIDDEN_PUBLIC_PHRASES:
+            assert phrase not in content
+    website = (campaign_dir / "channel-website.md").read_text(encoding="utf-8")
+    assert (
+        "Codexify includes a deterministic draft marketing pipeline with evidence-ledger outputs."
+        in website
+    )
+
+    review_notes = (
+        (campaign_dir / "review-notes.md").read_text(encoding="utf-8").lower()
+    )
+    assert "release-ready for this path: no" in review_notes
+    assert "migrator failed" in review_notes
+    assert "re-run the live compose proof" in review_notes
+    assert (
+        "proof artifact: docs/proofs/2026-05-12-compose-proof.md"
+        in review_notes
+    )
+
+    evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    assert evidence["approval_state"] == "draft"
+    assert evidence["mode"] == "draft"
+    assert evidence["claim_summary"]["marketable_claim"] >= 1
+    assert evidence["claim_summary"]["risk_or_blocker"] >= 1
+    assert evidence["claim_summary"]["metadata_reference"] >= 1
+    assert evidence["risk_flags"]
+    assert "unsupported_readiness_risk" in evidence["risk_flags"]
+    assert "failed_proof_risk" in evidence["risk_flags"]
+    assert "blocked_run_risk" in evidence["risk_flags"]
+    for claim in evidence["claims"]:
+        assert claim["approval_state"] == "draft"
 
 
 def test_golden_generation_is_deterministic(tmp_path: Path) -> None:
@@ -153,6 +266,7 @@ def test_cli_generates_expected_artifacts(tmp_path: Path) -> None:
         "channel-community.md",
         "ad-copy.md",
         "infographic-spec.md",
+        "review-notes.md",
         "run-metadata.json",
     }
     assert expected_names.issubset(
@@ -163,11 +277,13 @@ def test_cli_generates_expected_artifacts(tmp_path: Path) -> None:
     assert evidence["approval_state"] == "draft"
     assert evidence["mode"] == "draft"
     assert evidence["claims"]
+    assert evidence["marketable_claims"]
     for claim in evidence["claims"]:
         assert claim["approval_state"] == "draft"
         assert claim["status"] in {"implemented", "verified", "live-proven"}
         assert claim["proof_tier"] in {"implemented", "verified", "live-proven"}
         assert claim["evidence_paths"]
+        assert claim["candidate_class"]
 
     history = (
         source_root

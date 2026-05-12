@@ -13,6 +13,20 @@ STATUS_LIVE_PROVEN = "live-proven"
 
 ALLOWED_STATUSES = [STATUS_IMPLEMENTED, STATUS_VERIFIED, STATUS_LIVE_PROVEN]
 
+CANDIDATE_MARKETABLE_CLAIM = "marketable_claim"
+CANDIDATE_INTERNAL_EVIDENCE = "internal_evidence"
+CANDIDATE_RISK_OR_BLOCKER = "risk_or_blocker"
+CANDIDATE_TASK_INSTRUCTION = "task_instruction"
+CANDIDATE_METADATA_REFERENCE = "metadata_reference"
+
+ALLOWED_CANDIDATE_CLASSES = [
+    CANDIDATE_MARKETABLE_CLAIM,
+    CANDIDATE_INTERNAL_EVIDENCE,
+    CANDIDATE_RISK_OR_BLOCKER,
+    CANDIDATE_TASK_INSTRUCTION,
+    CANDIDATE_METADATA_REFERENCE,
+]
+
 LIVE_PROVEN_MARKERS = [
     "live proof",
     "live-proven",
@@ -52,6 +66,11 @@ CLAIM_KEYWORDS = [
     "queue",
     "contract",
     "stability",
+    "task",
+    "failed",
+    "blocked",
+    "artifact",
+    "missing",
 ]
 
 DEFAULT_CHANNELS = ["website", "social", "community"]
@@ -65,6 +84,78 @@ STATUS_RANK = {
     STATUS_VERIFIED: 1,
     STATUS_LIVE_PROVEN: 2,
 }
+
+CANDIDATE_CLASS_RANK = {
+    CANDIDATE_MARKETABLE_CLAIM: 0,
+    CANDIDATE_INTERNAL_EVIDENCE: 1,
+    CANDIDATE_METADATA_REFERENCE: 2,
+    CANDIDATE_TASK_INSTRUCTION: 3,
+    CANDIDATE_RISK_OR_BLOCKER: 4,
+}
+
+RISK_OR_BLOCKER_MARKERS = [
+    "not release-ready",
+    "release-ready for this path: no",
+    "failed before",
+    "migrator failed",
+    "task.failed",
+    "blocked",
+    "missing revision",
+    "restore the missing",
+    "re-run the live compose proof",
+    "not yet runtime-owned",
+    "worker runtime artifact",
+    "failed proof",
+    "failed run",
+    "missing runtime artifact",
+]
+
+TASK_INSTRUCTION_PREFIXES = [
+    "re-run",
+    "rerun",
+    "run the",
+    "restore the",
+    "follow up",
+    "investigate",
+    "todo:",
+    "action:",
+]
+
+INTERNAL_EVIDENCE_MARKERS = [
+    "runbook",
+    "internal",
+    "operator note",
+    "triage",
+    "debug",
+    "event emitted",
+    "events are emitted",
+]
+
+RELEASE_READINESS_MARKERS = [
+    "not release-ready",
+    "release-ready for this path: no",
+    "not yet runtime-owned",
+]
+
+FAILED_PROOF_MARKERS = [
+    "failed proof",
+    "failed before",
+    "migrator failed",
+    "failed run",
+]
+
+BLOCKED_RUN_MARKERS = [
+    "blocked",
+    "re-run",
+    "rerun",
+]
+
+MISSING_RUNTIME_ARTIFACT_MARKERS = [
+    "missing revision",
+    "restore the missing",
+    "worker runtime artifact",
+    "missing runtime artifact",
+]
 
 
 @dataclass(frozen=True)
@@ -82,6 +173,7 @@ class Claim:
     status: str
     channel: str
     approval_state: str
+    candidate_class: str = CANDIDATE_MARKETABLE_CLAIM
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +183,7 @@ class Claim:
             "status": self.status,
             "channel": self.channel,
             "approval_state": self.approval_state,
+            "candidate_class": self.candidate_class,
         }
 
 
@@ -156,10 +249,17 @@ def _normalize_claim_key(text: str) -> str:
 
 
 def _line_looks_claimworthy(line: str) -> bool:
-    if len(line) < 35 or len(line) > 240:
+    if len(line) < 18 or len(line) > 240:
         return False
     if line.startswith(("#", "```", "|", "import ", "from ")):
         return False
+
+    if (
+        _looks_like_risk_or_blocker(line)
+        or _looks_like_task_instruction(line)
+        or _looks_like_metadata_reference(line)
+    ):
+        return True
 
     lowered = line.lower()
     return any(keyword in lowered for keyword in CLAIM_KEYWORDS)
@@ -174,6 +274,55 @@ def classify_claim_status(text: str) -> str:
     return STATUS_IMPLEMENTED
 
 
+def _looks_like_metadata_reference(line: str) -> bool:
+    lowered = line.lower()
+    if lowered.startswith(
+        (
+            "proof artifact:",
+            "artifact:",
+            "evidence path:",
+            "source:",
+            "path:",
+            "metadata:",
+            "reference:",
+        )
+    ):
+        return True
+    return bool(
+        re.search(r"\bdocs/[A-Za-z0-9._\-/]+\b", line)
+        and lowered.startswith(("proof artifact", "artifact", "source", "path"))
+    )
+
+
+def _looks_like_task_instruction(line: str) -> bool:
+    lowered = line.lower()
+    if any(lowered.startswith(prefix) for prefix in TASK_INSTRUCTION_PREFIXES):
+        return True
+    return "re-run the live compose proof" in lowered
+
+
+def _looks_like_risk_or_blocker(line: str) -> bool:
+    lowered = line.lower()
+    return any(marker in lowered for marker in RISK_OR_BLOCKER_MARKERS)
+
+
+def _looks_like_internal_evidence(line: str) -> bool:
+    lowered = line.lower()
+    return any(marker in lowered for marker in INTERNAL_EVIDENCE_MARKERS)
+
+
+def classify_claim_candidate(text: str) -> str:
+    if _looks_like_risk_or_blocker(text):
+        return CANDIDATE_RISK_OR_BLOCKER
+    if _looks_like_task_instruction(text):
+        return CANDIDATE_TASK_INSTRUCTION
+    if _looks_like_metadata_reference(text):
+        return CANDIDATE_METADATA_REFERENCE
+    if _looks_like_internal_evidence(text):
+        return CANDIDATE_INTERNAL_EVIDENCE
+    return CANDIDATE_MARKETABLE_CLAIM
+
+
 def extract_claim_candidates(documents: list[SourceDocument]) -> list[Claim]:
     candidates: list[Claim] = []
     for doc in documents:
@@ -186,6 +335,7 @@ def extract_claim_candidates(documents: list[SourceDocument]) -> list[Claim]:
             if not _line_looks_claimworthy(line):
                 continue
             status = classify_claim_status(line)
+            candidate_class = classify_claim_candidate(line)
             candidates.append(
                 Claim(
                     claim=line,
@@ -194,6 +344,7 @@ def extract_claim_candidates(documents: list[SourceDocument]) -> list[Claim]:
                     status=status,
                     channel="core",
                     approval_state="draft",
+                    candidate_class=candidate_class,
                 )
             )
     return candidates
@@ -220,6 +371,15 @@ def merge_claims_by_precedence(candidates: list[Claim]) -> list[Claim]:
             continue
 
         if precedence == current_precedence:
+            new_class_rank = CANDIDATE_CLASS_RANK.get(
+                candidate.candidate_class, 0
+            )
+            old_class_rank = CANDIDATE_CLASS_RANK.get(
+                current_claim.candidate_class, 0
+            )
+            if new_class_rank > old_class_rank:
+                merged[key] = (precedence, candidate)
+                continue
             new_rank = STATUS_RANK.get(candidate.status, 0)
             old_rank = STATUS_RANK.get(current_claim.status, 0)
             if new_rank > old_rank:
@@ -250,6 +410,10 @@ def enforce_no_evidence_no_claim(
             raise ValueError(
                 "All claims must remain in draft approval state in v1"
             )
+        if claim.candidate_class not in ALLOWED_CANDIDATE_CLASSES:
+            raise ValueError(
+                f"Unsupported claim candidate class: {claim.candidate_class}"
+            )
         if not claim.evidence_paths:
             raise ValueError(f"Claim has no evidence: {claim.claim}")
         for rel_path in claim.evidence_paths:
@@ -275,6 +439,27 @@ def detect_risk_flags(text: str) -> list[str]:
         flags.append("path_collapsing_risk")
 
     return flags
+
+
+def detect_candidate_risk_flags(claims: list[Claim]) -> list[str]:
+    flags: set[str] = set()
+    for claim in claims:
+        if claim.candidate_class != CANDIDATE_RISK_OR_BLOCKER:
+            continue
+        lowered = claim.claim.lower()
+        if any(marker in lowered for marker in RELEASE_READINESS_MARKERS):
+            flags.add("unsupported_readiness_risk")
+        if any(marker in lowered for marker in FAILED_PROOF_MARKERS):
+            flags.add("failed_proof_risk")
+        if any(marker in lowered for marker in BLOCKED_RUN_MARKERS):
+            flags.add("blocked_run_risk")
+        if any(
+            marker in lowered for marker in MISSING_RUNTIME_ARTIFACT_MARKERS
+        ):
+            flags.add("missing_runtime_artifact_risk")
+        if "task.failed" in lowered:
+            flags.add("task_failure_risk")
+    return sorted(flags)
 
 
 def enforce_banned_phrasing(text: str, banned_phrases: list[str]) -> None:
@@ -320,10 +505,77 @@ def _claims_bullets(claims: list[Claim], with_evidence: bool = True) -> str:
     return "\n".join(lines)
 
 
+def _claims_bullets_for_review(claims: list[Claim]) -> str:
+    if not claims:
+        return "- none"
+    lines = []
+    for claim in claims:
+        lines.append(
+            f"- [{claim.candidate_class}] [{claim.proof_tier}] {claim.claim} (`{claim.evidence_paths[0]}`)"
+        )
+    return "\n".join(lines)
+
+
 def _risk_flags_bullets(flags: list[str]) -> str:
     if not flags:
         return "- none"
     return "\n".join(f"- {flag}" for flag in sorted(set(flags)))
+
+
+def _split_by_marketing_eligibility(
+    claims: list[Claim],
+) -> tuple[list[Claim], list[Claim]]:
+    marketable: list[Claim] = []
+    non_marketable: list[Claim] = []
+    for claim in claims:
+        if claim.candidate_class == CANDIDATE_MARKETABLE_CLAIM:
+            marketable.append(claim)
+        else:
+            non_marketable.append(claim)
+    return marketable, non_marketable
+
+
+def _non_marketable_by_class(claims: list[Claim]) -> dict[str, list[Claim]]:
+    grouped: dict[str, list[Claim]] = {
+        CANDIDATE_RISK_OR_BLOCKER: [],
+        CANDIDATE_TASK_INSTRUCTION: [],
+        CANDIDATE_METADATA_REFERENCE: [],
+        CANDIDATE_INTERNAL_EVIDENCE: [],
+    }
+    for claim in claims:
+        grouped.setdefault(claim.candidate_class, []).append(claim)
+    return grouped
+
+
+def _render_review_notes(
+    campaign_id: str, non_marketable_claims: list[Claim], risk_flags: list[str]
+) -> str:
+    grouped = _non_marketable_by_class(non_marketable_claims)
+    parts = [
+        f"# Review Notes: {campaign_id}",
+        "",
+        "This file is internal review material. Do not use in external-facing copy.",
+        "",
+        "## Governance",
+        "- approval_state: `draft`",
+        "- review_scope: `internal-only`",
+        "",
+        "## Risk Flags",
+        _risk_flags_bullets(risk_flags),
+        "",
+        "## Risk or Blocker Evidence",
+        _claims_bullets_for_review(grouped[CANDIDATE_RISK_OR_BLOCKER]),
+        "",
+        "## Task Instruction Evidence",
+        _claims_bullets_for_review(grouped[CANDIDATE_TASK_INSTRUCTION]),
+        "",
+        "## Metadata Reference Evidence",
+        _claims_bullets_for_review(grouped[CANDIDATE_METADATA_REFERENCE]),
+        "",
+        "## Internal Evidence",
+        _claims_bullets_for_review(grouped[CANDIDATE_INTERNAL_EVIDENCE]),
+    ]
+    return "\n".join(parts) + "\n"
 
 
 def _sanitize_campaign_id(campaign_id: str) -> str:
@@ -405,6 +657,13 @@ def generate_marketing_artifacts(
         raise ValueError("No claim candidates found in canonical sources")
 
     enforce_no_evidence_no_claim(selected_claims, source_root)
+    marketable_claims, non_marketable_claims = _split_by_marketing_eligibility(
+        selected_claims
+    )
+    if not marketable_claims:
+        raise ValueError(
+            "No marketable claims remained after claim suitability classification"
+        )
 
     generated = _generated_at_or_now(generated_at)
     channel_list = [item.strip() for item in channels if item.strip()]
@@ -413,6 +672,10 @@ def generate_marketing_artifacts(
 
     audience_label = AUDIENCE_LABELS.get(audience, audience)
     canonical_claims = [claim.as_dict() for claim in selected_claims]
+    marketable_claim_dicts = [claim.as_dict() for claim in marketable_claims]
+    non_marketable_claim_dicts = [
+        claim.as_dict() for claim in non_marketable_claims
+    ]
 
     out_root = output_root or (source_root / "docs" / "Marketing" / "generated")
     campaign_dir = out_root / _sanitize_campaign_id(campaign_id)
@@ -429,13 +692,13 @@ def generate_marketing_artifacts(
     )
 
     core_template = _load_template(source_root, "core-brief.md")
-    claims_bullets = _claims_bullets(selected_claims)
+    claims_bullets = _claims_bullets(marketable_claims)
 
     assembled_channel_text: list[str] = []
     rendered_channels: dict[str, str] = {}
     channel_template = _load_template(source_root, "channel-variant.md")
     for channel in sorted(set(channel_list)):
-        channel_claims = selected_claims[:4]
+        channel_claims = marketable_claims[:4]
         rendered = channel_template.format(
             channel=channel,
             hook=_channel_hook(channel),
@@ -447,7 +710,7 @@ def generate_marketing_artifacts(
         assembled_channel_text.append(rendered)
 
     ad_template = _load_template(source_root, "ad-copy.md")
-    ad_claims = selected_claims[:3]
+    ad_claims = marketable_claims[:3]
     ad_rendered = ad_template.format(
         campaign_id=campaign_id,
         ad_headline_1="Build AI operations on evidence, not assumptions",
@@ -467,7 +730,7 @@ def generate_marketing_artifacts(
     enforce_banned_phrasing(ad_rendered, contract.banned_phrases)
 
     infographic_template = _load_template(source_root, "infographic.md")
-    data_points = selected_claims[:6]
+    data_points = marketable_claims[:6]
     data_points_bullets = "\n".join(
         f"- [{claim.proof_tier}] {claim.claim}" for claim in data_points
     )
@@ -508,7 +771,8 @@ def generate_marketing_artifacts(
         ]
     )
     flags = detect_risk_flags(combined_text)
-    filtered_flags = [flag for flag in contract.risk_flags if flag in flags]
+    suitability_flags = detect_candidate_risk_flags(non_marketable_claims)
+    filtered_flags = sorted({*flags, *suitability_flags})
 
     final_core_rendered = core_template.format(
         campaign_id=campaign_id,
@@ -519,6 +783,11 @@ def generate_marketing_artifacts(
         risk_flags_bullets=_risk_flags_bullets(filtered_flags),
     )
     enforce_banned_phrasing(final_core_rendered, contract.banned_phrases)
+    review_notes = _render_review_notes(
+        campaign_id=campaign_id,
+        non_marketable_claims=non_marketable_claims,
+        risk_flags=filtered_flags,
+    )
 
     evidence_payload = {
         "campaign_id": campaign_id,
@@ -527,6 +796,40 @@ def generate_marketing_artifacts(
         "approval_state": "draft",
         "generated_at": generated,
         "claims": canonical_claims,
+        "marketable_claims": marketable_claim_dicts,
+        "non_marketable_claims": non_marketable_claim_dicts,
+        "claim_summary": {
+            "total": len(canonical_claims),
+            "marketable_claim": len(marketable_claim_dicts),
+            "internal_evidence": len(
+                [
+                    claim
+                    for claim in non_marketable_claims
+                    if claim.candidate_class == CANDIDATE_INTERNAL_EVIDENCE
+                ]
+            ),
+            "risk_or_blocker": len(
+                [
+                    claim
+                    for claim in non_marketable_claims
+                    if claim.candidate_class == CANDIDATE_RISK_OR_BLOCKER
+                ]
+            ),
+            "task_instruction": len(
+                [
+                    claim
+                    for claim in non_marketable_claims
+                    if claim.candidate_class == CANDIDATE_TASK_INSTRUCTION
+                ]
+            ),
+            "metadata_reference": len(
+                [
+                    claim
+                    for claim in non_marketable_claims
+                    if claim.candidate_class == CANDIDATE_METADATA_REFERENCE
+                ]
+            ),
+        },
         "risk_flags": filtered_flags,
     }
 
@@ -538,6 +841,8 @@ def generate_marketing_artifacts(
         "approval_state": "draft",
         "generated_at": generated,
         "claim_count": len(canonical_claims),
+        "marketable_claim_count": len(marketable_claim_dicts),
+        "non_marketable_claim_count": len(non_marketable_claim_dicts),
         "output_dir": _repo_relative(campaign_dir, source_root)
         if out_root.is_relative_to(source_root)
         else _sanitize_campaign_id(campaign_id),
@@ -548,6 +853,7 @@ def generate_marketing_artifacts(
             _write_text(campaign_dir / f"channel-{channel}.md", rendered)
         _write_text(campaign_dir / "ad-copy.md", ad_rendered)
         _write_text(campaign_dir / "infographic-spec.md", infographic_rendered)
+        _write_text(campaign_dir / "review-notes.md", review_notes)
         _write_json(campaign_dir / "evidence-ledger.json", evidence_payload)
         _write_json(campaign_dir / "run-metadata.json", run_metadata)
 
@@ -567,6 +873,7 @@ def generate_marketing_artifacts(
         "campaign_dir": str(campaign_dir),
         "evidence_ledger": str(campaign_dir / "evidence-ledger.json"),
         "claim_count": len(canonical_claims),
+        "marketable_claim_count": len(marketable_claim_dicts),
         "channels": sorted(set(channel_list)),
         "risk_flags": filtered_flags,
     }

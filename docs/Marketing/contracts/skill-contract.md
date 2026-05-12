@@ -21,6 +21,7 @@ For each campaign run:
 - channel variants (`channel-<name>.md`)
 - ad concept set (`ad-copy.md`)
 - infographic spec and prompt pack (`infographic-spec.md`)
+- internal review notes (`review-notes.md`)
 - run metadata (`run-metadata.json`)
 
 ## Governance
@@ -28,6 +29,9 @@ For each campaign run:
 - never publish-ready by default
 - `approval_state` is always `draft`
 - run history appends to `docs/Marketing/generated/history/run-history.jsonl`
+- claim suitability pass is mandatory before draft rendering
+- channel variants consume only `marketable_claim` entries
+- non-marketable evidence (`risk_or_blocker`, `task_instruction`, `metadata_reference`, `internal_evidence`) must be preserved in review outputs and the evidence ledger
 
 ## Future Compatibility Seam
 

@@ -28,6 +28,8 @@ Every claim must be tagged as exactly one of:
 - Output mode is `draft` only.
 - Human approval is required before publish.
 - Generated assets are derived outputs, not system truth.
+- A claim suitability gate is mandatory: only `marketable_claim` items can flow into website/social/community/ad copy.
+- Blocker/failure/task/reference evidence is preserved for audit in `review-notes.md` and classified in `evidence-ledger.json`.
 
 ## Generator Command
 
