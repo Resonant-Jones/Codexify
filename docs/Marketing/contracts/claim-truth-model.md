@@ -11,6 +11,18 @@ Every generated claim must include:
 - `channel`: target output channel (`core`, `website`, `social`, `community`, `ads`, `infographic`)
 - `approval_state`: always `draft` in V1
 
+## Claim Types (Suitability Layer)
+
+Truth and marketing suitability are separate:
+
+- `marketable_claim`: evidence-backed and eligible for external-facing draft copy.
+- `internal_evidence`: evidence-backed, useful for operator context, not eligible for channel copy.
+- `risk_or_blocker`: evidence-backed blocker/failure/readiness signal, must never be used in channel copy.
+- `task_instruction`: evidence-backed task/process instruction, must never be used in channel copy.
+- `metadata_reference`: evidence-backed pointer/reference (for example `Proof artifact: docs/...`), must never be used in channel copy.
+
+An evidence-backed statement can still be non-marketable.
+
 ## No-Evidence, No-Claim Gate
 
 Claims are invalid when:
@@ -19,6 +31,18 @@ Claims are invalid when:
 - evidence paths do not exist
 - claim language contradicts known release-truth constraints
 
+## Channel Copy Eligibility Rule
+
+Only `marketable_claim` candidates may be consumed by:
+
+- `core-brief.md` external-facing claims section
+- `channel-website.md`
+- `channel-social.md`
+- `channel-community.md`
+- `ad-copy.md`
+
+Evidence-backed blocker/failure/task-log lines must be preserved for audit, but must not appear in public-facing channel copy.
+
 ## Risk Flags
 
 Generated outputs must carry risk flags when detected:
@@ -26,6 +50,10 @@ Generated outputs must carry risk flags when detected:
 - `overclaim_risk`
 - `unsupported_readiness_risk`
 - `path_collapsing_risk`
+- `failed_proof_risk`
+- `blocked_run_risk`
+- `missing_runtime_artifact_risk`
+- `task_failure_risk`
 
 ## Review Checklist (Required)
 
