@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly generate-marketing public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -203,6 +203,11 @@ morning-audit:
 # Generate the evening audit record
 evening-audit:
 	$(PYTHON) scripts/daily_audit.py --phase evening
+
+# Generate draft marketing artifacts from canonical truth sources.
+# Usage: make generate-marketing args="--campaign-id CAMPAIGN_2026_05_11 --audience local-first-builders --channels website,social,community --mode draft"
+generate-marketing:
+	$(PYTHON) scripts/marketing/generate_marketing.py $(args)
 
 # ────────────────────────────────
 # Regression Prevention Audit Infrastructure
