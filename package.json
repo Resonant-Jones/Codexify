@@ -7,9 +7,7 @@
     "test": "pnpm --dir frontend test",
     "format": "pnpm --dir frontend format",
     "format:check": "pnpm --dir frontend format:check",
-    "process-logs": "npx tsx scripts/process_logs.ts",
-    "generate-marketing": "python scripts/marketing/generate_marketing.py",
-    "generate-marketing-auto": "python scripts/marketing/run_marketing_automation.py"
+    "process-logs": "npx tsx scripts/process_logs.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
