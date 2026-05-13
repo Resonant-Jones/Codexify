@@ -1,1 +1,0 @@
-"""Marketing generation pipeline package."""

@@ -8,9 +8,10 @@ Create Date: 2026-04-20 00:00:00.000000
 import secrets
 from typing import Sequence, Union
 
-import bcrypt
 import sqlalchemy as sa
 from alembic import op
+
+from guardian.core.user_manager import _bootstrap_password_hash
 
 # revision identifiers, used by Alembic.
 revision: str = "f2b3c4d5e6f9"

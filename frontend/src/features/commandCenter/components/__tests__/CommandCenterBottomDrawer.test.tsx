@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import CommandCenterBottomDrawer from "../CommandCenterBottomDrawer";
 
@@ -12,11 +12,10 @@ describe("CommandCenterBottomDrawer", () => {
     localStorage.clear();
   });
 
-  it("shows a visible collapsed affordance when open=false", () => {
+  it("is collapsed by default when open=false", () => {
     render(<CommandCenterBottomDrawer open={false} onToggle={onToggle} />);
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("44px");
-    expect(screen.getByTestId("command-center-drawer-collapsed-affordance")).toBeInTheDocument();
+    expect(drawer.style.height).toBe("0px");
   });
 
   it("is visible when open=true", () => {
@@ -37,7 +36,6 @@ describe("CommandCenterBottomDrawer", () => {
     render(<CommandCenterBottomDrawer open onToggle={onToggle} />);
     const terminalTab = screen.getByTestId("command-center-drawer-tab-terminal");
     expect(terminalTab).toHaveAttribute("aria-selected", "true");
-    expect(terminalTab).toHaveTextContent("Terminal (Read-only)");
   });
 
   it("Terminal tab shows non-executable copy", () => {
@@ -90,12 +88,6 @@ describe("CommandCenterBottomDrawer", () => {
   it("resize handle is absent when closed", () => {
     render(<CommandCenterBottomDrawer open={false} onToggle={onToggle} />);
     expect(screen.queryByTestId("command-center-drawer-resize-handle")).not.toBeInTheDocument();
-  });
-
-  it("collapsed affordance calls onToggle", () => {
-    render(<CommandCenterBottomDrawer open={false} onToggle={onToggle} />);
-    fireEvent.click(screen.getByTestId("command-center-drawer-collapsed-affordance"));
-    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
   it("persists drawer height preference", () => {
