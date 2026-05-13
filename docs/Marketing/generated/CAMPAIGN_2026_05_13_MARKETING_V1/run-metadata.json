@@ -1,0 +1,16 @@
+{
+  "approval_state": "draft",
+  "audience": "local-first-builders",
+  "campaign_id": "CAMPAIGN_2026_05_13_MARKETING_V1",
+  "channels": [
+    "community",
+    "social",
+    "website"
+  ],
+  "claim_count": 24,
+  "generated_at": "2026-05-13T14:36:35.925610+00:00",
+  "marketable_claim_count": 15,
+  "mode": "draft",
+  "non_marketable_claim_count": 9,
+  "output_dir": "docs/Marketing/generated/CAMPAIGN_2026_05_13_MARKETING_V1"
+}
