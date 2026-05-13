@@ -230,6 +230,29 @@ def _make_store(db: _TestDB) -> AgentStore:
     return AgentStore(db=db)
 
 
+def test_initialize_worker_uses_guardian_database_url(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _FakeGuardianDB:
+        def __init__(self, db_url: str) -> None:
+            captured["db_url"] = db_url
+
+    def _capture_configure_db(db: Any | None) -> None:
+        captured["db"] = db
+
+    monkeypatch.setenv(
+        "GUARDIAN_DATABASE_URL",
+        "postgresql://codexify:test@db:5432/Codexify",
+    )
+    monkeypatch.setattr(coding_worker, "GuardianDB", _FakeGuardianDB)
+    monkeypatch.setattr(coding_worker, "configure_db", _capture_configure_db)
+
+    coding_worker._initialize_worker()
+
+    assert captured["db_url"] == "postgresql://codexify:test@db:5432/Codexify"
+    assert isinstance(captured["db"], _FakeGuardianDB)
+
+
 _MISSING = object()
 
 

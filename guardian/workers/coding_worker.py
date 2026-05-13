@@ -1,4 +1,4 @@
-"""Worker for coding execution tasks via PiCodexRunnerAdapter."""
+"""Worker for coding execution tasks via Guardian's coding adapters."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from guardian.agents.worktree_leases import (
     is_active_lease_status,
     validate_lease_contract,
 )
-from guardian.core import dependencies
+from guardian.core.db import GuardianDB
 from guardian.protocol_tokens import ErrorCode, TaskEventType
 from guardian.queue import task_events
 from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
@@ -1256,6 +1256,15 @@ def configure_db(db: Any | None) -> None:
     """Bind the worker to a database-backed agent store."""
     global _store
     _store = AgentStore(db=db)
+
+
+def _resolve_guardian_db() -> GuardianDB:
+    db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError(
+            "coding worker requires GUARDIAN_DATABASE_URL or DATABASE_URL"
+        )
+    return GuardianDB(db_url)
 
 
 class CodingWorker:
@@ -3486,9 +3495,7 @@ class CodingWorker:
 
 
 def _initialize_worker() -> None:
-    db = dependencies.init_database()
-    if db is None:
-        raise RuntimeError("chatlog_db not configured")
+    db = _resolve_guardian_db()
     configure_db(db)
 
 
