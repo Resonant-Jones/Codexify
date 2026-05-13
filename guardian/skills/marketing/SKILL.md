@@ -31,6 +31,10 @@ Transform canonical Codexify progress artifacts into draft marketing assets for 
 Evidence-ledger inspection rule:
 - Use `claims[]` as the canonical audit list.
 - `marketable_claims` and `non_marketable_claims` are convenience groupings derived from `claims[]`.
+- Verify required item fields are non-null and correctly typed:
+  - `candidate_class`: non-null string
+  - `channel_eligible`: non-null boolean
+  - `risk_flags`: non-null array (empty list must serialize as `[]`)
 
 ## Validation Gates
 

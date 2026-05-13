@@ -15,6 +15,8 @@ Every generated `claims[]` item must include:
 - `approval_state`: always `draft` in V1
 
 The ledger includes `schema_version: "marketing_evidence_ledger.v2"` for this normalized item-level shape.
+`channel_eligible` must always be a JSON boolean (`true`/`false`), never `null`.
+`risk_flags` must always be a JSON array, with empty state serialized as `[]`, never `null`.
 
 ## Canonical Audit View
 
