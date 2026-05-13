@@ -203,9 +203,16 @@ default of `pi_codex_runner`.
 
 Supported values:
 
-- `pi_sdk`, `pi`, or `pi_codex_runner` -> `pi_codex_runner`
 - `codex` -> `codex`
 - `claudecode` -> `claudecode`
+- `pi_sdk` or `pi_codex_runner` -> `pi_codex_runner`
+
+Public coding-execution requests should use one of the explicit supported
+adapter kinds above. `mock` and `external_cli` are not part of the supported
+public route contract.
+
+The supported local Compose worker also needs the `codex_runner` tree available
+at `/app/codex_runner` so the Pi runner path stays runnable when selected.
 
 Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
 not execution success.
@@ -547,8 +554,11 @@ worker-coding:
 MiniMax-backed coding execution should be configured through the Codex CLI
 profile/config outside Guardian. Guardian should receive coding requests with
 `adapter_kind="codex"` so the worker routes execution through the registered
-Codex adapter. If needed, set `CODEX_ADAPTER_COMMAND` to point the Codex adapter
-at the desired Codex CLI profile.
+Codex adapter. In the supported local Compose proof path, `CODEX_ADAPTER_COMMAND`
+points at a locally available tool-capable Ollama tag. Check the worker
+container's `/api/tags` inventory before a live proof if your model set differs,
+and repoint the Codex adapter command to another local tool-capable tag if
+needed.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
 current coding worker executes a single adapter attempt, returns the result
