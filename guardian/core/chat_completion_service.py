@@ -3419,103 +3419,6 @@ async def build_messages_for_llm(
     else:
         trace_candidate = trace
 
-    context_request_results: list[dict[str, Any]] = []
-    supported_context_request_plans = _supported_obsidian_context_request_plans(
-        task
-    )
-    if isinstance(bundle, dict):
-        connector_context_items = [
-            item
-            for item in (bundle.get("connector_context") or [])
-            if isinstance(item, dict)
-        ]
-        if supported_context_request_plans:
-            if broker is None:
-                for plan in supported_context_request_plans:
-                    query_text = str(plan.get("query_text") or "").strip()
-                    context_request_results.append(
-                        {
-                            "request_kind": str(
-                                plan.get("request_kind")
-                                or "read_only_context_request"
-                            ),
-                            "connector_id": str(
-                                plan.get("connector_id") or "obsidian"
-                            ),
-                            "invocation": str(
-                                plan.get("invocation") or "turn_scoped"
-                            ),
-                            "query_text": query_text,
-                            "status": ContextRequestStatus.FAILED.value,
-                            "result_count": 0,
-                            "injected": False,
-                            "error": "broker_unavailable",
-                        }
-                    )
-            else:
-                for plan in supported_context_request_plans:
-                    query_text = str(plan.get("query_text") or "").strip()
-                    result_record: dict[str, Any] = {
-                        "request_kind": str(
-                            plan.get("request_kind")
-                            or "read_only_context_request"
-                        ),
-                        "connector_id": str(
-                            plan.get("connector_id") or "obsidian"
-                        ),
-                        "invocation": str(
-                            plan.get("invocation") or "turn_scoped"
-                        ),
-                        "query_text": query_text,
-                        "status": ContextRequestStatus.FAILED.value,
-                        "result_count": 0,
-                        "injected": False,
-                    }
-                    if not query_text:
-                        result_record["error"] = "blank_query"
-                        context_request_results.append(result_record)
-                        continue
-                    try:
-                        connector_results = (
-                            await broker.retrieve_obsidian_context_command(
-                                query=query_text,
-                                user_id=context_user_id,
-                                project_id=project_id_for_prompt,
-                                k=4,
-                                retrieval_policy=retrieval_policy,
-                            )
-                        )
-                        result_count = len(
-                            [
-                                item
-                                for item in connector_results
-                                if isinstance(item, dict)
-                            ]
-                        )
-                        result_record["result_count"] = result_count
-                        if result_count > 0:
-                            connector_context_items.extend(connector_results)
-                            result_record[
-                                "status"
-                            ] = ContextRequestStatus.EXECUTED.value
-                            result_record["injected"] = True
-                        else:
-                            result_record[
-                                "status"
-                            ] = ContextRequestStatus.NO_RESULTS.value
-                    except Exception as exc:
-                        result_record[
-                            "status"
-                        ] = ContextRequestStatus.FAILED.value
-                        result_record["result_count"] = 0
-                        result_record["injected"] = False
-                        result_record["error"] = type(exc).__name__
-                    context_request_results.append(result_record)
-        bundle["connector_context"] = connector_context_items
-        bundle["context_request_results"] = list(context_request_results)
-    if isinstance(trace, dict):
-        trace = dict(trace)
-        trace["context_request_results"] = list(context_request_results)
     if assembly_succeeded and isinstance(bundle, dict):
         try:
             context_request_results = await _apply_context_request_plans(
@@ -3532,6 +3435,9 @@ async def build_messages_for_llm(
                 exc,
             )
             context_request_results = []
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["context_request_results"] = list(context_request_results)
 
     if (
         isinstance(bundle, dict)
