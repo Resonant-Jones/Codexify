@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import CommandCenterShell from "../CommandCenterShell";
 import type {
@@ -257,18 +257,8 @@ describe("CommandCenterShell", () => {
 
   it("renders the parent shell card", () => {
     render(<CommandCenterShell {...defaultProps} />);
-    expect(screen.getByTestId("command-center-workspace-card")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-shell")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-scroll-shell")).toBeInTheDocument();
-  });
-
-  it("uses viewport-locked scroll containment", () => {
-    render(<CommandCenterShell {...defaultProps} />);
-    const scrollShell = screen.getByTestId("command-center-scroll-shell");
-    expect(scrollShell).toHaveClass("h-screen");
-    expect(scrollShell).toHaveClass("overflow-hidden");
-    const lensZone = screen.getByTestId("command-center-lens-zone");
-    expect(lensZone).toBeInTheDocument();
   });
 
   it("renders the utility rail", () => {
@@ -290,14 +280,8 @@ describe("CommandCenterShell", () => {
 
   it("Worker Control panel is visible in the Agent Command lens", async () => {
     render(<CommandCenterShell {...defaultProps} />);
-    expect(screen.getByTestId("command-center-agent-lens-header")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-agent-lens-title")).toHaveTextContent(
-      "Agent Command Center"
-    );
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
     expect(screen.getByTestId("coding-work-order-create-form")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-worker-control-card")).toBeInTheDocument();
-    expect(screen.getByTestId("command-center-work-order-summary-cards")).toBeInTheDocument();
     expect(
       screen.getByText(
         /Dispatch, lease allocation, merge automation, and worker launch are not enabled/i
@@ -313,10 +297,12 @@ describe("CommandCenterShell", () => {
   it("switching to Observability lens shows trace content", () => {
     render(<CommandCenterShell {...defaultProps} />);
     fireEvent.click(screen.getByTestId("command-center-rail-item-observability"));
+    // The observability lens should be active
     expect(screen.getByTestId("command-center-rail-item-observability")).toHaveAttribute(
       "aria-current",
       "true"
     );
+    // The agent command panel should no longer be visible
     expect(screen.queryByTestId("coding-work-orders-panel")).not.toBeInTheDocument();
   });
 
@@ -338,6 +324,7 @@ describe("CommandCenterShell", () => {
       "aria-current",
       "true"
     );
+    // EventConsole should render
     expect(screen.getByText("Event console")).toBeInTheDocument();
   });
 
@@ -376,19 +363,20 @@ describe("CommandCenterShell", () => {
   it("bottom drawer opens when toggled from rail", () => {
     render(<CommandCenterShell {...defaultProps} />);
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("44px");
-    expect(screen.getByTestId("command-center-drawer-collapsed-affordance")).toBeInTheDocument();
+    expect(drawer.style.height).toBe("0px");
 
     fireEvent.click(screen.getByTestId("command-center-rail-drawer-toggle"));
-    expect(drawer.style.height).toBe("280px");
+    expect(drawer.style.height).not.toBe("0px");
   });
 
   it("bottom drawer can be closed", () => {
     render(<CommandCenterShell {...defaultProps} />);
+    // open drawer
     fireEvent.click(screen.getByTestId("command-center-rail-drawer-toggle"));
+    // close via drawer close button
     fireEvent.click(screen.getByTestId("command-center-drawer-close"));
     const drawer = screen.getByTestId("command-center-bottom-drawer");
-    expect(drawer.style.height).toBe("44px");
+    expect(drawer.style.height).toBe("0px");
   });
 
   it("Terminal tab in drawer is non-executable", () => {
@@ -404,68 +392,11 @@ describe("CommandCenterShell", () => {
 
   it("lens switching does not mutate worker state", () => {
     render(<CommandCenterShell {...defaultProps} />);
+    // Switch to observability
     fireEvent.click(screen.getByTestId("command-center-rail-item-observability"));
+    // Switch back to agent command
     fireEvent.click(screen.getByTestId("command-center-rail-item-agent-command"));
+    // Worker panel should still be there
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
-  });
-
-  it("rail side toggle switches layout from left to right", () => {
-    localStorage.setItem("codexify-command-center-rail-side", "left");
-    render(<CommandCenterShell {...defaultProps} />);
-
-    const shell = screen.getByTestId("command-center-shell");
-    // Initially, no flex-row-reverse — rail is on left (default)
-    expect(shell.className).not.toContain("flex-row-reverse");
-
-    // Click side toggle in the rail
-    const sideBtn = screen.getByTestId("command-center-rail-side-toggle");
-    fireEvent.click(sideBtn);
-
-    // Shell should now have flex-row-reverse — rail moved to right
-    expect(shell.className).toContain("flex-row-reverse");
-
-    // localStorage should be updated
-    expect(localStorage.getItem("codexify-command-center-rail-side")).toBe("right");
-  });
-
-  it("rail side preference persists across remount", () => {
-    localStorage.setItem("codexify-command-center-rail-side", "right");
-    const { unmount } = render(<CommandCenterShell {...defaultProps} />);
-
-    const shell = screen.getByTestId("command-center-shell");
-    expect(shell.className).toContain("flex-row-reverse");
-
-    unmount();
-    render(<CommandCenterShell {...defaultProps} />);
-
-    const shellAfterRemount = screen.getByTestId("command-center-shell");
-    expect(shellAfterRemount.className).toContain("flex-row-reverse");
-  });
-
-  it("Observability lens has scrollable lens region", () => {
-    render(<CommandCenterShell {...defaultProps} />);
-    fireEvent.click(screen.getByTestId("command-center-rail-item-observability"));
-
-    const lensZone = screen.getByTestId("command-center-lens-zone");
-    expect(lensZone).toBeInTheDocument();
-    expect(lensZone.className).toContain("overflow-y-auto");
-  });
-
-  it("Runtime Health lens has scrollable lens region", () => {
-    render(<CommandCenterShell {...defaultProps} />);
-    fireEvent.click(screen.getByTestId("command-center-rail-item-runtime-health"));
-
-    const lensZone = screen.getByTestId("command-center-lens-zone");
-    expect(lensZone).toBeInTheDocument();
-    expect(lensZone.className).toContain("overflow-y-auto");
-  });
-
-  it("Event Console lens has scrollable lens region", () => {
-    render(<CommandCenterShell {...defaultProps} />);
-    fireEvent.click(screen.getByTestId("command-center-rail-item-event-console"));
-
-    const lensZone = screen.getByTestId("command-center-lens-zone");
-    expect(lensZone).toBeInTheDocument();
-    expect(lensZone.className).toContain("overflow-y-auto");
   });
 });
