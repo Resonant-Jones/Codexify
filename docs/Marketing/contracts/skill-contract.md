@@ -39,6 +39,12 @@ Every `claims[]` entry is required to include:
 - `status`
 - `approval_state`
 
+Field types:
+
+- `candidate_class`: string
+- `channel_eligible`: boolean
+- `risk_flags`: array of strings
+
 Grouped fields `marketable_claims` and `non_marketable_claims` are derived convenience views and must remain consistent with filtering `claims[]` by `channel_eligible`.
 
 ## Governance

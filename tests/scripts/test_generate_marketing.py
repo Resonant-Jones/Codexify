@@ -207,10 +207,26 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     non_marketable_from_claims = [
         claim for claim in evidence["claims"] if not claim["channel_eligible"]
     ]
+    assert all(
+        claim["candidate_class"] is not None for claim in evidence["claims"]
+    )
+    assert all(
+        claim["channel_eligible"] is not None for claim in evidence["claims"]
+    )
+    assert all(claim["risk_flags"] is not None for claim in evidence["claims"])
+    assert all(
+        isinstance(claim["channel_eligible"], bool)
+        for claim in evidence["claims"]
+    )
+    assert all(
+        isinstance(claim["risk_flags"], list) for claim in evidence["claims"]
+    )
     assert len(evidence["marketable_claims"]) == len(marketable_from_claims)
     assert len(evidence["non_marketable_claims"]) == len(
         non_marketable_from_claims
     )
+    assert evidence["marketable_claims"] == marketable_from_claims
+    assert evidence["non_marketable_claims"] == non_marketable_from_claims
     assert (
         len(evidence["marketable_claims"])
         == evidence["claim_summary"]["marketable_claim"]
@@ -326,6 +342,30 @@ def test_cli_generates_expected_artifacts(tmp_path: Path) -> None:
         assert claim["candidate_class"]
         assert claim["channel_eligible"] in {True, False}
         assert isinstance(claim["risk_flags"], list)
+    assert all(
+        claim["candidate_class"] is not None for claim in evidence["claims"]
+    )
+    assert all(
+        claim["channel_eligible"] is not None for claim in evidence["claims"]
+    )
+    assert all(claim["risk_flags"] is not None for claim in evidence["claims"])
+    assert all(
+        isinstance(claim["channel_eligible"], bool)
+        for claim in evidence["claims"]
+    )
+    assert all(
+        isinstance(claim["risk_flags"], list) for claim in evidence["claims"]
+    )
+    assert evidence["marketable_claims"] == [
+        claim
+        for claim in evidence["claims"]
+        if claim["channel_eligible"] is True
+    ]
+    assert evidence["non_marketable_claims"] == [
+        claim
+        for claim in evidence["claims"]
+        if claim["channel_eligible"] is False
+    ]
 
     history = (
         source_root

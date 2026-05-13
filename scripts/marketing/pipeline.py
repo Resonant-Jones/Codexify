@@ -531,10 +531,10 @@ def _risk_flags_bullets(flags: list[str]) -> str:
 
 def _serialize_claim_entry(claim: Claim) -> dict[str, Any]:
     payload = claim.as_dict()
-    payload["channel_eligible"] = (
+    payload["channel_eligible"] = bool(
         claim.candidate_class == CANDIDATE_MARKETABLE_CLAIM
     )
-    payload["risk_flags"] = _risk_flags_for_claim(claim)
+    payload["risk_flags"] = list(_risk_flags_for_claim(claim))
     return payload
 
 
@@ -733,6 +733,17 @@ def generate_marketing_artifacts(
     canonical_claims = [
         _serialize_claim_entry(claim) for claim in selected_claims
     ]
+    for claim in canonical_claims:
+        if claim.get("candidate_class") is None:
+            raise ValueError("ledger v2 requires non-null candidate_class")
+        if claim.get("channel_eligible") is None:
+            raise ValueError("ledger v2 requires non-null channel_eligible")
+        if claim.get("risk_flags") is None:
+            raise ValueError("ledger v2 requires non-null risk_flags")
+        if not isinstance(claim.get("channel_eligible"), bool):
+            raise ValueError("ledger v2 requires boolean channel_eligible")
+        if not isinstance(claim.get("risk_flags"), list):
+            raise ValueError("ledger v2 requires list risk_flags")
     marketable_claim_dicts = [
         claim for claim in canonical_claims if claim["channel_eligible"]
     ]
