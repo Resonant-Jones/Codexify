@@ -61,15 +61,37 @@ def _normalize_coding_result_status(status: Any) -> str:
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
-    return _normalize_coding_result_status(status) in {
-        "ok",
-        "success",
-        "succeeded",
-        "completed",
-        "partial",
-        "partial_success",
-        "partial-success",
+    normalized = _normalize_coding_result_status(status)
+    # Terminal coding outcomes should return bounded evidence to the source
+    # thread whenever lineage is available.
+    return normalized not in {
+        "",
+        "queued",
+        "pending",
+        "running",
+        "in_progress",
+        "processing",
     }
+
+
+_AGENT_RUN_STATUS_ALIASES: dict[str, str] = {
+    "cancelled": "canceled",
+    "canceled": "canceled",
+    "completed": "succeeded",
+    "success": "succeeded",
+}
+_AGENT_RUN_TERMINAL_STATUSES = {"failed", "succeeded", "canceled", "escalated"}
+
+
+def _normalize_agent_run_status(status: Any) -> str:
+    value = str(status or "").strip().lower()
+    if not value:
+        return "failed"
+    return _AGENT_RUN_STATUS_ALIASES.get(value, value)
+
+
+def _is_terminal_agent_run_status(status: Any) -> bool:
+    return _normalize_agent_run_status(status) in _AGENT_RUN_TERMINAL_STATUSES
 
 
 @dataclass
@@ -290,37 +312,51 @@ class AgentStore:
         error: str | None = None,
         rollback_applied: bool | None = None,
         rollback_reason: str | None = None,
-    ) -> None:
+    ) -> bool:
         now = _utc_now()
+        normalized_status = _normalize_agent_run_status(status)
         if self._has_db():
             with self.db.get_session() as session:
                 row = session.query(AgentRun).filter_by(run_id=run_id).first()
                 if row is None:
-                    return
-                row.status = status
+                    return False
+                current_status = _normalize_agent_run_status(row.status)
+                if _is_terminal_agent_run_status(current_status):
+                    if not _is_terminal_agent_run_status(normalized_status):
+                        return True
+                    if normalized_status != current_status:
+                        return True
+                row.status = normalized_status
                 if error is not None:
                     row.error = error
                 if rollback_applied is not None:
                     row.rollback_applied = rollback_applied
                 if rollback_reason is not None:
                     row.rollback_reason = rollback_reason
-                if status in {"failed", "succeeded", "canceled", "escalated"}:
+                if _is_terminal_agent_run_status(normalized_status):
                     row.ended_at = now
                 session.commit()
-                return
+                return True
 
         item = self._mem_runs.get(run_id)
         if item is None:
-            return
-        item["status"] = status
+            return False
+        current_status = _normalize_agent_run_status(item.get("status"))
+        if _is_terminal_agent_run_status(current_status):
+            if not _is_terminal_agent_run_status(normalized_status):
+                return True
+            if normalized_status != current_status:
+                return True
+        item["status"] = normalized_status
         if error is not None:
             item["error"] = error
         if rollback_applied is not None:
             item["rollback_applied"] = rollback_applied
         if rollback_reason is not None:
             item["rollback_reason"] = rollback_reason
-        if status in {"failed", "succeeded", "canceled", "escalated"}:
+        if _is_terminal_agent_run_status(normalized_status):
             item["ended_at"] = now.isoformat()
+        return True
 
     def create_step(
         self,
@@ -1242,8 +1278,9 @@ class AgentStore:
         }
 
         message_id = None
-        delivery_reason = None
+        delivery_reason_code = None
         delivery_ok = False
+        delivery_status = "degraded"
         if (
             persist_message
             and expected_thread_id is not None
@@ -1251,7 +1288,7 @@ class AgentStore:
         ):
             (
                 message_id,
-                delivery_reason,
+                delivery_reason_code,
             ) = self._inject_coding_result_into_thread(
                 thread_id=expected_thread_id,
                 run_id=run_id,
@@ -1295,28 +1332,52 @@ class AgentStore:
                 lease_worktree_path=resolved_lease_worktree_path,
             )
             delivery_ok = message_id is not None
+            delivery_status = "delivered" if delivery_ok else "degraded"
         elif expected_thread_id is None:
-            delivery_reason = "missing_source_thread"
+            delivery_reason_code = "missing_source_thread"
         elif not persist_message:
-            delivery_reason = "result_status_not_persisted_as_assistant_message"
+            delivery_status = "not_requested"
+            delivery_reason_code = (
+                "result_status_not_persisted_as_assistant_message"
+            )
         else:
-            delivery_reason = "delivery_database_unavailable"
+            delivery_reason_code = "delivery_database_unavailable"
 
-        final_status = (
-            "succeeded" if persist_message and delivery_ok else "failed"
-        )
-        self.update_run_status(
+        if normalized_status in {"cancelled", "canceled"}:
+            terminal_run_status = "canceled"
+        elif _should_persist_coding_result_message(normalized_status) and (
+            normalized_status
+            in {
+                "ok",
+                "success",
+                "succeeded",
+                "completed",
+                "partial",
+                "partial_success",
+                "partial-success",
+            }
+        ):
+            terminal_run_status = "succeeded" if delivery_ok else "failed"
+        else:
+            terminal_run_status = "failed"
+
+        run_status_updated = self.update_run_status(
             run_id=run_id,
-            status=final_status,
+            status=terminal_run_status,
             error=error_message
-            or delivery_reason
+            or delivery_reason_code
             or (errors[0] if errors else None),
         )
 
         artifact_payload = dict(result_payload)
         artifact_payload["message_id"] = message_id
+        artifact_payload["result_message_id"] = message_id
         artifact_payload["delivery_ok"] = delivery_ok
-        artifact_payload["delivery_reason"] = delivery_reason
+        artifact_payload["delivery_status"] = delivery_status
+        artifact_payload["delivery_reason"] = delivery_reason_code
+        artifact_payload["delivery_reason_code"] = delivery_reason_code
+        artifact_payload["terminal_run_status"] = terminal_run_status
+        artifact_payload["terminal_run_status_updated"] = run_status_updated
         if self._has_db():
             existing_artifact = None
             for row in self.list_artifacts(
@@ -1379,7 +1440,7 @@ class AgentStore:
                 commit_hash=resolved_commit_hash,
                 delivery_ok=delivery_ok,
                 message_id=message_id,
-                delivery_reason=delivery_reason,
+                delivery_reason=delivery_reason_code,
                 source_thread_id=expected_thread_id,
                 source_message_id=expected_source_message_id,
                 result_payload=result_payload,
@@ -1390,8 +1451,15 @@ class AgentStore:
             "run_id": run_id,
             "status": normalized_status,
             "message_id": message_id,
+            "result_message_id": message_id,
             "delivery_ok": delivery_ok,
-            "delivery_reason": delivery_reason,
+            "delivery_status": delivery_status,
+            "delivery_reason": delivery_reason_code,
+            "delivery_reason_code": delivery_reason_code,
+            "thread_id": expected_thread_id,
+            "source_message_id": expected_source_message_id,
+            "terminal_run_status": terminal_run_status,
+            "terminal_run_status_updated": run_status_updated,
             "files_changed": normalized_files_changed,
             "artifacts_count": len(artifact_rows),
             "commit_hash": resolved_commit_hash,
@@ -1460,7 +1528,7 @@ class AgentStore:
             "partial-success",
         }:
             attempt_status = "succeeded"
-        elif normalized_result_status == "cancelled":
+        elif normalized_result_status in {"cancelled", "canceled"}:
             attempt_status = "cancelled"
         else:
             attempt_status = "failed"

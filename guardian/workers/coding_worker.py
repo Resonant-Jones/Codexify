@@ -110,7 +110,6 @@ def _coerce_optional_text(raw: Any) -> str | None:
     return value or None
 
 
-
 def _bounded_text(
     raw: Any, *, limit: int = _WORKTREE_METADATA_TEXT_LIMIT
 ) -> str | None:
@@ -235,6 +234,7 @@ def _normalize_worktree_metadata(
         "error_code": _bounded_text(metadata.get("error_code")),
         "error_message": _bounded_text(metadata.get("error_message")),
     }
+
 
 def _lease_metadata(lease_ctx: LeaseExecutionContext | None) -> dict[str, Any]:
     if lease_ctx is None:
@@ -494,7 +494,10 @@ def _create_isolated_worktree(
     )
     normalized_root = os.path.abspath(worktree_root)
     try:
-        if os.path.commonpath([normalized_root, worktree_path]) != normalized_root:
+        if (
+            os.path.commonpath([normalized_root, worktree_path])
+            != normalized_root
+        ):
             metadata.update(
                 {
                     "status": "create_failed",
@@ -579,7 +582,9 @@ def _cleanup_isolated_worktree(
             "cleanup_ok": not exists,
             "error_code": None if not exists else result["error_code"],
             "error_message": (
-                None if not exists else "worktree_path_still_exists_after_remove"
+                None
+                if not exists
+                else "worktree_path_still_exists_after_remove"
             ),
         }
     )
@@ -715,7 +720,6 @@ def _bound_paths(
     return bounded[:limit], total, truncated
 
 
-
 def _collect_dirty_worktree_paths(
     cwd: str,
 ) -> tuple[list[str] | None, str | None]:
@@ -831,6 +835,7 @@ def _enforce_isolated_mutation_scope(
                 f"mutation outside allowed_paths: {dirty_path}",
             )
     return True, None, None
+
 
 def _validation_timeout_seconds(task_timeout_seconds: int) -> int:
     return max(
@@ -1605,7 +1610,9 @@ class CodingWorker:
 
         if lease_ctx is None and _coding_worktree_isolation_enabled():
             worktree_metadata = _default_worktree_metadata(enabled=True)
-            source_repo_root, source_repo_error = _resolve_git_repo_root(effective_cwd)
+            source_repo_root, source_repo_error = _resolve_git_repo_root(
+                effective_cwd
+            )
             if source_repo_root is None:
                 worktree_metadata.update(
                     {
@@ -1653,9 +1660,11 @@ class CodingWorker:
                 )
                 return
 
-            preflight_ok, preflight_error_code, preflight_error_message = (
-                _enforce_isolated_dirty_preflight(worktree_path)
-            )
+            (
+                preflight_ok,
+                preflight_error_code,
+                preflight_error_message,
+            ) = _enforce_isolated_dirty_preflight(worktree_path)
             if not preflight_ok:
                 worktree_metadata.update(
                     {
@@ -2198,12 +2207,14 @@ class CodingWorker:
                 and isolated_repo_root
                 and effective_cwd
             ):
-                in_scope, scope_error_code, scope_error_message = (
-                    _enforce_isolated_mutation_scope(
-                        worktree_path=effective_cwd,
-                        repo_root=isolated_repo_root,
-                        permission_policy=permission_policy,
-                    )
+                (
+                    in_scope,
+                    scope_error_code,
+                    scope_error_message,
+                ) = _enforce_isolated_mutation_scope(
+                    worktree_path=effective_cwd,
+                    repo_root=isolated_repo_root,
+                    permission_policy=permission_policy,
                 )
                 if not in_scope:
                     worktree_metadata.update(
@@ -2245,7 +2256,9 @@ class CodingWorker:
                             else "not_requested"
                         ),
                         commit_reason_code=(
-                            scope_error_code if commit_after_validation else None
+                            scope_error_code
+                            if commit_after_validation
+                            else None
                         ),
                         merge_ready=False,
                         human_review_required=True,
@@ -2875,60 +2888,6 @@ class CodingWorker:
             )
             return False
 
-    def _emit_lease_failure(
-        self,
-        task: CodingExecutionTask,
-        *,
-        adapter_kind: str | None,
-        error_code: str,
-        error_message: str,
-        lease_id: str | None = None,
-        lease_required: bool = False,
-        branch_name: str | None = None,
-        worktree_path: str | None = None,
-    ) -> None:
-        artifacts = [
-            {
-                "stop_reason": "worktree_lease_preflight_failed",
-                "worktree_lease_id": lease_id,
-                "branch_name": branch_name,
-                "worktree_path": worktree_path,
-                "lease_required": lease_required,
-            }
-        ]
-        self.store.store_coding_result(
-            run_id=task.run_id,
-            coding_task_id=task.coding_task_id,
-            attempt_id=task.attempt_id,
-            campaign_id=task.campaign_id,
-            work_order_id=task.work_order_id,
-            request_id=task.request_id or None,
-            thread_id=task.thread_id,
-            source_message_id=_coerce_optional_positive_int(
-                task.source_message_id
-            ),
-            result_status="failed",
-            result_summary=error_message,
-            adapter_kind=adapter_kind,
-            files_changed=[],
-            artifacts=artifacts,
-            errors=[error_code],
-            error_code=error_code,
-            error_message=error_message,
-            worktree_lease_id=lease_id,
-            lease_required=lease_required,
-            lease_branch_name=branch_name,
-            lease_worktree_path=worktree_path,
-        )
-        self._emit_failure(
-            task,
-            adapter_kind=adapter_kind,
-            error_message="coding worker exhausted validation attempts",
-            error_code="PROCESSING_ERROR",
-            lease_ctx=lease_ctx,
-            worktree=_finalize_worktree_for_terminal(success_like=False),
-        )
-
     def _emit_running(
         self,
         task: CodingExecutionTask,
@@ -3380,8 +3339,19 @@ class CodingWorker:
                 "artifacts": artifacts,
                 "adapter_session_ref": adapter_session_ref,
                 "message_id": delivery.get("message_id"),
+                "result_message_id": delivery.get(
+                    "result_message_id", delivery.get("message_id")
+                ),
                 "delivery_ok": bool(delivery.get("delivery_ok", False)),
+                "delivery_status": delivery.get("delivery_status"),
+                "delivery_reason_code": delivery.get(
+                    "delivery_reason_code", delivery.get("delivery_reason")
+                ),
                 "delivery_reason": delivery.get("delivery_reason"),
+                "terminal_run_status": delivery.get("terminal_run_status"),
+                "terminal_run_status_updated": delivery.get(
+                    "terminal_run_status_updated"
+                ),
                 "errors": errors,
                 "error_code": error_code,
                 "error_message": error_message,
@@ -3487,7 +3457,7 @@ class CodingWorker:
 
     def _emit_cancelled(self, task: CodingExecutionTask) -> None:
         """Emit task.cancelled event."""
-        self.store.update_run_status(run_id=task.run_id, status="cancelled")
+        self.store.update_run_status(run_id=task.run_id, status="canceled")
         try:
             task_events.publish_with_visibility(
                 task.run_id,
