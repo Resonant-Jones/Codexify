@@ -789,6 +789,12 @@ def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
         "task.running",
         "task.completed",
     ]
+    terminal_payload = published[-1][2]
+    assert terminal_payload["delivery_ok"] is True
+    assert terminal_payload["delivery_status"] == "delivered"
+    assert terminal_payload["delivery_reason_code"] is None
+    assert terminal_payload["terminal_run_status"] == "succeeded"
+    assert terminal_payload["terminal_run_status_updated"] is True
     assert [payload["adapter_kind"] for _, _, payload in published] == [
         "codex",
         "codex",
@@ -1886,6 +1892,7 @@ def test_commit_failure_marks_terminal_failed_and_not_merge_ready(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     lease_path = tmp_path / "commit-failure-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -2118,7 +2125,10 @@ def test_failing_validation_marks_attempt_failed(
     assert terminal_payload["best_validation_result"]["status"] == "failed"
     assert terminal_payload["error_code"] == "VALIDATION_FAILED"
     messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert messages == []
+    assert len(messages) == 1
+    assert messages[0].kind == "coding_result"
+    assert messages[0].extra_meta["coding_result_status"] == "failed"
+    assert messages[0].extra_meta["error_code"] == "VALIDATION_FAILED"
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(artifacts) == 1
     content = artifacts[0]["content_json"]
@@ -2513,7 +2523,7 @@ def test_non_git_cwd_with_isolation_enabled_fails_closed(
 
     assert adapter_calls == []
     assert [event for _, event, _ in published] == ["task.failed"]
-    assert published[-1][2]["error_code"] == "WORKTREE_ISOLATION_UNAVAILABLE"
+    assert published[-1][2]["error_code"] == "WORKTREE_CREATE_FAILED"
 
 
 def test_worktree_creation_failure_fails_closed(
@@ -2625,7 +2635,10 @@ def test_isolated_success_cleans_up_by_default_without_promoting_changes(
         source_message_id=seeded["source_message_id"],
         coding_task_id="coding-task-cleanup-default",
         cwd=str(repo),
-        permission_policy={"allowed_paths": [str(repo)]},
+        permission_policy={
+            "allow_write": True,
+            "allowed_paths": ["isolated-only.txt"],
+        },
     )
 
     worker._process_task(task)
@@ -3175,6 +3188,7 @@ def test_retry_prompt_uses_bounded_validation_feedback(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     _capture_task_events(monkeypatch)
@@ -3277,6 +3291,7 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3385,7 +3400,9 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
     )
     assert content["best_validation_result"]["tests_failed"] == 1
     messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert messages == []
+    assert len(messages) == 1
+    assert messages[0].kind == "coding_result"
+    assert messages[0].extra_meta["coding_result_status"] == "failed"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
@@ -3407,6 +3424,7 @@ def test_repeated_fail_signature_stops_before_budget_exhausted(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3534,6 +3552,7 @@ def test_validation_command_with_missing_cwd_records_not_run(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3646,7 +3665,11 @@ def test_validation_command_error_is_normalized_and_fails_closed(
     assert content["validation_results"]["error_message"].startswith(
         "validation_command_error:"
     )
-    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].kind == "coding_result"
+    assert messages[0].extra_meta["coding_result_status"] == "failed"
+    assert messages[0].extra_meta["error_code"] == "VALIDATION_FAILED"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
@@ -3666,6 +3689,7 @@ def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
+        adapter_kind="codex",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3673,6 +3697,7 @@ def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
         monkeypatch,
         lambda request: _mutate_file(repo, "allowed.txt", "changed\n"),
         SimpleNamespace(status="ok", summary="Allowed mutation completed."),
+        adapter_kind="codex",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
@@ -4360,9 +4385,13 @@ def test_successful_completion_writes_one_result_message_with_lineage(
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(artifacts) == 1
     assert artifacts[0]["content_json"]["delivery_ok"] is True
+    assert artifacts[0]["content_json"]["delivery_status"] == "delivered"
+    assert artifacts[0]["content_json"]["delivery_reason_code"] is None
     assert artifacts[0]["content_json"]["commit_hash"] == "abc123def"
     assert artifacts[0]["content_json"]["result_captured_by_guardian"] is True
     assert artifacts[0]["content_json"]["coding_result_status"] == "ok"
+    assert artifacts[0]["content_json"]["terminal_run_status"] == "succeeded"
+    assert artifacts[0]["content_json"]["terminal_run_status_updated"] is True
     source_message = _fetch_message(db, seeded["source_message_id"])
     assert source_message is not None
     assert source_message.role == "user"
@@ -4408,11 +4437,15 @@ def test_duplicate_finalization_does_not_duplicate_return_messages(
     )
     worker._process_task(task)
     worker._process_task(task)
+    store.update_run_status(run_id=run_id, status="running")
 
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(messages) == 1
     assert len(artifacts) == 1
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "succeeded"
 
 
 def test_partial_success_still_persists_a_result_message(
@@ -4461,9 +4494,7 @@ def test_partial_success_still_persists_a_result_message(
 
     assert [event for _, event, _ in published] == [
         "task.running",
-        "task.attempt_started",
-        "task.validation_failed",
-        "task.failed",
+        "task.completed",
     ]
     messages = _fetch_thread_messages(db, seeded["thread_id"])
     assert len(messages) == 1
@@ -4521,7 +4552,14 @@ def test_missing_source_thread_fails_closed_without_fallback_write(
     assert run_state is not None
     assert run_state["status"] == "failed"
     assert _fetch_thread_messages(db, 999) == []
-    assert _fetch_coding_result_artifacts(store, run_id)
+    artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(artifacts) == 1
+    content = artifacts[0]["content_json"]
+    assert content["delivery_ok"] is False
+    assert content["delivery_status"] == "degraded"
+    assert content["delivery_reason_code"] == "source_thread_missing"
+    assert content["terminal_run_status"] == "failed"
+    assert content["terminal_run_status_updated"] is True
 
 
 def test_adapter_failure_does_not_create_a_success_result_message(
@@ -4574,7 +4612,11 @@ def test_adapter_failure_does_not_create_a_success_result_message(
         "task.running",
         "task.failed",
     ]
-    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+    messages = _fetch_thread_messages(db, seeded["thread_id"])
+    assert len(messages) == 1
+    assert messages[0].kind == "coding_result"
+    assert messages[0].extra_meta["coding_result_status"] == "error"
+    assert messages[0].extra_meta["error_code"] == "adapter_failed"
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
@@ -4583,8 +4625,10 @@ def test_adapter_failure_does_not_create_a_success_result_message(
     content = artifacts[0]["content_json"]
     assert content["coding_result_status"] == "error"
     assert content["result_captured_by_guardian"] is True
-    assert content["delivery_ok"] is False
-    assert content["message_id"] is None
+    assert content["delivery_ok"] is True
+    assert content["delivery_status"] == "delivered"
+    assert content["message_id"] is not None
+    assert content["result_message_id"] == content["message_id"]
     assert content["adapter_session_ref"] == "pi-session-failed"
     source_message = _fetch_message(db, seeded["source_message_id"])
     assert source_message is not None
@@ -4692,7 +4736,12 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
     artifacts = _fetch_coding_result_artifacts(store, run_id)
     assert len(artifacts) == 1
     assert artifacts[0]["content_json"]["delivery_ok"] is False
+    assert artifacts[0]["content_json"]["delivery_status"] == "degraded"
     assert (
         artifacts[0]["content_json"]["delivery_reason"]
+        == "delivery_database_unavailable"
+    )
+    assert (
+        artifacts[0]["content_json"]["delivery_reason_code"]
         == "delivery_database_unavailable"
     )
