@@ -39,6 +39,12 @@ Run the deterministic generator with:
 ./generate-marketing --campaign-id CAMPAIGN_YYYY_MM_DD --audience local-first-builders --channels website,social,community --mode draft
 ```
 
+Run the automation wrapper (auto-derives campaign ID by date) with:
+
+```bash
+./run-marketing-automation --date 2026-05-12 --campaign-suffix MARKETING_V1 --audience local-first-builders --channels website,social,community --mode draft
+```
+
 ## Structure
 
 - `brand/`: Resonant Constructs worldview and claim constraints
