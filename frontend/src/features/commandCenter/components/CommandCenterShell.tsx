@@ -15,7 +15,6 @@ import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
 import useRetrievalPosture from "@/features/commandCenter/hooks/useRetrievalPosture";
@@ -66,6 +65,20 @@ type RetrievalPostureDiff = {
   changed: boolean;
   changedFields: string[];
 };
+
+type RailSide = "left" | "right";
+
+const STORAGE_KEY_RAIL_SIDE = "codexify-command-center-rail-side";
+
+function readStoredRailSide(): RailSide {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_RAIL_SIDE);
+    if (stored === "left" || stored === "right") return stored;
+  } catch {
+    // localStorage unavailable
+  }
+  return "left";
+}
 
 function latestRetrievalPostureComparison(
   items: CommandCenterRetrievalPostureHistoryItem[]
@@ -244,6 +257,11 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
 
   const [activeLens, setActiveLens] = React.useState<CommandCenterLensId>("agent-command");
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [railSide, setRailSide] = React.useState<RailSide>(readStoredRailSide);
+
+  const handleRailSideChange = React.useCallback((nextSide: RailSide) => {
+    setRailSide(nextSide);
+  }, []);
 
   const lensContent = React.useMemo((): React.ReactNode => {
     switch (activeLens) {
@@ -252,7 +270,7 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
 
       case "observability":
         return (
-          <div className="flex min-h-0 flex-col gap-4 overflow-visible">
+          <div className="flex min-h-0 flex-col gap-4">
             {activeThreadId !== null ? (
               <div>
                 <RetrievalPosturePanel
@@ -288,10 +306,11 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
               threadId={activeThreadId}
             />
             <div
-              className="h-64 min-h-0 overflow-hidden"
+              className="min-h-0 flex-1"
               style={{
                 borderRadius: "var(--tile-radius)",
                 border: "1px solid var(--panel-border)",
+                overflow: "hidden",
               }}
             >
               <EventConsole
@@ -317,10 +336,11 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
       case "event-console":
         return (
           <div
-            className="h-96 min-h-0 overflow-hidden"
+            className="min-h-0 flex-1"
             style={{
               borderRadius: "var(--tile-radius)",
               border: "1px solid var(--panel-border)",
+              overflow: "hidden",
             }}
           >
             <EventConsole
@@ -414,41 +434,69 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
     visibleRuns,
   ]);
 
+  const shellFlexDirection = railSide === "right" ? "flex-row-reverse" : "";
+
   return (
     <main
-      className="min-h-screen overflow-y-auto"
+      className="flex h-screen flex-col overflow-hidden"
       data-testid="command-center-scroll-shell"
       style={{
-        background: "var(--panel-bg)",
+        background:
+          "radial-gradient(circle at 12% 8%, color-mix(in oklab, var(--accent-weak) 22%, transparent), transparent 46%), var(--surface-soft)",
         color: "var(--text)",
-        padding: "var(--card-pad)",
+        padding: "max(var(--card-pad), 16px)",
       }}
     >
-      <div
-        className="mx-auto flex w-full max-w-7xl gap-0 pb-8"
-        data-testid="command-center-shell"
-        style={{
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--panel-border)",
-          background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
-          minHeight: "calc(100vh - 4rem)",
-        }}
-      >
-        <CommandCenterUtilityRail
-          activeLens={activeLens}
-          onLensChange={setActiveLens}
-          onToggleDrawer={() => setDrawerOpen((current) => !current)}
-        />
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden">
+        <section
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          data-testid="command-center-workspace-card"
+          style={{
+            borderRadius: "calc(var(--radius) + 2px)",
+            border: "1px solid color-mix(in oklab, var(--panel-border) 92%, transparent)",
+            background: "color-mix(in oklab, var(--panel-bg) 94%, transparent)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -18px 42px rgba(0,0,0,0.14), 0 20px 48px rgba(0,0,0,0.2)",
+          }}
+        >
+          <div
+            className={`flex min-h-0 flex-1 overflow-hidden ${shellFlexDirection}`}
+            data-testid="command-center-shell"
+          >
+            <CommandCenterUtilityRail
+              activeLens={activeLens}
+              onLensChange={setActiveLens}
+              onToggleDrawer={() => setDrawerOpen((current) => !current)}
+              railSide={railSide}
+              onRailSideChange={handleRailSideChange}
+            />
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" style={{ padding: "var(--card-pad)" }}>
-            {lensContent}
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div
+                className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+                data-testid="command-center-lens-zone"
+                style={{
+                  paddingInline: "var(--card-pad)",
+                  paddingBlock: "calc(var(--card-pad) - 2px) var(--card-pad)",
+                }}
+              >
+                {lensContent}
+              </div>
+
+              <CommandCenterBottomDrawer
+                open={drawerOpen}
+                onToggle={() => setDrawerOpen((current) => !current)}
+              />
+            </div>
           </div>
+        </section>
 
-          <CommandCenterBottomDrawer
-            open={drawerOpen}
-            onToggle={() => setDrawerOpen((current) => !current)}
-          />
+        {/* subtle footer edge */}
+        <div
+          className="flex-shrink-0 pb-4 pt-2 text-center text-[10px]"
+          style={{ color: "var(--muted)" }}
+        >
+          Command Center · non-dispatch · read-only operator truth surface
         </div>
       </div>
     </main>

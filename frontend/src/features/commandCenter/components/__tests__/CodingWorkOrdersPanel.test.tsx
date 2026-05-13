@@ -99,8 +99,11 @@ function buildRecommendationResponse(
   };
 }
 
-function configureSuccessResponses(workOrders: CommandCenterCodingWorkOrder[]) {
-  const orchestrator = buildRecommendationResponse();
+function configureSuccessResponses(
+  workOrders: CommandCenterCodingWorkOrder[],
+  recommendationOverrides: Partial<CommandCenterOrchestratorNextResponse> = {}
+) {
+  const orchestrator = buildRecommendationResponse(recommendationOverrides);
   apiGetMock.mockImplementation(async (url: string) => {
     if (url === "/api/coding/work-orders") {
       return {
@@ -146,11 +149,24 @@ describe("CodingWorkOrdersPanel", () => {
     render(<CodingWorkOrdersPanel />);
 
     expect(
+      screen.getByTestId("command-center-agent-lens-title")
+    ).toHaveTextContent("Agent Command Center");
+    expect(screen.getByTestId("command-center-agent-chip-work-orders")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-agent-chip-dispatch")).toHaveTextContent(
+      "Dispatch: disabled"
+    );
+    expect(screen.getByTestId("command-center-agent-lens-subtitle")).toHaveTextContent(
+      /watch\/create\/cancel\/recommendation-only/i
+    );
+    expect(
       screen.getByRole("heading", { name: "Automated Worker Control Plane" })
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Dispatch, lease allocation, merge automation, and worker launch are not enabled/i)
     ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-summary-cards")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-worker-control-card")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-runner-supervision-summary")).toBeInTheDocument();
 
     expect(await screen.findByTestId("coding-work-orders-panel")).toBeInTheDocument();
   });
@@ -167,6 +183,8 @@ describe("CodingWorkOrdersPanel", () => {
     expect(await screen.findByText("Ready one")).toBeInTheDocument();
     expect(screen.getByText("Blocked one")).toBeInTheDocument();
     expect(screen.getAllByTestId("coding-work-order-row")).toHaveLength(2);
+    expect(screen.getByTestId("command-center-work-orders-card")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-detail-card")).toBeInTheDocument();
   });
 
   it("renders orchestrator recommendations and skipped reasons", async () => {
@@ -191,6 +209,118 @@ describe("CodingWorkOrdersPanel", () => {
     );
     expect(within(skipped).getByText(/wo-skip-1/)).toBeInTheDocument();
     expect(within(skipped).getByText(/STATUS_NOT_READY/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/do not dispatch workers/i)
+    ).toBeInTheDocument();
+  });
+
+  it("runner supervision summary distinguishes open, failed/cancelled, and recommendation counts", async () => {
+    configureSuccessResponses(
+      [
+        buildWorkOrder({ work_order_id: "wo-ready", status: "ready" }),
+        buildWorkOrder({ work_order_id: "wo-running", status: "running" }),
+        buildWorkOrder({ work_order_id: "wo-failed", status: "failed" }),
+        buildWorkOrder({ work_order_id: "wo-cancelled", status: "cancelled" }),
+      ],
+      {
+        recommendations: [
+          {
+            decision: "recommendation_only",
+            dependency_ids: [],
+            file_scope: ["frontend/src/App.tsx"],
+            latest_lease_id: null,
+            latest_run_id: "run-1",
+            priority: 3,
+            rank: 1,
+            reason_codes: ["READY_FOR_DISPATCH"],
+            requires_human_review: true,
+            status: "ready",
+            title: "Recommendation one",
+            work_order_id: "wo-ready",
+          },
+          {
+            decision: "recommendation_only",
+            dependency_ids: [],
+            file_scope: ["guardian/routes/coding_work_orders.py"],
+            latest_lease_id: null,
+            latest_run_id: null,
+            priority: 2,
+            rank: 2,
+            reason_codes: ["READY_FOR_DISPATCH"],
+            requires_human_review: true,
+            status: "ready",
+            title: "Recommendation two",
+            work_order_id: "wo-running",
+          },
+        ],
+      }
+    );
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findAllByTestId("coding-work-order-row");
+
+    expect(screen.getByTestId("command-center-runner-summary-open-ready")).toHaveTextContent("2 / 1");
+    expect(screen.getByTestId("command-center-runner-summary-in-progress")).toHaveTextContent("1");
+    expect(screen.getByTestId("command-center-runner-summary-failed-cancelled")).toHaveTextContent("2");
+    expect(screen.getByTestId("command-center-runner-summary-recommendations")).toHaveTextContent("2 available");
+  });
+
+  it("renders neutral Not reported copy when lease/validation/commit evidence is missing", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({
+        status: "ready",
+        work_order_id: "wo-no-evidence",
+        latest_lease_id: null,
+        latest_receipt_id: null,
+        latest_run_id: null,
+      }),
+    ]);
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findAllByTestId("coding-work-order-row");
+
+    expect(screen.getByTestId("command-center-runner-summary-lease")).toHaveTextContent("Not reported");
+    expect(screen.getByTestId("command-center-runner-summary-validation")).toHaveTextContent("Not reported");
+    expect(screen.getByTestId("command-center-runner-summary-commit-gate")).toHaveTextContent("Not reported");
+
+    const detailCard = screen.getByTestId("command-center-work-order-detail-card");
+    await waitFor(() => {
+      expect(within(detailCard).getByText(/Validation status: Not reported/)).toBeInTheDocument();
+      expect(within(detailCard).getByText(/Commit gate status: Not reported/)).toBeInTheDocument();
+      expect(within(detailCard).getByText(/Lease status: Not reported/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders bounded metadata in runner detail card", async () => {
+    const veryLongObjective = "Objective ".repeat(80);
+    const veryLongReason = "reason ".repeat(60);
+    configureSuccessResponses([
+      buildWorkOrder({
+        objective: veryLongObjective,
+        blocked_reason: veryLongReason,
+        work_order_id: "wo-long",
+        extra_meta: {
+          commit_status: "committed",
+          final_validation_status: "passed",
+          merge_ready: true,
+          validation_attempt_count: 2,
+          validation_stop_reason: "completed",
+        },
+      }),
+    ]);
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByText(/Runner detail/i);
+    await screen.findAllByTestId("coding-work-order-row");
+
+    const detailCard = screen.getByTestId("command-center-work-order-detail-card");
+    await waitFor(() => {
+      expect(within(detailCard).getByText(/Validation status: Passed/)).toBeInTheDocument();
+      expect(within(detailCard).getByText(/Commit gate status: Committed/)).toBeInTheDocument();
+      expect(within(detailCard).getByText(/Merge-ready evidence: Yes/)).toBeInTheDocument();
+      expect(within(detailCard).queryByText(veryLongObjective)).not.toBeInTheDocument();
+      expect(within(detailCard).queryByText(veryLongReason)).not.toBeInTheDocument();
+    });
   });
 
   it("submitting create form calls POST /api/coding/work-orders", async () => {
@@ -198,8 +328,9 @@ describe("CodingWorkOrdersPanel", () => {
 
     render(<CodingWorkOrdersPanel />);
 
-    const form = await screen.findByTestId("coding-work-order-create-form");
     fireEvent.click(screen.getByRole("button", { name: /expand form/i }));
+    const form = await screen.findByTestId("coding-work-order-create-form");
+
     fireEvent.change(within(form).getByLabelText("Title"), {
       target: { value: "Create from UI" },
     });
@@ -369,20 +500,10 @@ describe("CodingWorkOrdersPanel", () => {
     render(<CodingWorkOrdersPanel />);
     await screen.findAllByTestId("coding-work-order-row");
 
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Total: 4")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Ready: 1")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Active-ish: 2")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Blocked/escalated: 1")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, node) => node?.textContent === "Merge-ready: 1")
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-work-order-summary-total")).toHaveTextContent("4");
+    expect(screen.getByTestId("command-center-work-order-summary-ready")).toHaveTextContent("1");
+    expect(screen.getByTestId("command-center-work-order-summary-active")).toHaveTextContent("2");
+    expect(screen.getByTestId("command-center-work-order-summary-blocked")).toHaveTextContent("1");
+    expect(screen.getByTestId("command-center-work-order-summary-merge-ready")).toHaveTextContent("1");
   });
 });
