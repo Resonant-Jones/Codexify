@@ -551,17 +551,22 @@ services:
       GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      CODEX_ADAPTER_COMMAND: >-
+        codex exec --oss --local-provider ollama -m qwen3-coder:30b
+        --output-schema /app/backend/scripts/docker/codex-run-envelope.schema.json
       # --- Graph-write runtime boundary (default-off) ---
       CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
       CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
+      - ./.git:/app/.git
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./codex_runner:/app/codex_runner
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
-    command: ["-m", "guardian.workers.coding_worker"]
+    command: ["/app/backend/scripts/docker/run_worker_coding.py"]
 
   worker-voice:
     build:
