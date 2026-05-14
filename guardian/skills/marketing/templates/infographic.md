@@ -30,3 +30,4 @@
 
 - approval_state: `draft`
 - render_mode: `spec-and-prompt-only`
+- visible_claim_source: `public_copy_seed.copy_ready`
