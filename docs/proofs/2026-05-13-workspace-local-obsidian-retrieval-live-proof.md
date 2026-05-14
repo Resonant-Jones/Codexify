@@ -211,3 +211,18 @@ The proof stayed on supported backend, health, retrieval, and task-event surface
 ### Follow-Up Recommendation
 
 Investigate the workspace retrieval selection path so Obsidian-backed hits survive into the executed completion payload. The current evidence suggests the workspace posture is accepted and the note is searchable, but the broker did not select Obsidian evidence for injection.
+
+## Post-Fix Note
+
+On 2026-05-14, after repairing the workspace Obsidian retrieval path and restarting the supported Compose backend/workers against the current workspace code, the live proof was rerun and passed:
+
+- `task_id=cc954ca5-ecc2-4048-98bd-418b9b927be5`
+- `thread_id=45`
+- `assistant_match=true`
+- `retrieval_provenance.retrieval_status=workspace_local_success`
+- `obsidian_semantic_hits=1`
+- `obsidian_count=1`
+- `obsidian_injected=True`
+- `VERDICT: PASS`
+
+This follow-up preserves the original failed proof record above while documenting that the repaired code path now selects and injects Obsidian-backed evidence into the executed completion payload on the supported local Compose runtime.
