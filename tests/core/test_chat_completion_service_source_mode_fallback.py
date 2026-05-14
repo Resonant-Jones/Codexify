@@ -15,6 +15,7 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
+    SOURCE_MODE_WORKSPACE,
     WIDEN_REASON_NONE,
 )
 from guardian.core import chat_completion_service
@@ -48,6 +49,8 @@ def _seed_completion_service(
             user_id,
             project_id=None,
             source_mode=SOURCE_MODE_PROJECT,
+            retrieval_policy=None,
+            **kwargs,
         ):
             captured["thread_id"] = thread_id
             captured["query"] = query
@@ -409,6 +412,8 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
             user_id,
             project_id=None,
             source_mode=SOURCE_MODE_PROJECT,
+            retrieval_policy=None,
+            **kwargs,
         ):
             captured["source_mode"] = source_mode
             return {
@@ -494,6 +499,153 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
         result["payload_summary"]["requested_source_mode"]
         == "Personal_Knowledge"
     )
+
+
+def test_run_chat_completion_task_persists_workspace_obsidian_payload_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+
+    class _WorkspaceObsidianBroker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def assemble(
+            self,
+            thread_id,
+            query,
+            depth_mode,
+            user_id,
+            project_id=None,
+            source_mode=SOURCE_MODE_PROJECT,
+            retrieval_policy=None,
+            **kwargs,
+        ):
+            captured["source_mode"] = source_mode
+            return {
+                "semantic": [
+                    {
+                        "metadata": {
+                            "namespace": "thread:1",
+                            "message_id": 1,
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "namespace": OBSIDIAN_NAMESPACE,
+                            "source_id": "obsidian-1",
+                        }
+                    },
+                ],
+                "obsidian": [
+                    {
+                        "metadata": {
+                            "namespace": OBSIDIAN_NAMESPACE,
+                            "source_id": "obsidian-1",
+                        }
+                    }
+                ],
+                "docs": {
+                    "project": [{"title": "workspace doc"}],
+                    "thread": [],
+                },
+                "memory": [],
+                "graph": [],
+            }, {
+                "documents": [],
+                "graph": [],
+                "source_mode": source_mode,
+                "widen_reason": WIDEN_REASON_NONE,
+            }
+
+    def _fake_context_system_message_with_meta(bundle):
+        semantic_hits = [
+            item for item in (bundle or {}).get("semantic", []) if isinstance(item, dict)
+        ]
+        obsidian_hits = [
+            item for item in (bundle or {}).get("obsidian", []) if isinstance(item, dict)
+        ]
+        docs = (bundle or {}).get("docs") or {}
+        doc_count = 0
+        if isinstance(docs, dict):
+            for key in ("thread", "project", "library"):
+                value = docs.get(key)
+                if isinstance(value, list):
+                    doc_count += len(value)
+            if not doc_count:
+                doc_count = sum(
+                    len(value) for value in docs.values() if isinstance(value, list)
+                )
+        return (
+            "WORKSPACE CONTEXT",
+            {
+                "semantic": {
+                    "count": len(semantic_hits),
+                    "injected": bool(semantic_hits),
+                },
+                "obsidian": {
+                    "count": len(obsidian_hits),
+                    "injected": bool(obsidian_hits),
+                },
+                "docs": {
+                    "count": doc_count,
+                    "injected": bool(doc_count),
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        chat_completion_service, "ContextBroker", _WorkspaceObsidianBroker
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_context_system_message_with_meta",
+        _fake_context_system_message_with_meta,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: "assistant reply",
+    )
+
+    class _EmptyStream:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "stream_local",
+        lambda *args, **kwargs: _EmptyStream(),
+    )
+
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="local",
+        model="mock-model",
+        origin="api:chat.complete|turn_id=abc|source_mode=workspace",
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    provenance = result["retrieval_provenance"]
+    assert captured["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert result["trace"]["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert provenance["retrieval_status"] == "workspace_local_success"
+    assert provenance["source_hit_counts"]["obsidian_semantic"] == 1
+    assert result["payload_summary"]["source_mode"] == SOURCE_MODE_WORKSPACE
+    assert result["payload_summary"]["semantic_count"] == 2
+    assert result["payload_summary"]["obsidian_count"] == 1
+    assert result["payload_summary"]["obsidian_injected"] is True
+    assert result["payload_summary"]["retrieval_injected"] is True
+    assert result["payload_summary"]["linked_document_count"] == 1
+    assert result["payload_summary"]["retrieval_provenance"] == provenance
 
 
 def test_run_chat_completion_task_surfaces_verified_personal_fact_diagnostics(

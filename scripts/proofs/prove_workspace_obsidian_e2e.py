@@ -726,8 +726,8 @@ def main() -> None:
         sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()
+# Legacy entrypoint intentionally disabled.
+# The current proof harness continues below and owns the real __main__ block.
 
 import subprocess
 import sys
