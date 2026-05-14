@@ -910,10 +910,21 @@ def _transform_messages_for_ollama_vision(
 
 
 def _encode_image_url_to_base64(url: str) -> str | None:
-    """Fetch a remote HTTP URL or Codexify media path and return base64-encoded bytes."""
+    """Fetch a remote HTTP URL or Codexify media path and return base64-encoded bytes.
+
+    Also handles data URLs (``data:image/...;base64,...``) by extracting the
+    base64 payload directly without re-fetching.
+    """
     if not url:
         return None
     try:
+        # Data URLs already contain the base64-encoded bytes.
+        if url.startswith("data:"):
+            _, _, payload = url.partition(";base64,")
+            if payload:
+                return payload.strip()
+            return None
+
         parsed = urlparse(url)
         if parsed.path.startswith("/media/"):
             media_path = unquote(parsed.path[len("/media/") :])
