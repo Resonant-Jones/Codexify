@@ -79,9 +79,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 2. **Task id:** `FB-002`
    **Title:** FlowDraft schema proposal
    **Lane:** backend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/data-and-storage.md`, possible future schema proposal note under `docs/architecture/`
    **Depends on:** `FB-001`
+   **Proof artifact:** `docs/architecture/flowdraft-schema-proposal.md`
    **Proof surface:** accepted or explicitly proposed contract note covering `FlowDraft`, `Starter`, ordered steps, validation state, and provenance fields
    **Non-goals:** no migration, no SQLAlchemy model, no persistence implementation, no frontend draft model changes
 
