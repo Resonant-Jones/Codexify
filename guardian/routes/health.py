@@ -532,7 +532,7 @@ def health(request: Request):
             ],
             "release_hold": supported_profile_posture_state["release_hold"],
         }
-    elif supported_profile_posture_state.get("name") is not None:
+    elif supported_profile_posture_state.get("valid") is not None:
         details["supported_profile"] = supported_profile_posture_state
     return _health_response("core", "ok", details)
 
