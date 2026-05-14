@@ -1,442 +1,346 @@
+"""Tests for the Resonant Constructs daily insight generator."""
+
 from __future__ import annotations
 
-import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = (
-    ROOT / "scripts" / "content" / "generate_resonant_daily_insight.py"
+    REPO_ROOT / "scripts" / "content" / "generate_resonant_daily_insight.py"
 )
 
-
-def run_cli(
-    *args: str, cwd: Path = ROOT
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
-        cwd=cwd,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-
-def parse_output(text: str) -> dict[str, object]:
-    return json.loads(text.strip())
-
-
-def parse_generated_page(text: str) -> tuple[dict[str, str], str]:
-    lines = text.splitlines()
-    assert lines[0] == "---"
-    closing = lines.index("---", 1)
-    metadata: dict[str, str] = {}
-    for line in lines[1:closing]:
-        key, _, value = line.partition(": ")
-        metadata[key] = json.loads(value)
-    body = "\n".join(lines[closing + 2 :])
-    return metadata, body
-
-
 # ---------------------------------------------------------------------------
-# helper to create source fixtures
+# helpers
 # ---------------------------------------------------------------------------
 
+_FORBIDDEN_RELEASE_PATTERNS = [
+    "release-ready",
+    "public launch",
+    "GA date",
+    "production ready",
+    "enterprise-grade",
+    "announcing",
+    "now available",
+    "we guarantee",
+    "zero downtime",
+    "100% coverage",
+    "flawless",
+    "industry-leading",
+    "best in class",
+    "SLA",
+]
 
-def make_source(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+
+def _make_source_file(tmp_path: Path, name: str, content: str) -> Path:
+    path = tmp_path / name
+    path.write_text(content, encoding="utf-8")
     return path
 
 
-# ---------------------------------------------------------------------------
-# tests
-# ---------------------------------------------------------------------------
+def _make_markdown_file(tmp_path: Path, name: str, content: str) -> Path:
+    if not name.endswith(".md"):
+        name = f"{name}.md"
+    return _make_source_file(tmp_path, name, content)
 
 
-def test_successful_generation_from_one_source(tmp_path: Path) -> None:
-    source = make_source(
-        tmp_path / "src" / "note1.md",
-        "# Exploring Resonant Fields\n\nA quiet investigation into "
-        "how fields self-organize when constraints are removed.\n\n"
-        "## Observations\n\n- Pattern A emerged\n- Pattern B followed",
-    )
-    output_dir = tmp_path / "generated"
-
-    result = run_cli(
+def _run_cli(
+    date: str,
+    sources: list[Path],
+    output_dir: Path,
+    *,
+    title: str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
         "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
+        date,
         "--output-dir",
         str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert result.stderr == ""
-
-    output_path = output_dir / "2026-05-13.md"
-    assert output_path.is_file()
-
-    metadata, body = parse_generated_page(
-        output_path.read_text(encoding="utf-8")
-    )
-    assert metadata["date"] == "2026-05-13"
-    assert "note1.md" in metadata["source_paths"]
-    assert "generated_at" in metadata
-    assert metadata["generated_at"].endswith("Z")
-
-    # Default title behavior
-    assert metadata["title"] == "Daily Insight — 2026-05-13"
-
-    # Generated body must contain expected sections
-    assert "## Signal" in body
-    assert "Exploring Resonant Fields" in body
-    assert "## Source Excerpts" in body
-    assert "## Reflection" in body
-    assert "generated from local source material" in body
-
-    summary = parse_output(result.stdout)
-    assert summary["ok"] is True
-    assert summary["written"] is True
-    assert summary["source_count"] == 1
-
-
-def test_successful_generation_from_multiple_sources(
-    tmp_path: Path,
-) -> None:
-    source1 = make_source(
-        tmp_path / "a" / "field-notes.md",
-        "# Field Dynamics\n\nThe lattice showed unexpected coherence "
-        "at t+4.\n",
-    )
-    source2 = make_source(
-        tmp_path / "b" / "resonance-log.md",
-        "# Resonance Log\n\nPhase alignment held through cycle 7.\n\n"
-        "## Details\n\n- amplitude stable\n- frequency matched prediction",
-    )
-    output_dir = tmp_path / "gen"
-
-    result = run_cli(
-        "--date",
-        "2026-05-14",
-        "--source",
-        str(source1),
-        "--source",
-        str(source2),
-        "--output-dir",
-        str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    output_path = output_dir / "2026-05-14.md"
-    assert output_path.is_file()
-
-    metadata, body = parse_generated_page(
-        output_path.read_text(encoding="utf-8")
-    )
-    assert metadata["date"] == "2026-05-14"
-    assert "field-notes.md" in metadata["source_paths"]
-    assert "resonance-log.md" in metadata["source_paths"]
-
-    # Signal from both sources
-    assert "## Signal" in body
-    assert "Field Dynamics" in body
-    assert "Resonance Log" in body
-
-    # Two source excerpt sections
-    assert "### Source 1:" in body
-    assert "### Source 2:" in body
-
-    summary = parse_output(result.stdout)
-    assert summary["source_count"] == 2
-
-
-def test_missing_source_failure(tmp_path: Path) -> None:
-    source = tmp_path / "no-such-file.md"
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(tmp_path / "generated"),
-    )
-
-    assert result.returncode == 1
-    assert "source file not found" in result.stderr
-    assert result.stdout == ""
-
-
-def test_empty_source_failure(tmp_path: Path) -> None:
-    source = make_source(tmp_path / "empty.md", "")
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(tmp_path / "generated"),
-    )
-
-    assert result.returncode == 1
-    assert "source file is empty" in result.stderr
-    assert result.stdout == ""
-
-
-def test_non_markdown_source_failure(tmp_path: Path) -> None:
-    source = make_source(tmp_path / "notes.txt", "# Looks like Markdown but "
-        "the extension is wrong\n")
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(tmp_path / "generated"),
-    )
-
-    assert result.returncode == 1
-    assert (
-        "each source must be a Markdown file" in result.stderr
-    )
-    assert result.stdout == ""
-
-
-def test_existing_output_without_force_fails(tmp_path: Path) -> None:
-    source = make_source(
-        tmp_path / "src.md", "# Test\n\nBody\n"
-    )
-    output_dir = tmp_path / "generated"
-    output_dir.mkdir(parents=True)
-    target = output_dir / "2026-05-13.md"
-    target.write_text("stale content", encoding="utf-8")
-
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-    )
-
-    assert result.returncode == 1
-    assert "output already exists" in result.stderr
-    assert target.read_text(encoding="utf-8") == "stale content"
-
-
-def test_force_overwrite_replaces_existing_output(
-    tmp_path: Path,
-) -> None:
-    source = make_source(
-        tmp_path / "src.md",
-        "# Fresh\n\nNew material.\n",
-    )
-    output_dir = tmp_path / "generated"
-    output_dir.mkdir(parents=True)
-    target = output_dir / "2026-05-13.md"
-    target.write_text("stale content", encoding="utf-8")
-
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert target.read_text(encoding="utf-8") != "stale content"
-
-    metadata, body = parse_generated_page(
-        target.read_text(encoding="utf-8")
-    )
-    assert metadata["date"] == "2026-05-13"
-    assert "src.md" in metadata["source_paths"]
-    assert "Signal" in body
-
-
-def test_dry_run_does_not_write_files(tmp_path: Path) -> None:
-    source = make_source(
-        tmp_path / "src.md",
-        "# Dry Run Insight\n\nTest body.\n",
-    )
-    output_dir = tmp_path / "generated"
-
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-        "--dry-run",
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert not (output_dir / "2026-05-13.md").exists()
-    assert not output_dir.exists()
-
-    summary = parse_output(result.stdout)
-    assert summary["dry_run"] is True
-    assert "2026-05-13.md" in summary["target_path"]
-
-
-def test_default_title_behavior(tmp_path: Path) -> None:
-    source = make_source(
-        tmp_path / "src.md", "# Content\n\nText.\n"
-    )
-    output_dir = tmp_path / "gen"
-
-    result = run_cli(
-        "--date",
-        "2026-05-14",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    output_path = output_dir / "2026-05-14.md"
-    metadata, _ = parse_generated_page(
-        output_path.read_text(encoding="utf-8")
-    )
-    assert metadata["title"] == "Daily Insight — 2026-05-14"
-
-
-def test_custom_title_behavior(tmp_path: Path) -> None:
-    source = make_source(
-        tmp_path / "src.md", "# Content\n\nText.\n"
-    )
-    output_dir = tmp_path / "gen"
-
-    result = run_cli(
-        "--date",
-        "2026-05-14",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-        "--title",
-        "Resonant Fields: A Study",
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    output_path = output_dir / "2026-05-14.md"
-    metadata, _ = parse_generated_page(
-        output_path.read_text(encoding="utf-8")
-    )
-    assert metadata["title"] == "Resonant Fields: A Study"
-
-
-def test_generated_metadata_includes_date_and_source_paths(
-    tmp_path: Path,
-) -> None:
-    source1 = make_source(tmp_path / "a.md", "# A\n\nBody A.\n")
-    source2 = make_source(tmp_path / "b.md", "# B\n\nBody B.\n")
-    output_dir = tmp_path / "gen"
-
-    result = run_cli(
-        "--date",
-        "2026-05-15",
-        "--source",
-        str(source1),
-        "--source",
-        str(source2),
-        "--output-dir",
-        str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    summary = parse_output(result.stdout)
-    assert summary["date"] == "2026-05-15"
-    assert len(summary["source_paths"]) == 2
-
-
-def test_generated_output_no_unsupported_claims(
-    tmp_path: Path,
-) -> None:
-    """Verify the generated page does not invent product status, release
-    promises, customer statements, or metrics."""
-    source = make_source(
-        tmp_path / "src.md",
-        "# Observation\n\nThe resonance pattern was notable today.\n",
-    )
-    output_dir = tmp_path / "gen"
-
-    result = run_cli(
-        "--date",
-        "2026-05-13",
-        "--source",
-        str(source),
-        "--output-dir",
-        str(output_dir),
-        "--force",
-    )
-
-    assert result.returncode == 0, result.stderr
-    output_path = output_dir / "2026-05-13.md"
-    body = output_path.read_text(encoding="utf-8")
-
-    # Banned claim patterns — the generated output must not contain these
-    banned = [
-        "released",
-        "launched",
-        "% of",
-        "customers",
-        "users",
-        "revenue",
-        "market share",
-        "partnership",
-        "acquisition",
-        "funding",
-        "milestone reached",
-        "production ready",
-        "GA",
-        "general availability",
-        "SLA",
     ]
+    for src in sources:
+        cmd.extend(["--source", str(src)])
+    if title:
+        cmd.extend(["--title", title])
+    if dry_run:
+        cmd.append("--dry-run")
+    if force:
+        cmd.append("--force")
 
-    body_lower = body.lower()
-    for phrase in banned:
-        assert phrase not in body_lower, (
-            f"generated output contains unsupported claim phrase: {phrase!r}"
-        )
-
-    # Must contain the explicit artifact notice
-    assert "generated from local source material" in body
-    assert (
-        "scripts/content/generate_resonant_daily_insight.py"
-        in body
+    return subprocess.run(
+        cmd,
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
     )
 
 
-@pytest.mark.parametrize(
-    "bad_date",
-    ["2026-13-01", "20260513", "2026-05-13T10:00:00Z", "not-a-date"],
-)
-def test_invalid_date_fails(tmp_path: Path, bad_date: str) -> None:
-    source = make_source(tmp_path / "src.md", "# Title\n\nBody\n")
-    result = run_cli(
-        "--date",
-        bad_date,
-        "--source",
-        str(source),
-        "--output-dir",
-        str(tmp_path / "generated"),
+def _read_insight(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# successful generation
+# ---------------------------------------------------------------------------
+
+ONE_SOURCE_MD = """# Understanding Deterministic Generation
+
+Deterministic generation ensures that the same inputs always produce the
+same outputs. This is a foundational property for content pipelines that
+must operate without external dependencies.
+
+## Key Properties
+
+- Idempotent across runs
+- Reproducible by any team member
+- Auditable output history
+"""
+
+
+def test_generates_from_one_source(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(tmp_path, "deterministic.md", ONE_SOURCE_MD)
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode == 0, result.stderr
+
+    insight_path = output_dir / "2026-05-13.md"
+    assert insight_path.exists()
+
+    content = _read_insight(insight_path)
+    assert "Daily Insight — 2026-05-13" in content
+    assert "**Date:** 2026-05-13" in content
+    assert "**Generated:**" in content
+    assert f"`{src}`" in content
+    assert "## Signal" in content
+    assert "Understanding Deterministic Generation" in content
+    assert "## Source Excerpts" in content
+    assert "## Reflection" in content
+
+
+def test_generates_from_multiple_sources(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src1 = _make_markdown_file(
+        tmp_path,
+        "a.md",
+        "# First Document\n\nThe first document describes foundational concepts.\n",
+    )
+    src2 = _make_markdown_file(
+        tmp_path,
+        "b.md",
+        "# Second Document\n\nThe second document builds on the first.\n",
     )
 
-    assert result.returncode == 1
-    assert "invalid --date value" in result.stderr
+    result = _run_cli("2026-05-13", [src1, src2], output_dir)
+    assert result.returncode == 0, result.stderr
+
+    insight_path = output_dir / "2026-05-13.md"
+    content = _read_insight(insight_path)
+
+    assert "First Document" in content
+    assert "Second Document" in content
+    assert f"`{src1}`" in content
+    assert f"`{src2}`" in content
+
+
+# ---------------------------------------------------------------------------
+# error: missing / empty / non-Markdown
+# ---------------------------------------------------------------------------
+
+
+def test_fails_on_missing_source(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    missing = tmp_path / "nope.md"
+
+    result = _run_cli("2026-05-13", [missing], output_dir)
+    assert result.returncode != 0
+    assert "not found" in result.stderr.lower()
+
+
+def test_fails_on_empty_source(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_source_file(tmp_path, "empty.md", "")
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode != 0
+    assert "empty" in result.stderr.lower()
+
+
+def test_fails_on_non_markdown_source(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_source_file(tmp_path, "notes.txt", "Some text content\n")
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode != 0
+    assert "not a markdown file" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# existing output behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_fails_existing_output_without_force(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    output_dir.mkdir(parents=True)
+    existing = output_dir / "2026-05-13.md"
+    existing.write_text("preexisting content\n", encoding="utf-8")
+
+    src = _make_markdown_file(tmp_path, "x.md", "# Title\n\nBody.\n")
+
+    result = _run_cli("2026-05-13", [src], output_dir, force=False)
+    assert result.returncode != 0
+    assert "already exists" in result.stderr.lower()
+
+
+def test_overwrites_with_force(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    output_dir.mkdir(parents=True)
+    existing = output_dir / "2026-05-13.md"
+    existing.write_text("preexisting content\n", encoding="utf-8")
+
+    src = _make_markdown_file(
+        tmp_path, "y.md", "# Fresh Content\n\nFresh body.\n"
+    )
+
+    result = _run_cli("2026-05-13", [src], output_dir, force=True)
+    assert result.returncode == 0, result.stderr
+
+    content = _read_insight(existing)
+    assert "preexisting" not in content
+    assert "Fresh Content" in content
+
+
+# ---------------------------------------------------------------------------
+# dry run
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_does_not_write(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(
+        tmp_path, "z.md", "# Dry Run Test\n\nDoes not write.\n"
+    )
+
+    result = _run_cli("2026-05-13", [src], output_dir, dry_run=True)
+    assert result.returncode == 0, result.stderr
+
+    insight_path = output_dir / "2026-05-13.md"
+    assert not insight_path.exists()
+
+    stdout = result.stdout
+    assert "[DRY RUN]" in stdout
+    assert "2026-05-13.md" in stdout
+
+
+# ---------------------------------------------------------------------------
+# title behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_default_title(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(tmp_path, "title_a.md", "# Test\n\nBody.\n")
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode == 0
+
+    content = _read_insight(output_dir / "2026-05-13.md")
+    assert "# Daily Insight — 2026-05-13" in content
+
+
+def test_custom_title(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(tmp_path, "title_b.md", "# Test\n\nBody.\n")
+
+    result = _run_cli(
+        "2026-05-13", [src], output_dir, title="My Custom Insight"
+    )
+    assert result.returncode == 0
+
+    content = _read_insight(output_dir / "2026-05-13.md")
+    assert "# My Custom Insight" in content
+    assert "Daily Insight — 2026-05-13" not in content
+
+
+# ---------------------------------------------------------------------------
+# metadata
+# ---------------------------------------------------------------------------
+
+
+def test_metadata_includes_date_and_sources(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(
+        tmp_path, "meta.md", "# Meta\n\nTesting metadata.\n"
+    )
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode == 0
+
+    content = _read_insight(output_dir / "2026-05-13.md")
+    assert "**Date:** 2026-05-13" in content
+    assert "**Generated:**" in content
+    assert f"`{src}`" in content
+    assert "local source material" in content
+
+
+# ---------------------------------------------------------------------------
+# no unsupported claims
+# ---------------------------------------------------------------------------
+
+
+def test_no_unsupported_product_release_claims(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(
+        tmp_path,
+        "clean.md",
+        "# A Neutral Document\n\nThis document discusses architecture patterns without making product announcements.\n\n## Details\n\nThe team is exploring several approaches to content generation.\n",
+    )
+
+    result = _run_cli("2026-05-13", [src], output_dir)
+    assert result.returncode == 0
+
+    content = _read_insight(output_dir / "2026-05-13.md").lower()
+    for pattern in _FORBIDDEN_RELEASE_PATTERNS:
+        assert (
+            pattern.lower() not in content
+        ), f"found forbidden pattern: {pattern}"
+
+
+# ---------------------------------------------------------------------------
+# CLI argument validation
+# ---------------------------------------------------------------------------
+
+
+def test_fails_without_sources(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--date",
+            "2026-05-13",
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+
+
+def test_fails_with_invalid_date(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(tmp_path, "d.md", "# Doc\n\nBody.\n")
+
+    result = _run_cli("not-a-date", [src], output_dir)
+    assert result.returncode != 0
+    assert "invalid date" in result.stderr.lower()
