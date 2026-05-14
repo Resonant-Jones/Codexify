@@ -45,7 +45,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Do not assume the Agent Command runner supervision summary changes the supported release promise; it is an operator-facing summary, not proof of a wider execution contract.
 
 ## Active blockers
-- Any drift between supported-profile, catalog, and health surfaces remains a release hold.
+- Any drift between supported-profile, catalog, and health surfaces remains a release hold; the live backend still does not load `CODEXIFY_SUPPORTED_PROFILE`, so `/api/health/llm` surfaces a posture-only supported-profile object while the catalog and health checks remain local-only.
 
 ## This week's priorities
 1. Keep the supported-profile health and catalog surfaces aligned on the current `main` tip.
