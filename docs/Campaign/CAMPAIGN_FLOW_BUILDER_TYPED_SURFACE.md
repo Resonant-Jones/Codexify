@@ -68,9 +68,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 1. **Task id:** `FB-001`
    **Title:** Flow Builder canonical token domain inventory
    **Lane:** docs
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/adr/027-flow-builder-typed-surface-and-run-receipt-contract.md`, possible future `docs/architecture/flow-builder-token-domains.md`
    **Depends on:** ADR-006, ADR-014, ADR-027, this campaign
+   **Proof artifact:** `docs/architecture/flow-builder-token-domains.md`
    **Proof surface:** docs validation, grep proof that candidate token domains are inventoried before code use, explicit no-runtime-change diff
    **Non-goals:** no code token registry, no schema, no UI, no route or worker changes
 
