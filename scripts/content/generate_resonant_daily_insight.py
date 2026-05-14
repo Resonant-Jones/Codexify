@@ -1,448 +1,330 @@
 #!/usr/bin/env python3
-"""Generate a deterministic Resonant Constructs Daily Insight artifact from
-one or more local Markdown source files.
+"""Generate a deterministic Resonant Constructs daily insight Markdown artifact.
 
-This script is repo-local and does not call an LLM, web service, network API,
-or external publisher.  Every insight is a derived artifact from source
-material already present in the repository.
+This script is repo-local.  It reads only local Markdown source files,
+extracts a concise signal from headings and first non-empty paragraphs,
+and produces a dated insight page.  No LLM, network API, or external
+publishing step is involved.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+import datetime
+import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT_DIR = Path("docs/ResonantConstructs/daily-insights/generated")
-MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
-
-def resolve_repo_path(raw_path: str) -> Path:
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    return (REPO_ROOT / path).resolve()
+_MARKDOWN_EXTENSIONS = frozenset(
+    {".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
+)
 
 
-def display_path(path: Path) -> str:
-    resolved = path.resolve()
-    try:
-        return resolved.relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        return str(resolved)
-
-
-def is_markdown_source(path: Path) -> bool:
-    return path.suffix.lower() in MARKDOWN_SUFFIXES
-
-
-def validate_date(date_text: str) -> str:
-    try:
-        parsed = datetime.strptime(date_text, "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise ValueError(
-            f"invalid --date value {date_text!r}; expected YYYY-MM-DD"
-        ) from exc
-    return parsed.isoformat()
+def _is_markdown(path: Path) -> bool:
+    """Return *True* if *path* has a recognised Markdown extension."""
+    return path.suffix.lower() in _MARKDOWN_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
-# source reading & validation
+# signal extraction
 # ---------------------------------------------------------------------------
 
-
-def read_source_text(source_path: Path) -> str:
-    """Read a Markdown source file and return its text.
-
-    Raises FileNotFoundError or ValueError if the source is missing or empty.
-    """
-    try:
-        text = source_path.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(
-            f"source file not found: {source_path}"
-        ) from exc
-    except UnicodeDecodeError as exc:
-        raise ValueError(
-            f"source file is not valid UTF-8 Markdown: {source_path}"
-        ) from exc
-
-    if not text.strip():
-        raise ValueError(f"source file is empty: {source_path}")
-
-    return text
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)", re.MULTILINE)
+_PARA_RE = re.compile(
+    r"^(?!\s*#{1,6}\s)(?!\s*>)(?!\s*[-*+]\s)(?!\s*\d+\.\s)[^\s].*$",
+    re.MULTILINE,
+)
 
 
-# ---------------------------------------------------------------------------
-# signal extraction (deterministic, no LLM)
-# ---------------------------------------------------------------------------
-
-
-def _first_heading_and_paragraph(lines: list[str]) -> str:
-    """Return the first level-1 heading as title and first non-empty,
-    non-heading line after it as the signal sentence.
-
-    Returns empty string if nothing useful is found.
-    """
-    found_heading: str | None = None
-    found_paragraph: str | None = None
-    past_frontmatter = False
-
-    idx = 0
-    if lines and lines[0].strip() == "---":
-        idx = 1
-        while idx < len(lines):
-            if lines[idx].strip() == "---":
-                idx += 1
-                break
-            idx += 1
-    past_frontmatter = True
-
-    for line in lines[idx:]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("# ") and found_heading is None:
-            found_heading = stripped[2:].strip()
-            continue
-        if stripped.startswith("#"):
-            continue  # skip sub-headings
-        if found_heading is not None and found_paragraph is None:
-            found_paragraph = stripped
+def _extract_headings(text: str, max_items: int = 3) -> list[str]:
+    """Return the first *max_items* heading bodies from *text*."""
+    headings: list[str] = []
+    for match in _HEADING_RE.finditer(text):
+        body = match.group(1).strip()
+        if body and body not in headings:
+            headings.append(body)
+        if len(headings) >= max_items:
             break
-
-    parts: list[str] = []
-    if found_heading:
-        parts.append(found_heading)
-    if found_paragraph:
-        parts.append(found_paragraph)
-    return " — ".join(parts)
+    return headings
 
 
-def extract_signal(source_text: str) -> str:
-    """Derive a concise signal string from the source Markdown text.
+def _extract_first_paragraph(text: str, max_sentences: int = 2) -> str | None:
+    """Return the first substantial non-heading paragraph from *text*.
 
-    Strategy (deterministic, no rewriting):
-    1. Take the first level-1 heading + first non-empty paragraph.
-    2. If no heading/paragraph is found, fall back to the first 140 chars
-       of cleaned source text.
+    The result is clipped to roughly *max_sentences* sentence boundaries.
     """
-    lines = source_text.splitlines()
-    heading_signal = _first_heading_and_paragraph(lines)
-    if heading_signal:
+    for match in _PARA_RE.finditer(text):
+        raw = match.group(0).strip()
+        if len(raw) < 10:  # skip very short lines (e.g. standalone punctuation)
+            continue
+        # clip after max_sentences sentence-ending punctuation marks
+        sentence_endings = re.finditer(r"[.!?](?:\s|$)", raw)
+        count = 0
+        last_pos = 0
+        for se in sentence_endings:
+            count += 1
+            last_pos = se.end()
+            if count >= max_sentences:
+                return raw[:last_pos].rstrip()
+        return raw
+    return None
+
+
+def _build_signal(text: str) -> str:
+    """Build a concise signal line from source *text*."""
+    headings = _extract_headings(text)
+    if headings:
+        heading_signal = " / ".join(headings)
+        paragraph = _extract_first_paragraph(text)
+        if paragraph:
+            return f"{heading_signal} — {paragraph}"
         return heading_signal
 
-    # Last resort: first 140 chars of non-blank text
-    combined = source_text.strip()
-    if not combined:
-        return "(no signal — source empty)"
-    return combined[:140].strip()
+    paragraph = _extract_first_paragraph(text, max_sentences=3)
+    if paragraph:
+        return paragraph
+
+    return "(no extractable signal)"
 
 
 # ---------------------------------------------------------------------------
-# excerpt extraction
+# reflection template
+# ---------------------------------------------------------------------------
+
+_REFLECTION_TEMPLATE = (
+    "This is a local, deterministic daily insight generated from "
+    "Resonant Constructs source material.  It is not an external "
+    "announcement or release statement.  The reflection captures "
+    "one practitioner’s reading of the source material on the "
+    "generation date; revisit the referenced source documents for "
+    "the full context and author’s voice."
+)
+
+
+# ---------------------------------------------------------------------------
+# generation
 # ---------------------------------------------------------------------------
 
 
-def extract_excerpt(source_text: str, max_chars: int = 2000) -> str:
-    """Return the full source text, trimmed to a safe excerpt length if
-    needed.  The original author voice is preserved without rewriting."""
-    stripped = source_text.strip()
-    if len(stripped) <= max_chars:
-        return stripped
-    return stripped[:max_chars] + "\n\n[... excerpt truncated ...]"
+def _format_timestamp(dt: datetime.datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # UTC
 
 
-# ---------------------------------------------------------------------------
-# page assembly
-# ---------------------------------------------------------------------------
+def _build_source_excerpt(path: Path) -> str:
+    """Return an excerpted version of a source file."""
+    text = path.read_text(encoding="utf-8")
+    headings = _extract_headings(text, max_items=99)
+    if not headings:
+        return text.strip()
+
+    lines: list[str] = []
+    for heading in headings:
+        lines.append(f"### {heading}")
+    lines.append("")  # blank separator
+    lines.append(f"*Excerpted from `{path}` — see source for full content.*")
+    return "\n".join(lines)
 
 
-def yaml_scalar(value: str) -> str:
-    """JSON-encode a string for safe use as a YAML value."""
-    return json.dumps(value, ensure_ascii=False)
-
-
-def build_insight_page(
+def generate_daily_insight(
     *,
-    title: str,
-    date_text: str,
-    source_paths: list[str],
-    generated_at: str,
-    signal: str,
-    source_excerpts: list[str],
+    date_str: str,
+    source_paths: Sequence[Path],
+    output_dir: Path,
+    title: str | None,
+    dry_run: bool,
+    force: bool,
 ) -> str:
-    """Assemble the complete Daily Insight Markdown artifact."""
+    """Generate a Resonant Constructs daily insight.
 
-    source_paths_joined = ", ".join(source_paths)
+    Returns the path of the generated (or would-be generated) file.
+    Raises *ValueError* for invalid inputs, *FileNotFoundError* for
+    missing sources.
+    """
+    # -- validate date -------------------------------------------------------
+    try:
+        date_obj = datetime.date.fromisoformat(date_str)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"invalid date {date_str!r}: {exc}") from exc
 
-    frontmatter = [
-        "---",
-        f"title: {yaml_scalar(title)}",
-        f"date: {yaml_scalar(date_text)}",
-        f"source_paths: {yaml_scalar(source_paths_joined)}",
-        f"generated_at: {yaml_scalar(generated_at)}",
-        "---",
+    # -- validate sources ----------------------------------------------------
+    if not source_paths:
+        raise ValueError("at least one --source is required")
+
+    for src in source_paths:
+        if not src.is_file():
+            raise FileNotFoundError(f"source file not found: {src}")
+        if not _is_markdown(src):
+            raise ValueError(
+                f"source is not a Markdown file: {src} (suffix={src.suffix})"
+            )
+        text = src.read_text(encoding="utf-8").strip()
+        if not text:
+            raise ValueError(f"source file is empty: {src}")
+
+    # -- compute output path -------------------------------------------------
+    output_path = output_dir / f"{date_str}.md"
+
+    # -- handle existing file ------------------------------------------------
+    if output_path.exists() and not force:
+        raise FileExistsError(
+            f"output file already exists: {output_path} (pass --force to overwrite)"
+        )
+
+    # -- build metadata ------------------------------------------------------
+    generated_at = datetime.datetime.now(datetime.timezone.utc)
+    final_title = title or f"Daily Insight — {date_str}"
+
+    # -- build signal section ------------------------------------------------
+    signal_parts: list[str] = []
+    for src in source_paths:
+        text = src.read_text(encoding="utf-8")
+        signal_text = _build_signal(text)
+        signal_parts.append(f"- **{src.name}:** {signal_text}")
+
+    # -- build excerpt section ------------------------------------------------
+    excerpt_parts: list[str] = []
+    for src in source_paths:
+        excerpt_parts.append(_build_source_excerpt(src))
+        excerpt_parts.append("")
+
+    # -- build source listing ------------------------------------------------
+    source_lines = [f"- `{src}`" for src in source_paths]
+
+    # -- assemble output -----------------------------------------------------
+    output_lines = [
+        f"# {final_title}",
         "",
-        f"# {title}",
+        f"**Date:** {date_str}",
+        f"**Generated:** {_format_timestamp(generated_at)}",
         "",
-        f"**Date**: {date_text}",
+        "**Source files:**",
+        *source_lines,
+        "",
+        "> This artifact is generated from local source material only.  It is not an external announcement.",
         "",
         "---",
         "",
         "## Signal",
         "",
-        signal,
+        *signal_parts,
         "",
         "---",
         "",
         "## Source Excerpts",
         "",
+        *excerpt_parts,
+        "---",
+        "",
+        "## Reflection",
+        "",
+        _REFLECTION_TEMPLATE,
+        "",
     ]
+    content = "\n".join(output_lines)
 
-    for idx, (path, excerpt) in enumerate(
-        zip(source_paths, source_excerpts), start=1
-    ):
-        frontmatter.append(f"### Source {idx}: {path}")
-        frontmatter.append("")
-        frontmatter.append(excerpt)
-        frontmatter.append("")
+    # -- dry run -------------------------------------------------------------
+    if dry_run:
+        return str(output_path)
 
-    frontmatter.extend(
-        [
-            "---",
-            "",
-            "## Reflection",
-            "",
-            "This daily insight was generated from local source material",
-            "within the Codexify repository.  The signal above is a",
-            "deterministic extraction from the source headings and opening",
-            "paragraphs and should not be read as a new claim, product",
-            "announcement, or external statement.",
-            "",
-            "The reflection space is intentionally conservative.  It",
-            "captures the immediate thematic alignment of the day's source",
-            "material without extrapolating beyond what the sources",
-            "themselves contain.",
-            "",
-            "---",
-            "",
-            "*Generated by `scripts/content/generate_resonant_daily_insight.py`*",
-            f"*from {len(source_paths)} source file(s) on {generated_at}*",
-        ]
-    )
+    # -- write ---------------------------------------------------------------
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(content, encoding="utf-8")
 
-    return "\n".join(frontmatter)
+    print(f"Wrote: {output_path}")
+    return str(output_path)
 
 
 # ---------------------------------------------------------------------------
-# summary
+# CLI
 # ---------------------------------------------------------------------------
 
 
-def build_summary(
-    *,
-    date_text: str,
-    source_paths: list[str],
-    target_path: Path,
-    title: str,
-    generated_at: str,
-    signal_length: int,
-    total_excerpt_chars: int,
-    dry_run: bool,
-    source_count: int,
-) -> dict[str, object]:
-    return {
-        "ok": True,
-        "dry_run": dry_run,
-        "date": date_text,
-        "source_paths": source_paths,
-        "source_count": source_count,
-        "target_path": display_path(target_path),
-        "title": title,
-        "generated_at": generated_at,
-        "signal_length": signal_length,
-        "total_excerpt_chars": total_excerpt_chars,
-    }
-
-
-# ---------------------------------------------------------------------------
-# argument parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Generate a deterministic Resonant Constructs Daily Insight "
-            "Markdown artifact from local source files."
-        )
+        description="Generate a deterministic Resonant Constructs daily insight artifact."
     )
     parser.add_argument(
         "--date",
         required=True,
-        help="Target date YYYY-MM-DD",
+        help="Date for the insight (YYYY-MM-DD)",
     )
     parser.add_argument(
         "--source",
-        required=True,
         action="append",
-        help="Path to a Markdown source file (repeatable)",
+        dest="sources",
+        required=True,
+        type=Path,
+        help="Path to a local Markdown source file (repeatable)",
     )
     parser.add_argument(
         "--output-dir",
-        default=str(DEFAULT_OUTPUT_DIR),
-        help="Output directory for generated insight pages",
+        default=str(
+            REPO_ROOT
+            / "docs"
+            / "ResonantConstructs"
+            / "daily-insights"
+            / "generated"
+        ),
+        help="Output directory for generated artifact",
     )
     parser.add_argument(
         "--title",
         default=None,
-        help="Optional custom title (default: Daily Insight — YYYY-MM-DD)",
+        help="Custom title (default: 'Daily Insight — YYYY-MM-DD')",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Validate inputs and print the target path without writing files",
+        help="Print target path and source summary without writing",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite the output file if it already exists",
+        help="Overwrite existing output file if present",
     )
-    return parser.parse_args(argv)
+    return parser
 
 
-# ---------------------------------------------------------------------------
-# main
-# ---------------------------------------------------------------------------
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
-
-def run(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-
-    # --date validation
     try:
-        date_text = validate_date(args.date)
-    except ValueError as exc:
-        print(f"generate-resonant-daily-insight error: {exc}", file=sys.stderr)
-        return 1
-
-    # --source validation (repeatable)
-    sources_input: list[str] = args.source
-    source_paths: list[Path] = []
-    source_texts: list[str] = []
-
-    for source_raw in sources_input:
-        source_path = resolve_repo_path(source_raw)
-
-        if not is_markdown_source(source_path):
-            print(
-                "generate-resonant-daily-insight error: each source must be "
-                "a Markdown file (.md or .markdown); found "
-                f"{source_raw}",
-                file=sys.stderr,
-            )
-            return 1
-
-        try:
-            text = read_source_text(source_path)
-        except (FileNotFoundError, ValueError) as exc:
-            print(
-                f"generate-resonant-daily-insight error: {exc}",
-                file=sys.stderr,
-            )
-            return 1
-
-        source_paths.append(source_path)
-        source_texts.append(text)
-
-    # --output-dir & target path
-    output_dir_input = Path(args.output_dir).expanduser()
-    output_dir = (
-        output_dir_input
-        if output_dir_input.is_absolute()
-        else (REPO_ROOT / output_dir_input)
-    ).resolve()
-    target_path = output_dir / f"{date_text}.md"
-
-    if target_path.exists() and not args.force:
-        print(
-            "generate-resonant-daily-insight error: output already exists; "
-            "pass --force to overwrite",
-            file=sys.stderr,
+        output_path = generate_daily_insight(
+            date_str=args.date,
+            source_paths=args.sources,
+            output_dir=Path(args.output_dir),
+            title=args.title,
+            dry_run=args.dry_run,
+            force=args.force,
         )
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
-
-    # --title
-    title = args.title or f"Daily Insight — {date_text}"
-
-    # derived content
-    generated_at = (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-    # signal: combine signals from all sources
-    signals: list[str] = []
-    for text in source_texts:
-        sig = extract_signal(text)
-        if sig:
-            signals.append(sig)
-    combined_signal = "\n\n".join(signals) if signals else "(no signal)"
-
-    # excerpts
-    excerpts: list[str] = [extract_excerpt(t) for t in source_texts]
-
-    # summary (for --dry-run and success output)
-    source_path_strs = [
-        display_path(p) for p in source_paths
-    ]
-    summary = build_summary(
-        date_text=date_text,
-        source_paths=source_path_strs,
-        target_path=target_path,
-        title=title,
-        generated_at=generated_at,
-        signal_length=len(combined_signal),
-        total_excerpt_chars=sum(len(e) for e in excerpts),
-        dry_run=args.dry_run,
-        source_count=len(source_paths),
-    )
+    except FileExistsError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     if args.dry_run:
-        print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0
+        print(f"[DRY RUN] Would write to: {output_path}")
+        print(f"[DRY RUN] Sources:")
+        for src in args.sources:
+            print(f"  - {src}")
+        source_count = len(args.sources)
+        print(f"[DRY RUN] Total sources: {source_count}")
 
-    # generate & write
-    page = build_insight_page(
-        title=title,
-        date_text=date_text,
-        source_paths=source_path_strs,
-        generated_at=generated_at,
-        signal=combined_signal,
-        source_excerpts=excerpts,
-    )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(page, encoding="utf-8")
-    summary["written"] = True
-    print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
 
 
-def main() -> None:
-    raise SystemExit(run())
-
-
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
