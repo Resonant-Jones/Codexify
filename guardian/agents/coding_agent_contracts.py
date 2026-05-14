@@ -8,7 +8,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-CodingAgentAdapterKind = Literal["pi_sdk", "external_cli", "mock"]
+CodingAgentAdapterKind = Literal[
+    "pi_sdk",
+    "pi_codex_runner",
+    "codex",
+    "claudecode",
+]
 CodingAgentTaskStatus = Literal[
     "queued",
     "dispatching",
