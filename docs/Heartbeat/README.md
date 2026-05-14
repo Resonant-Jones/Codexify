@@ -22,6 +22,51 @@ Each step can be independently skipped via a `--skip-*` flag.
 
 ## How to run
 
+### Makefile (recommended)
+
+```bash
+# Full run with all sources
+make heartbeat DATE=2026-05-14 \
+  DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md \
+  INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md docs/ResonantConstructs/README.md" \
+  FORCE=1
+
+# Defaults to today; skips dev-blog and insight unless sources provided
+make heartbeat
+
+# Today, with only the dev blog (insight skipped automatically)
+make heartbeat DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md FORCE=1
+
+# Today, with only insight sources (dev blog skipped automatically)
+make heartbeat INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md" FORCE=1
+```
+
+**Makefile variable behavior:**
+
+| Variable | Default | Effect |
+|---|---|---|
+| `DATE` | today (`date +%Y-%m-%d`) | Passed as `--date` |
+| `DEV_BLOG_SOURCE` | *(empty)* | If set, passed as `--dev-blog-source`; otherwise `--skip-dev-blog` |
+| `INSIGHT_SOURCE` | *(empty)* | If set, each word passed as `--insight-source`; otherwise `--skip-daily-insight` |
+| `FORCE` | *(unset)* | If `FORCE=1`, passes `--force`; otherwise omitted |
+
+Beta Release Sentinel is **always** run (no skip variable).
+
+The Makefile target is the recommended interface for daily use because it
+handles date defaulting, conditional `--skip-*` flags, and `--force` gating.
+
+### pnpm / npm
+
+```bash
+pnpm heartbeat -- --date 2026-05-14 --dev-blog-source docs/Website/dev-blog/README.md --insight-source docs/ResonantConstructs/daily-insights/README.md --force
+```
+
+Note: The `--` separator is required so pnpm forwards arguments to the Python
+script.  Richer argument handling (date defaults, conditional skip flags) is
+best done through the Makefile target.
+
+### Direct Python invocation
+
 From the repo root:
 
 ```bash
