@@ -22,3 +22,4 @@
 
 - approval_state: `draft`
 - publish_gate: `manual`
+- visible_claim_source: `public_copy_seed.copy_ready`
