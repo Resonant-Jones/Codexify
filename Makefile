@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -260,6 +260,38 @@ audit-ritual-monthly:
 # Generate quarterly ritual agenda
 audit-ritual-quarterly:
 	$(PYTHON) scripts/audit/ritual.py --cadence quarterly
+
+# ────────────────────────────────
+# Heartbeat Orchestrator
+#
+# Runs Beta Release Sentinel (always), Daily Dev Blog ingestion,
+# and Resonant Constructs Daily Insight generator in one pass.
+#
+# Usage:
+#   make heartbeat DATE=2026-05-14 DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md INSIGHT_SOURCE=docs/ResonantConstructs/daily-insights/README.md FORCE=1
+#
+#   make heartbeat   # defaults to today, skips dev-blog and insight unless sources provided
+# ────────────────────────────────
+heartbeat:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/run_heartbeat_orchestrator.py --date $$DATE"; \
+	if [ -n "$${DEV_BLOG_SOURCE:-}" ]; then \
+		CMD="$$CMD --dev-blog-source $$DEV_BLOG_SOURCE"; \
+	else \
+		CMD="$$CMD --skip-dev-blog"; \
+	fi; \
+	if [ -n "$${INSIGHT_SOURCE:-}" ]; then \
+		for src in $$INSIGHT_SOURCE; do \
+			CMD="$$CMD --insight-source $$src"; \
+		done; \
+	else \
+		CMD="$$CMD --skip-daily-insight"; \
+	fi; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
+	fi; \
+	echo "Running: $$CMD"; \
+	$$CMD
 
 # Build the public portal staging tree
 public-export:

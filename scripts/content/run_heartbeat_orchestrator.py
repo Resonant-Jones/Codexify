@@ -194,7 +194,7 @@ def _run_sentinel(
         step["notes"] = "Would run (dry-run)"
         return step
 
-    sentinel_output = output_dir / DEFAULT_SENTINEL_OUTPUT
+    sentinel_output = REPO_ROOT / DEFAULT_SENTINEL_OUTPUT
     cmd = [
         sys.executable,
         str(REPO_ROOT / SENTINEL_SCRIPT),
@@ -254,7 +254,7 @@ def _run_dev_blog(
         step["notes"] = "Would run (dry-run)"
         return step
 
-    dev_blog_output = output_dir / DEFAULT_DEV_BLOG_OUTPUT
+    dev_blog_output = REPO_ROOT / DEFAULT_DEV_BLOG_OUTPUT
     cmd = [
         sys.executable,
         str(REPO_ROOT / DEV_BLOG_SCRIPT),
@@ -311,7 +311,7 @@ def _run_daily_insight(
         step["notes"] = "Would run (dry-run)"
         return step
 
-    insight_output = output_dir / DEFAULT_INSIGHT_OUTPUT
+    insight_output = REPO_ROOT / DEFAULT_INSIGHT_OUTPUT
     cmd = [
         sys.executable,
         str(REPO_ROOT / DAILY_INSIGHT_SCRIPT),
@@ -663,9 +663,9 @@ def _report_dry_run(
     def _plan(script: Path, cmd: list[str]) -> None:
         print(f"[DRY RUN] Would run: {' '.join(str(c) for c in cmd)}")
 
-    sentinel_output = output_dir / DEFAULT_SENTINEL_OUTPUT
-    dev_blog_output = output_dir / DEFAULT_DEV_BLOG_OUTPUT
-    insight_output = output_dir / DEFAULT_INSIGHT_OUTPUT
+    sentinel_output = REPO_ROOT / DEFAULT_SENTINEL_OUTPUT
+    dev_blog_output = REPO_ROOT / DEFAULT_DEV_BLOG_OUTPUT
+    insight_output = REPO_ROOT / DEFAULT_INSIGHT_OUTPUT
 
     if skip_sentinel:
         print("[DRY RUN] Beta Release Sentinel: SKIPPED")
