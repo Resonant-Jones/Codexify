@@ -22,6 +22,7 @@ from guardian.core.provider_registry import (
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
+from guardian.core.provider_truth import cloud_capable_configuration_present
 
 
 def _settings(**overrides) -> Settings:
@@ -60,6 +61,34 @@ def _supported_profile_settings(**overrides) -> Settings:
         "ALIBABA_API_BASE": None,
         "MINIMAX_API_KEY": None,
         "MINIMAX_API_BASE": None,
+    }
+    defaults.update(overrides)
+    return Settings(_env_file=None, **defaults)
+
+
+def _supported_profile_settings_with_default_cloud_bases(
+    **overrides,
+) -> Settings:
+    defaults = {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": False,
+        "CODEXIFY_LOCAL_ONLY_MODE": True,
+        "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_BASE_URL": "http://host.docker.internal:11434/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_LLM_MODEL": "library2/ministral-3:8b",
+        "LOCAL_CHAT_MODEL": "library2/ministral-3:8b",
+        "LLM_MODEL": "library2/ministral-3:8b",
+        "OPENAI_API_KEY": None,
+        "OPENAI_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "GROQ_BASE_URL": None,
+        "ANTHROPIC_API_KEY": None,
+        "GEMINI_API_KEY": None,
+        "GENAI_API_KEY": None,
+        "GOOGLE_API_KEY": None,
+        "ALIBABA_API_KEY": None,
+        "MINIMAX_API_KEY": None,
     }
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
@@ -280,6 +309,45 @@ def test_supported_profile_posture_marks_cloud_provider_unsupported(
     assert groq_truth["supported_profile_approved"] is False
     assert groq_truth["executable"] is False
     assert groq_truth["egress_allowed"] is False
+
+
+def test_supported_profile_posture_ignores_bundled_cloud_base_defaults(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    for env_key in (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "GROQ_API_KEY",
+        "GROQ_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ALIBABA_API_KEY",
+        "MINIMAX_API_KEY",
+    ):
+        monkeypatch.delenv(env_key, raising=False)
+
+    settings = _supported_profile_settings_with_default_cloud_bases()
+
+    posture = supported_profile_posture(settings)
+    local_truth = build_provider_truth(
+        "local",
+        settings,
+        capability={
+            "authorized": True,
+            "enabled": True,
+            "model_index": {"state": "available"},
+        },
+    )
+
+    assert settings.ALIBABA_API_BASE or settings.MINIMAX_API_BASE
+    assert posture["cloud_capable_configuration_present"] is False
+    assert posture["release_hold"] is False
+    assert cloud_capable_configuration_present(settings) is False
+    assert local_truth["cloud_capable_configuration_present"] is False
+    assert local_truth["supported_profile_approved"] is True
 
 
 class _MockResponse:
