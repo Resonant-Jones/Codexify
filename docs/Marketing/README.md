@@ -29,7 +29,10 @@ Every claim must be tagged as exactly one of:
 - Human approval is required before publish.
 - Generated assets are derived outputs, not system truth.
 - A claim suitability gate is mandatory: only `marketable_claim` items can flow into website/social/community/ad copy.
+- A presentation-role gate is mandatory: only `public_copy_seed` items with `copy_ready: true` may appear verbatim in public-facing prose.
 - Blocker/failure/task/reference evidence is preserved for audit in `review-notes.md` and classified in `evidence-ledger.json`.
+
+Reviewer note: implementation breadcrumbs such as ADR fragments, task IDs, commit hashes, file paths, and queue names may support claims as evidence, but they should not appear verbatim in generated public-facing copy.
 
 ## Generator Command
 

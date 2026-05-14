@@ -19,6 +19,20 @@ CANDIDATE_RISK_OR_BLOCKER = "risk_or_blocker"
 CANDIDATE_TASK_INSTRUCTION = "task_instruction"
 CANDIDATE_METADATA_REFERENCE = "metadata_reference"
 
+PRESENTATION_PUBLIC_COPY_SEED = "public_copy_seed"
+PRESENTATION_SUPPORTING_EVIDENCE = "supporting_evidence"
+PRESENTATION_INTERNAL_ANCHOR = "internal_anchor"
+PRESENTATION_RISK_NOTE = "risk_note"
+PRESENTATION_METADATA_REFERENCE = "metadata_reference"
+
+ALLOWED_PRESENTATION_ROLES = [
+    PRESENTATION_PUBLIC_COPY_SEED,
+    PRESENTATION_SUPPORTING_EVIDENCE,
+    PRESENTATION_INTERNAL_ANCHOR,
+    PRESENTATION_RISK_NOTE,
+    PRESENTATION_METADATA_REFERENCE,
+]
+
 ALLOWED_CANDIDATE_CLASSES = [
     CANDIDATE_MARKETABLE_CLAIM,
     CANDIDATE_INTERNAL_EVIDENCE,
@@ -67,6 +81,8 @@ CLAIM_KEYWORDS = [
     "governance",
     "queue",
     "contract",
+    "adr",
+    "depends on",
     "stability",
     "task",
     "failed",
@@ -159,6 +175,21 @@ MISSING_RUNTIME_ARTIFACT_MARKERS = [
     "missing runtime artifact",
 ]
 
+IMPLEMENTATION_BREADCRUMB_PATTERNS = [
+    re.compile(r"^\s*\d+\.\s+", re.IGNORECASE),
+    re.compile(r"\b[0-9a-f]{7,12}\b", re.IGNORECASE),
+    re.compile(r"\bTASK-\d{4}-[A-Za-z0-9._-]+", re.IGNORECASE),
+    re.compile(r"\bdocs/architecture/[A-Za-z0-9._\-/]*", re.IGNORECASE),
+    re.compile(r"\bguardian/queue/[A-Za-z0-9._\-/]*", re.IGNORECASE),
+    re.compile(r"/app/[A-Za-z0-9._\-/]*", re.IGNORECASE),
+    re.compile(r"\bcodexify:queue:[A-Za-z0-9:_-]+", re.IGNORECASE),
+    re.compile(r"\bexisting queue:", re.IGNORECASE),
+    re.compile(r"\bguardian queue infrastructure\b", re.IGNORECASE),
+    re.compile(r"\bcoding-task envelope schema\b", re.IGNORECASE),
+    re.compile(r"\bDepends on:\s*ADR-\d+\b", re.IGNORECASE),
+    re.compile(r"\bPer\s+ADR-\d+\s+contract:\s*$", re.IGNORECASE),
+]
+
 
 @dataclass(frozen=True)
 class SourceDocument:
@@ -176,6 +207,8 @@ class Claim:
     channel: str
     approval_state: str
     candidate_class: str = CANDIDATE_MARKETABLE_CLAIM
+    presentation_role: str = PRESENTATION_PUBLIC_COPY_SEED
+    copy_ready: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -186,6 +219,8 @@ class Claim:
             "channel": self.channel,
             "approval_state": self.approval_state,
             "candidate_class": self.candidate_class,
+            "presentation_role": self.presentation_role,
+            "copy_ready": self.copy_ready,
         }
 
 
@@ -323,6 +358,58 @@ def classify_claim_candidate(text: str) -> str:
     if _looks_like_internal_evidence(text):
         return CANDIDATE_INTERNAL_EVIDENCE
     return CANDIDATE_MARKETABLE_CLAIM
+
+
+def _looks_like_implementation_breadcrumb(text: str) -> bool:
+    return any(pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS)
+
+
+def _looks_like_internal_anchor(text: str) -> bool:
+    lowered = text.lower().strip()
+    return (
+        lowered.startswith(("depends on:", "per adr-"))
+        or "adr-" in lowered
+        or lowered.endswith(":")
+    )
+
+
+def assign_presentation_role(claim: Claim) -> None:
+    if claim.candidate_class == CANDIDATE_RISK_OR_BLOCKER:
+        claim.presentation_role = PRESENTATION_RISK_NOTE
+        claim.copy_ready = False
+        return
+
+    if claim.candidate_class == CANDIDATE_METADATA_REFERENCE:
+        claim.presentation_role = PRESENTATION_METADATA_REFERENCE
+        claim.copy_ready = False
+        return
+
+    if claim.candidate_class in {
+        CANDIDATE_TASK_INSTRUCTION,
+        CANDIDATE_INTERNAL_EVIDENCE,
+    }:
+        claim.presentation_role = PRESENTATION_INTERNAL_ANCHOR
+        claim.copy_ready = False
+        return
+
+    if _looks_like_internal_anchor(claim.claim):
+        claim.presentation_role = PRESENTATION_INTERNAL_ANCHOR
+        claim.copy_ready = False
+        return
+
+    if _looks_like_implementation_breadcrumb(claim.claim):
+        claim.presentation_role = PRESENTATION_SUPPORTING_EVIDENCE
+        claim.copy_ready = False
+        return
+
+    claim.presentation_role = PRESENTATION_PUBLIC_COPY_SEED
+    claim.copy_ready = True
+
+
+def assign_presentation_roles(claims: list[Claim]) -> list[Claim]:
+    for claim in claims:
+        assign_presentation_role(claim)
+    return claims
 
 
 def extract_claim_candidates(documents: list[SourceDocument]) -> list[Claim]:
@@ -512,6 +599,37 @@ def _claims_bullets(claims: list[Claim], with_evidence: bool = True) -> str:
     return "\n".join(lines)
 
 
+def _copy_ready_claims(claims: list[Claim]) -> list[Claim]:
+    return [
+        claim
+        for claim in claims
+        if claim.presentation_role == PRESENTATION_PUBLIC_COPY_SEED
+        and claim.copy_ready
+    ]
+
+
+def _supporting_evidence_bullets(claims: list[Claim]) -> str:
+    supporting = [
+        claim
+        for claim in claims
+        if claim.presentation_role
+        in {PRESENTATION_SUPPORTING_EVIDENCE, PRESENTATION_INTERNAL_ANCHOR}
+    ]
+    if not supporting:
+        return "- none"
+    counts = {
+        PRESENTATION_SUPPORTING_EVIDENCE: 0,
+        PRESENTATION_INTERNAL_ANCHOR: 0,
+    }
+    for claim in supporting:
+        counts[claim.presentation_role] += 1
+    return "\n".join(
+        f"- {role}: {count} preserved in evidence-ledger.json"
+        for role, count in counts.items()
+        if count
+    )
+
+
 def _claims_bullets_for_review(claims: list[Claim]) -> str:
     if not claims:
         return "- none"
@@ -533,6 +651,8 @@ def _serialize_claim_entry(claim: Claim) -> dict[str, Any]:
     payload = claim.as_dict()
     payload["channel_eligible"] = bool(
         claim.candidate_class == CANDIDATE_MARKETABLE_CLAIM
+        and claim.presentation_role
+        in {PRESENTATION_PUBLIC_COPY_SEED, PRESENTATION_SUPPORTING_EVIDENCE}
     )
     payload["risk_flags"] = list(_risk_flags_for_claim(claim))
     return payload
@@ -711,6 +831,7 @@ def generate_marketing_artifacts(
     candidates = extract_claim_candidates(documents)
     merged = merge_claims_by_precedence(candidates)
     selected_claims = merged[:max_claims]
+    assign_presentation_roles(selected_claims)
 
     if not selected_claims:
         raise ValueError("No claim candidates found in canonical sources")
@@ -740,10 +861,20 @@ def generate_marketing_artifacts(
             raise ValueError("ledger v2 requires non-null channel_eligible")
         if claim.get("risk_flags") is None:
             raise ValueError("ledger v2 requires non-null risk_flags")
+        if claim.get("presentation_role") is None:
+            raise ValueError("ledger v2 requires non-null presentation_role")
+        if claim.get("copy_ready") is None:
+            raise ValueError("ledger v2 requires non-null copy_ready")
         if not isinstance(claim.get("channel_eligible"), bool):
             raise ValueError("ledger v2 requires boolean channel_eligible")
         if not isinstance(claim.get("risk_flags"), list):
             raise ValueError("ledger v2 requires list risk_flags")
+        if not isinstance(claim.get("copy_ready"), bool):
+            raise ValueError("ledger v2 requires boolean copy_ready")
+        if claim.get("presentation_role") not in ALLOWED_PRESENTATION_ROLES:
+            raise ValueError(
+                f"Unsupported presentation role: {claim.get('presentation_role')}"
+            )
     marketable_claim_dicts = [
         claim for claim in canonical_claims if claim["channel_eligible"]
     ]
@@ -766,13 +897,21 @@ def generate_marketing_artifacts(
     )
 
     core_template = _load_template(source_root, "core-brief.md")
-    claims_bullets = _claims_bullets(marketable_claims)
+    copy_ready_claims = _copy_ready_claims(marketable_claims)
+    if not copy_ready_claims:
+        raise ValueError(
+            "No copy-ready public claims remained after presentation-role classification"
+        )
+    claims_bullets = _claims_bullets(copy_ready_claims)
+    supporting_evidence_bullets = _supporting_evidence_bullets(
+        marketable_claims
+    )
 
     assembled_channel_text: list[str] = []
     rendered_channels: dict[str, str] = {}
     channel_template = _load_template(source_root, "channel-variant.md")
     for channel in sorted(set(channel_list)):
-        channel_claims = marketable_claims[:4]
+        channel_claims = copy_ready_claims[:4]
         rendered = channel_template.format(
             channel=channel,
             hook=_channel_hook(channel),
@@ -784,7 +923,7 @@ def generate_marketing_artifacts(
         assembled_channel_text.append(rendered)
 
     ad_template = _load_template(source_root, "ad-copy.md")
-    ad_claims = marketable_claims[:3]
+    ad_claims = copy_ready_claims[:3]
     ad_rendered = ad_template.format(
         campaign_id=campaign_id,
         ad_headline_1="Build AI operations on evidence, not assumptions",
@@ -804,7 +943,7 @@ def generate_marketing_artifacts(
     enforce_banned_phrasing(ad_rendered, contract.banned_phrases)
 
     infographic_template = _load_template(source_root, "infographic.md")
-    data_points = marketable_claims[:6]
+    data_points = copy_ready_claims[:6]
     data_points_bullets = "\n".join(
         f"- [{claim.proof_tier}] {claim.claim}" for claim in data_points
     )
@@ -833,6 +972,7 @@ def generate_marketing_artifacts(
         positioning=positioning,
         core_narrative=core_narrative,
         claims_bullets=claims_bullets,
+        supporting_evidence_bullets=supporting_evidence_bullets,
         risk_flags_bullets="- pending-evaluation",
     )
 
@@ -854,6 +994,7 @@ def generate_marketing_artifacts(
         positioning=positioning,
         core_narrative=core_narrative,
         claims_bullets=claims_bullets,
+        supporting_evidence_bullets=supporting_evidence_bullets,
         risk_flags_bullets=_risk_flags_bullets(filtered_flags),
     )
     enforce_banned_phrasing(final_core_rendered, contract.banned_phrases)
