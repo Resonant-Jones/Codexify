@@ -57,6 +57,7 @@ from guardian.context.retrieval_router_policy import (
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.ai_router import (
+    _encode_image_url_to_base64,
     _image_turn_vision_unsupported_detail,
     build_openai_vision_content,
     chat_with_ai,
@@ -1811,6 +1812,48 @@ def _download_image_bytes(src: str) -> bytes | None:
         return None
 
 
+def _truncate_url_for_log(url: str, maxlen: int = 120) -> str:
+    """Truncate a URL for safe logging."""
+    if len(url) <= maxlen:
+        return url
+    return url[: maxlen - 3] + "..."
+
+
+def _convert_image_url_to_data_url(raw_url: str) -> str | None:
+    """Convert an image URL to a base64 data URL suitable for external providers.
+
+    Uses the existing _encode_image_url_to_base64 helper (which handles
+    local /media/ paths, file-system reads, and remote HTTP fetches) and
+    prepends the appropriate ``data:image/<mime>;base64,`` prefix.
+    """
+    if not raw_url:
+        return None
+
+    # Data URLs are already provider-compatible.
+    if raw_url.startswith("data:"):
+        return raw_url
+
+    try:
+        encoded = _encode_image_url_to_base64(raw_url)
+    except Exception:
+        return None
+
+    if not encoded:
+        return None
+
+    lower = raw_url.lower()
+    if ".png" in lower:
+        mime = "image/png"
+    elif ".webp" in lower:
+        mime = "image/webp"
+    elif ".gif" in lower:
+        mime = "image/gif"
+    else:
+        mime = "image/jpeg"
+
+    return f"data:{mime};base64,{encoded}"
+
+
 def _caption_image_with_local_blip(src: str) -> str | None:
     captioner = _load_local_image_captioner()
     if captioner is None:
@@ -2003,12 +2046,30 @@ def _apply_image_attachment_routing(
                     "image_attachment_count": image_attachment_count,
                 },
             )
+        # Convert remote/localhost URLs to base64 data URLs so external
+        # providers (OpenAI, Anthropic, Groq, etc.) can actually fetch the
+        # image bytes.  The Ollama path does this in
+        # _transform_messages_for_ollama_vision; this brings the same
+        # behaviour to all other vision-capable providers.
+        resolved_image_urls: list[str] = []
+        for raw_url in image_urls:
+            data_url = _convert_image_url_to_data_url(raw_url)
+            if data_url:
+                resolved_image_urls.append(data_url)
+            else:
+                logger.warning(
+                    "[image-routing] failed to encode image as data URL, "
+                    "falling back to raw URL for provider=%s: %s",
+                    provider,
+                    _truncate_url_for_log(raw_url),
+                )
+                resolved_image_urls.append(raw_url)
         text = ""
         if isinstance(latest_user_meta, dict):
             text = str(latest_user_meta.get("text") or "")
         updated[last_user_index] = {
             "role": "user",
-            "content": build_openai_vision_content(text, image_urls),
+            "content": build_openai_vision_content(text, resolved_image_urls),
         }
         routing_meta[
             "image_routing_path"
@@ -3419,103 +3480,6 @@ async def build_messages_for_llm(
     else:
         trace_candidate = trace
 
-    context_request_results: list[dict[str, Any]] = []
-    supported_context_request_plans = _supported_obsidian_context_request_plans(
-        task
-    )
-    if isinstance(bundle, dict):
-        connector_context_items = [
-            item
-            for item in (bundle.get("connector_context") or [])
-            if isinstance(item, dict)
-        ]
-        if supported_context_request_plans:
-            if broker is None:
-                for plan in supported_context_request_plans:
-                    query_text = str(plan.get("query_text") or "").strip()
-                    context_request_results.append(
-                        {
-                            "request_kind": str(
-                                plan.get("request_kind")
-                                or "read_only_context_request"
-                            ),
-                            "connector_id": str(
-                                plan.get("connector_id") or "obsidian"
-                            ),
-                            "invocation": str(
-                                plan.get("invocation") or "turn_scoped"
-                            ),
-                            "query_text": query_text,
-                            "status": ContextRequestStatus.FAILED.value,
-                            "result_count": 0,
-                            "injected": False,
-                            "error": "broker_unavailable",
-                        }
-                    )
-            else:
-                for plan in supported_context_request_plans:
-                    query_text = str(plan.get("query_text") or "").strip()
-                    result_record: dict[str, Any] = {
-                        "request_kind": str(
-                            plan.get("request_kind")
-                            or "read_only_context_request"
-                        ),
-                        "connector_id": str(
-                            plan.get("connector_id") or "obsidian"
-                        ),
-                        "invocation": str(
-                            plan.get("invocation") or "turn_scoped"
-                        ),
-                        "query_text": query_text,
-                        "status": ContextRequestStatus.FAILED.value,
-                        "result_count": 0,
-                        "injected": False,
-                    }
-                    if not query_text:
-                        result_record["error"] = "blank_query"
-                        context_request_results.append(result_record)
-                        continue
-                    try:
-                        connector_results = (
-                            await broker.retrieve_obsidian_context_command(
-                                query=query_text,
-                                user_id=context_user_id,
-                                project_id=project_id_for_prompt,
-                                k=4,
-                                retrieval_policy=retrieval_policy,
-                            )
-                        )
-                        result_count = len(
-                            [
-                                item
-                                for item in connector_results
-                                if isinstance(item, dict)
-                            ]
-                        )
-                        result_record["result_count"] = result_count
-                        if result_count > 0:
-                            connector_context_items.extend(connector_results)
-                            result_record[
-                                "status"
-                            ] = ContextRequestStatus.EXECUTED.value
-                            result_record["injected"] = True
-                        else:
-                            result_record[
-                                "status"
-                            ] = ContextRequestStatus.NO_RESULTS.value
-                    except Exception as exc:
-                        result_record[
-                            "status"
-                        ] = ContextRequestStatus.FAILED.value
-                        result_record["result_count"] = 0
-                        result_record["injected"] = False
-                        result_record["error"] = type(exc).__name__
-                    context_request_results.append(result_record)
-        bundle["connector_context"] = connector_context_items
-        bundle["context_request_results"] = list(context_request_results)
-    if isinstance(trace, dict):
-        trace = dict(trace)
-        trace["context_request_results"] = list(context_request_results)
     if assembly_succeeded and isinstance(bundle, dict):
         try:
             context_request_results = await _apply_context_request_plans(
@@ -3532,6 +3496,9 @@ async def build_messages_for_llm(
                 exc,
             )
             context_request_results = []
+    if isinstance(trace, dict):
+        trace = dict(trace)
+        trace["context_request_results"] = list(context_request_results)
 
     if (
         isinstance(bundle, dict)

@@ -82,6 +82,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/006-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
 - [Flow Builder Thread, Draft, and Receipts Contract ADR](./adr/014-flow-builder-thread-draft-and-receipts-contract.md): canonical Guardian-thread, FlowDraft, Builder-view, and run-receipt contract for flow authoring semantics.
+- [Flow Builder Typed Surface and Run Receipt Contract ADR](./adr/027-flow-builder-typed-surface-and-run-receipt-contract.md): typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.
+- [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
 - [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.
