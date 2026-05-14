@@ -33,7 +33,6 @@ Every claim must be tagged as exactly one of:
 - Blocker/failure/task/reference evidence is preserved for audit in `review-notes.md` and classified in `evidence-ledger.json`.
 
 Reviewer note: implementation breadcrumbs such as ADR fragments, task IDs, commit hashes, file paths, and queue names may support claims as evidence, but they should not appear verbatim in generated public-facing copy.
-Reviewer note: if a public artifact scan finds raw ADR/task/file-path/queue/commit breadcrumbs, rendering is broken even when the ledger itself is valid.
 
 ## Generator Command
 
@@ -55,5 +54,4 @@ Run the automation wrapper (auto-derives campaign ID by date) with:
 - `audience/`: target personas and channel posture
 - `messaging/`: pillars tied to proof-tiers and evidence
 - `contracts/`: machine and operator-facing generation contracts
-- `campaign-intelligence/`: reusable internal packet templates, source maps, claim gates, visual lanes, and engine prompts
 - `generated/`: generated draft artifacts and append-only run history
