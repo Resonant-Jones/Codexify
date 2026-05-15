@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -270,6 +270,89 @@ audit-ritual-monthly:
 # Generate quarterly ritual agenda
 audit-ritual-quarterly:
 	$(PYTHON) scripts/audit/ritual.py --cadence quarterly
+
+# ────────────────────────────────
+# Heartbeat Orchestrator
+#
+# Runs Beta Release Sentinel (always), Daily Dev Blog ingestion,
+# and Resonant Constructs Daily Insight generator in one pass.
+#
+# Usage:
+#   make heartbeat DATE=2026-05-14 DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md INSIGHT_SOURCE=docs/ResonantConstructs/daily-insights/README.md FORCE=1
+#
+#   make heartbeat   # defaults to today, skips dev-blog and insight unless sources provided
+# ────────────────────────────────
+heartbeat:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/run_heartbeat_orchestrator.py --date $$DATE"; \
+	if [ -n "$${DEV_BLOG_SOURCE:-}" ]; then \
+		CMD="$$CMD --dev-blog-source $$DEV_BLOG_SOURCE"; \
+	else \
+		CMD="$$CMD --skip-dev-blog"; \
+	fi; \
+	if [ -n "$${INSIGHT_SOURCE:-}" ]; then \
+		for src in $$INSIGHT_SOURCE; do \
+			CMD="$$CMD --insight-source $$src"; \
+		done; \
+	else \
+		CMD="$$CMD --skip-daily-insight"; \
+	fi; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
+	fi; \
+	echo "Running: $$CMD"; \
+	$$CMD
+
+# Review a heartbeat run report for the given date.
+#
+# Usage:
+#   make heartbeat-review DATE=2026-05-14
+#   make heartbeat-review DATE=2026-05-14 STRICT=1
+#   make heartbeat-review   # defaults to today
+heartbeat-review:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/review_heartbeat_run.py --date $$DATE"; \
+	if [ "$${STRICT:-}" = "1" ]; then \
+		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
+
+# Stage heartbeat artifacts into a flat outbox directory.
+#
+# Usage:
+#   make heartbeat-stage DATE=2026-05-14
+#   make heartbeat-stage DATE=2026-05-14 FORCE=1
+#   make heartbeat-stage   # defaults to today
+heartbeat-stage:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/stage_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
+	fi; \
+	$$CMD
+
+# Inspect a staged heartbeat outbox directory.
+#
+# Usage:
+#   make heartbeat-inspect DATE=2026-05-14
+#   make heartbeat-inspect   # defaults to today
+heartbeat-inspect:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE
+
+# Inspect a staged heartbeat outbox directory (alias).
+#
+# Usage:
+#   make heartbeat-outbox DATE=2026-05-14
+#   make heartbeat-outbox DATE=2026-05-14 STRICT=1
+#   make heartbeat-outbox   # defaults to today
+heartbeat-outbox:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${STRICT:-}" = "1" ]; then \
+		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
 
 # Build the public portal staging tree
 public-export:

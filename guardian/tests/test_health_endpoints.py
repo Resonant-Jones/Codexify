@@ -205,6 +205,68 @@ def test_health_llm_release_hold_ignores_bundled_cloud_defaults(monkeypatch):
             setattr(settings, field, value)
 
 
+def test_health_surfaces_missing_supported_profile_explicitly(monkeypatch):
+    from guardian.core.config import get_settings
+
+    monkeypatch.setattr(
+        "guardian.routes.health.requests.get",
+        lambda *args, **kwargs: type("Resp", (), {"status_code": 200})(),
+    )
+    monkeypatch.setattr(
+        health_routes,
+        "_collect_completion_service_health",
+        _fresh_completion_service,
+    )
+    client = TestClient(app)
+
+    settings = get_settings()
+    snapshot = {
+        "LLM_PROVIDER": settings.LLM_PROVIDER,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "GROQ_API_KEY": settings.GROQ_API_KEY,
+        "MINIMAX_API_KEY": settings.MINIMAX_API_KEY,
+        "ALIBABA_API_KEY": settings.ALIBABA_API_KEY,
+    }
+    try:
+        settings.LLM_PROVIDER = "local"
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.OPENAI_API_KEY = None
+        settings.GROQ_API_KEY = None
+        settings.MINIMAX_API_KEY = None
+        settings.ALIBABA_API_KEY = None
+
+        response = client.get("/health")
+        assert response.status_code == 200
+        payload = response.json()
+        supported_profile = payload["details"]["supported_profile"]
+        assert supported_profile["valid"] is False
+        assert supported_profile["release_hold"] is True
+        assert any(
+            "not configured" in mismatch.lower()
+            for mismatch in supported_profile["mismatches"]
+        )
+
+        response = client.get("/api/health/llm")
+        assert response.status_code == 200
+        details = response.json()["details"]
+        supported_profile = details["supported_profile"]
+        assert supported_profile["valid"] is False
+        assert supported_profile["release_hold"] is True
+        assert any(
+            "not configured" in mismatch.lower()
+            for mismatch in supported_profile["mismatches"]
+        )
+    finally:
+        client.close()
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
 def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
     from guardian.core.config import get_settings
 

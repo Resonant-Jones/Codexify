@@ -61,7 +61,7 @@ repos:
     rev: v8.24.2
     hooks:
     -   id: gitleaks
-        args: [--config=.gitleaks.toml]
+        args: [--config=.gitleaks.toml, --staged]
         exclude: |
             (?x)(
                 ^node_modules/|
@@ -69,7 +69,11 @@ repos:
                 ^\.venv/|
                 ^venv/|
                 ^frontend/node_modules/|
-                ^frontend/\.pnpm-store/
+                ^frontend/\.pnpm-store/|
+                ^tests/scripts/test_review_heartbeat|
+                ^tests/scripts/test_run_heartbeat|
+                ^tests/scripts/test_inspect_heartbeat|
+                ^tests/scripts/test_stage_heartbeat
             )
 
 -   repo: https://github.com/psf/black

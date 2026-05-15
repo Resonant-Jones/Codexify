@@ -67,15 +67,18 @@ async def test_obsidian_only_retrieval_returns_only_obsidian_hits() -> None:
     assert context["semantic"] == []
     assert context["memory"] == []
     assert context["docs"] == {"project": [], "thread": [], "global": []}
-    assert context["obsidian"] == [
-        {
-            "id": "obs-1",
-            "text": "obsidian note hit",
-            "user_id": "user-1",
-            "metadata": {"filename": "note.md"},
-            "score": 0.99,
-        }
-    ]
+    assert len(context["obsidian"]) == 1
+    obsidian_hit = context["obsidian"][0]
+    assert obsidian_hit["id"] == "obs-1"
+    assert obsidian_hit["text"] == "obsidian note hit"
+    assert obsidian_hit["user_id"] == "user-1"
+    assert obsidian_hit["namespace"] == "obsidian:local"
+    assert obsidian_hit["source_type"] == "obsidian"
+    assert obsidian_hit["role"] == "document"
+    assert obsidian_hit["retrieval_lane"] == "obsidian_semantic"
+    assert obsidian_hit["metadata"]["filename"] == "note.md"
+    assert obsidian_hit["metadata"]["namespace"] == "obsidian:local"
+    assert obsidian_hit["meta"]["namespace"] == "obsidian:local"
     assert context["retrieval_status"] == "obsidian_only_success"
     assert trace["source_mode"] == "obsidian_only"
     assert trace["retrieval_status"] == "obsidian_only_success"
@@ -95,7 +98,15 @@ async def test_obsidian_only_retrieval_raises_when_no_obsidian_hits(
         def __init__(self, *args, **kwargs):
             pass
 
-        async def assemble(self, thread_id, query, depth_mode, user_id):
+        async def assemble(
+            self,
+            thread_id,
+            query,
+            depth_mode,
+            user_id,
+            retrieval_policy=None,
+            **kwargs,
+        ):
             captured["thread_id"] = thread_id
             captured["query"] = query
             captured["depth_mode"] = depth_mode

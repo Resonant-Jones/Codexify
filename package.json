@@ -8,8 +8,10 @@
     "format": "pnpm --dir frontend format",
     "format:check": "pnpm --dir frontend format:check",
     "process-logs": "npx tsx scripts/process_logs.ts",
-    "generate-marketing": "python scripts/marketing/generate_marketing.py",
-    "generate-marketing-auto": "python scripts/marketing/run_marketing_automation.py"
+    "heartbeat": "python scripts/content/run_heartbeat_orchestrator.py",
+    "heartbeat:review": "python scripts/content/review_heartbeat_run.py",
+    "heartbeat:stage": "python scripts/content/stage_heartbeat_outbox.py",
+    "heartbeat:outbox": "python scripts/content/inspect_heartbeat_outbox.py"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",

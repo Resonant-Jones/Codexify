@@ -440,13 +440,15 @@ def _source_mode_from_origin(origin: Any) -> str:
 
 
 def _requested_source_mode_from_task(task: Any) -> str | None:
-    explicit_source_mode = normalize_source_mode(
-        getattr(task, "requested_source_mode", None)
-    )
-    if explicit_source_mode:
-        return explicit_source_mode
+    raw_requested_source_mode = getattr(task, "requested_source_mode", None)
+    if raw_requested_source_mode is not None:
+        requested_source_mode = str(raw_requested_source_mode).strip()
+        if requested_source_mode:
+            return normalize_source_mode(requested_source_mode)
     origin_source_mode = _source_mode_from_origin(getattr(task, "origin", None))
-    return normalize_source_mode(origin_source_mode)
+    if origin_source_mode:
+        return normalize_source_mode(origin_source_mode)
+    return None
 
 
 def _slash_intent_from_origin(origin: Any) -> dict[str, Any] | None:
