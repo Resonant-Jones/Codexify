@@ -188,6 +188,14 @@ running the orchestrator.  It checks that the report exists, the title
 matches, artifacts are present on disk, no failures are recorded, and no
 secret-like values leaked into the report.
 
+**The review command is a safety gate** — it should be run before any
+scheduling, deployment, or publication step is added in later tasks.
+Passing review confirms that a given heartbeat run is complete and
+artifact-intact, but does **not** by itself approve release readiness.
+
+The review command does **not** run the heartbeat orchestrator, publish
+externally, or modify any file on disk.
+
 ### How to run
 
 ```bash
