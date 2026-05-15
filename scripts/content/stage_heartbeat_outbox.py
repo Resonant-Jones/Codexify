@@ -210,6 +210,17 @@ def _generate_drafts(
     email_lines.append(footer)
     _write("email-draft.md", "\n".join(email_lines))
 
+    # 5. Source heartbeat (copy of report with staging header)
+    source_lines = [
+        f"# Heartbeat Source Report — {date_str}\n",
+        f"**Staged:** {datetime.datetime.now(datetime.timezone.utc).isoformat()}\n",
+        "> This is a copy of the source heartbeat report staged for reference.\n",
+        "> It is not an external publication.\n",
+        "",
+        report_text,
+    ]
+    _write("source-heartbeat.md", "\n".join(source_lines))
+
     return drafts
 
 
