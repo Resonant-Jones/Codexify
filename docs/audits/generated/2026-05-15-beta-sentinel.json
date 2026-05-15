@@ -1,0 +1,97 @@
+{
+  "audit_summary": null,
+  "blockers": [],
+  "branch": "main",
+  "changelog_items": [
+    "Add shared symlink-aware write path guard primitive",
+    "Verify supported profile catalog health alignment",
+    "Align supported profile health and catalog truth",
+    "Record supported profile catalog health drift proof",
+    "Add Resonant Constructs daily insight generator",
+    "Update current state after workspace Obsidian proof",
+    "Repair workspace Obsidian retrieval injection",
+    "Record workspace-local Obsidian retrieval proof attempt",
+    "Fix migrator bcrypt import",
+    "fix: handle data URLs in _encode_image_url_to_base64 for Ollama local path",
+    "Add Resonant Constructs daily insight generator",
+    "feat: /obsidian routing, upload Form params, and AGENTS.md",
+    "Add Flow Builder typed surface ADR",
+    "Add Flow Builder surface research application note",
+    "fix: upload button visibility and external provider image routing",
+    "Update current state after coding result live proof",
+    "Add codex adapter kind to coding execution contracts",
+    "Repair supported coding worker live path",
+    "Record coding result return live proof attempt",
+    "Add daily dev blog ingestion script",
+    "clearing worktree for rebase",
+    "marketing Campaign Run Test",
+    "Refine Axis instructions for decentralized network work",
+    "Revert unintended frontend and campaign file carryover",
+    "Add stored coding agent session context artifact",
+    "Add marketing CLI skill and fixture scaffolding",
+    "Add marketing documentation and campaign artifacts",
+    "Populate marketing ledger eligibility fields",
+    "Isolate beta release sentinel changes"
+  ],
+  "date": "2026-05-15",
+  "generated_files": {
+    "changelog": "CHANGELOG.beta.md",
+    "json": "docs/audits/generated/2026-05-15-beta-sentinel.json",
+    "markdown": "docs/audits/generated/2026-05-15-beta-sentinel.md"
+  },
+  "head": "48fd08b409f03655519f8657ff43b9080e118171",
+  "not_promised": [
+    "Cloud-provider beta support.",
+    "Packaged desktop replacing local Compose as supported path.",
+    "Command bus, delegation, federation, graph writes, or worker-control dispatch as public beta promise.",
+    "External publication to email, Substack, or websites."
+  ],
+  "release_gates": [
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Supported-profile flags match the local-only beta contract.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Fresh live evidence exists on the current `main` tip for the supported path.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Chat completion and upload -> embed -> readback are proven on the supported stack.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Coding results return through Guardian into the source thread without duplicate delivery.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "No internal-only or quarantined surface is part of the release claim.",
+      "notes": "Checklist item from current state.",
+      "status": "proven"
+    },
+    {
+      "evidence": "scripts/audit_platform_readiness.py",
+      "name": "Platform readiness audit execution",
+      "notes": "Platform readiness audit did not return valid JSON.",
+      "status": "warning"
+    }
+  ],
+  "warnings": [
+    "Platform readiness audit did not return valid JSON."
+  ],
+  "worktree_clean": true
+}
