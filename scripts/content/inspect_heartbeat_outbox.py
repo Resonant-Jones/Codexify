@@ -34,7 +34,10 @@ def _load_manifest(staged_dir: Path) -> dict[str, Any] | None:
     manifest_path = staged_dir / "manifest.json"
     if not manifest_path.is_file():
         return None
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return None
 
 
 def inspect_outbox(

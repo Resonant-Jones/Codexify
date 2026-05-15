@@ -97,6 +97,16 @@ def test_missing_manifest_warns(tmp_path: Path) -> None:
     assert any("manifest" in i.lower() for i in d["failures"])
 
 
+def test_invalid_manifest_json_fails(tmp_path: Path) -> None:
+    staged_dir = tmp_path / "2026-05-14"
+    staged_dir.mkdir(parents=True)
+    (staged_dir / "manifest.json").write_text("not valid json {{{{{", encoding="utf-8")
+
+    result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
+    d = json.loads(result.stdout)
+    assert any("manifest" in i.lower() for i in d["failures"])
+
+
 # ---------------------------------------------------------------------------
 # schema_version check
 # ---------------------------------------------------------------------------
