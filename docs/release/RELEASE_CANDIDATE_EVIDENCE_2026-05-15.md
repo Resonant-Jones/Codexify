@@ -2,7 +2,7 @@
 
 ## Scope
 
-This is the local-first beta release candidate evidence bundle for Codexify. It is a front door for humans and future agents who want to know what is true for this release candidate without widening the runtime promise.
+This is the front door for the current local-first beta release candidate evidence bundle. It links the proof artifacts that define what is true now and keeps the release claims bounded to the current-state contract.
 
 ## Current Release Posture
 
@@ -14,14 +14,14 @@ This is the local-first beta release candidate evidence bundle for Codexify. It 
 
 | Artifact | What it anchors |
 | --- | --- |
-| [`docs/architecture/00-current-state.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/architecture/00-current-state.md) | Canonical short-horizon release truth: supported path, active blockers, and the present release promise. |
-| [`docs/audits/generated/2026-05-15-beta-sentinel.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.md) | Human-readable beta sentinel snapshot for the current release candidate. |
-| [`docs/audits/generated/2026-05-15-beta-sentinel.json`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json) | Machine-readable beta sentinel snapshot for the same release candidate. |
-| [`docs/proofs/2026-05-13-coding-result-return-terminal-state-live-proof.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/proofs/2026-05-13-coding-result-return-terminal-state-live-proof.md) | Live proof of Guardian source-thread `coding_result` delivery, idempotent replay, and durable terminal-state convergence. |
-| [`docs/proofs/2026-05-13-workspace-local-obsidian-retrieval-live-proof.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/proofs/2026-05-13-workspace-local-obsidian-retrieval-live-proof.md) | Historical proof record for workspace-local Obsidian retrieval; includes the initial failure and the post-fix rerun note that reports success. |
-| [`docs/proofs/2026-05-15-supported-profile-catalog-health-drift-proof-rerun-after-runtime-wiring.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/proofs/2026-05-15-supported-profile-catalog-health-drift-proof-rerun-after-runtime-wiring.md) | Live evidence that the supported-profile, catalog, and health surfaces are aligned on the current local-only beta contract. |
-| [`docs/architecture/codexify-platform-readiness-audit.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/docs/architecture/codexify-platform-readiness-audit.md) | Contract for the platform-readiness audit itself and its objective-check doctrine. |
-| [`CHANGELOG.beta.md`](/Users/resonant_jones/.codex/worktrees/db59/Codexify/CHANGELOG.beta.md) | Evidence-led beta changelog entries that track the release candidate story over time. |
+| [`docs/architecture/00-current-state.md`](../architecture/00-current-state.md) | Canonical short-horizon release truth: supported path, active blockers, and the present release promise. |
+| [`docs/audits/generated/2026-05-15-beta-sentinel.md`](../audits/generated/2026-05-15-beta-sentinel.md) | Human-readable beta sentinel snapshot for the current release candidate. |
+| [`docs/audits/generated/2026-05-15-beta-sentinel.json`](../audits/generated/2026-05-15-beta-sentinel.json) | Machine-readable beta sentinel snapshot for the same release candidate. |
+| [`docs/proofs/2026-05-13-coding-result-return-terminal-state-live-proof.md`](../proofs/2026-05-13-coding-result-return-terminal-state-live-proof.md) | Live proof of Guardian source-thread `coding_result` delivery, idempotent replay, and durable terminal-state convergence. |
+| [`docs/proofs/2026-05-13-workspace-local-obsidian-retrieval-live-proof.md`](../proofs/2026-05-13-workspace-local-obsidian-retrieval-live-proof.md) | Historical proof record for workspace-local Obsidian retrieval, including the initial failure and the post-fix rerun note that reports success. |
+| [`docs/proofs/2026-05-15-supported-profile-catalog-health-drift-proof-rerun-after-runtime-wiring.md`](../proofs/2026-05-15-supported-profile-catalog-health-drift-proof-rerun-after-runtime-wiring.md) | Live evidence that the supported-profile, catalog, and health surfaces are aligned on the current local-only beta contract. |
+| [`docs/architecture/codexify-platform-readiness-audit.md`](../architecture/codexify-platform-readiness-audit.md) | Contract for the platform-readiness audit itself and its objective-check doctrine. |
+| [`CHANGELOG.beta.md`](../../CHANGELOG.beta.md) | Evidence-led beta changelog entries that track the release candidate story over time. |
 
 ## Claim Matrix
 
@@ -49,7 +49,7 @@ This is the local-first beta release candidate evidence bundle for Codexify. It 
 - No merge automation.
 - No live MiniMax/Codex successful execution from Command Center.
 
-## Validation / Audit Automation
+## Validation and Audit Automation
 
 - Beta sentinel command: `scripts/release/beta_release_sentinel.py`.
 - Platform-readiness audit contract: `scripts/audit_platform_readiness.py` is an objective-check audit, not a subjective score sheet.
