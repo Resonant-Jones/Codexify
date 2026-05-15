@@ -8,15 +8,15 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 
 ## Governing Sources
 
-- ADR-006: Flow Builder Elicitation Lane
-- ADR-014: Flow Builder Thread, Draft, and Receipts Contract
-- ADR-027: Flow Builder Typed Surface and Run Receipt Contract
-- Flow Builder Surface Research Application
-- Runtime Protocol Token Contract
-- Canonical Token Philosophy
-- Critical Flows
-- Data and Storage
-- Modules and Ownership
+- [ADR-006: Flow Builder Elicitation Lane](../architecture/adr/006-flow-builder-elicitation-lane.md)
+- [ADR-014: Flow Builder Thread, Draft, and Receipts Contract](../architecture/adr/014-flow-builder-thread-draft-and-receipts-contract.md)
+- [ADR-027: Flow Builder Typed Surface and Run Receipt Contract](../architecture/adr/027-flow-builder-typed-surface-and-run-receipt-contract.md)
+- [Flow Builder Surface Research Application](../architecture/flow-builder-surface-research-application.md)
+- [Runtime Protocol Token Contract](../architecture/runtime-protocol-token-contract.md)
+- [Canonical Token Philosophy](../architecture/canonical-token-philosophy.md)
+- [Critical Flows](../architecture/flows.md)
+- [Data and Storage](../architecture/data-and-storage.md)
+- [Modules and Ownership](../architecture/modules-and-ownership.md)
 
 ## Current Truth
 
@@ -32,13 +32,13 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 
 - Guardian threads provide the canonical conversation substrate, but they are not FlowDraft persistence.
 - Command bus runs and cron runs provide adjacent execution and scheduling concepts, but they are not Flow Builder execution, TestRun, Activation, or FlowRunReceipt persistence.
-- Runtime protocol tokens provide existing token discipline, but Flow Builder variable, validation, semantic-step, conditional-container, and receipt token domains are not yet defined.
+- Runtime protocol tokens provide existing token discipline, but Flow Builder variable, validation, semantic-step, and receipt token domains are not yet defined.
 - Existing export/restore doctrine provides lineage expectations, but Flow Builder artifact inclusion is not yet specified.
 
 ### Proposed / contract-only
 
 - `FlowDraft`, `FlowBuilderView`, and `FlowRunReceipt` are canonical contract terms.
-- `Starter`, `ActionStep`, `SemanticStep`, `ConditionalContainer`, `VariableChip`, `TypedStepOutput`, `ValidationIssue`, `TestRun`, and `Activation` are canonical ADR-027 terms.
+- `Starter`, `ActionStep`, `SemanticStep`, `VariableChip`, `TypedStepOutput`, `ConditionalContainer`, `ValidationIssue`, `TestRun`, and `Activation` are canonical ADR-027 terms.
 - Validation eligibility, activation state, compiled execution plans, and receipt evidence are architectural contracts for future implementation.
 - Workspace Studio research is planning input only. It is not Codexify runtime truth.
 
@@ -47,7 +47,6 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 - Do not assume production Flow Builder UI exists.
 - Do not assume `VariableChip` implementation exists.
 - Do not assume `SemanticStep` execution exists.
-- Do not assume `ConditionalContainer` implementation exists.
 - Do not assume `TestRun`, `Activation`, or `RunReceipt` persistence is implemented.
 - Do not assume workflow execution is part of the supported beta surface.
 - Do not assume route acceptance, task enqueue, or task-event publication proves execution completion or UI receipt.
@@ -71,6 +70,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Lane:** docs
    **Status:** complete
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, `docs/architecture/adr/027-flow-builder-typed-surface-and-run-receipt-contract.md`, possible future `docs/architecture/flow-builder-token-domains.md`
+   **Depends on:** ADR-006, ADR-014, ADR-027, this campaign
    **Proof artifact:** `docs/architecture/flow-builder-token-domains.md`
    **Proof surface:** docs validation, grep proof that candidate token domains are inventoried before code use, explicit no-runtime-change diff
    **Non-goals:** no code token registry, no schema, no UI, no route or worker changes
@@ -80,6 +81,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Lane:** backend contract
    **Status:** complete
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/data-and-storage.md`, possible future schema proposal note under `docs/architecture/`
+   **Depends on:** `FB-001`
    **Proof artifact:** `docs/architecture/flowdraft-schema-proposal.md`
    **Proof surface:** accepted or explicitly proposed contract note covering `FlowDraft`, `Starter`, ordered steps, validation state, and provenance fields
    **Non-goals:** no migration, no SQLAlchemy model, no persistence implementation, no frontend draft model changes
@@ -89,6 +92,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Lane:** frontend contract
    **Status:** complete
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future Flow Builder contract note, `docs/architecture/variable-chip-typed-output-contract.md`
+   **Depends on:** `FB-001`, `FB-002`
    **Proof artifact:** `docs/architecture/variable-chip-typed-output-contract.md`
    **Proof surface:** contract tests or docs checks in the future implementation slice proving stable identity, source-step lineage, canonical type domains, and compatibility rules are specified before UI use
    **Non-goals:** no `VariableChip` component, no chip styling, no string interpolation runtime, no backend execution
@@ -98,6 +103,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Lane:** backend contract
    **Status:** complete
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future `guardian/flow_builder/` contract module and contract tests, `docs/architecture/flow-builder-validation-issue-taxonomy.md`
+   **Depends on:** `FB-001`, `FB-002`, `FB-003`
    **Proof artifact:** `docs/architecture/flow-builder-validation-issue-taxonomy.md`
    **Proof surface:** bounded validation issue code registry, severity domain, field/step/flow scope rules, and tests that reject ad hoc validation codes when implementation begins
    **Non-goals:** no validation engine, no UI issue badges, no activation or execution gating implementation
@@ -107,6 +114,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Lane:** backend contract
    **Status:** complete
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/flows.md`, possible future `guardian/flow_builder/semantic_steps.py`
+   **Depends on:** `FB-001`, `FB-003`, `FB-004`
    **Proof artifact:** `docs/architecture/flow-builder-semantic-step-contract.md`
    **Proof surface:** contract note defining semantic step kinds, input/output schemas, uncertainty behavior, receipt metadata, and explicit non-recursive execution boundaries
    **Non-goals:** no model calls, no prompt executor, no recursive agent loop, no tool-chain runtime
@@ -114,18 +123,18 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 6. **Task id:** `FB-006`
    **Title:** ConditionalContainer contract and UI model
    **Lane:** frontend contract
-   **Status:** complete
    **Architecture impact:** yes
-   **Proof artifact:** `docs/architecture/flow-builder-conditional-container-contract.md`
+   **Target files or likely target file families:** `docs/architecture/adr/`, possible future `docs/architecture/flow-builder-conditional-container.md`, future frontend model docs
+   **Depends on:** `FB-002`, `FB-003`, `FB-004`, `FB-005`
    **Proof surface:** contract note proving the default authoring model is linear steps with structured conditional containers, branch context, at least one nested substep, and no arbitrary DAG claim
    **Non-goals:** no canvas implementation, no drag/drop branch UI, no execution compiler
 
 7. **Task id:** `FB-007`
    **Title:** TestRun and Activation backend contract
    **Lane:** backend contract
-   **Status:** complete
    **Architecture impact:** yes
-   **Proof artifact:** `docs/architecture/flow-builder-testrun-activation-contract.md`
+   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/flows.md`, `docs/architecture/data-and-storage.md`, possible future `guardian/flow_builder/` contract files
+   **Depends on:** `FB-002`, `FB-004`, `FB-005`, `FB-006`
    **Proof surface:** contract note distinguishing isolated non-side-effecting TestRun from durable Activation, including validation gates, permission checks, trigger registration, and activation/deactivation semantics
    **Non-goals:** no trigger registration implementation, no cron reuse implementation, no command-bus execution wiring, no external side effects
 
@@ -133,6 +142,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Title:** RunReceipt persistence model
    **Lane:** backend contract
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/data-and-storage.md`, `docs/architecture/adr/`, possible future migration plan docs
+   **Depends on:** `FB-002`, `FB-007`
    **Proof surface:** persistence proposal covering receipt immutability, run identity, step receipts, terminal state, failure reason, provenance links, command run references, retrieval posture, and semantic-step metadata
    **Non-goals:** no database migration, no model implementation, no receipt API, no activity UI
 
@@ -140,6 +151,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
    **Title:** Flow activity/proof surface design
    **Lane:** frontend contract
    **Architecture impact:** yes
+   **Target files or likely target file families:** `docs/architecture/`, possible future `docs/architecture/flow-builder-activity-proof-surface.md`, future frontend contract docs
+   **Depends on:** `FB-008`
    **Proof surface:** surface design that shows receipt streams as operational evidence distinct from chat messages and task events
    **Non-goals:** no UI component implementation, no SSE subscription, no receipt route, no live proof claim
 
@@ -147,6 +160,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Title:** Export/restore workflow artifact inclusion
     **Lane:** backend contract
     **Architecture impact:** yes
+    **Target files or likely target file families:** `docs/architecture/account-export-restore-contract.md`, `docs/architecture/data-and-storage.md`, possible future export manifest docs and tests
+    **Depends on:** `FB-002`, `FB-007`, `FB-008`
     **Proof surface:** explicit decision on whether `FlowDraft`, `Activation`, and `FlowRunReceipt` enter export/restore first, including lineage preservation or explicit manifest exclusion
     **Non-goals:** no export code changes, no restore implementation, no data migration
 
@@ -154,6 +169,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Title:** Frontend Flow Builder shell prototype
     **Lane:** frontend implementation
     **Architecture impact:** no
+    **Target files or likely target file families:** `frontend/src/features/flowBuilder/`, `frontend/tests/` or colocated Vitest files, frontend route/shell files only if needed
+    **Depends on:** `FB-002`, `FB-003`, `FB-004`, `FB-006`, `FB-009`
     **Proof surface:** targeted frontend tests showing one shared typed draft object, validation display from contract fixtures, no runtime execution, and no beta nav/supported-surface expansion unless separately approved
     **Non-goals:** no backend route, no persistence, no TestRun, no Activation, no live execution, no release-surface claim
 
@@ -161,6 +178,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Title:** First non-side-effecting TestRun proof harness
     **Lane:** proof
     **Architecture impact:** yes
+    **Target files or likely target file families:** future `guardian/flow_builder/`, future tests under `tests/`, possible scripts under `scripts/proofs/`
+    **Depends on:** `FB-004`, `FB-005`, `FB-007`, `FB-008`
     **Proof surface:** isolated test harness that executes only non-side-effecting steps, emits ephemeral test evidence, proves validation gating, and proves no external writes
     **Non-goals:** no live Activation, no external connector writes, no scheduler registration, no supported beta claim
 
@@ -168,6 +187,8 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Title:** First side-effecting workflow execution behind explicit gate
     **Lane:** backend implementation
     **Architecture impact:** yes
+    **Target files or likely target file families:** future `guardian/flow_builder/`, command bus or cron integration files if selected by prior contracts, tests under `tests/`, operator proof docs
+    **Depends on:** `FB-007`, `FB-008`, `FB-010`, `FB-012`
     **Proof surface:** explicit operator gate, validation pass, activation record, durable receipt, idempotency evidence, provenance links, and side-effect references for every external mutation
     **Non-goals:** no recursive agent loop, no hidden prompt-only workflow behavior, no unreceipted side effects, no beta surface widening without separate release decision
 
@@ -197,6 +218,6 @@ Runtime execution cannot ship without receipts, validation, and operator evidenc
 
 ## Documentation Follow-Through
 
-- Link this campaign from `docs/architecture/README.md` near the Flow Builder cluster as implementation sequencing guidance, not runtime truth.
-- Do not add task files under `docs/tasks/` in this documentation-only campaign. Add them later, one atomic task at a time, when implementation begins.
+- Link this campaign from `/docs/architecture/README.md` near the Flow Builder cluster as implementation sequencing guidance, not runtime truth.
+- Do not add task files under `/docs/tasks/` in this documentation-only campaign. Add them later, one atomic task at a time, when implementation begins.
 - ADR-027 does not need amendment before `FB-001` begins. Later tasks that choose persistence shape, uncertainty behavior, activation semantics, or execution behavior may require ADR amendments or follow-on ADRs before implementation.
