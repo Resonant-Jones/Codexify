@@ -183,7 +183,7 @@ later tasks:
 
 ## Schedule manifest
 
-A declarative JSON manifest at `docs/Heartbeat/schedule_manifest.json`
+A declarative JSON manifest at `config/heartbeat/heartbeat.schedule.example.json`
 describes the intended heartbeat schedule without implementing it.
 
 - **Schema version:** `heartbeat.schedule.v1`
