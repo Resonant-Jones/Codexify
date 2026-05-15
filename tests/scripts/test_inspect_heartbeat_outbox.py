@@ -87,12 +87,44 @@ def test_missing_staged_dir_fails(tmp_path: Path) -> None:
 # missing manifest warns
 # ---------------------------------------------------------------------------
 
-def test_missing_manifest_warns(tmp_path: Path) -> None:
-    staged_dir = tmp_path / "2026-05-14"
-    staged_dir.mkdir(parents=True)
-    (staged_dir / "some-file.md").write_text("content", encoding="utf-8")
+def test_missing_staged_dir_strict_fails(tmp_path: Path) -> None:
+    result = _run_cli("--date", "2026-01-01", "--staged-dir", str(tmp_path), "--strict", "--json")
+    d = json.loads(result.stdout)
+    assert d["status"] == "failed"
+
+
+def test_publication_targets_nonempty_fails(tmp_path: Path) -> None:
+    staged_dir = _setup_staged_dir(tmp_path, "2026-05-14")
+    manifest = json.loads((staged_dir / "manifest.json").read_text())
+    manifest["publication"]["targets"] = ["substack"]
+    (staged_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
+    d = json.loads(result.stdout)
+    assert d["status"] == "failed"
+
+
+def test_missing_expected_file_fails(tmp_path: Path) -> None:
+    staged_dir = _setup_staged_dir(tmp_path, "2026-05-14")
+    manifest = json.loads((staged_dir / "manifest.json").read_text())
+    manifest["generated_files"].append("nonexistent.md")
+    (staged_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
+    d = json.loads(result.stdout)
+    # Missing file from manifest is a failure
+    assert any("missing" in i.lower() for i in d["failures"])
+
+
+def test_missing_expected_file_strict_fails(tmp_path: Path) -> None:
+    staged_dir = _setup_staged_dir(tmp_path, "2026-05-14")
+    manifest = json.loads((staged_dir / "manifest.json").read_text())
+    manifest["generated_files"].append("nonexistent.md")
+    (staged_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--strict", "--json")
+    d = json.loads(result.stdout)
+    assert d["status"] == "failed"
     d = json.loads(result.stdout)
     assert any("manifest" in i.lower() for i in d["failures"])
 
