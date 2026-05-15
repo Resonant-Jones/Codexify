@@ -350,6 +350,36 @@ def stage_outbox(
         shutil.copy2(art_path, dest)
         result["staged"].append(str(dest))
 
+    # Generate content drafts (before manifest so they appear in generated_files)
+    draft_paths = _generate_drafts(date_str, dated_staged, report_text, skip_review)
+    result["drafts"] = draft_paths
+
+    # Scan staged drafts for secrets (same patterns as review)
+    _DRAFT_SECRET_PATTERNS = [
+        (re.compile(r"(?:api[_-]?key|apikey|api_secret|secret_key|access_token|auth_token|bearer|oauth|cookie)\s*[:=]\s*\S+", re.IGNORECASE), "credential"),
+        (re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE), "Authorization header"),
+        (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "OpenAI API key"),
+        (re.compile(r"(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9]{36,}"), "GitHub token"),
+        (re.compile(r"(?:password|passwd|pwd)\s*[:=]\s*\S+", re.IGNORECASE), "password"),
+        (re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----"), "private key"),
+        (re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), "JWT"),
+    ]
+    for draft_path in draft_paths:
+        draft_text = Path(draft_path).read_text(encoding="utf-8")
+        for pattern, label in _DRAFT_SECRET_PATTERNS:
+            if pattern.search(draft_text):
+                Path(draft_path).unlink(missing_ok=True)
+                result["drafts"].remove(draft_path)
+                result["errors"].append(
+                    f"Secret-like value ({label}) detected in draft {Path(draft_path).name}. Draft removed."
+                )
+                result["ok"] = False
+                break
+
+    # Collect all generated file names (artifacts + drafts)
+    all_generated = [str(Path(s).relative_to(dated_staged)) for s in result["staged"]]
+    all_generated += [Path(p).name for p in result["drafts"]]
+
     # Write a staging manifest
     manifest = {
         "schema_version": "heartbeat.outbox.v1",
@@ -361,8 +391,8 @@ def stage_outbox(
         "review_skipped": skip_review,
         "source_heartbeat_report": str(report_path),
         "source_artifacts": [str(_resolve_artifact(raw)) for raw in artifact_paths],
-        "generated_files": [str(Path(s).relative_to(dated_staged)) for s in result["staged"]],
-        "total_files": len(result["staged"]),
+        "generated_files": all_generated,
+        "total_files": len(all_generated),
         "publication": {
             "enabled": False,
             "targets": [],
@@ -375,34 +405,6 @@ def stage_outbox(
         encoding="utf-8",
     )
     result["manifest"] = str(dated_staged / "manifest.json")
-
-    # Generate content drafts
-    draft_paths = _generate_drafts(date_str, dated_staged, report_text, skip_review)
-    result["drafts"] = draft_paths
-
-    # Scan staged drafts for secrets (same patterns as review)
-    _SECRET_PATTERNS = [
-        (re.compile(r"(?:api[_-]?key|apikey|api_secret|secret_key|access_token|auth_token|bearer|oauth|cookie)\s*[:=]\s*\S+", re.IGNORECASE), "credential"),
-        (re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE), "Authorization header"),
-        (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "OpenAI API key"),
-        (re.compile(r"(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9]{36,}"), "GitHub token"),
-        (re.compile(r"(?:password|passwd|pwd)\s*[:=]\s*\S+", re.IGNORECASE), "password"),
-        (re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----"), "private key"),
-        (re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), "JWT"),
-    ]
-    for draft_path in draft_paths:
-        draft_text = Path(draft_path).read_text(encoding="utf-8")
-        for pattern, label in _SECRET_PATTERNS:
-            if pattern.search(draft_text):
-                # Clean up: remove the secret-containing draft
-                Path(draft_path).unlink(missing_ok=True)
-                result["drafts"].remove(draft_path)
-                result["errors"].append(
-                    f"Secret-like value ({label}) detected in draft {Path(draft_path).name}. "
-                    f"Draft removed."
-                )
-                result["ok"] = False
-                break
 
     return result
 
