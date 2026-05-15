@@ -217,6 +217,63 @@ or website publishing.
 **Publication targets remain disabled and empty** (`enabled: false`, `targets: []`)
 in this task.  No external publishing is wired.
 
+## Staging a heartbeat outbox
+
+The `stage_heartbeat_outbox.py` script copies heartbeat artifacts into a
+flat staging directory and generates templated content drafts for downstream
+publication channels (all deferred).
+
+### How to run
+
+```bash
+# Makefile (recommended)
+make heartbeat-stage DATE=2026-05-14
+make heartbeat-stage DATE=2026-05-14 FORCE=1
+make heartbeat-stage   # defaults to today
+
+# pnpm
+pnpm heartbeat:stage -- --date 2026-05-14 --force
+
+# Direct
+python scripts/content/stage_heartbeat_outbox.py --date 2026-05-14 --force
+python scripts/content/stage_heartbeat_outbox.py --date 2026-05-14 --dry-run
+```
+
+Richer argument handling (date defaulting, force gating) is best done
+through the Makefile target.
+
+### What it produces
+
+The staging script copies artifacts from the generated directories into
+`docs/Heartbeat/staged/YYYY-MM-DD/` and produces:
+
+| File | Description |
+|---|---|
+| `*-beta-sentinel.{md,json}` | Beta release sentinel artifacts |
+| `*-dev-blog.md` | Daily dev blog draft |
+| `*-daily-insight.md` | Resonant Constructs daily insight |
+| `release-summary.md` | Templated release summary from heartbeat run |
+| `website-update.md` | Templated website update draft |
+| `substack-draft.md` | Templated Substack newsletter draft |
+| `email-draft.md` | Templated email draft |
+| `manifest.json` | Staging manifest (`heartbeat.outbox.v1`) |
+
+All drafts include a visible note that they are local staging artifacts,
+not published content.
+
+### Safety gates
+
+- **Review required** — the staging script runs `review_heartbeat_run.py --strict`
+  before copying.  If review fails, staging is blocked.
+- **--skip-review** bypasses the gate but writes a `_SKIP_REVIEW_WARNING.txt`
+  file and adds warnings to the result.
+- **Secret scan** — after generating drafts, the script scans all staged
+  content for secret-like values.  If detected, the offending draft is removed
+  and an error is reported.
+- **No network calls** — the script operates entirely on the local filesystem.
+- **Publication disabled** — the staging manifest records `publication.enabled: false`
+  and `targets: []`.
+
 ## Reviewing a heartbeat run
 
 The `review_heartbeat_run.py` script validates a heartbeat report without
