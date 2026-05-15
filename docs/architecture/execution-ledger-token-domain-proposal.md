@@ -11,6 +11,13 @@ This is proposal-only and does not add runtime tokens.
 - implementation status: docs-only; no runtime tokens added
 - next step before implementation: accept exact token values through a separate implementation task or ADR amendment if needed
 
+## Implementation Note: Backend Bounded Registry
+- `guardian/agents/execution_ledger_tokens.py` now provides a backend-only bounded registry for the proposed token domains.
+- These tokens are not yet wired into runtime behavior.
+- Cross-surface or API-visible adoption still requires explicit implementation tasks and tests.
+- Frontend mirroring is deferred until a UI/API surface consumes these tokens.
+- `guardian/protocol_tokens.py` remains unchanged in this task.
+
 ## Source Set
 ### Governing docs read
 - `docs/architecture/00-current-state.md`
