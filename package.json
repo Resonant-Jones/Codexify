@@ -8,7 +8,8 @@
     "format": "pnpm --dir frontend format",
     "format:check": "pnpm --dir frontend format:check",
     "process-logs": "npx tsx scripts/process_logs.ts",
-    "heartbeat": "python scripts/content/run_heartbeat_orchestrator.py"
+    "heartbeat": "python scripts/content/run_heartbeat_orchestrator.py",
+    "heartbeat:review": "python scripts/content/review_heartbeat_run.py"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",

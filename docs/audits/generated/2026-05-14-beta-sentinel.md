@@ -2,13 +2,9 @@
 
 ## Repo status
 - Branch: `main`
-- Head: `468c9290f83bd0b03978f5363138e99460999192`
-- Worktree clean: `False`
-- `A  docs/Heartbeat/generated/2026-05-14-heartbeat.md`
-- `A  docs/ResonantConstructs/daily-insights/generated/2026-05-14.md`
-- `A  docs/Website/dev-blog/generated/2026-05-14.md`
-- `A  docs/audits/generated/2026-05-14-beta-sentinel.json`
-- `A  docs/audits/generated/2026-05-14-beta-sentinel.md`
+- Head: `803a8466b46273f14e5ffe93a2f3906e23931a49`
+- Worktree clean: `True`
+- Worktree appears clean.
 
 ## Current beta promise
 - Local-first beta hardening.
@@ -27,9 +23,9 @@
 
 ## Evidence summary
 - Platform readiness audit did not return valid JSON.
-- Worktree is dirty; release evidence should use a clean tree.
 
 ## Changelog draft
+- Add heartbeat operator wrapper
 - Add heartbeat Makefile target, pnpm script, and docs for orchestrator
 - Add local heartbeat orchestrator
 - Add Resonant Constructs daily insight generator
@@ -63,7 +59,6 @@
 
 ## Warnings
 - Platform readiness audit did not return valid JSON.
-- Worktree is dirty; release evidence should use a clean tree.
 
 ## Not promised / excluded surfaces
 - Cloud-provider beta support.

@@ -180,3 +180,57 @@ later tasks:
   retrieval, identity, cron, command bus, or release-gating behavior.
 - Captured child script output is sanitized to remove obvious secret-like
   values (API keys, tokens, passwords, private keys).
+
+## Reviewing a heartbeat run
+
+The `review_heartbeat_run.py` script validates a heartbeat report without
+running the orchestrator.  It checks that the report exists, the title
+matches, artifacts are present on disk, no failures are recorded, and no
+secret-like values leaked into the report.
+
+### How to run
+
+```bash
+# Makefile (recommended)
+make heartbeat-review DATE=2026-05-14
+make heartbeat-review DATE=2026-05-14 STRICT=1
+make heartbeat-review   # defaults to today
+
+# pnpm
+pnpm heartbeat:review -- --date 2026-05-14 --strict
+
+# Direct
+python scripts/content/review_heartbeat_run.py --date 2026-05-14
+python scripts/content/review_heartbeat_run.py --date 2026-05-14 --strict --json
+```
+
+Richer argument handling (date defaulting, strict gating) is best done
+through the Makefile target.
+
+### Review statuses
+
+| Status | Meaning |
+|---|---|
+| `passed` | Report exists, all steps passed, artifacts present, no secrets detected |
+| `warning` | Report exists but has issues (failed steps, missing artifacts, title mismatch, secrets) |
+| `failed` | Report not found, or `--strict` mode with any issue |
+
+### Arguments
+
+| Argument | Required | Description |
+|---|---|---|
+| `--date YYYY-MM-DD` | no | Date of the heartbeat run. Defaults to today. |
+| `--heartbeat-dir PATH` | no | Directory containing heartbeat reports (default: `docs/Heartbeat/generated`) |
+| `--json` | no | Output machine-readable JSON instead of Markdown-ish text |
+| `--strict` | no | Treat warnings as failures; skipped or non-passed steps become review failures |
+
+### What it checks
+
+- Heartbeat report exists for the given date
+- Report title matches `Heartbeat Orchestrator — YYYY-MM-DD`
+- Run summary table is present
+- No steps have `failed` status
+- Artifacts listed in the report exist on disk
+- Report contains no obvious secret-like values (`api_key=`, `token=`,
+  `password=`, `secret=`, `oauth`, `cookie`, `Authorization: Bearer`,
+  `sk-`, GitHub tokens, JWT, private keys)
