@@ -101,9 +101,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 4. **Task id:** `FB-004`
    **Title:** ValidationIssue taxonomy and token registry
    **Lane:** backend contract
+   **Status:** complete
    **Architecture impact:** yes
-   **Target files or likely target file families:** `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future `guardian/flow_builder/` contract module and contract tests
+   **Target files or likely target file families:** `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future `guardian/flow_builder/` contract module and contract tests, `docs/architecture/flow-builder-validation-issue-taxonomy.md`
    **Depends on:** `FB-001`, `FB-002`, `FB-003`
+   **Proof artifact:** `docs/architecture/flow-builder-validation-issue-taxonomy.md`
    **Proof surface:** bounded validation issue code registry, severity domain, field/step/flow scope rules, and tests that reject ad hoc validation codes when implementation begins
    **Non-goals:** no validation engine, no UI issue badges, no activation or execution gating implementation
 
