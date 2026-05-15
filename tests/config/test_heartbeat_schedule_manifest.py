@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = ROOT / "docs" / "Heartbeat" / "schedule_manifest.json"
+MANIFEST_PATH = ROOT / "config" / "heartbeat" / "heartbeat.schedule.example.json"
 
 
 def _load_manifest() -> dict:
