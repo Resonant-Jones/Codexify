@@ -67,8 +67,8 @@ def test_valid_outbox_passes(tmp_path: Path) -> None:
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is True
-    assert len(d["issues"]) == 0
+    assert d["status"] == "passed"
+    assert len(d["failures"]) == 0
     assert "artifact.md" in d["artifacts"]
 
 
@@ -79,8 +79,8 @@ def test_valid_outbox_passes(tmp_path: Path) -> None:
 def test_missing_staged_dir_fails(tmp_path: Path) -> None:
     result = _run_cli("--date", "2026-01-01", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is False
-    assert any("no staged outbox" in i.lower() for i in d["issues"])
+    assert d["status"] == "failed"
+    assert any("no staged outbox" in i.lower() for i in d["failures"])
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ def test_missing_manifest_warns(tmp_path: Path) -> None:
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert any("manifest" in i.lower() for i in d["issues"])
+    assert any("manifest" in i.lower() for i in d["failures"])
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +109,8 @@ def test_wrong_schema_version_fails(tmp_path: Path) -> None:
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is False
-    assert any("schema_version" in i.lower() for i in d["issues"])
+    assert d["status"] == "failed"
+    assert any("schema_version" in i.lower() for i in d["failures"])
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +125,8 @@ def test_date_mismatch_fails(tmp_path: Path) -> None:
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is False
-    assert any("date" in i.lower() for i in d["issues"])
+    assert d["status"] == "failed"
+    assert any("date" in i.lower() for i in d["failures"])
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def test_publication_enabled_fails(tmp_path: Path) -> None:
 
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is False
+    assert d["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def test_json_output_has_required_keys(tmp_path: Path) -> None:
     result = _run_cli("--date", "2026-05-14", "--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
 
-    for key in ("date", "staged_dir", "ok", "manifest", "files", "drafts", "artifacts", "warnings", "issues"):
+    for key in ("date", "staged_dir", "status", "manifest", "files", "drafts", "artifacts", "warnings", "failures"):
         assert key in d, f"Missing key: {key}"
 
 
@@ -182,4 +182,4 @@ def test_default_date(tmp_path: Path) -> None:
 
     result = _run_cli("--staged-dir", str(tmp_path), "--json")
     d = json.loads(result.stdout)
-    assert d["ok"] is True
+    assert d["status"] == "passed"

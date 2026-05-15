@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -329,6 +329,20 @@ heartbeat-stage:
 heartbeat-inspect:
 	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
 	$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE
+
+# Inspect a staged heartbeat outbox directory (alias).
+#
+# Usage:
+#   make heartbeat-outbox DATE=2026-05-14
+#   make heartbeat-outbox DATE=2026-05-14 STRICT=1
+#   make heartbeat-outbox   # defaults to today
+heartbeat-outbox:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${STRICT:-}" = "1" ]; then \
+		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
 
 # Build the public portal staging tree
 public-export:

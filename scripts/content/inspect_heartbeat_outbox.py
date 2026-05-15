@@ -41,6 +41,7 @@ def inspect_outbox(
     *,
     date_str: str,
     staged_root: Path,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """Inspect a staged outbox for *date_str*.
 
@@ -49,13 +50,14 @@ def inspect_outbox(
     result: dict[str, Any] = {
         "date": date_str,
         "staged_dir": None,
-        "ok": True,
+        "status": "passed",
         "manifest": None,
+        "packages": [],
         "files": [],
         "drafts": [],
         "artifacts": [],
         "warnings": [],
-        "issues": [],
+        "failures": [],
     }
 
     # 1. Find the staged directory
@@ -63,8 +65,8 @@ def inspect_outbox(
         staged_dir = _find_staged_dir(date_str, staged_root)
         result["staged_dir"] = str(staged_dir)
     except FileNotFoundError as exc:
-        result["ok"] = False
-        result["issues"].append(str(exc))
+        result["status"] = "failed"
+        result["failures"].append(str(exc))
         return result
 
     # 2. Load manifest
@@ -72,7 +74,7 @@ def inspect_outbox(
     result["manifest"] = manifest
 
     if manifest is None:
-        result["issues"].append("manifest.json not found in staged directory")
+        result["failures"].append("manifest.json not found in staged directory")
 
     # 3. List all files
     all_files = sorted(
@@ -96,43 +98,43 @@ def inspect_outbox(
     if manifest:
         # Check schema version
         if manifest.get("schema_version") != "heartbeat.outbox.v1":
-            result["issues"].append(
+            result["failures"].append(
                 f"Unexpected schema_version: {manifest.get('schema_version')}"
             )
-            result["ok"] = False
+            result["status"] = "failed"
 
         # Check date matches directory name
         if manifest.get("date") != date_str:
-            result["issues"].append(
+            result["failures"].append(
                 f"Manifest date ({manifest.get('date')}) does not match "
                 f"directory name ({date_str})"
             )
-            result["ok"] = False
+            result["status"] = "failed"
         # Check publication is disabled
         pub = manifest.get("publication", {})
         if pub.get("enabled") is not False:
-            result["issues"].append(
+            result["failures"].append(
                 f"publication.enabled is not false: {pub.get('enabled')}"
             )
-            result["ok"] = False
+            result["status"] = "failed"
         if pub.get("targets") != []:
-            result["issues"].append(
+            result["failures"].append(
                 f"publication.targets is not empty: {pub.get('targets')}"
             )
-            result["ok"] = False
+            result["status"] = "failed"
 
         # Check review is required (unless explicitly skipped)
         if manifest.get("review_required") is not True:
             if not manifest.get("review_skipped"):
-                result["issues"].append(
+                result["failures"].append(
                     f"review_required is not true (got {manifest.get('review_required')})"
                 )
-                result["ok"] = False
+                result["status"] = "failed"
 
         # Check review_status is present
         if manifest.get("review_status") is None:
-            result["issues"].append("review_status is missing from manifest")
-            result["ok"] = False
+            result["failures"].append("review_status is missing from manifest")
+            result["status"] = "failed"
 
         expected_files = set(manifest.get("generated_files", manifest.get("files", [])))
         actual_files = set(result["files"])
@@ -142,10 +144,10 @@ def inspect_outbox(
         extra = {f for f in extra if not f.startswith("_")}
 
         if missing:
-            result["issues"].append(
+            result["failures"].append(
                 f"Files listed in manifest but missing: {sorted(missing)}"
             )
-            result["ok"] = False
+            result["status"] = "failed"
         if extra:
             result["warnings"].append(
                 f"Files present but not in manifest: {sorted(extra)}"
@@ -158,14 +160,35 @@ def inspect_outbox(
             "Review gate was skipped during staging (_SKIP_REVIEW_WARNING.txt present)"
         )
         result["review_skipped"] = True
+        result["status"] = "warning" if result["status"] != "failed" else "failed"
     else:
         result["review_skipped"] = False
 
     # 6. Check publication status
     if manifest and manifest.get("publication", {}).get("enabled") is True:
         result["warnings"].append("Publication is enabled in manifest (unexpected)")
+        result["status"] = "warning" if result["status"] != "failed" else "failed"
     else:
         result["publication_enabled"] = False
+
+    # If no failures or warnings, set to passed
+    if result["status"] == "passed" and not result["failures"] and not result["warnings"]:
+        pass
+    elif result["status"] == "warning" and strict:
+        result["status"] = "failed"
+        result["failures"].append("Strict mode: warnings promoted to failures")
+    elif result["status"] == "failed":
+        pass
+    elif result["failures"]:
+        result["status"] = "failed"
+    elif result["warnings"]:
+        if strict:
+            result["status"] = "failed"
+            result["failures"].append("Strict mode: warnings promoted to failures")
+        else:
+            result["status"] = "warning"
+    else:
+        result["status"] = "passed"
 
     return result
 
@@ -207,19 +230,19 @@ def _print_inspection(result: dict[str, Any]) -> None:
         print()
 
     print("## Validation")
-    if result["issues"]:
-        print("### Issues")
-        for i in result["issues"]:
+    if result["failures"]:
+        print("### Failures")
+        for i in result["failures"]:
             print(f"  - {i}")
     if result["warnings"]:
         print("### Warnings")
         for w in result["warnings"]:
             print(f"  - {w}")
-    if not result["issues"] and not result["warnings"]:
+    if not result["failures"] and not result["warnings"]:
         print("  ✅  No issues or warnings")
     print()
 
-    overall = "PASS" if result["ok"] else "ISSUES FOUND"
+    overall = "PASS" if result["status"] == "passed" else ("WARNING" if result["status"] == "warning" else "FAILED")
     print(f"**Overall:** {overall}")
 
 
@@ -248,6 +271,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Output inspection as JSON",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as failures",
+    )
     return parser
 
 
@@ -263,14 +291,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Error: invalid date {date_str!r}: {exc}", file=sys.stderr)
         return 1
 
-    result = inspect_outbox(date_str=date_str, staged_root=args.staged_dir)
+    result = inspect_outbox(date_str=date_str, staged_root=args.staged_dir, strict=args.strict)
 
     if args.json:
         print(json.dumps(result, indent=2, default=str))
     else:
         _print_inspection(result)
 
-    return 0 if result["ok"] else 1
+    return 0 if result["status"] == "passed" else 1
 
 
 if __name__ == "__main__":
