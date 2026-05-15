@@ -2,7 +2,7 @@
 
 ## Repo status
 - Branch: `main`
-- Head: `48fd08b409f03655519f8657ff43b9080e118171`
+- Head: `def1b12a4572a55602d6141ab6d0863508853a42`
 - Worktree clean: `True`
 - Worktree appears clean.
 
@@ -25,35 +25,41 @@
 - Platform readiness audit did not return valid JSON.
 
 ## Changelog draft
+- docs: add Codexify consulting capability audit
+- Add deny-first external transport policy
+- add imagination marketing KB bundle
+- Run release candidate audit automation
+- Document heartbeat outbox inspection
+- Add missing test cases: strict, targets, expected files
+- Handle invalid manifest JSON in outbox inspector
+- Add heartbeat-outbox Makefile target with STRICT support and status rework
+- Add heartbeat outbox inspector with Makefile target and tests
+- Add heartbeat outbox inspector script
+- Add heartbeat outbox inspector with draft generation fix
+- Document heartbeat staging outbox in README
+- Add heartbeat-stage Makefile target, pnpm script, and secret scan hardening
+- Add heartbeat outbox staging script with content drafts
+- Add heartbeat schedule manifest
+- Document activation modes and publication-deferred guard in schedule manifest
+- Add schedule manifest section to heartbeat docs
+- Add schedule manifest validation tests
+- Complete schedule manifest: inputs, publication targets, review gate STRICT
+- Add heartbeat schedule manifest
+- Document heartbeat review as safety gate before scheduling/publication
+- Add heartbeat review script with Makefile target, tests, and docs
+- Add heartbeat operator wrapper
+- Add heartbeat Makefile target, pnpm script, and docs for orchestrator
+- Add local heartbeat orchestrator
 - Add shared symlink-aware write path guard primitive
+- Add Flow Builder semantic step contract
 - Verify supported profile catalog health alignment
+- Add Flow Builder validation issue taxonomy
 - Align supported profile health and catalog truth
 - Record supported profile catalog health drift proof
-- Add Resonant Constructs daily insight generator
-- Update current state after workspace Obsidian proof
-- Repair workspace Obsidian retrieval injection
-- Record workspace-local Obsidian retrieval proof attempt
-- Fix migrator bcrypt import
-- fix: handle data URLs in _encode_image_url_to_base64 for Ollama local path
-- Add Resonant Constructs daily insight generator
-- feat: /obsidian routing, upload Form params, and AGENTS.md
-- Add Flow Builder typed surface ADR
-- Add Flow Builder surface research application note
-- fix: upload button visibility and external provider image routing
-- Update current state after coding result live proof
-- Add codex adapter kind to coding execution contracts
-- Repair supported coding worker live path
-- Record coding result return live proof attempt
-- Add daily dev blog ingestion script
-- clearing worktree for rebase
-- marketing Campaign Run Test
-- Refine Axis instructions for decentralized network work
-- Revert unintended frontend and campaign file carryover
-- Add stored coding agent session context artifact
-- Add marketing CLI skill and fixture scaffolding
-- Add marketing documentation and campaign artifacts
-- Populate marketing ledger eligibility fields
-- Isolate beta release sentinel changes
+- Add VariableChip typed output contract
+- Add FlowDraft schema proposal
+- Add Flow Builder token domain inventory
+- Add Flow Builder typed surface campaign
 
 ## Blockers
 - None currently listed.
@@ -73,4 +79,4 @@
 - Treat this artifact as evidence, not release approval.
 
 ## Machine-readable JSON artifact path
-- `docs/audits/generated/2026-05-15-beta-sentinel.json`
+- `/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json`
