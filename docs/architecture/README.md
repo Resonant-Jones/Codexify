@@ -85,6 +85,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Flow Builder Typed Surface and Run Receipt Contract ADR](./adr/027-flow-builder-typed-surface-and-run-receipt-contract.md): typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.
 - [Flow Builder Token Domain Inventory](./flow-builder-token-domains.md): candidate token domains for future Flow Builder implementation only; planning inventory, not runtime truth.
 - [FlowDraft Schema Proposal](./flowdraft-schema-proposal.md): future durable draft shape for Flow Builder artifacts only; schema planning, not runtime truth.
+- [VariableChip and TypedStepOutput Contract](./variable-chip-typed-output-contract.md): future variable wiring and typed output contract only; planning surface, not runtime truth.
 - [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
 - [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
