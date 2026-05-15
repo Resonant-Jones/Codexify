@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -304,6 +304,20 @@ heartbeat-review:
 	CMD="$(PYTHON) scripts/content/review_heartbeat_run.py --date $$DATE"; \
 	if [ "$${STRICT:-}" = "1" ]; then \
 		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
+
+# Stage heartbeat artifacts into a flat outbox directory.
+#
+# Usage:
+#   make heartbeat-stage DATE=2026-05-14
+#   make heartbeat-stage DATE=2026-05-14 FORCE=1
+#   make heartbeat-stage   # defaults to today
+heartbeat-stage:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/stage_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
 	fi; \
 	$$CMD
 
