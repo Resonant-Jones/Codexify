@@ -45,11 +45,11 @@ _SANITIZE_PATTERNS = [
     # API keys / tokens
     (re.compile(r"(?:api[_-]?key|apikey|api_secret|secret_key|access_token|auth_token|bearer)\s*[:=]\s*\S+", re.IGNORECASE), "[REDACTED: credential]"),
     (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "[REDACTED: api key]"),
-    (re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}"), "[REDACTED: github token]"),
+    (re.compile(r"(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9]{36,}"), "[REDACTED: github token]"),
     # Passwords
     (re.compile(r"(?:password|passwd|pwd)\s*[:=]\s*\S+", re.IGNORECASE), "[REDACTED: password]"),
     # Private keys
-    (re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)\s+PRIVATE\s+KEY-----"), "[REDACTED: private key]"),
+    (re.compile(r"-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)?\s*PRIVATE\s+KEY-----"), "[REDACTED: private key]"),
     # JWT tokens
     (re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"), "[REDACTED: jwt]"),
 ]
