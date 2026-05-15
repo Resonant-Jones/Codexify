@@ -274,6 +274,66 @@ not published content.
 - **Publication disabled** — the staging manifest records `publication.enabled: false`
   and `targets: []`.
 
+## Inspecting a staged outbox
+
+The `inspect_heartbeat_outbox.py` script reads a staged outbox directory
+and validates its contents without modifying anything.  It is a read-only
+safety check — unlike staging, which copies files and generates drafts,
+inspection only verifies what was already staged.
+
+### How to run
+
+```bash
+# Makefile (recommended)
+make heartbeat-outbox DATE=2026-05-14
+make heartbeat-outbox DATE=2026-05-14 STRICT=1
+make heartbeat-outbox   # defaults to today
+
+# pnpm
+pnpm heartbeat:outbox -- --date 2026-05-14 --strict
+
+# Direct
+python scripts/content/inspect_heartbeat_outbox.py --date 2026-05-14
+python scripts/content/inspect_heartbeat_outbox.py --date 2026-05-14 --strict --json
+```
+
+Richer argument handling (date defaulting, strict gating) is best done
+through the Makefile target.
+
+### What it checks
+
+| Check | Non-strict | Strict |
+|---|---|---|
+| Staged directory exists for date | `failed` | `failed` |
+| `manifest.json` present and valid JSON | `failed` | `failed` |
+| `schema_version` is `heartbeat.outbox.v1` | `failed` | `failed` |
+| `date` in manifest matches directory name | `failed` | `failed` |
+| `publication.enabled` is `false` | `failed` | `failed` |
+| `publication.targets` is `[]` | `failed` | `failed` |
+| `review_required` is `true` | `failed` | `failed` |
+| `review_status` is present | `failed` | `failed` |
+| All `generated_files` exist on disk | `warning` | `failed` |
+| No secret-like values in staged content | `warning` | `failed` |
+| Review gate was skipped | `warning` | `warning` |
+
+### Inspection statuses
+
+| Status | Meaning |
+|---|---|
+| `passed` | All checks pass, outbox is clean |
+| `warning` | Non-critical issues (skip-review, extra files). Review manually. |
+| `failed` | Critical issues (missing manifest, wrong schema, publication enabled, missing files). Do not proceed. |
+
+### Difference from staging
+
+- **Staging** (`make heartbeat-stage`) copies artifacts from generated
+  directories and creates drafts. It **modifies** the filesystem.
+- **Inspection** (`make heartbeat-outbox`) reads the already-staged outbox
+  and validates it. It is **read-only** and does not modify files.
+
+Run inspection after staging to verify the outbox before any further
+pipeline step.
+
 ## Reviewing a heartbeat run
 
 The `review_heartbeat_run.py` script validates a heartbeat report without
