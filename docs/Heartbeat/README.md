@@ -187,8 +187,8 @@ A declarative JSON manifest at `docs/Heartbeat/schedule_manifest.json`
 describes the intended heartbeat schedule without implementing it.
 
 - **Schema version:** `heartbeat.schedule.v1`
-- **Example schedule:** `daily-local-heartbeat` — manual-only, disabled,
-  publication off, review gate on
+- **Example schedule:** `daily-local-heartbeat` — manual-only, `enabled: false`
+  (no scheduler is active), publication off, review gate on
 - **Inputs documented:** `DATE`, `DEV_BLOG_SOURCE`, `INSIGHT_SOURCE`, `FORCE`
 - **Review inputs:** `STRICT`
 - **Artifact families:** heartbeat report, beta sentinel (md + json),
@@ -200,6 +200,22 @@ The manifest is validated by `tests/scripts/test_schedule_manifest.py`
 Like everything else in this directory, the manifest is a **specification**,
 not an active schedule.  Activation is `manual_only` — the only way to
 run the heartbeat today is via `make heartbeat` from the repo root.
+
+### Activation modes
+
+| Mode | Meaning |
+|---|---|
+| `manual_only` | No scheduler is activated. All runs are manual via `make heartbeat`. **This is the current state.** |
+| `local_scheduler_ready` | Manifest validated; a local scheduler (cron, launchd, systemd timer) may be wired in a later task. |
+| `future_codexify_cron_ready` | Reserved for a future Codexify-integrated cron or command-bus scheduler. Not implemented. |
+
+**Future scheduling must pass through heartbeat review before publication.**
+Any automated pipeline added later must run the review gate (`make heartbeat-review STRICT=1`)
+and require `passed` status before proceeding to deployment, email, Substack,
+or website publishing.
+
+**Publication targets remain disabled and empty** (`enabled: false`, `targets: []`)
+in this task.  No external publishing is wired.
 
 ## Reviewing a heartbeat run
 
