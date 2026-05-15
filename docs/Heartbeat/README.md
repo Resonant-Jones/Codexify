@@ -181,6 +181,26 @@ later tasks:
 - Captured child script output is sanitized to remove obvious secret-like
   values (API keys, tokens, passwords, private keys).
 
+## Schedule manifest
+
+A declarative JSON manifest at `docs/Heartbeat/schedule_manifest.json`
+describes the intended heartbeat schedule without implementing it.
+
+- **Schema version:** `heartbeat.schedule.v1`
+- **Example schedule:** `daily-local-heartbeat` — manual-only, disabled,
+  publication off, review gate on
+- **Inputs documented:** `DATE`, `DEV_BLOG_SOURCE`, `INSIGHT_SOURCE`, `FORCE`
+- **Review inputs:** `STRICT`
+- **Artifact families:** heartbeat report, beta sentinel (md + json),
+  dev blog, daily insight
+
+The manifest is validated by `tests/scripts/test_schedule_manifest.py`
+(16 tests, no network or external dependencies).
+
+Like everything else in this directory, the manifest is a **specification**,
+not an active schedule.  Activation is `manual_only` — the only way to
+run the heartbeat today is via `make heartbeat` from the repo root.
+
 ## Reviewing a heartbeat run
 
 The `review_heartbeat_run.py` script validates a heartbeat report without
