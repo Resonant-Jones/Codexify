@@ -123,9 +123,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 6. **Task id:** `FB-006`
    **Title:** ConditionalContainer contract and UI model
    **Lane:** frontend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/adr/`, possible future `docs/architecture/flow-builder-conditional-container.md`, future frontend model docs
    **Depends on:** `FB-002`, `FB-003`, `FB-004`, `FB-005`
+   **Proof artifact:** `docs/architecture/flow-builder-conditional-container-contract.md`
    **Proof surface:** contract note proving the default authoring model is linear steps with structured conditional containers, branch context, at least one nested substep, and no arbitrary DAG claim
    **Non-goals:** no canvas implementation, no drag/drop branch UI, no execution compiler
 
