@@ -86,6 +86,7 @@ def inspect_outbox(
             "website-update.md",
             "substack-draft.md",
             "email-draft.md",
+            "source-heartbeat.md",
         ):
             result["drafts"].append(f.name)
         elif f.name != "manifest.json" and not f.name.startswith("_"):
@@ -93,6 +94,46 @@ def inspect_outbox(
 
     # 4. Validate against manifest
     if manifest:
+        # Check schema version
+        if manifest.get("schema_version") != "heartbeat.outbox.v1":
+            result["issues"].append(
+                f"Unexpected schema_version: {manifest.get('schema_version')}"
+            )
+            result["ok"] = False
+
+        # Check date matches directory name
+        if manifest.get("date") != date_str:
+            result["issues"].append(
+                f"Manifest date ({manifest.get('date')}) does not match "
+                f"directory name ({date_str})"
+            )
+            result["ok"] = False
+        # Check publication is disabled
+        pub = manifest.get("publication", {})
+        if pub.get("enabled") is not False:
+            result["issues"].append(
+                f"publication.enabled is not false: {pub.get('enabled')}"
+            )
+            result["ok"] = False
+        if pub.get("targets") != []:
+            result["issues"].append(
+                f"publication.targets is not empty: {pub.get('targets')}"
+            )
+            result["ok"] = False
+
+        # Check review is required (unless explicitly skipped)
+        if manifest.get("review_required") is not True:
+            if not manifest.get("review_skipped"):
+                result["issues"].append(
+                    f"review_required is not true (got {manifest.get('review_required')})"
+                )
+                result["ok"] = False
+
+        # Check review_status is present
+        if manifest.get("review_status") is None:
+            result["issues"].append("review_status is missing from manifest")
+            result["ok"] = False
+
         expected_files = set(manifest.get("generated_files", manifest.get("files", [])))
         actual_files = set(result["files"])
         missing = expected_files - actual_files
