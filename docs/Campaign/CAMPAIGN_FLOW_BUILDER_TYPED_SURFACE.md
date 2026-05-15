@@ -90,9 +90,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 3. **Task id:** `FB-003`
    **Title:** VariableChip and TypedStepOutput contract
    **Lane:** frontend contract
+   **Status:** complete
    **Architecture impact:** yes
-   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future Flow Builder contract note
+   **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/runtime-protocol-token-contract.md`, `docs/architecture/canonical-token-philosophy.md`, possible future Flow Builder contract note, `docs/architecture/variable-chip-typed-output-contract.md`
    **Depends on:** `FB-001`, `FB-002`
+   **Proof artifact:** `docs/architecture/variable-chip-typed-output-contract.md`
    **Proof surface:** contract tests or docs checks in the future implementation slice proving stable identity, source-step lineage, canonical type domains, and compatibility rules are specified before UI use
    **Non-goals:** no `VariableChip` component, no chip styling, no string interpolation runtime, no backend execution
 
