@@ -112,9 +112,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 5. **Task id:** `FB-005`
    **Title:** SemanticStep contract
    **Lane:** backend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/adr/`, `docs/architecture/flows.md`, possible future `guardian/flow_builder/semantic_steps.py`
    **Depends on:** `FB-001`, `FB-003`, `FB-004`
+   **Proof artifact:** `docs/architecture/flow-builder-semantic-step-contract.md`
    **Proof surface:** contract note defining semantic step kinds, input/output schemas, uncertainty behavior, receipt metadata, and explicit non-recursive execution boundaries
    **Non-goals:** no model calls, no prompt executor, no recursive agent loop, no tool-chain runtime
 
