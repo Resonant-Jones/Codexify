@@ -17,7 +17,6 @@ This is proposal-only and does not add runtime tokens.
 - Cross-surface or API-visible adoption still requires explicit implementation tasks and tests.
 - Frontend mirroring is deferred until a UI/API surface consumes these tokens.
 - `guardian/protocol_tokens.py` remains unchanged in this task.
-
 ## Source Set
 ### Governing docs read
 - `docs/architecture/00-current-state.md`
