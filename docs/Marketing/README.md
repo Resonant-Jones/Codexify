@@ -54,4 +54,5 @@ Run the automation wrapper (auto-derives campaign ID by date) with:
 - `audience/`: target personas and channel posture
 - `messaging/`: pillars tied to proof-tiers and evidence
 - `contracts/`: machine and operator-facing generation contracts
+- `campaign-intelligence/`: reusable internal packet templates, source maps, claim gates, visual lanes, and engine prompts
 - `generated/`: generated draft artifacts and append-only run history
