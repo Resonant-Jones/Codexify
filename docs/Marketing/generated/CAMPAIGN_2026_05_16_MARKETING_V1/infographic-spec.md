@@ -1,4 +1,4 @@
-# Infographic Spec: CAMPAIGN_TEST
+# Infographic Spec: CAMPAIGN_2026_05_16_MARKETING_V1
 
 ## Purpose
 
@@ -10,20 +10,11 @@ Local-First AI Builders
 
 ## Required Data Points
 
-- [implemented] Codexify tracks claim evidence through campaign receipts.
-- [implemented] Marketing pipeline implemented with deterministic overwrite behavior.
-- [verified] Verified regression coverage for draft artifact schema.
-- [live-proven] Codexify tracks claim evidence through campaign receipts with live proof artifacts.
-- [live-proven] Supported path proof was re-proven on compose-local runtime.
-- [implemented] Codexify tracks claim evidence through campaign receipts in daily narrative context.
+- [verified] Codex Runner provides campaign/audit infrastructure
 
 ## Visual Narrative Arc
 
 Problem ambiguity -> boundary contracts -> evidence-linked claims -> operator confidence
-
-## Draft Safety
-
-- none
 
 ## Prompt Pack
 
@@ -39,3 +30,4 @@ Design an operator-facing infographic that emphasizes local-first reliability, i
 
 - approval_state: `draft`
 - render_mode: `spec-and-prompt-only`
+- visible_claim_source: `public_copy_seed.copy_ready`

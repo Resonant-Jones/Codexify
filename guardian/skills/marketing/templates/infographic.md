@@ -16,6 +16,10 @@
 
 {visual_arc}
 
+## Draft Safety
+
+{draft_warning}
+
 ## Prompt Pack
 
 ### Prompt A (Diagram-first)
