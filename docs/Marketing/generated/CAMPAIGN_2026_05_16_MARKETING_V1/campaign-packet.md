@@ -27,6 +27,14 @@ Repos, docs, audits, website files, Drive notes, proof artifacts, and generated 
   - `docs/Marketing/chatgpt-project-bundle/10-language-bank.md`
   - `docs/Marketing/chatgpt-project-bundle/11-claim-ledger.md`
   - `docs/architecture/00-current-state.md`
+  - `docs/architecture/execution-ledger-gate-artifacts-contract.md`
+  - `docs/architecture/execution-ledger-token-domain-proposal.md`
+- Code/test signals:
+  - `guardian/agents/execution_ledger_contracts.py`
+  - `guardian/agents/execution_ledger_tokens.py`
+  - `guardian/command_bus/permission_profiles.py`
+  - `tests/command_bus/test_invoke_permission_profile_enforcement.py`
+  - `tests/routes/test_connector_external_transport_policy.py`
 - Audits: current marketing risk posture inferred from latest generated review notes and ledger.
 - Website files: none read in this run.
 - Drive notes: none read in this run.
@@ -72,6 +80,14 @@ Repos, docs, audits, website files, Drive notes, proof artifacts, and generated 
   - Risk reason: visibility does not equal guaranteed delivery or completion.
   - Evidence paths: `docs/Marketing/chatgpt-project-bundle/10-language-bank.md`, `docs/Marketing/chatgpt-project-bundle/11-claim-ledger.md`
   - Safe phrasing: "inspectable lifecycle visibility"
+- Claim: Execution Ledger gate artifacts and token-domain scaffolding strengthen proof-before-promise discipline.
+  - Risk reason: current posture is proof-adjacent architecture scaffolding; runtime wiring is intentionally deferred for parts of this seam.
+  - Evidence paths: `docs/architecture/execution-ledger-gate-artifacts-contract.md`, `docs/architecture/execution-ledger-token-domain-proposal.md`, `guardian/agents/execution_ledger_contracts.py`, `guardian/agents/execution_ledger_tokens.py`
+  - Safe phrasing: "bounded contract models for intent, plan, and proof review"
+- Claim: Permission-profile and external-transport policy checks strengthen bounded execution posture.
+  - Risk reason: this is scoped enforcement evidence in specific command-bus and connector seams, not a blanket product-wide security guarantee.
+  - Evidence paths: `guardian/command_bus/permission_profiles.py`, `tests/command_bus/test_invoke_permission_profile_enforcement.py`, `tests/routes/test_connector_external_transport_policy.py`
+  - Safe phrasing: "pre-dispatch and pre-persistence policy checks on scoped execution paths"
 
 ### Future-Facing
 
@@ -99,6 +115,20 @@ Repos, docs, audits, website files, Drive notes, proof artifacts, and generated 
 - Unsafe line: "Codexify guarantees privacy/security and zero context loss."
   - Why rejected: absolute guarantees are prohibited.
   - Blocking source: `docs/Marketing/chatgpt-project-bundle/11-claim-ledger.md`, `docs/Marketing/brand/constitution.md`
+
+## Architecture Signal Addendum
+
+These architecture signals reinforce the campaign's inspectability and bounded-execution narrative without widening public claims:
+
+- Execution Ledger gate artifacts formalize three distinct checkpoints: intent/scope, implementation-plan, and completion/proof review.
+- The gate-artifact contract explicitly preserves "acceptance is not completion" and "event publication is not UI receipt," which aligns with proof-before-promise messaging.
+- The token-domain proposal plus bounded backend token registry introduces canonical vocabulary for gate decisions, validation modes, criterion results, and proof outcomes, reducing lifecycle ambiguity in future implementation seams.
+- Permission-profile evaluation adds explicit allow/deny checks at dispatch time (actor/subject/task scope, command class/id, write-path scope, shell, network, connector usage) before side effects.
+- Connector external-transport policy tests show deny-before-persistence behavior (including `blocked_before_persistence` responses) for missing allow rules, explicit deny rules, malformed URLs, and unsupported transports.
+
+Campaign interpretation rule:
+- Treat these as proof-adjacent infrastructure maturity signals that support conservative claims around inspectability and bounded execution.
+- Do not promote them to autonomous-agent claims, hosted-SaaS maturity claims, enterprise-readiness claims, or absolute privacy/security guarantees.
 
 ## Audience Target
 
@@ -178,11 +208,15 @@ Screenshots:
 Runtime traces:
 - bounded request lifecycle trace showing acceptance vs completion distinction
 - evidence of persisted completion artifact in source thread context
+- command-bus blocked trace showing `permission_profile_denied:*` with `run.blocked` before dispatch
+- connector policy denial trace showing `blocked_before_persistence: true` and zero persistence writes
 
 Docs:
 - refreshed references to `docs/architecture/00-current-state.md`
 - latest supported-profile proof artifact links
 - claim ledger snapshot used for packet classification
+- architecture references for gate artifacts and token-domain proposal
+- code/test seam references for permission-profile enforcement and connector transport policy enforcement
 
 Demos:
 - short "idea -> upload -> retrieval -> artifact" walkthrough gif/video
