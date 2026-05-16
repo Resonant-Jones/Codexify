@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-15
+2026-05-16
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,20 +13,18 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path is the local Docker Compose stack, the live runtime still uses the local provider posture, and release work is centered on keeping the shipped stack honest under fresh proof rather than widening the promise surface. The supported live coding-result proof, the workspace-local Obsidian retrieval proof, and the supported-profile/catalog/health proof now pass on the current `main` tip: Guardian returns a bounded source-thread `coding_result`, replay stays idempotent, the durable run record converges to a terminal state even when the adapter itself times out, workspace-local Obsidian evidence is selected and injected into the executed completion path, and the supported profile is loaded into the live Compose backend with aligned health/catalog truth.
+Codexify remains in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with the local-only provider posture, and the current release focus is preserving the shipped proof surface rather than widening the promise. On `main`, the supported profile, health, catalog, coding-result return path, and workspace-local Obsidian retrieval claims remain the validated runtime facts; the recent repo activity is mostly architecture-doc expansion around Flow Builder contracts, not a new release surface.
 
 ## What changed recently
-- `main` added a Command Center runner supervision summary to Agent Command.
-- The latest supported-profile proof now anchors the live beta claim to local-only provider posture, chat completion, image containment, runtime-target alignment, and aligned supported-profile/catalog/health truth on the supported Compose path.
-- Document upload/readback remains part of the supported-path evidence after the document identity repair.
-- Workspace-local Obsidian retrieval is now live-proven on the current `main` tip: the supported proof showed searchable workspace notes, worker-visible Obsidian selection/injection, assistant reflection of the sentinel, and a debug trace that stayed diagnostic-only.
-- The supported live coding proof now shows source-thread `coding_result` delivery, bounded duplicate-free replay, terminal event evidence, and durable terminal run-state convergence. The run's terminal status was `failed` because the Codex adapter timed out, which is acceptable for the control-plane proof but does not prove adapter success.
-- IDDB policy governance was added as a reference doc, which affects interpretation but not the supported runtime surface.
+- `main` added `flow-builder-testrun-activation-contract.md`.
+- `main` added `flow-builder-runreceipt-persistence-model.md`.
+- `main` also resolved a current-state merge and kept the override doc in sync with the KB map.
+- No new shipped runtime surface landed with those docs-only changes.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported beta posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- The supported profile is loaded in the live Compose backend, and `/health`, `/health/chat`, `/api/health/llm`, and `/api/llm/catalog` now agree on the active local-only beta posture.
+- The supported profile is loaded in the live Compose backend, and `/health`, `/health/chat`, `/api/health/llm`, and `/api/llm/catalog` agree on the active local-only beta posture.
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path after the document detail route repair.
 - Workspace-local Obsidian retrieval now works on the supported path and the worker-visible completion payload is the canonical proof surface.
@@ -43,6 +41,8 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume successful Codex adapter completion: the live proof terminal run ended `failed` because the adapter timed out, even though Guardian delivery and terminal-state behavior passed.
 - Do not assume UI dispatch, lease allocation, live MiniMax/Codex execution, or merge automation are release-proven; the worker-control Command Center seam is recommendation-only and non-dispatch.
+- Do not assume Flow Builder planning docs imply a shipped runtime Flow Builder release surface.
+- Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
 - No active supported-profile/catalog/health blocker remains on the current `main` tip.
