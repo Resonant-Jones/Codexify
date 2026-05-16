@@ -156,12 +156,17 @@ def test_task_event_tokens() -> None:
         == "task.validation_retrying"
     )
     assert TaskEventType.TASK_RETRYING.value == "task.retrying"
+    assert (
+        TaskEventType.TASK_PATCH_ARTIFACT_CREATED.value
+        == "task.patch_artifact_created"
+    )
     assert "task.attempt_started" in TASK_EVENT_TYPES
     assert "task.validation_started" in TASK_EVENT_TYPES
     assert "task.validation_failed" in TASK_EVENT_TYPES
     assert "task.validation_passed" in TASK_EVENT_TYPES
     assert "task.validation_retrying" in TASK_EVENT_TYPES
     assert "task.retrying" in TASK_EVENT_TYPES
+    assert "task.patch_artifact_created" in TASK_EVENT_TYPES
     assert "task.worktree_created" in TASK_EVENT_TYPES
     assert TaskEventType.TASK_VALIDATION_FAILED.value == (
         "task.validation_failed"
@@ -177,6 +182,7 @@ def test_task_event_tokens() -> None:
             "task.validation_passed",
             "task.validation_retrying",
             "task.retrying",
+            "task.patch_artifact_created",
         }
     )
 
@@ -705,6 +711,14 @@ def test_error_code_tokens() -> None:
     )
     assert ErrorCode.WORKTREE_CREATE_FAILED.value == "WORKTREE_CREATE_FAILED"
     assert ErrorCode.WORKTREE_CLEANUP_FAILED.value == "WORKTREE_CLEANUP_FAILED"
+    assert (
+        ErrorCode.PATCH_ARTIFACT_GENERATION_FAILED.value
+        == "PATCH_ARTIFACT_GENERATION_FAILED"
+    )
+    assert (
+        ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value
+        == "PATCH_ARTIFACT_WRITE_FAILED"
+    )
     assert ErrorCode.GIT_WORKTREE_REQUIRED.value == "GIT_WORKTREE_REQUIRED"
     assert ErrorCode.GIT_WORKTREE_INVALID.value == "GIT_WORKTREE_INVALID"
     assert (
@@ -753,6 +767,8 @@ def test_error_code_tokens() -> None:
         "WORKTREE_ISOLATION_UNAVAILABLE",
         "WORKTREE_CREATE_FAILED",
         "WORKTREE_CLEANUP_FAILED",
+        "PATCH_ARTIFACT_GENERATION_FAILED",
+        "PATCH_ARTIFACT_WRITE_FAILED",
         "DIRTY_WORKTREE_PRECHECK_FAILED",
         "MUTATION_SCOPE_VIOLATION",
         "MUTATION_SCOPE_UNVERIFIED",

@@ -1,104 +1,624 @@
 {
-  "audit_summary": null,
-  "blockers": [],
-  "branch": "main",
-  "changelog_items": [
-    "docs: update beta artifacts",
-    "docs: add Codexify consulting capability audit",
-    "Add deny-first external transport policy",
-    "add imagination marketing KB bundle",
-    "Run release candidate audit automation",
-    "Document heartbeat outbox inspection",
-    "Add missing test cases: strict, targets, expected files",
-    "Handle invalid manifest JSON in outbox inspector",
-    "Add heartbeat-outbox Makefile target with STRICT support and status rework",
-    "Add heartbeat outbox inspector with Makefile target and tests",
-    "Add heartbeat outbox inspector script",
-    "Add heartbeat outbox inspector with draft generation fix",
-    "Document heartbeat staging outbox in README",
-    "Add heartbeat-stage Makefile target, pnpm script, and secret scan hardening",
-    "Add heartbeat outbox staging script with content drafts",
-    "Add heartbeat schedule manifest",
-    "Document activation modes and publication-deferred guard in schedule manifest",
-    "Add schedule manifest section to heartbeat docs",
-    "Add schedule manifest validation tests",
-    "Complete schedule manifest: inputs, publication targets, review gate STRICT",
-    "Add heartbeat schedule manifest",
-    "Document heartbeat review as safety gate before scheduling/publication",
-    "Add heartbeat review script with Makefile target, tests, and docs",
-    "Add heartbeat operator wrapper",
-    "Add heartbeat Makefile target, pnpm script, and docs for orchestrator",
-    "Add local heartbeat orchestrator",
-    "Add shared symlink-aware write path guard primitive",
-    "Add Flow Builder semantic step contract",
-    "Verify supported profile catalog health alignment",
-    "Add Flow Builder validation issue taxonomy",
-    "Align supported profile health and catalog truth",
-    "Record supported profile catalog health drift proof",
-    "Add VariableChip typed output contract",
-    "Add FlowDraft schema proposal",
-    "Add Flow Builder token domain inventory",
-    "Add Flow Builder typed surface campaign"
-  ],
-  "date": "2026-05-15",
-  "generated_files": {
-    "changelog": "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/CHANGELOG.beta.md",
-    "json": "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json",
-    "markdown": "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.md"
+  "audit": {
+    "domains": [
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/chat.py exists",
+            "label": "Chat completion route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('",
+            "label": "Chat route exposes async completion enqueue path",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/workers/chat_worker.py exists",
+            "label": "Chat worker present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/redis_queue.py exists",
+            "label": "Redis queue adapter present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/task_events.py exists",
+            "label": "Task event transport present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/completion_pipeline.md exists",
+            "label": "Completion pipeline documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'",
+            "label": "Architecture docs still flag chat-loop dependency coupling",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 6,
+          "warn": 1
+        },
+        "manual_prompts": [
+          "does provider-output validation reliably reject malformed responses before persistence?",
+          "can worker crashes or restarts leave threads locked or duplicate turns in edge cases?",
+          "is degraded behavior for Redis outage explicit to operators and end users?"
+        ],
+        "name": "Core Loop Integrity",
+        "suggested_score": "1-2 likely",
+        "summary": "Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/db/models.py exists",
+            "label": "Primary data models present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md exists",
+            "label": "Data and storage documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md exists",
+            "label": "Modules and ownership documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'",
+            "label": "Data and storage docs enumerate entities and invariants",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'",
+            "label": "Modules docs describe subsystem ownership seams",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'tool execution unification'",
+            "label": "Repo-local docs warn about contract drift in tool primitives",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 5,
+          "warn": 1
+        },
+        "manual_prompts": [
+          "are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?",
+          "do schema changes preserve backward compatibility for existing API and worker flows?",
+          "are ownership and identity constraints enforced consistently in code, not just described in docs?"
+        ],
+        "name": "Primitive Stability",
+        "suggested_score": "1-2 likely",
+        "summary": "The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/command_bus.py exists",
+            "label": "Command bus route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/command_bus/contracts.py exists",
+            "label": "Command bus contracts present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/cron.py exists",
+            "label": "Cron route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/workers/cron_worker.py exists",
+            "label": "Cron worker present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/agent_orchestration.py exists",
+            "label": "Guardian intent spine route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/agents/store.py exists",
+            "label": "Agent orchestration persistence seams present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/workers/coding_worker.py exists",
+            "label": "Guardian-mediated coding worker seam present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'",
+            "label": "Architecture docs describe command bus, cron, and coding-agent seams",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced",
+            "label": "Legacy /tools compatibility route status",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 7,
+          "warn": 2
+        },
+        "manual_prompts": [
+          "does the extension boundary allow new workflows without kernel edits?",
+          "can new automation paths continue to prefer durable command-bus and cron lanes over ad hoc process-local behavior?",
+          "do Guardian intent-spine and coding-agent return-path seams stay policy-governed across chat, automation, and future plugin entrypoints?",
+          "is self-extending plugin governance explicit enough to prevent capability drift at install and runtime binding boundaries?"
+        ],
+        "name": "Extension Boundary",
+        "suggested_score": "1-2 likely",
+        "summary": "Command bus, cron execution, Guardian intent-orchestration seams, and the Guardian-mediated coding result path provide the current extension boundary evidence. This remains a cautionary domain because extension governance and cross-surface maturity still require manual review."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/health.py exists",
+            "label": "Health route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md exists",
+            "label": "Config and ops documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'",
+            "label": "Config and ops docs enumerate health and metrics surfaces",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/task_events.py exists",
+            "label": "Task event transport present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py matches '/health/sync'",
+            "label": "Sync API exposes a health endpoint",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'",
+            "label": "Observability docs leave some logging guarantees unverified",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 5,
+          "warn": 1
+        },
+        "manual_prompts": [
+          "do logs include enough request, task, and identity context to debug failures without reproducing them locally?",
+          "are queue depth, worker liveness, and dependency health observable enough for operational triage?",
+          "do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?"
+        ],
+        "name": "Observability",
+        "suggested_score": "1-2 likely",
+        "summary": "Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/db/models.py exists",
+            "label": "Primary data models present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/redis_queue.py exists",
+            "label": "Redis queue adapter present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'",
+            "label": "Data docs define Postgres as source of truth and queue-backed execution",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'",
+            "label": "Models include durable run and idempotency anchors",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'",
+            "label": "Sync API acknowledges idempotent event ingestion",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'Durable sync path:'",
+            "label": "Roadmap docs warn that sync delivery is not yet durable",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'",
+            "label": "Risk register warns about Redis persistence or replay gaps",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 5,
+          "warn": 2
+        },
+        "manual_prompts": [
+          "are degraded modes explicit for Redis outage?",
+          "can failed chat, ingestion, and cron work be replayed without duplicate side effects?",
+          "are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?"
+        ],
+        "name": "Durability & Recovery",
+        "suggested_score": "1-2 likely",
+        "summary": "The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "docs/architecture/system-overview.md exists",
+            "label": "System overview documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'",
+            "label": "System overview documents multiple client surfaces",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'Frontend API/runtime layer'",
+            "label": "System overview describes a frontend API/runtime layer",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'",
+            "label": "Config and ops docs record desktop/runtime overrides",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/chat.py exists",
+            "label": "Chat API route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'",
+            "label": "Repo-local docs still describe shell-level coupling",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 5,
+          "warn": 1
+        },
+        "manual_prompts": [
+          "do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?",
+          "can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?",
+          "are surface-specific UX choices cleanly separated from core service behavior?"
+        ],
+        "name": "Alternate Surface Readiness",
+        "suggested_score": "manual review required",
+        "summary": "Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/federation.py exists",
+            "label": "Federation route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py exists",
+            "label": "Sync API present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/federation.py matches 'trust policy', 'base_version'",
+            "label": "Federation route includes trust-policy and version anchors",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'federation', 'sync'",
+            "label": "Architecture docs describe federation and sync flow",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'",
+            "label": "Roadmap docs warn that sync subscriptions are process-local",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'",
+            "label": "Risk register warns that federation remains security- and config-sensitive",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 4,
+          "warn": 2
+        },
+        "manual_prompts": [
+          "can peers verify identity, rotation, revocation, and trust-policy changes safely over time?",
+          "are conflict resolution and replay semantics strong enough under partitions or restart gaps?",
+          "are degraded federation modes explicit when relays, trust policy, or egress checks fail?"
+        ],
+        "name": "Federation Readiness",
+        "suggested_score": "0-1 likely",
+        "summary": "Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low."
+      },
+      {
+        "checks": [
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md exists",
+            "label": "Modules and ownership documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md exists",
+            "label": "Roadmap signals documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md exists",
+            "label": "Tech debt and risks documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/iddb_policy_v1.md exists",
+            "label": "IDDB policy documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'",
+            "label": "Data docs describe hard invariants and explicit access boundaries",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'",
+            "label": "System overview states that enforcement lives in code and policy layers",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'",
+            "label": "Ownership authority is still informal in the scanned docs",
+            "status": "WARN"
+          }
+        ],
+        "counts": {
+          "fail": 0,
+          "pass": 6,
+          "warn": 1
+        },
+        "manual_prompts": [
+          "are governance invariants documented and enforced?",
+          "is extension authority explicit enough to prevent accidental policy or boundary regressions?",
+          "are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?"
+        ],
+        "name": "Governance Readiness",
+        "suggested_score": "manual review required",
+        "summary": "The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score."
+      }
+    ],
+    "failures": [],
+    "mode": "json",
+    "repo": {
+      "branch": "codex/p2-worktree-isolation-fixes",
+      "dirty": true,
+      "head": "0fa121e8f0dae5b29bcf6b16696896c88782e2fd",
+      "status_error": "",
+      "status_lines": [
+        " M docs/architecture/codexify-platform-readiness-audit.md",
+        " M scripts/audit_platform_readiness.py",
+        "?? CHANGELOG.beta.md",
+        "?? docs/audits/generated/2026-05-15-beta-sentinel.json",
+        "?? docs/audits/generated/2026-05-15-beta-sentinel.md",
+        "?? scripts/release/beta_release_sentinel.py",
+        "?? tests/scripts/test_audit_platform_readiness_json.py",
+        "?? tests/scripts/test_beta_release_sentinel.py"
+      ]
+    },
+    "summary": {
+      "fail": 0,
+      "overall_status": "pass",
+      "pass": 43,
+      "strongest_domains": [
+        "Extension Boundary",
+        "Core Loop Integrity",
+        "Primitive Stability"
+      ],
+      "warn": 11,
+      "weakest_domains": [
+        "Federation Readiness",
+        "Alternate Surface Readiness",
+        "Governance Readiness"
+      ]
+    },
+    "warnings": [
+      {
+        "domain": "Core Loop Integrity",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'",
+        "label": "Architecture docs still flag chat-loop dependency coupling"
+      },
+      {
+        "domain": "Primitive Stability",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'tool execution unification'",
+        "label": "Repo-local docs warn about contract drift in tool primitives"
+      },
+      {
+        "domain": "Extension Boundary",
+        "evidence": "docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'",
+        "label": "Architecture docs describe command bus, cron, and coding-agent seams"
+      },
+      {
+        "domain": "Extension Boundary",
+        "evidence": "docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced",
+        "label": "Legacy /tools compatibility route status"
+      },
+      {
+        "domain": "Observability",
+        "evidence": "docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'",
+        "label": "Observability docs leave some logging guarantees unverified"
+      },
+      {
+        "domain": "Durability & Recovery",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'Durable sync path:'",
+        "label": "Roadmap docs warn that sync delivery is not yet durable"
+      },
+      {
+        "domain": "Durability & Recovery",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'",
+        "label": "Risk register warns about Redis persistence or replay gaps"
+      },
+      {
+        "domain": "Alternate Surface Readiness",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'",
+        "label": "Repo-local docs still describe shell-level coupling"
+      },
+      {
+        "domain": "Federation Readiness",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'",
+        "label": "Roadmap docs warn that sync subscriptions are process-local"
+      },
+      {
+        "domain": "Federation Readiness",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'",
+        "label": "Risk register warns that federation remains security- and config-sensitive"
+      },
+      {
+        "domain": "Governance Readiness",
+        "evidence": "docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'",
+        "label": "Ownership authority is still informal in the scanned docs"
+      }
+    ]
   },
-  "head": "afa565dd3751318345df29869634f41a459a6252",
+  "blockers": [
+    "Coding results return through Guardian into the source thread without duplicate delivery.",
+    "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
+    "No internal-only or quarantined surface is part of the release claim."
+  ],
+  "commit_subjects": [],
+  "current_state": {
+    "checklist": [
+      {
+        "label": "Supported-profile flags match the local-only beta contract.",
+        "mark": "x"
+      },
+      {
+        "label": "Fresh live evidence exists on the current `main` tip for the supported path.",
+        "mark": "x"
+      },
+      {
+        "label": "Chat completion and upload -> embed -> readback are proven on the supported stack.",
+        "mark": "x"
+      },
+      {
+        "label": "Coding results return through Guardian into the source thread without duplicate delivery.",
+        "mark": ""
+      },
+      {
+        "label": "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
+        "mark": ""
+      },
+      {
+        "label": "No internal-only or quarantined surface is part of the release claim.",
+        "mark": ""
+      }
+    ],
+    "path": "docs/architecture/00-current-state.md"
+  },
+  "date": "2026-05-15",
+  "generated": {
+    "json": "docs/audits/generated/2026-05-15-beta-sentinel.json",
+    "markdown": "docs/audits/generated/2026-05-15-beta-sentinel.md"
+  },
   "not_promised": [
-    "Cloud-provider beta support.",
-    "Packaged desktop replacing local Compose as supported path.",
-    "Command bus, delegation, federation, graph writes, or worker-control dispatch as public beta promise.",
-    "External publication to email, Substack, or websites."
+    "cloud-provider beta support",
+    "public multi-user deployment",
+    "federation durability",
+    "graph-write release expansion",
+    "unsupported provider paths"
   ],
   "release_gates": [
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Supported-profile flags match the local-only beta contract.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "checked"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Fresh live evidence exists on the current `main` tip for the supported path.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "checked"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Chat completion and upload -> embed -> readback are proven on the supported stack.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "checked"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Coding results return through Guardian into the source thread without duplicate delivery.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "warning"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "warning"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "No internal-only or quarantined surface is part of the release claim.",
       "notes": "Checklist item from current state.",
-      "status": "proven"
+      "status": "warning"
     },
     {
       "evidence": "scripts/audit_platform_readiness.py",
       "name": "Platform readiness audit execution",
-      "notes": "Platform readiness audit did not return valid JSON.",
-      "status": "warning"
+      "notes": "Audit script executed and returned JSON summary.",
+      "status": "proven"
     }
   ],
+  "repo": {
+    "branch": "codex/p2-worktree-isolation-fixes",
+    "dirty": true,
+    "head": "0fa121e8f0dae5b29bcf6b16696896c88782e2fd",
+    "status_error": "",
+    "status_lines": [
+      " M docs/architecture/codexify-platform-readiness-audit.md",
+      " M scripts/audit_platform_readiness.py",
+      "?? CHANGELOG.beta.md",
+      "?? docs/audits/generated/2026-05-15-beta-sentinel.json",
+      "?? docs/audits/generated/2026-05-15-beta-sentinel.md",
+      "?? scripts/release/beta_release_sentinel.py",
+      "?? tests/scripts/test_audit_platform_readiness_json.py",
+      "?? tests/scripts/test_beta_release_sentinel.py"
+    ]
+  },
   "warnings": [
-    "Platform readiness audit did not return valid JSON."
-  ],
-  "worktree_clean": true
+    "Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling",
+    "Primitive Stability: Repo-local docs warn about contract drift in tool primitives",
+    "Extension Boundary: Architecture docs describe command bus, cron, and coding-agent seams",
+    "Extension Boundary: Legacy /tools compatibility route status",
+    "Observability: Observability docs leave some logging guarantees unverified",
+    "Durability & Recovery: Roadmap docs warn that sync delivery is not yet durable",
+    "Durability & Recovery: Risk register warns about Redis persistence or replay gaps",
+    "Alternate Surface Readiness: Repo-local docs still describe shell-level coupling",
+    "Federation Readiness: Roadmap docs warn that sync subscriptions are process-local",
+    "Federation Readiness: Risk register warns that federation remains security- and config-sensitive",
+    "Governance Readiness: Ownership authority is still informal in the scanned docs"
+  ]
 }
