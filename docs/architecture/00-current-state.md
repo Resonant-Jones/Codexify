@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify remains in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with the local-only provider posture, and the current release focus is preserving the shipped proof surface rather than widening the promise. On `main`, the supported profile, health, catalog, coding-result return path, and workspace-local Obsidian retrieval claims remain the validated runtime facts; the recent repo activity is mostly architecture-doc expansion around Flow Builder contracts, not a new release surface.
 
 ## What changed recently
+- `main` added a read-only Heartbeat status route (`GET /api/heartbeat/status`) and a Heartbeat lens in Agent Command Center.  Execution, scheduling, and publishing remain manual and deferred.
 - `main` added `flow-builder-testrun-activation-contract.md`.
 - `main` added `flow-builder-runreceipt-persistence-model.md`.
 - `main` also resolved a current-state merge and kept the override doc in sync with the KB map.
@@ -34,6 +35,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Command Center now has a live-proofed non-dispatch worker-control panel for coding work-order visibility, create/cancel, and recommendation-only next-task inspection (`docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`).
 - `main` now also shows a runner supervision summary inside Agent Command, but that is a UI/control-plane refinement, not a broader release expansion.
 - Campaign Runner MVP control-plane spine exists on backend surfaces for goal/campaign representation and durable execution-attempt ledger evidence, while remaining recommendation-only for next-work selection.
+- Agent Command Center can now display read-only Heartbeat pipeline status via the `GET /api/heartbeat/status` route and the Heartbeat lens in Command Center.  This surfaces the latest local heartbeat date, review status, outbox status, and publication-disabled posture without adding execution, scheduling, or publishing.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
