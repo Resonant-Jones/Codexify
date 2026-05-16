@@ -20,6 +20,9 @@ What it does not prove:
 - It does not claim packaged desktop replaces local Compose.
 - It does not claim command bus, delegation, federation, graph writes, or worker-control dispatch are public beta promise.
 
+Related index:
+- [`Release Candidate Evidence Index — 2026-05-15`](../release/RELEASE_CANDIDATE_EVIDENCE_2026-05-15.md)
+
 Manual run:
 
 ```bash
