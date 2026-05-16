@@ -391,6 +391,28 @@ make heartbeat-full DATE=2026-05-14 FORCE=1
 - **This does not schedule or publish anything.**  All steps are manual
   and local.
 
+## Agent Command Center status
+
+Heartbeat pipeline status is visible inside Agent Command Center as a
+**read-only** lens (⊛ Heartbeat).  The panel displays:
+
+- Latest heartbeat date
+- Review status (passed / warning / failed / missing)
+- Outbox status (passed / warning / failed / missing)
+- Publication status (always disabled)
+- Staged file count
+- Warnings and failures if present
+- Manual command hint (`make heartbeat-full …`)
+
+The status is fetched via `GET /api/heartbeat/status`, which reads
+repo-local artifacts only.  It does **not** run scripts, shell out,
+publish, or schedule.
+
+**No run, publish, or schedule buttons are present.**  The surface is
+labeled `Read-only`, `Manual-only`, and `Publishing disabled`.  A future
+Agent Command Center execution wiring is deferred to a separate
+architecture-impact task.
+
 ## Reviewing a heartbeat run
 
 The `review_heartbeat_run.py` script validates a heartbeat report without
