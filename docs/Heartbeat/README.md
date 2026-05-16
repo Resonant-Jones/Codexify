@@ -390,7 +390,6 @@ make heartbeat-full DATE=2026-05-14 FORCE=1
   operator seam that a future ACC task can invoke through a governed path.
 - **This does not schedule or publish anything.**  All steps are manual
   and local.
-
 ## Agent Command Center status
 
 Heartbeat pipeline status is visible inside Agent Command Center as a
