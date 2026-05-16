@@ -21,15 +21,41 @@ def test_run_platform_readiness_consumes_valid_json(tmp_path, monkeypatch) -> No
     )
     monkeypatch.setattr(sentinel, "AUDIT_SCRIPT_PATH", audit_script)
 
-    payload = sentinel.run_platform_readiness()
+    payload, warning = sentinel.run_platform_readiness()
 
     assert payload["summary"]["overall_status"] == "pass"
+    assert warning is None
     gates = sentinel.build_release_gates(
         [{"mark": "x", "label": "Supported profile remains local-only"}],
         payload,
         None,
     )
     assert gates[-1].status == "proven"
+    assert gates[-1].evidence == "scripts/audit_platform_readiness.py"
+
+
+def test_run_platform_readiness_preserves_json_on_nonzero_exit(
+    tmp_path, monkeypatch
+) -> None:
+    audit_script = _write_file(
+        tmp_path,
+        "audit_probe.py",
+        """from __future__ import annotations\n\nimport json\nimport sys\n\nprint(json.dumps({\"summary\": {\"overall_status\": \"fail\", \"pass\": 1, \"warn\": 0, \"fail\": 1}, \"warnings\": [{\"domain\": \"Audit\", \"label\": \"Sentinel issue\"}], \"failures\": []}))\nsys.exit(1)\n""",
+    )
+    monkeypatch.setattr(sentinel, "AUDIT_SCRIPT_PATH", audit_script)
+
+    payload, warning = sentinel.run_platform_readiness()
+
+    assert payload["summary"]["overall_status"] == "fail"
+    assert warning is not None
+    assert "exit code 1" in warning
+
+    gates = sentinel.build_release_gates(
+        [{"mark": "x", "label": "Supported profile remains local-only"}],
+        payload,
+        warning,
+    )
+    assert gates[-1].status == "warning"
     assert gates[-1].evidence == "scripts/audit_platform_readiness.py"
 
 
@@ -110,3 +136,75 @@ def test_main_writes_beta_artifacts_and_preserves_conservative_claims(
     assert "Local-first beta hardening." in markdown
     assert "Supported path: local Docker Compose." in markdown
     assert "cloud-provider beta support" in markdown
+
+
+def test_main_writes_artifacts_when_audit_payload_reports_fail(
+    tmp_path, monkeypatch
+) -> None:
+    current_state = _write_file(
+        tmp_path,
+        "docs/architecture/00-current-state.md",
+        """## Release definition right now\n- [x] Supported-profile flags match the local-only beta contract.\n""",
+    )
+    output_dir = tmp_path / "generated"
+    changelog = tmp_path / "CHANGELOG.beta.md"
+
+    monkeypatch.setattr(sentinel, "CURRENT_STATE_PATH", current_state)
+    monkeypatch.setattr(
+        sentinel,
+        "collect_repo_status",
+        lambda: {
+            "branch": "main",
+            "head": "abc123",
+            "dirty": False,
+            "status_lines": [],
+            "status_error": "",
+        },
+    )
+    monkeypatch.setattr(sentinel, "discover_previous_report", lambda *_: None)
+    monkeypatch.setattr(sentinel, "commit_subjects_since", lambda _previous: [])
+    monkeypatch.setattr(
+        sentinel,
+        "run_platform_readiness",
+        lambda: (
+            {
+                "mode": "json",
+                "repo": {"branch": "main", "head": "abc123"},
+                "summary": {
+                    "pass": 10,
+                    "warn": 1,
+                    "fail": 1,
+                    "overall_status": "fail",
+                    "strongest_domains": ["Core Loop Integrity"],
+                    "weakest_domains": ["Governance Readiness"],
+                },
+                "domains": [],
+                "warnings": [{"domain": "Audit", "label": "Sentinel issue"}],
+                "failures": [{"domain": "Audit", "label": "Sentinel failure"}],
+            },
+            "Platform readiness audit exited with code 1; preserving JSON payload.",
+        ),
+    )
+
+    exit_code = sentinel.main(
+        [
+            "--date",
+            "2026-05-15",
+            "--output-dir",
+            str(output_dir),
+            "--changelog",
+            str(changelog),
+        ]
+    )
+
+    assert exit_code == 0
+
+    json_path = output_dir / "2026-05-15-beta-sentinel.json"
+    md_path = output_dir / "2026-05-15-beta-sentinel.md"
+    assert json_path.exists()
+    assert md_path.exists()
+    assert changelog.exists()
+
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["audit"]["summary"]["overall_status"] == "fail"
+    assert payload["release_gates"][-1]["status"] == "warning"

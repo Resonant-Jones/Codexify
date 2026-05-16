@@ -155,7 +155,7 @@ def commit_subjects_since(previous_report: Path | None) -> list[str]:
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
-def run_platform_readiness() -> dict[str, Any]:
+def run_platform_readiness() -> tuple[dict[str, Any], str | None]:
     if not AUDIT_SCRIPT_PATH.exists():
         raise SystemExit(f"Missing audit script: {AUDIT_SCRIPT_PATH}")
 
@@ -168,10 +168,11 @@ def run_platform_readiness() -> dict[str, Any]:
         errors="replace",
         check=False,
     )
+    audit_warning = None
     if completed.returncode != 0:
-        raise SystemExit(
-            "Platform readiness audit failed with exit code "
-            f"{completed.returncode}."
+        audit_warning = (
+            "Platform readiness audit exited with code "
+            f"{completed.returncode}; preserving JSON payload."
         )
 
     try:
@@ -183,7 +184,7 @@ def run_platform_readiness() -> dict[str, Any]:
 
     if not isinstance(parsed, dict):
         raise SystemExit("Platform readiness audit returned a non-object JSON payload.")
-    return parsed
+    return parsed, audit_warning
 
 
 def build_release_gates(
@@ -346,8 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = collect_repo_status()
     previous = discover_previous_report(date_str, output_dir)
     commits = commit_subjects_since(previous)
-    audit_summary = run_platform_readiness()
-    audit_warning = None
+    audit_summary, audit_warning = run_platform_readiness()
     blockers = [
         item.get("label", "unknown")
         for item in checklist
