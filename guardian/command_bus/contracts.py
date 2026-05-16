@@ -49,6 +49,42 @@ class InvokeArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class InvokePermissionProfile(BaseModel):
+    """Optional supplied profile for pre-dispatch permission checks."""
+
+    profile_id: str = Field(min_length=1, max_length=255)
+    actor_id: str = Field(min_length=1, max_length=255)
+    subject_id: str = Field(min_length=1, max_length=255)
+    task_id: str = Field(min_length=1, max_length=255)
+    project_id: str | None = Field(default=None, max_length=255)
+    thread_id: str | None = Field(default=None, max_length=255)
+    allowed_command_classes: tuple[str, ...] = Field(default_factory=tuple)
+    denied_command_classes: tuple[str, ...] = Field(default_factory=tuple)
+    allowed_command_ids: tuple[str, ...] = Field(default_factory=tuple)
+    denied_command_ids: tuple[str, ...] = Field(default_factory=tuple)
+    filesystem_access: Literal["none", "read_only", "write_scoped"] = "none"
+    allowed_write_roots: tuple[str, ...] = Field(default_factory=tuple)
+    shell_allowed: bool = False
+    shell_read_only: bool = True
+    allowed_shell_commands: tuple[str, ...] = Field(default_factory=tuple)
+    network_allowed: bool = False
+    connector_allowed: bool = False
+
+    # Optional explicit request metadata for evaluator construction.
+    request_task_id: str | None = Field(default=None, max_length=255)
+    request_project_id: str | None = Field(default=None, max_length=255)
+    request_thread_id: str | None = Field(default=None, max_length=255)
+    request_command_class: str | None = Field(default=None, max_length=64)
+    requested_write_paths: tuple[str, ...] = Field(default_factory=tuple)
+    uses_shell: bool = False
+    shell_command: str | None = Field(default=None, max_length=1024)
+    shell_mutates: bool = False
+    uses_network: bool = False
+    uses_connector: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class InvokeRequest(BaseModel):
     """Command invocation payload."""
 
@@ -58,6 +94,7 @@ class InvokeRequest(BaseModel):
     arguments: InvokeArguments = Field(default_factory=InvokeArguments)
     idempotency_key: str | None = Field(default=None, max_length=255)
     provenance_json: dict[str, Any] = Field(default_factory=dict)
+    permission_profile: InvokePermissionProfile | None = None
 
     model_config = ConfigDict(extra="forbid")
 
