@@ -2,3 +2,8 @@ title = "Codexify gitleaks config"
 
 [extend]
 useDefault = true
+
+[allowlists]
+description = "Allow REDACTED test placeholder and known test fixtures"
+paths = ["tests/scripts/test_review_heartbeat_run.py", "tests/scripts/test_run_heartbeat_orchestrator.py"]
+targets = ["REDACTED", "sk-abcdefghijklmnopqrstuvwxyz123456", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"]

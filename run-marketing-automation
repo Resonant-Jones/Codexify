@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+python scripts/marketing/run_marketing_automation.py "$@"

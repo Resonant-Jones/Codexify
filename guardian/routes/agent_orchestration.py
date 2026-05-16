@@ -91,12 +91,14 @@ class AgentRunStartRequest(BaseModel):
 class CodingExecutionRequest(BaseModel):
     run_id: str = Field(min_length=1)
     coding_task_id: str = Field(min_length=1)
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     thread_id: str = Field(min_length=1)
     source_message_id: str = Field(min_length=1)
     attempt_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     project_id: int | None = None
-    adapter_kind: str = Field(default="mock", min_length=1)
+    adapter_kind: str = Field(default="pi_codex_runner", min_length=1)
     instructions: str = Field(min_length=1)
     repo_root: str | None = None
     context_summary: str | None = None
@@ -202,20 +204,23 @@ async def start_run(
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
 ) -> dict[str, Any]:
-    """Execute a coding task via PiCodexRunnerAdapter.
+    """Execute a coding task via a registered coding adapter.
 
     Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
-    appropriate adapter (pi_codex_runner by default).
+    requested adapter kind.
 
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
     """
-    # Create deployment to track this coding task
+    # Create deployment to track this coding task and preserve the requested
+    # adapter kind in Guardian-owned intake state.
     flow_id = f"coding_{envelope.coding_task_id}"
     deployment = _store.create_deployment(
         flow_id=flow_id,
         thread_id=int(envelope.thread_id) if envelope.thread_id else None,
         spec_json={
             "coding_task_id": envelope.coding_task_id,
+            "campaign_id": envelope.campaign_id,
+            "work_order_id": envelope.work_order_id,
             "adapter_kind": envelope.adapter_kind,
             "validation_command": envelope.validation_command,
             "max_validation_attempts": envelope.max_validation_attempts,
@@ -249,6 +254,8 @@ async def execute_coding_task(
         spec_hash=_stable_hash(
             {
                 "coding_task_id": envelope.coding_task_id,
+                "campaign_id": envelope.campaign_id,
+                "work_order_id": envelope.work_order_id,
                 "attempt_id": envelope.attempt_id,
                 "adapter_kind": envelope.adapter_kind,
                 "validation_command": envelope.validation_command,
@@ -266,8 +273,8 @@ async def execute_coding_task(
     )
 
     # Create run for tracking
-    # The DB only tracks the execution surface here; the Pi adapter remains
-    # the implementation detail behind the worker.
+    # The DB only tracks the execution surface here; the worker resolves the
+    # requested registered adapter at execution time.
     run = _store.create_run(
         deployment_id=deployment["deployment_id"],
         thread_id=deployment.get("thread_id"),
@@ -298,6 +305,8 @@ async def execute_coding_task(
         "cwd": envelope.repo_root,
         "timeout_seconds": envelope.permission_policy.max_runtime_seconds,
         "coding_task_id": envelope.coding_task_id,
+        "campaign_id": envelope.campaign_id,
+        "work_order_id": envelope.work_order_id,
         "attempt_id": envelope.attempt_id,
         "thread_id": int(envelope.thread_id) if envelope.thread_id else None,
         "source_message_id": _coerce_optional_positive_int(
@@ -333,6 +342,8 @@ async def execute_coding_task(
         "run_id": run["run_id"],
         "deployment_id": deployment["deployment_id"],
         "coding_task_id": envelope.coding_task_id,
+        "campaign_id": envelope.campaign_id,
+        "work_order_id": envelope.work_order_id,
     }
 
 

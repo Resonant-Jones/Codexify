@@ -1657,6 +1657,10 @@ export function GuardianChat({
     const selection = resolveCompletionSelection(options);
     const contextDirectives =
       options.slashIntent?.contextDirectives ?? null;
+    const completionSourceMode =
+      options.slashIntent?.commandId === "obsidian"
+        ? "obsidian_only"
+        : sourceMode;
     const payload = {
       ...buildChatCompletionPayload(depth, {
         providerId: selection.providerId,
@@ -1667,7 +1671,7 @@ export function GuardianChat({
         guardianName,
         contextDirectives,
       }),
-      source_mode: sourceMode,
+      source_mode: completionSourceMode,
       ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
     };
     const provisionalTaskId = `pending-${Date.now()}`;

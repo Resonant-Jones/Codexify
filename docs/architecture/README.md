@@ -37,6 +37,10 @@ If you are working on delegation, start with [`delegation-operator-manual.md`](.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
 
+If you are working on Execution Ledger gate artifacts, acceptance-criteria mapping, implementation-plan artifacts, or completion/proof evidence mapping over Campaign Runner and Guardian rails, start with [`Execution Ledger Gate Artifacts Contract`](./execution-ledger-gate-artifacts-contract.md) after ADR-028.
+
+If you are working on proposed Execution Ledger token vocabularies (gate decisions, plan states, acceptance results, proof decisions, escalation reasons) before runtime tokenization, start with [`Execution Ledger Token Domain Proposal`](./execution-ledger-token-domain-proposal.md) after the gate/artifact contract.
+
 If you are working on Pi SDK integration, Pi-like external coding-agent harnesses, or invocation governance boundaries, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) first, then apply [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md) for Guardian ownership and result-return doctrine.
 
 If you are working on a cross-surface Guardian intent spine for chat, voice, automation, CLI, or future plugin entrypoints, start with [`ADR-022: Guardian Intent Spine and Cross-Surface Control Plane`](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md). That ADR defines the canonical envelope and dispatch rules for "do this on my behalf" requests.
@@ -74,6 +78,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
+- [Execution Ledger Gate Artifacts Contract](./execution-ledger-gate-artifacts-contract.md): docs-only follow-through contract for ADR-028 defining gate artifacts, acceptance-criteria mapping, implementation plans, and completion/proof evidence mapping onto Campaign Runner and Guardian execution surfaces.
+- [Execution Ledger Token Domain Proposal](./execution-ledger-token-domain-proposal.md): docs-only proposal for candidate Execution Ledger token domains, semantics, and registry placement guidance before runtime tokenization.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [Guardian Intent Spine and Cross-Surface Control Plane](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md): canonical cross-surface intent envelope and dispatch contract for chat, voice, automations, CLI, and future plugin surfaces.
@@ -82,6 +88,16 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/006-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
 - [Flow Builder Thread, Draft, and Receipts Contract ADR](./adr/014-flow-builder-thread-draft-and-receipts-contract.md): canonical Guardian-thread, FlowDraft, Builder-view, and run-receipt contract for flow authoring semantics.
+- [Flow Builder Typed Surface and Run Receipt Contract ADR](./adr/027-flow-builder-typed-surface-and-run-receipt-contract.md): typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.
+- [Flow Builder Token Domain Inventory](./flow-builder-token-domains.md): candidate token domains for future Flow Builder implementation only; planning inventory, not runtime truth.
+- [FlowDraft Schema Proposal](./flowdraft-schema-proposal.md): future durable draft shape for Flow Builder artifacts only; schema planning, not runtime truth.
+- [VariableChip and TypedStepOutput Contract](./variable-chip-typed-output-contract.md): future variable wiring and typed output contract only; planning surface, not runtime truth.
+- [Flow Builder ValidationIssue Taxonomy](./flow-builder-validation-issue-taxonomy.md): future validation taxonomy only; planning surface, not runtime truth.
+- [Flow Builder SemanticStep Contract](./flow-builder-semantic-step-contract.md): future semantic AI-step contract only; planning surface, not runtime truth.
+- [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
+- [Flow Builder TestRun and Activation Contract](./flow-builder-testrun-activation-contract.md): future backend contract for execution attempts and durable enablement only; planning surface, not runtime truth.
+- [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
+- [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
 - [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.
@@ -98,6 +114,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Tool Jobs Cleanup Live Proof](./2026-04-28-tool-jobs-cleanup-live-proof.md): supported Compose schema proof that the dedicated `tool_jobs` cleanup migration restores downgrade shape, removes the table again on upgrade, and leaves `command_runs` / `command_run_events` intact.
 - [Supported Profile Live Proof](./2026-05-05-supported-profile-live-proof.md): fresh live proof for the supported local-first beta path after the posture, return-path, trace, and runtime-target fixes; not a release promise.
 - [Runtime Diagrams v1](./runtime-diagrams-v1.md): first-pass current runtime diagram pack with source-scoped evidence notes and confidence labels.
+- [Diagram Governance](./diagram-governance.md): policy for runtime-source-only diagram generation, module eligibility gates, required metadata, and freshness marker workflow.
+- [Module Diagram Coverage Matrix](./module-diagram-coverage-matrix.md): high-coupling module coverage decisions, required diagram types, and review-marker tracking.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.

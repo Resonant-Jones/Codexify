@@ -37,11 +37,26 @@ Define a phased implementation sequence for future work while preserving current
 - Scope: operator-facing run ledger and receipt inspection surfaces.
 - Proof expectation: Command Center panel tests (`frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx`) prove work-order list/create/cancel visibility plus recommendation-only rendering and explicit non-dispatch boundaries.
 - Live proof status (2026-05-10): attempted through Compose-supported runtime in `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md`, but UI route proof was blocked by frontend runtime errors; backend API seam proof passed.
+- Usability hardening note (2026-05-10): Command Center layout is now scroll-safe with Worker Control promoted near the top, health details collapsed by default, and observability workbench controls kept explicit while preserving non-dispatch boundaries.
+- UI shell hardening note (2026-05-11): Command Center refactored into a shell-with-lenses layout with gesture utility rail (Agent Command / Observability / Runtime Health / Event Console / Deep Settings / Extensions), bottom slide-up drawer scaffold (Terminal / Logs / Receipts / Problems), and left/right rail placement with localStorage persistence. Agent Command is the default lens. Terminal tab is non-executable. No dispatch, lease allocation, plugin runtime, or merge automation implemented.
 
 ### Phase 8: live MiniMax/Codex proof
 - Scope: end-to-end live proof on supported path for run lifecycle with receipts.
 - Proof expectation: durable proof artifact with branch/worktree/commands/validation/cleanup evidence and explicit limitations.
-- Status (2026-05-10): **INCOMPLETE** for Command Center worker-control seam live proof. Backend task-board/orchestrator API checks passed, but Command Center UI panel test IDs were not present during live runtime proof, so Phase 8 is not complete.
+- Prior status (2026-05-10): initial run and render-repair rerun were incomplete due Command Center runtime instability (see `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof.md` and `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-render-repair.md`).
+- Rerun status (2026-05-10, post-null-safety-repair): **PASSED** for the non-dispatch Command Center worker-control seam on supported Compose runtime. Backend work-order/orchestrator APIs passed, panel test IDs stayed present after observability load wait, and no-dispatch boundaries held. See `docs/proofs/2026-05-10-command-center-worker-control-plane-live-proof-rerun-after-null-safety-repair.md`.
+- Usability hardening note (2026-05-10): this phase remains non-dispatch; improvements were limited to operator layout/ergonomics (scrolling, hierarchy, and panel compactness) without adding dispatch authority.
+- Supported coding-execution note (2026-05-13): the public coding route now accepts explicit adapter kinds (`codex`, `claudecode`, `pi_sdk`, `pi_codex_runner`) and the local Compose worker mounts `./codex_runner` at `/app/codex_runner` so the Pi runner artifact is present when that path is selected.
+- Supported coding-execution proof note (2026-05-13): the live supported Compose worker path was rerun successfully on `adapter_kind="codex"` after the worker bootstrap was switched to Guardian DB state and the local compose default adapter command was pointed at a locally available tool-capable Ollama model. The live smoke produced one bounded source-thread `coding_result` message, a terminal run record, and an idempotent replay that did not duplicate delivery.
+
+### Phase 9 (optional): external tracker/workflow adaptation
+- Scope:
+  - evaluate a repository-owned workflow policy file candidate,
+  - issue-tracker ingestion into `WorkOrder` records,
+  - reconciliation and explicit stop conditions for tracker-driven state drift,
+  - bounded concurrency and retry backoff for dispatch-adjacent orchestration.
+- Proof expectation: adaptation-specific policy/contract tests and bounded live proof artifacts that preserve current control-plane invariants.
+- Constraint: this phase is optional and is **not required** for current Command Center proof or the initial manual worker-control loop.
 
 ## Cross-phase rules
 1. Each phase must remain atomic and independently validated.

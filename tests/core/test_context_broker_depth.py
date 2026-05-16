@@ -20,7 +20,15 @@ def mock_chatlog_db():
 def mock_vector_store():
     """Mock vector store for semantic search."""
     mock = AsyncMock()
-    mock.search = MagicMock(return_value=[{"text": "semantic"}])
+    mock.search = MagicMock(
+        return_value=[
+            {
+                "text": "semantic",
+                "user_id": "user-1",
+                "metadata": {"user_id": "user-1"},
+            }
+        ]
+    )
     return mock
 
 
@@ -28,7 +36,15 @@ def mock_vector_store():
 def mock_memory_store():
     """Mock memory store for related memory search."""
     mock = AsyncMock()
-    mock.search_related = MagicMock(return_value=[{"memory": "stored"}])
+    mock.search_related = MagicMock(
+        return_value=[
+            {
+                "memory": "stored",
+                "user_id": "user-1",
+                "metadata": {"user_id": "user-1"},
+            }
+        ]
+    )
     return mock
 
 
@@ -89,39 +105,8 @@ def context_broker(
             return result if isinstance(result, list) else []
         return []
 
-    async def _search_memory_legacy(query, k, *, namespace=None, user_id=None):
-        trace = {
-            "attempted": False,
-            "status": "skipped",
-            "reason": "no_retriever",
-            "count": 0,
-        }
-        if broker.memory and hasattr(broker.memory, "search_related"):
-            try:
-                result = broker.memory.search_related(query, limit=k)
-                if hasattr(result, "__await__"):
-                    result = await result
-                items = result if isinstance(result, list) else []
-                trace = {
-                    "attempted": True,
-                    "status": "contributed" if items else "attempted_no_hits",
-                    "reason": "legacy_results" if items else "legacy_no_hits",
-                    "count": len(items),
-                }
-                return items, trace
-            except Exception as exc:
-                trace = {
-                    "attempted": True,
-                    "status": "failed",
-                    "reason": "legacy_retriever_error",
-                    "error": str(exc),
-                    "count": 0,
-                }
-        return [], trace
-
     broker._fetch_messages = _fetch_messages_legacy
     broker._search_semantic = _search_semantic_legacy
-    broker._search_memory = _search_memory_legacy
     return broker
 
 
@@ -258,7 +243,9 @@ class TestContextBrokerNormalDepth:
         )
 
         # Should have semantic results (mocked as [{"text": "semantic"}])
-        assert context["semantic"] == [{"text": "semantic"}]
+        assert len(context["semantic"]) == 1
+        assert context["semantic"][0]["text"] == "semantic"
+        assert context["semantic"][0]["user_id"] == "user-1"
 
     @pytest.mark.asyncio
     async def test_normal_depth_includes_obsidian_when_enabled(
@@ -273,9 +260,21 @@ class TestContextBrokerNormalDepth:
 
         def _search(query, k, namespace=None):
             if namespace == "thread:1":
-                return [{"text": "thread semantic"}]
+                return [
+                    {
+                        "text": "thread semantic",
+                        "user_id": "user-1",
+                        "metadata": {"user_id": "user-1"},
+                    }
+                ]
             if namespace == "obsidian:local":
-                return [{"text": "obsidian semantic"}]
+                return [
+                    {
+                        "text": "obsidian semantic",
+                        "user_id": "user-1",
+                        "metadata": {"user_id": "user-1"},
+                    }
+                ]
             return []
 
         mock_vector_store.search = MagicMock(side_effect=_search)
@@ -284,11 +283,17 @@ class TestContextBrokerNormalDepth:
             thread_id=1, query="test query", depth_mode="normal", k_semantic=4
         )
 
-        assert context["obsidian"] == [{"text": "obsidian semantic"}]
-        assert context["semantic"] == [
-            {"text": "thread semantic"},
-            {"text": "obsidian semantic"},
-        ]
+        assert len(context["obsidian"]) == 1
+        obsidian_hit = context["obsidian"][0]
+        assert obsidian_hit["text"] == "obsidian semantic"
+        assert obsidian_hit["namespace"] == "obsidian:local"
+        assert obsidian_hit["source_type"] == "obsidian"
+        assert obsidian_hit["role"] == "document"
+        assert obsidian_hit["retrieval_lane"] == "obsidian_semantic"
+        assert len(context["semantic"]) == 2
+        assert context["semantic"][0]["text"] == "thread semantic"
+        assert context["semantic"][1]["text"] == "obsidian semantic"
+        assert context["semantic"][1]["namespace"] == "obsidian:local"
         mock_vector_store.search.assert_any_call(
             "test query", k=4, namespace="obsidian:local"
         )
@@ -355,7 +360,7 @@ class TestContextBrokerDeepDepth:
         # for memory candidate pool k=max(5*3, 5+5)=15.
         assert mock_vector_store.search.call_count == 2
         mock_vector_store.search.assert_any_call(
-            "test query", k=15, namespace="thread:1"
+            "test query", k=15, namespace="thread:1", user_id="user-1"
         )
 
     @pytest.mark.asyncio
@@ -532,7 +537,7 @@ class TestContextBrokerParameterization:
         # Verify the parameter was passed to MemoryOSRetriever (via vector_store.search)
         # Should use candidate pool k=max(8*3, 8+5)=24 for memory search
         mock_vector_store.search.assert_any_call(
-            "test query", k=24, namespace="thread:1"
+            "test query", k=24, namespace="thread:1", user_id="user-1"
         )
 
     @pytest.mark.asyncio
@@ -607,7 +612,13 @@ class TestContextBrokerErrorHandling:
         def search_side_effect(query, k, namespace=None):
             call_count[0] += 1
             if call_count[0] == 1:  # First call (semantic) succeeds
-                return [{"text": "semantic"}]
+                return [
+                    {
+                        "text": "semantic",
+                        "user_id": "user-1",
+                        "metadata": {"user_id": "user-1"},
+                    }
+                ]
             else:  # Second call (memory) fails
                 raise Exception("Memory retriever error")
 
@@ -621,7 +632,10 @@ class TestContextBrokerErrorHandling:
         )
 
         context, _ = await broker.assemble(
-            thread_id=1, query="test query", depth_mode="deep"
+            thread_id=1,
+            query="test query",
+            depth_mode="deep",
+            user_id="user-1",
         )
 
         # Should still return a result with empty memory (MemoryOSRetriever failed, no fallback)
@@ -676,7 +690,10 @@ class TestContextBrokerOptionalDependencies:
         )
 
         context, _ = await broker.assemble(
-            thread_id=1, query="test query", depth_mode="deep"
+            thread_id=1,
+            query="test query",
+            depth_mode="deep",
+            user_id="user-1",
         )
 
         # Should have empty memory
@@ -695,7 +712,10 @@ class TestContextBrokerOptionalDependencies:
         )
 
         context, _ = await broker.assemble(
-            thread_id=1, query="test query", depth_mode="diagnostic"
+            thread_id=1,
+            query="test query",
+            depth_mode="diagnostic",
+            user_id="user-1",
         )
 
         # Should have empty sensors
@@ -716,7 +736,10 @@ class TestContextBrokerOptionalDependencies:
         # Test all depths
         for depth in ["shallow", "normal", "deep", "diagnostic"]:
             context, _ = await broker.assemble(
-                thread_id=1, query="test query", depth_mode=depth
+                thread_id=1,
+                query="test query",
+                depth_mode=depth,
+                user_id="user-1",
             )
 
             # Should always return a dict
@@ -744,7 +767,8 @@ class TestContextBrokerIntegration:
 
         # Verify all components are present
         assert context["messages"] == ["msg1", "msg2"]
-        assert context["semantic"] == [{"text": "semantic"}]
+        assert len(context["semantic"]) == 1
+        assert context["semantic"][0]["text"] == "semantic"
         # Memory now uses MemoryOSRetriever with normalized schema
         assert len(context["memory"]) > 0
         assert "text" in context["memory"][0]
@@ -827,8 +851,8 @@ class TestContextBrokerDocuments:
             sensors=None,
         )
 
-        project_docs = [{"id": "proj-1"}]
-        thread_docs = [{"id": "thread-1"}]
+        project_docs = [{"id": "proj-1", "user_id": "user-1"}]
+        thread_docs = [{"id": "thread-1", "user_id": "user-1"}]
         monkeypatch.setattr(
             broker, "_query_project_docs", MagicMock(return_value=project_docs)
         )
@@ -837,7 +861,11 @@ class TestContextBrokerDocuments:
         )
 
         context, _ = await broker.assemble(
-            thread_id=7, query="hello", depth_mode="normal", project_id=3
+            thread_id=7,
+            query="hello",
+            depth_mode="normal",
+            project_id=3,
+            user_id="user-1",
         )
 
         assert context["docs"]["project"] == project_docs

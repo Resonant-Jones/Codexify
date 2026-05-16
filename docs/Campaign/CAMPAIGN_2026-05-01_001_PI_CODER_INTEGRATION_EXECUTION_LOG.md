@@ -124,6 +124,16 @@ No. The live run failed before a returned `coding_result` reached the source thr
 
 The `worker-coding` service in `docker-compose.runtime.yml` was using a pre-built image reference that had not been updated with the `codex_runner/` directory. The fix changed `worker-coding` to use local build (`build: {context: ., dockerfile: backend/Dockerfile, target: runtime}`) consistent with `docker-compose.yml`. This ensures `/app/codex_runner/src/agent-wrapper.js` is present in the worker container. Docker is not available in this environment for live rerun, so packaging proof is recorded as **pending live rerun**. Full release-readiness remains blocked by targets 5, 7, 8, and 9 requiring live rerun. |
 
+### Live Rerun Follow-Up (2026-05-10)
+
+- Packaging verification on the rebuilt `worker-coding` image confirmed `/app/codex_runner/src/agent-wrapper.js` exists.
+- Full 9-target live rerun was executed (artifact section appended in `docs/architecture/2026-05-05-coding-result-return-path-live-proof.md`).
+- Current outcome remains **not release-ready**:
+  - `task.failed` events are emitted, but `agent_runs.status` remains `queued`.
+  - No `coding_result` message is injected into the source thread (`count=0`).
+  - Idempotency remains blocked because no source-thread result was delivered.
+- Additional runtime drift was observed on `docker-compose.runtime.yml` exact `run --rm` checks: `migrator` failed with missing revision `9d4e1c7b2a6f`, which blocked direct execution of the exact packaging probe commands.
+
 ### Follow-up Tasks
 
 - Restore the missing worker runtime artifact or image layer that provides `/app/codex_runner/src/agent-wrapper.js`.

@@ -278,6 +278,7 @@ services:
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./config:/app/config:ro
       - ./plugins:/app/plugins:ro
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
@@ -308,6 +309,7 @@ services:
       # the backend does not inherit the legacy Groq default unless it is
       # explicitly requested.
       CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
+      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-local-core-web-mcp}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
@@ -333,7 +335,7 @@ services:
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
@@ -433,7 +435,7 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
 
       # Local inference base URL (Ollama native by default). If you point this at an OpenAI-compat gateway, use a /v1 suffix.
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
 
@@ -497,7 +499,7 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -551,17 +553,22 @@ services:
       GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
+      CODEX_ADAPTER_COMMAND: >-
+        codex exec --oss --local-provider ollama -m qwen3-coder:30b
+        --output-schema /app/backend/scripts/docker/codex-run-envelope.schema.json
       # --- Graph-write runtime boundary (default-off) ---
       CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
       CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
     volumes:
+      - ./.git:/app/.git
       - ./guardian:/app/codexify
       - ./guardian:/app/guardian
       - ./backend:/app/backend
+      - ./codex_runner:/app/codex_runner
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
-    command: ["-m", "guardian.workers.coding_worker"]
+    command: ["/app/backend/scripts/docker/run_worker_coding.py"]
 
   worker-voice:
     build:
@@ -587,7 +594,7 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
@@ -647,7 +654,7 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -704,7 +711,7 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -760,7 +767,7 @@ services:
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434}"
+      LOCAL_BASE_URL: "http://host.docker.internal:11434/v1"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
