@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 
 from guardian.command_bus.contracts import (
     INVOKE_VERSION,
     MAX_PAYLOAD_BYTES,
+    InvokePermissionProfile,
     InvokeRequest,
+)
+from guardian.command_bus.permission_profiles import (
+    PermissionProfile,
+    PermissionProfileRequest,
+    evaluate_permission_profile,
 )
 from guardian.command_bus.loopback_http_adapter import (
     execute_loopback_request,
@@ -84,6 +92,89 @@ def _response_from_existing_run(
     if run.get("error_text") is not None:
         response["error"] = str(run["error_text"])
     return response
+
+
+def _optional_text(raw: object) -> str | None:
+    value = str(raw or "").strip()
+    return value or None
+
+
+def _derive_command_class(
+    command: Any, profile_payload: InvokePermissionProfile
+) -> str:
+    explicit = _optional_text(profile_payload.request_command_class)
+    if explicit is not None:
+        return explicit
+
+    effect = _optional_text(getattr(command, "effect", None))
+    if effect in {"read", "write"}:
+        return str(effect)
+
+    method = str(getattr(command, "method", "GET")).upper()
+    if method in {"GET", "HEAD"}:
+        return "read"
+    return "write"
+
+
+def _build_permission_profile(
+    profile_payload: InvokePermissionProfile,
+) -> PermissionProfile:
+    return PermissionProfile(
+        profile_id=profile_payload.profile_id,
+        actor_id=profile_payload.actor_id,
+        subject_id=profile_payload.subject_id,
+        task_id=profile_payload.task_id,
+        project_id=profile_payload.project_id,
+        thread_id=profile_payload.thread_id,
+        allowed_command_classes=tuple(
+            profile_payload.allowed_command_classes
+        ),
+        denied_command_classes=tuple(profile_payload.denied_command_classes),
+        allowed_command_ids=tuple(profile_payload.allowed_command_ids),
+        denied_command_ids=tuple(profile_payload.denied_command_ids),
+        filesystem_access=profile_payload.filesystem_access,
+        allowed_write_roots=tuple(
+            Path(path) for path in profile_payload.allowed_write_roots
+        ),
+        shell_allowed=profile_payload.shell_allowed,
+        shell_read_only=profile_payload.shell_read_only,
+        allowed_shell_commands=tuple(profile_payload.allowed_shell_commands),
+        network_allowed=profile_payload.network_allowed,
+        connector_allowed=profile_payload.connector_allowed,
+    )
+
+
+def _build_permission_profile_request(
+    *,
+    payload: InvokeRequest,
+    profile_payload: InvokePermissionProfile,
+    command: Any,
+    auth_subject: str,
+    fallback_task_id: str,
+) -> PermissionProfileRequest:
+    task_id = (
+        _optional_text(profile_payload.request_task_id)
+        or _optional_text(payload.idempotency_key)
+        or fallback_task_id
+    )
+    project_id = _optional_text(profile_payload.request_project_id)
+    thread_id = _optional_text(profile_payload.request_thread_id)
+
+    return PermissionProfileRequest(
+        actor_id=payload.actor.id,
+        subject_id=auth_subject,
+        task_id=task_id,
+        command_id=str(getattr(command, "command_id", payload.command_id)),
+        command_class=_derive_command_class(command, profile_payload),
+        project_id=project_id,
+        thread_id=thread_id,
+        requested_write_paths=tuple(profile_payload.requested_write_paths),
+        uses_shell=profile_payload.uses_shell,
+        shell_command=profile_payload.shell_command,
+        shell_mutates=profile_payload.shell_mutates,
+        uses_network=profile_payload.uses_network,
+        uses_connector=profile_payload.uses_connector,
+    )
 
 
 async def execute_invoke(
@@ -162,6 +253,26 @@ async def execute_invoke(
         confirmation_granted=confirmation_granted,
     )
 
+    permission_profile_decision = None
+    pre_dispatch_blocked_reason: str | None = None
+    if payload.permission_profile is not None:
+        profile = _build_permission_profile(payload.permission_profile)
+        permission_request = _build_permission_profile_request(
+            payload=payload,
+            profile_payload=payload.permission_profile,
+            command=command,
+            auth_subject=auth_subject,
+            fallback_task_id=f"invoke_{uuid4().hex[:16]}",
+        )
+        permission_profile_decision = evaluate_permission_profile(
+            profile,
+            permission_request,
+        )
+        if not permission_profile_decision.allowed:
+            pre_dispatch_blocked_reason = (
+                f"permission_profile_denied:{permission_profile_decision.code}"
+            )
+
     args_hash = compute_args_hash(args_dict)
     args_redacted = redact_arguments(command.command_id, args_dict)
     try:
@@ -191,20 +302,29 @@ async def execute_invoke(
             fallback_invoke_version=payload.invoke_version,
         )
     run_id = run["run_id"]
+    created_payload: dict[str, Any] = {
+        "command_id": command.command_id,
+        "status": "queued",
+        "provenance_json": provenance_json,
+        "policy": {
+            "mode": invoke_policy.mode,
+            "decision": invoke_policy.decision,
+            "reason_codes": invoke_policy.reason_codes,
+            "warnings": invoke_policy.warnings,
+        },
+    }
+    if permission_profile_decision is not None:
+        created_payload["permission_profile"] = {
+            "code": permission_profile_decision.code,
+            "reason": permission_profile_decision.reason,
+            "blocked_before_dispatch": (
+                not permission_profile_decision.allowed
+            ),
+        }
     store.append_event(
         run_id=run_id,
         event_type="run.created",
-        payload={
-            "command_id": command.command_id,
-            "status": "queued",
-            "provenance_json": provenance_json,
-            "policy": {
-                "mode": invoke_policy.mode,
-                "decision": invoke_policy.decision,
-                "reason_codes": invoke_policy.reason_codes,
-                "warnings": invoke_policy.warnings,
-            },
-        },
+        payload=created_payload,
     )
 
     is_readonly_command = command.effect == "read" and command.method in {
@@ -214,18 +334,19 @@ async def execute_invoke(
     should_execute = is_readonly_command or (
         allow_write_execution and command.effect == "write"
     )
-    blocked_reason: str | None = None
+    blocked_reason: str | None = pre_dispatch_blocked_reason
 
     # Explicit recursion guard, including future alias paths.
-    try:
-        rendered = render_path(
-            command.path_template, args_dict.get("path_params") or {}
-        )
-    except Exception as exc:
-        blocked_reason = f"invalid_path_params: {exc}"
-    else:
-        if is_recursion_blocked(rendered):
-            blocked_reason = "recursion_guard_blocked"
+    if blocked_reason is None:
+        try:
+            rendered = render_path(
+                command.path_template, args_dict.get("path_params") or {}
+            )
+        except Exception as exc:
+            blocked_reason = f"invalid_path_params: {exc}"
+        else:
+            if is_recursion_blocked(rendered):
+                blocked_reason = "recursion_guard_blocked"
 
     if invoke_policy.blocked and blocked_reason is None:
         reasons = ",".join(
@@ -240,18 +361,27 @@ async def execute_invoke(
         store.update_run(
             run_id=run_id, status="blocked", error_text=blocked_reason
         )
+        blocked_payload: dict[str, Any] = {
+            "reason": blocked_reason,
+            "provenance_json": provenance_json,
+            "policy": {
+                "mode": invoke_policy.mode,
+                "decision": invoke_policy.decision,
+                "reason_codes": invoke_policy.reason_codes,
+            },
+        }
+        if permission_profile_decision is not None:
+            blocked_payload["permission_profile"] = {
+                "code": permission_profile_decision.code,
+                "reason": permission_profile_decision.reason,
+                "blocked_before_dispatch": (
+                    not permission_profile_decision.allowed
+                ),
+            }
         store.append_event(
             run_id=run_id,
             event_type="run.blocked",
-            payload={
-                "reason": blocked_reason,
-                "provenance_json": provenance_json,
-                "policy": {
-                    "mode": invoke_policy.mode,
-                    "decision": invoke_policy.decision,
-                    "reason_codes": invoke_policy.reason_codes,
-                },
-            },
+            payload=blocked_payload,
         )
         blocked_response = {
             "run_id": run_id,
@@ -262,6 +392,14 @@ async def execute_invoke(
             "error": blocked_reason,
             "policy_warnings": invoke_policy.warnings,
         }
+        if permission_profile_decision is not None:
+            blocked_response["permission_profile"] = {
+                "code": permission_profile_decision.code,
+                "reason": permission_profile_decision.reason,
+                "blocked_before_dispatch": (
+                    not permission_profile_decision.allowed
+                ),
+            }
         if invoke_policy.warnings:
             blocked_response["warning"] = invoke_policy.warnings[0]
         return blocked_response
