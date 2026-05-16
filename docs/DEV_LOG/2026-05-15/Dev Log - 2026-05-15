@@ -1,0 +1,152 @@
+Dev Log - 2026-05-15
+
+Summary
+
+contract hardening and runtime truth-alignment day
+
+Today was mostly about making Codexify’s control surfaces more explicit and harder to misread. The work tightened contracts around Flow Builder, heartbeat orchestration, transport policy, and supported-profile truth so the system can say less and mean more. A lot of the value was not new surface area, but reducing ambiguity in the surfaces that already exist.
+
+The day also kept the release record honest. The current-state doc now reflects the latest supported-path proof posture, while the heartbeat tooling and manifest flow turned scheduling, staging, and inspection into a more legible sequence with stricter gates. That matters because the system is still in beta hardening, and the real job is to keep the shipped promise aligned with what the code can actually do.
+
+What I completed
+
+Flow Builder contract hardening
+
+- Added a `RunReceipt` persistence model for Flow Builder, which gives the system a durable record of run outcomes instead of relying on transient execution state.
+- Added a `TestRun` activation contract, making activation behavior more explicit and testable.
+- Added a semantic step contract and a validation issue taxonomy, which gives the typed surface clearer boundaries for what counts as a valid step and how failures should be described.
+- Added typed output work for `VariableChip`, extending the contract discipline into another small but important UI/data seam.
+
+Heartbeat orchestration and publication gating
+
+- Built out the heartbeat schedule manifest and its validation tests.
+- Added review, staging, and outbox inspection scripts plus the corresponding Makefile / pnpm wiring.
+- Hardened outbox handling for invalid manifest JSON and added missing strict-target/expected-file test coverage.
+- Documented the staging and inspection flow so the publication path is more legible and less ad hoc.
+
+Supported-profile truth alignment
+
+- Verified supported-profile catalog/health alignment and recorded the result in current-state truth.
+- Kept the current-state doc in sync with the current supported-path posture, including the distinction between proven control-plane behavior and unproven adjacent surfaces.
+
+Policy and boundary hardening
+
+- Added a deny-first external transport policy with tests, which is a small but important boundary control.
+- Added a symlink-aware write-path guard primitive, which strengthens file-write safety in places where path resolution matters.
+
+Documentation and evidence refresh
+
+- Added the consulting capability audit.
+- Updated beta artifacts and generated heartbeat-related docs.
+- Added the imagination marketing KB bundle, which extends the evidence base for claim-bound marketing work without pretending it is runtime proof.
+
+Important outcome
+
+Codexify is now a little less ambiguous at the edges.
+
+Flow Builder gained more durable internal truth: runs, activations, semantic steps, and validation failures are more explicitly modeled instead of being inferred from side effects. That makes the system easier to reason about and harder to accidentally misrepresent.
+
+The heartbeat tooling also stopped being a loose collection of scripts and became a more bounded publication pipeline. Review, staging, schedule definition, and outbox inspection now exist as a sequence with stricter checks. That is a small structural shift, but it matters because it lowers the chance that content or claims drift ahead of proof.
+
+Commits
+
+f5e1d38e5 - Add dev log for 2026-05-14
+
+929c83578 - docs: add dev log for 2026-05-14
+
+fe40db6cd - docs: add dev log for 2026-05-13
+
+87ec4ab85 - Add Flow Builder RunReceipt persistence model
+
+fbc5f8959 - docs: add agentic task orchestration specs and update marketing campaign test fixtures
+
+afa565dd3 - docs: update beta artifacts
+
+772413c68 - Add Flow Builder TestRun activation contract
+
+def1b12a4 - docs: add Codexify consulting capability audit
+
+ebe10f283 - Add deny-first external transport policy
+
+5f19278ca - add imagination marketing KB bundle
+
+d4cc398c1 - Run release candidate audit automation
+
+84dca9782 - Document heartbeat outbox inspection
+
+909c73f1e - Add missing test cases: strict, targets, expected files
+
+e21d51bcf - Handle invalid manifest JSON in outbox inspector
+
+78a4fda56 - Add heartbeat-outbox Makefile target with STRICT support and status rework
+
+7851970ed - Add heartbeat outbox inspector with Makefile target and tests
+
+6627b2a97 - Add heartbeat outbox inspector script
+
+5d05eae34 - Add heartbeat outbox inspector with draft generation fix
+
+6ab7b69a0 - Document heartbeat staging outbox in README
+
+491cf3851 - Add heartbeat-stage Makefile target, pnpm script, and secret scan hardening
+
+9be924bfe - Add heartbeat outbox staging script with content drafts
+
+528aaee0b - Add heartbeat schedule manifest
+
+9ef847649 - Document activation modes and publication-deferred guard in schedule manifest
+
+cf584d723 - Add schedule manifest section to heartbeat docs
+
+9a638cb89 - Add schedule manifest validation tests
+
+f1cc65fa4 - Complete schedule manifest: inputs, publication targets, review gate STRICT
+
+29fc87f02 - Add heartbeat schedule manifest
+
+f7a85c1af - Document heartbeat review as safety gate before scheduling/publication
+
+7684986db - Add heartbeat review script with Makefile target, tests, and docs
+
+b0ebfd3db - Add heartbeat operator wrapper
+
+00213b1f3 - Add heartbeat Makefile target, pnpm script, and docs for orchestrator
+
+e73a43079 - Add local heartbeat orchestrator
+
+48fd08b40 - Add shared symlink-aware write path guard primitive
+
+7e2226303 - Add Flow Builder semantic step contract
+
+55b9c313d - Verify supported profile catalog health alignment
+
+4caca04e2 - Add Flow Builder validation issue taxonomy
+
+a7ecef63e - Align supported profile health and catalog truth
+
+da5ea5664 - Record supported profile catalog health drift proof
+
+bb8ea0e28 - Add VariableChip typed output contract
+
+Notes
+
+- Most of today’s evidence is code/doc/test-level, not live runtime proof.
+- The supported-profile alignment and current-state updates strengthen release truth, but they do not expand the supported surface.
+- The heartbeat work is materially more bounded now, but publication safety still depends on the review and outbox flow being followed, not just present in the repo.
+- The runtime boundary work is conservative by design: deny-first transport and symlink-aware writes reduce risk rather than adding new capability.
+
+Next likely moves
+
+- Run the new Flow Builder contracts through focused tests and fix any mismatches between the persistence model and runtime behavior.
+- Exercise the heartbeat review/staging/outbox path end to end and look for gaps between script-level success and actual publication truth.
+- Keep the supported-profile proof current if runtime wiring drifts again.
+- Expand contract coverage around any adjacent surfaces that still infer state indirectly.
+- Separate any remaining claim-generation work from runtime-proof work so evidence stays honest.
+
+Closing thought
+
+The main shift today was not feature count. It was truth density. More of Codexify’s important surfaces now carry explicit contracts, stricter gates, and better failure language, which makes the system easier to trust without pretending it is finished.
+
+
+
+::inbox-item{title="Daily dev log drafted for 2026-05-15" summary="Review the log for tone and commit selection before publishing"}
