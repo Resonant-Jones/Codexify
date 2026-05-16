@@ -355,6 +355,62 @@ publish, or schedule.
 labeled `Read-only`, `Manual-only`, and `Publishing disabled`.  A future
 Agent Command Center execution wiring is deferred to a separate
 architecture-impact task.
+## Full pipeline (`make heartbeat-full`)
+
+The `make heartbeat-full` target runs the complete heartbeat pipeline
+end-to-end in a single command: generate → review → stage → inspect.
+It stops on the first failed step.
+
+### Usage
+
+```bash
+# Full run with content sources
+make heartbeat-full \
+  DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md \
+  INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md docs/ResonantConstructs/README.md" \
+  FORCE=1
+
+# Beta-only run (dev-blog and insight auto-skipped when sources not provided)
+make heartbeat-full
+
+# Strict run (warnings treated as failures in review and inspection)
+make heartbeat-full STRICT=1
+
+# Custom date
+make heartbeat-full DATE=2026-05-14 FORCE=1
+```
+
+### What it runs
+
+| Step | Target | What happens |
+|---|---|---|
+| 1. Generate | `make heartbeat` | Runs Beta Release Sentinel, Daily Dev Blog, Resonant Daily Insight |
+| 2. Review | `make heartbeat-review` | Validates the heartbeat report (strict when `STRICT=1`) |
+| 3. Stage | `make heartbeat-stage` | Copies artifacts + generates drafts to `docs/Heartbeat/staged/` |
+| 4. Inspect | `make heartbeat-outbox` | Validates the staged outbox (strict when `STRICT=1`) |
+
+### Pass-through variables
+
+| Variable | Passed to |
+|---|---|
+| `DATE` | All four child targets |
+| `DEV_BLOG_SOURCE` | `heartbeat` |
+| `INSIGHT_SOURCE` | `heartbeat` |
+| `FORCE=1` | `heartbeat`, `heartbeat-stage` |
+| `STRICT=1` | `heartbeat-review`, `heartbeat-outbox` |
+
+### Caveats
+
+- **Staging requires strict review to pass.** If review fails (e.g., because
+  a lane was skipped and `STRICT=1`), staging is blocked and the pipeline
+  stops.
+- This is the **recommended manual operator command** for running the full
+  heartbeat flow.
+- **Agent Command Center wiring is deferred** to a separate
+  architecture-impact task.  The `heartbeat-full` command creates the
+  operator seam that a future ACC task can invoke through a governed path.
+- **This does not schedule or publish anything.**  All steps are manual
+  and local.
 
 ## Reviewing a heartbeat run
 

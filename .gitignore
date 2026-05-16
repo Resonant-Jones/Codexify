@@ -169,6 +169,7 @@ chatgpt-conversation.json
 # local agent/tooling
 .claude/settings.local.json
 .codex/
+.codexify/coding-artifacts/
 
 # Local/vendor checkouts
 MiniMax-MCP-main/
@@ -196,3 +197,4 @@ codex_runner/.github/
 codex_runner.zip
 
 RESEARCH:CODE
+.playwright-mcp/
