@@ -95,9 +95,10 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Flow Builder ValidationIssue Taxonomy](./flow-builder-validation-issue-taxonomy.md): future validation taxonomy only; planning surface, not runtime truth.
 - [Flow Builder SemanticStep Contract](./flow-builder-semantic-step-contract.md): future semantic AI-step contract only; planning surface, not runtime truth.
 - [Flow Builder ConditionalContainer Contract](./flow-builder-conditional-container-contract.md): future conditional control-flow contract only; planning surface, not runtime truth.
-- [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
-- [Flow Builder TestRun and Activation Contract](./flow-builder-testrun-activation-contract.md): future backend contract for execution attempts and durable enablement only; planning surface, not runtime truth.
 - [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
+- [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
+- [Flow Builder Activity and Proof Surface Design](./flow-builder-activity-proof-surface.md): future activity/proof surface design only; planning surface, not runtime truth.
+- [Flow Builder TestRun and Activation Contract](./flow-builder-testrun-activation-contract.md): future backend contract for execution attempts and durable enablement only; planning surface, not runtime truth.
 - [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
