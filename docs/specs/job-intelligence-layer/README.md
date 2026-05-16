@@ -15,6 +15,7 @@ Baseline orientation document:
 - [`04-vertical-adaptation-notes.md`](./04-vertical-adaptation-notes.md): Tracks portability notes from the seed domain to later vertical candidates.
 - [`05-open-questions.md`](./05-open-questions.md): Lists unresolved decisions required before implementation work is justified.
 - [`06-job-profile-draft-contract.md`](./06-job-profile-draft-contract.md): Proposes the first non-runtime Job Profile contract draft to structure future schema and review-planning work.
+- [`07-extraction-pass-contract.md`](./07-extraction-pass-contract.md): Defines the first planning contract for turning raw intake text into reviewable structured draft extraction outputs.
 
 ## Do Not Assume
 
