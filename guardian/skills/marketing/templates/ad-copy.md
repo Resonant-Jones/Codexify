@@ -18,6 +18,10 @@
 - body: {ad_body_3}
 - proof tier: {ad_tier_3}
 
+## Draft Safety
+
+{draft_warning}
+
 ## Governance
 
 - approval_state: `draft`

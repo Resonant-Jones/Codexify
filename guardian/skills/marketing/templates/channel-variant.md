@@ -8,9 +8,13 @@
 
 {message}
 
-## Claims Referenced
+## Public Copy Claims
 
-{claims_bullets}
+{public_copy_claims_bullets}
+
+## Draft Safety
+
+{draft_warning}
 
 ## Governance
 
