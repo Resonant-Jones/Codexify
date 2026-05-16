@@ -11,7 +11,8 @@
     "heartbeat": "python scripts/content/run_heartbeat_orchestrator.py",
     "heartbeat:review": "python scripts/content/review_heartbeat_run.py",
     "heartbeat:stage": "python scripts/content/stage_heartbeat_outbox.py",
-    "heartbeat:outbox": "python scripts/content/inspect_heartbeat_outbox.py"
+    "heartbeat:outbox": "python scripts/content/inspect_heartbeat_outbox.py",
+    "heartbeat:full": "make heartbeat-full"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
