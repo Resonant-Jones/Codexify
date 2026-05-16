@@ -511,9 +511,11 @@ class CodingExecutionTask(BaseTask):
     thread_id: str = ""
     source_message_id: str = ""
     attempt_id: str = ""
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     user_id: str = ""
     project_id: int | None = None
-    adapter_kind: CodingAgentAdapterKind = "mock"
+    adapter_kind: CodingAgentAdapterKind = "pi_codex_runner"
     instructions: str = ""
     repo_root: str | None = None
     context_summary: str | None = None
@@ -553,6 +555,12 @@ class CodingExecutionTask(BaseTask):
             attempt_id=str(
                 payload.get("attempt_id") or payload.get("attemptId") or ""
             ).strip(),
+            campaign_id=_coerce_optional_text(
+                payload.get("campaign_id") or payload.get("campaignId")
+            ),
+            work_order_id=_coerce_optional_text(
+                payload.get("work_order_id") or payload.get("workOrderId")
+            ),
             user_id=str(
                 payload.get("user_id") or payload.get("userId") or ""
             ).strip(),
@@ -563,7 +571,7 @@ class CodingExecutionTask(BaseTask):
                 _normalize_executor_id(
                     payload.get("adapter_kind") or payload.get("adapterKind")
                 )
-                or "mock"
+                or "pi_codex_runner"
             ),
             instructions=str(payload.get("instructions") or "").strip(),
             repo_root=_coerce_optional_text(
@@ -858,9 +866,12 @@ class CodingExecutionTask(BaseTask):
     deployment_id: str = ""
     instructions: str = ""
     cwd: str | None = None
+    repo_root: str | None = None
     timeout_seconds: int = 300
     coding_task_id: str = ""
     attempt_id: str = ""
+    campaign_id: str | None = None
+    work_order_id: str | None = None
     thread_id: int | None = None
     source_message_id: int | str | None = None
     validation_command: str | None = None
@@ -883,9 +894,18 @@ class CodingExecutionTask(BaseTask):
                 payload.get("instructions") or payload.get("task_prompt") or ""
             ).strip(),
             cwd=_coerce_optional_text(payload.get("cwd")),
+            repo_root=_coerce_optional_text(
+                payload.get("repo_root") or payload.get("repoRoot")
+            ),
             timeout_seconds=int(payload.get("timeout_seconds") or 300),
             coding_task_id=str(payload.get("coding_task_id") or "").strip(),
             attempt_id=str(payload.get("attempt_id") or "").strip(),
+            campaign_id=_coerce_optional_text(
+                payload.get("campaign_id") or payload.get("campaignId")
+            ),
+            work_order_id=_coerce_optional_text(
+                payload.get("work_order_id") or payload.get("workOrderId")
+            ),
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
             source_message_id=_coerce_optional_identifier(
                 payload.get("source_message_id")

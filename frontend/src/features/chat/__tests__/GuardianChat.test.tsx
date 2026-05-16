@@ -661,6 +661,49 @@ describe("GuardianChat inference rail", () => {
     });
   });
 
+  it("routes /obsidian turns through Obsidian-only retrieval", async () => {
+    composerState.slashIntent = {
+      commandId: "obsidian",
+      rawToken: "/obsidian",
+      queryText: "wiki notes",
+      intentKind: "knowledge",
+      retrievalHint: "personal_knowledge",
+      rawInput: "/obsidian wiki notes",
+      contextDirectives: [
+        {
+          kind: "connector_context",
+          connectorId: "obsidian",
+          invocation: "turn_scoped",
+          queryText: "wiki notes",
+        },
+      ],
+    };
+
+    renderChat("1");
+    await startTrackedRequest();
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/1/complete",
+        expect.objectContaining({
+          source_mode: "obsidian_only",
+          context_directives: [
+            {
+              kind: "connector_context",
+              connector_id: "obsidian",
+              invocation: "turn_scoped",
+              query_text: "wiki notes",
+            },
+          ],
+          slashIntent: expect.objectContaining({
+            commandId: "obsidian",
+            queryText: "wiki notes",
+          }),
+        })
+      );
+    });
+  });
+
   it("attaches identity fields to the completion request payload when configured", async () => {
     renderChat("1", {
       guardianName: "Aurelia",

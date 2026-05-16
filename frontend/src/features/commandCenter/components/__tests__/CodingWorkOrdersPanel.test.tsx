@@ -183,6 +183,12 @@ describe("CodingWorkOrdersPanel", () => {
     ).toBeInTheDocument();
 
     const skipped = screen.getByTestId("coding-orchestrator-skipped");
+    expect(
+      within(skipped).getByText(/Skipped reasons are collapsed to keep recommendations scannable/i)
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(skipped).getByRole("button", { name: /show skipped reasons/i })
+    );
     expect(within(skipped).getByText(/wo-skip-1/)).toBeInTheDocument();
     expect(within(skipped).getByText(/STATUS_NOT_READY/)).toBeInTheDocument();
   });
@@ -193,6 +199,7 @@ describe("CodingWorkOrdersPanel", () => {
     render(<CodingWorkOrdersPanel />);
 
     const form = await screen.findByTestId("coding-work-order-create-form");
+    fireEvent.click(screen.getByRole("button", { name: /expand form/i }));
     fireEvent.change(within(form).getByLabelText("Title"), {
       target: { value: "Create from UI" },
     });
@@ -210,6 +217,21 @@ describe("CodingWorkOrdersPanel", () => {
         })
       );
     });
+  });
+
+  it("toggles the create form collapse state", async () => {
+    configureSuccessResponses([buildWorkOrder()]);
+
+    render(<CodingWorkOrdersPanel />);
+
+    const form = await screen.findByTestId("coding-work-order-create-form");
+    expect(form).toHaveClass("hidden");
+
+    fireEvent.click(screen.getByRole("button", { name: /expand form/i }));
+    expect(form).not.toHaveClass("hidden");
+
+    fireEvent.click(screen.getByRole("button", { name: /collapse form/i }));
+    expect(form).toHaveClass("hidden");
   });
 
   it("cancel action calls POST /api/coding/work-orders/{id}/cancel", async () => {

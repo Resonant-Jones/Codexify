@@ -1327,6 +1327,12 @@ def provider_egress_allowed(provider_id: str, settings: Settings) -> bool:
 
 
 def _cloud_capable_configuration_present(settings: Settings) -> bool:
+    """Return true only for explicit cloud configuration.
+
+    Bundled provider base-url defaults are part of the local runtime baseline
+    and do not count as explicit cloud capability on their own.
+    """
+
     if bool(getattr(settings, "ALLOW_CLOUD_PROVIDERS", False)):
         return True
 
@@ -1342,24 +1348,28 @@ def _cloud_capable_configuration_present(settings: Settings) -> bool:
         if allowlisted & CLOUD_PROVIDERS:
             return True
 
-    cloud_env_fields = (
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "GROQ_API_KEY",
-        "GROQ_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GENAI_API_KEY",
-        "GOOGLE_API_KEY",
-        "ALIBABA_API_KEY",
-        "ALIBABA_API_BASE",
-        "MINIMAX_API_KEY",
-        "MINIMAX_API_BASE",
+    openai_configured = bool(
+        str(getattr(settings, "OPENAI_API_KEY", "") or "").strip()
     )
-    for field in cloud_env_fields:
-        if str(getattr(settings, field, "") or "").strip():
-            return True
-    return False
+    groq_configured = bool(
+        str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
+    )
+    alibaba_configured = bool(
+        str(getattr(settings, "ALIBABA_API_KEY", "") or "").strip()
+        and str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
+    )
+    minimax_configured = bool(
+        str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
+        and str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
+    )
+    return any(
+        (
+            openai_configured,
+            groq_configured,
+            alibaba_configured,
+            minimax_configured,
+        )
+    )
 
 
 def supported_profile_posture(settings: Settings) -> dict[str, Any]:
@@ -1379,12 +1389,12 @@ def supported_profile_posture(settings: Settings) -> dict[str, Any]:
             "name": None,
             "version": None,
             "surface": None,
-            "valid": None,
-            "mismatches": [],
+            "valid": False,
+            "mismatches": ["supported profile manifest is not configured"],
             "selected_provider": selected_provider,
-            "selected_provider_supported": None,
+            "selected_provider_supported": False,
             "cloud_capable_configuration_present": cloud_capable,
-            "release_hold": None,
+            "release_hold": True,
         }
 
     mismatches = validate_supported_profile_runtime(manifest, settings=settings)
