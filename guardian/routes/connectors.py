@@ -13,10 +13,18 @@ import logging
 import os
 import random
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from guardian.connectors.external_transport_policy import (
+    CommandTuple,
+    ExternalPolicyDecision,
+    ExternalPolicyRequest,
+    ExternalPolicyRule,
+    evaluate_external_transport_policy,
+)
 
 # PostgreSQL imports for ingest endpoint
 try:
@@ -36,12 +44,14 @@ try:
         PG_DSN,
         _jsonify,
         chatlog_db,
+        get_current_user,
         require_api_key,
     )
 except ImportError as e:
     logger.warning(f"[connectors] Import warning: {e}")
     chatlog_db = None
     require_api_key = lambda x: x
+    get_current_user = lambda: "local"
     PG_DSN = None
     _jsonify = lambda x: x
 
@@ -159,18 +169,184 @@ def get_connector_worker_stats() -> Dict[str, int]:
     return dict(_CONNECTOR_WORKER_STATS)
 
 
-class ConnectorCreate(BaseModel):
+class ConnectorPolicyRulePayload(BaseModel):
+    effect: Literal["allow", "deny"]
+    connector_name: Optional[str] = None
+    transport: Optional[str] = None
+    command_namespace: Optional[str] = None
+    command_name: Optional[str] = None
+    url_host_pattern: Optional[str] = None
+    url_scheme: Optional[str] = None
+    project_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    reason: str = ""
+
+
+class ConnectorExternalPolicyPayload(BaseModel):
+    transport: Optional[str] = None
+    target_url: Optional[str] = None
+    policy_rules: Optional[List[ConnectorPolicyRulePayload]] = None
+    command_namespace: Optional[str] = None
+    command_name: Optional[str] = None
+    request_project_id: Optional[str] = None
+    request_thread_id: Optional[str] = None
+
+
+class ConnectorCreate(ConnectorExternalPolicyPayload):
     name: str
     type: str
     settings: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ConnectorUpdate(BaseModel):
+class ConnectorUpdate(ConnectorExternalPolicyPayload):
     settings: Optional[Dict[str, Any]] = None
 
 
 class ConnectorConfigFields(BaseModel):
     fields: Dict[str, Any]
+
+
+_CONNECTOR_POLICY_TRIGGER_FIELDS: frozenset[str] = frozenset(
+    {
+        "transport",
+        "target_url",
+        "policy_rules",
+        "command_namespace",
+        "command_name",
+    }
+)
+
+
+def _model_fields_set(payload: BaseModel) -> set[str]:
+    raw_set = getattr(payload, "model_fields_set", None)
+    if isinstance(raw_set, set):
+        return raw_set
+    legacy_set = getattr(payload, "__fields_set__", None)
+    if isinstance(legacy_set, set):
+        return legacy_set
+    return set()
+
+
+def _field_was_supplied(
+    payload: BaseModel,
+    field_name: str,
+    *,
+    explicit_fields: set[str] | None = None,
+) -> bool:
+    fields_set = (
+        explicit_fields
+        if explicit_fields is not None
+        else _model_fields_set(payload)
+    )
+    return field_name in fields_set
+
+
+def _build_rule_command_tuple(
+    namespace: Optional[str], name: Optional[str]
+) -> CommandTuple | None:
+    if namespace is None or name is None:
+        return None
+    return CommandTuple(namespace=namespace, name=name)
+
+
+def _to_external_policy_rule(
+    rule: ConnectorPolicyRulePayload,
+) -> ExternalPolicyRule:
+    return ExternalPolicyRule(
+        effect=rule.effect,
+        connector_name=rule.connector_name,
+        transport=rule.transport,
+        command=_build_rule_command_tuple(
+            rule.command_namespace,
+            rule.command_name,
+        ),
+        url_host_pattern=rule.url_host_pattern,
+        url_scheme=rule.url_scheme,
+        project_id=rule.project_id,
+        thread_id=rule.thread_id,
+        reason=rule.reason,
+    )
+
+
+def _policy_noop_decision() -> ExternalPolicyDecision:
+    return ExternalPolicyDecision(
+        allowed=True,
+        code="allowed",
+        reason="external transport policy not requested",
+        matched_rule_index=None,
+    )
+
+
+def _maybe_evaluate_connector_external_policy(
+    *,
+    connector_name: str,
+    policy_payload: ConnectorExternalPolicyPayload,
+    actor_id: str,
+    subject_id: str,
+) -> ExternalPolicyDecision:
+    fields_set = _model_fields_set(policy_payload)
+    if not any(
+        _field_was_supplied(
+            policy_payload,
+            field_name,
+            explicit_fields=fields_set,
+        )
+        for field_name in _CONNECTOR_POLICY_TRIGGER_FIELDS
+    ):
+        return _policy_noop_decision()
+
+    request_command = None
+    if (
+        policy_payload.command_namespace is not None
+        and policy_payload.command_name is not None
+    ):
+        request_command = CommandTuple(
+            namespace=policy_payload.command_namespace,
+            name=policy_payload.command_name,
+        )
+
+    rules = [
+        _to_external_policy_rule(rule)
+        for rule in (policy_payload.policy_rules or [])
+    ]
+
+    request = ExternalPolicyRequest(
+        actor_id=actor_id,
+        subject_id=subject_id,
+        connector_name=connector_name,
+        transport=policy_payload.transport or "",
+        command=request_command,
+        target_url=policy_payload.target_url,
+        project_id=policy_payload.request_project_id,
+        thread_id=policy_payload.request_thread_id,
+    )
+    return evaluate_external_transport_policy(request, rules)
+
+
+def _enforce_connector_external_policy_or_raise(
+    *,
+    connector_name: str,
+    policy_payload: ConnectorExternalPolicyPayload,
+    actor_id: str,
+    subject_id: str,
+) -> None:
+    decision = _maybe_evaluate_connector_external_policy(
+        connector_name=connector_name,
+        policy_payload=policy_payload,
+        actor_id=actor_id,
+        subject_id=subject_id,
+    )
+    if decision.allowed:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "connector external transport policy denied request",
+            "code": decision.code,
+            "reason": decision.reason,
+            "blocked_before_persistence": True,
+        },
+    )
 
 
 def _required_settings_for_type(type_: str) -> List[str]:
@@ -593,7 +769,10 @@ def list_connectors():
 
 
 @router.post("")
-def create_connector(cfg: ConnectorCreate):
+def create_connector(
+    cfg: ConnectorCreate,
+    current_user: str = Depends(get_current_user),
+):
     """Create a new connector configuration."""
     cfg_type = cfg.type.lower()
     if cfg_type not in CONNECTOR_REGISTRY:
@@ -605,6 +784,12 @@ def create_connector(cfg: ConnectorCreate):
             status_code=400, detail={"error": "Connector name already exists"}
         )
     _validate_connector_settings(cfg_type, cfg.settings)
+    _enforce_connector_external_policy_or_raise(
+        connector_name=cfg.name,
+        policy_payload=cfg,
+        actor_id=current_user,
+        subject_id=current_user,
+    )
     stored = chatlog_db.create_connector_config(
         cfg.name, cfg_type, cfg.settings
     )
@@ -620,9 +805,19 @@ def get_connector(connector_name: str):
 
 
 @router.patch("/{connector_name}")
-def patch_connector(connector_name: str, update: ConnectorUpdate):
+def patch_connector(
+    connector_name: str,
+    update: ConnectorUpdate,
+    current_user: str = Depends(get_current_user),
+):
     """Update a connector's settings."""
     cfg = _get_connector_by_name(connector_name)
+    _enforce_connector_external_policy_or_raise(
+        connector_name=connector_name,
+        policy_payload=update,
+        actor_id=current_user,
+        subject_id=current_user,
+    )
     if update.settings is not None:
         merged = {**(cfg.get("settings") or {}), **update.settings}
         _validate_connector_settings(cfg["type"], merged)
