@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
 
@@ -384,7 +385,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         source_message_id="99",
         attempt_id="attempt-7",
         user_id="local-user",
-        project_id=17,
+        project_id="17",
         adapter_kind="pi_sdk",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
@@ -409,7 +410,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert payload["source_thread_id"] == 42
     assert payload["source_message_id"] == 99
     assert payload["user_id"] == "local-user"
-    assert payload["project_id"] == 17
+    assert payload["project_id"] == "17"
     assert payload["validation_command"] == "pytest -q"
     assert payload["max_validation_attempts"] == 3
     assert payload["permission_policy"]["allow_shell"] is True
@@ -428,7 +429,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["spec_json"]["source_thread_id"] == 42
     assert deployment["spec_json"]["source_message_id"] == 99
     assert deployment["spec_json"]["user_id"] == "local-user"
-    assert deployment["spec_json"]["project_id"] == 17
+    assert deployment["spec_json"]["project_id"] == "17"
     assert deployment["spec_json"]["worktree_lease_id"] is None
     assert deployment["spec_json"]["require_worktree_lease"] is False
     assert deployment["spec_json"]["commit_after_validation"] is False
@@ -460,7 +461,7 @@ async def test_execute_coding_task_propagates_worktree_lease_fields(
         source_message_id="99",
         attempt_id="attempt-1",
         user_id="local-user",
-        project_id=17,
+        project_id="17",
         adapter_kind="pi_sdk",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
@@ -516,7 +517,7 @@ async def test_execute_coding_task_propagates_commit_gate_fields(
         source_message_id="99",
         attempt_id="attempt-1",
         user_id="local-user",
-        project_id=17,
+        project_id="17",
         adapter_kind="pi_sdk",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
@@ -551,6 +552,161 @@ async def test_execute_coding_task_propagates_commit_gate_fields(
     assert deployment["spec_json"]["commit_after_validation"] is True
     assert deployment["spec_json"]["commit_message"] == "Commit after green"
     assert deployment["spec_json"]["require_human_review_before_merge"] is False
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_propagates_campaign_runner_ids(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    captured_payloads: list[dict[str, Any]] = []
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+    monkeypatch.setattr(
+        "guardian.queue.redis_queue.enqueue_coding_execution",
+        lambda payload: captured_payloads.append(dict(payload)),
+    )
+
+    envelope = CodingAgentTaskEnvelope(
+        coding_task_id="coding-task-campaign-123",
+        thread_id="42",
+        source_message_id="99",
+        attempt_id="attempt-1",
+        user_id="local-user",
+        project_id="17",
+        adapter_kind="pi_sdk",
+        instructions="Patch campaign runner seams.",
+        repo_root="/workspace/repo",
+        context_summary="source thread summary",
+        campaign_id="campaign_abc",
+        work_order_id="wo_abc",
+        validation_command="pytest -q",
+        max_validation_attempts=1,
+        permission_policy=CodingAgentPermissionPolicy(
+            allow_shell=True,
+            allow_network=False,
+            allow_write=True,
+            allowed_paths=("/workspace/repo",),
+            max_runtime_seconds=60,
+        ),
+    )
+
+    result = await agent_orchestration.execute_coding_task(envelope)
+
+    assert result["ok"] is True
+    payload = captured_payloads[0]
+    assert payload["campaign_id"] == "campaign_abc"
+    assert payload["work_order_id"] == "wo_abc"
+
+    deployment = local_store.get_deployment(result["deployment_id"])
+    assert deployment is not None
+    assert deployment["spec_json"]["campaign_id"] == "campaign_abc"
+    assert deployment["spec_json"]["work_order_id"] == "wo_abc"
+
+
+def test_execute_coding_task_route_accepts_codex_adapter_kind(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+
+    payload = asdict(
+        CodingAgentTaskEnvelope(
+            coding_task_id="coding-task-codex-route",
+            thread_id="42",
+            source_message_id="99",
+            attempt_id="attempt-route",
+            user_id="local-user",
+            project_id="17",
+            adapter_kind="codex",
+            instructions="Patch the failing seam.",
+            repo_root="/workspace/repo",
+            context_summary="source thread summary",
+            validation_command="pytest -q",
+            max_validation_attempts=3,
+            permission_policy=CodingAgentPermissionPolicy(
+                allow_shell=True,
+                allow_network=False,
+                allow_write=True,
+                allowed_paths=("/workspace/repo",),
+                max_runtime_seconds=60,
+            ),
+        )
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=payload,
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["coding_task_id"] == "coding-task-codex-route"
+
+    deployment = local_store.get_deployment(body["deployment_id"])
+    assert deployment is not None
+    assert deployment["spec_json"]["adapter_kind"] == "codex"
+
+
+def test_execute_coding_task_route_rejects_unknown_adapter_kind(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+
+    local_store = AgentStore()
+    local_publisher = AgentEventPublisher()
+    monkeypatch.setattr(agent_orchestration, "_store", local_store)
+    monkeypatch.setattr(
+        agent_orchestration, "_event_publisher", local_publisher
+    )
+
+    payload = asdict(
+        CodingAgentTaskEnvelope(
+            coding_task_id="coding-task-reject",
+            thread_id="42",
+            source_message_id="99",
+            attempt_id="attempt-reject",
+            user_id="local-user",
+            project_id="17",
+            adapter_kind="codex",
+            instructions="Patch the failing seam.",
+            repo_root="/workspace/repo",
+            context_summary="source thread summary",
+            validation_command="pytest -q",
+            max_validation_attempts=1,
+            permission_policy=CodingAgentPermissionPolicy(
+                allow_shell=True,
+                allow_network=False,
+                allow_write=True,
+                allowed_paths=("/workspace/repo",),
+                max_runtime_seconds=60,
+            ),
+        )
+    )
+    payload["adapter_kind"] = "mystery_adapter"
+
+    client = _build_client()
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=payload,
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_start_run_rejects_invalid_runtime_target(monkeypatch) -> None:

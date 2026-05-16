@@ -1,0 +1,11 @@
+{
+  "banned_phrases": [
+    "public launch ready",
+    "guaranteed"
+  ],
+  "risk_flags": [
+    "overclaim_risk",
+    "unsupported_readiness_risk",
+    "path_collapsing_risk"
+  ]
+}

@@ -205,6 +205,26 @@ function renderMaybeString(value: string | null | undefined): string {
   return value == null || !String(value).trim() ? "—" : String(value).trim();
 }
 
+type CommandCenterNormalizedTraceCounts = {
+  graph: number;
+  memory: number;
+  semantic: number;
+};
+
+function normalizeTraceCounts(
+  trace: CommandCenterRagTracePayload | null
+): CommandCenterNormalizedTraceCounts | null {
+  if (!trace) return null;
+  const traceRecord = asRecord(trace);
+  if (!traceRecord) return null;
+
+  return {
+    graph: (asArray(traceRecord.graph) ?? []).length,
+    memory: (asArray(traceRecord.memory) ?? []).length,
+    semantic: (asArray(traceRecord.semantic) ?? []).length,
+  };
+}
+
 function getRunWarnings(run: CommandCenterRun): string[] {
   const warnings: string[] = [];
 
@@ -710,14 +730,15 @@ function buildOutcomeRows(
   rawTrace: Record<string, unknown>
 ): Array<[string, string]> {
   const payloadSummary = asRecord(rawTrace.payload_summary);
+  const normalizedTraceCounts = normalizeTraceCounts(normalizedTrace);
   const semanticCount =
-    normalizedTrace?.semantic.length ??
+    normalizedTraceCounts?.semantic ??
     firstNumber(payloadSummary?.semantic_count, asArray(rawTrace.documents)?.length, run?.traceEvidence?.documentCount);
   const memoryCount =
-    normalizedTrace?.memory.length ??
+    normalizedTraceCounts?.memory ??
     firstNumber(payloadSummary?.memory_count, asArray(rawTrace.memory)?.length, run?.traceEvidence?.memoryCount);
   const graphCount =
-    normalizedTrace?.graph.length ??
+    normalizedTraceCounts?.graph ??
     firstNumber(payloadSummary?.graph_count, asArray(rawTrace.graph)?.length, run?.traceEvidence?.graphCount);
 
   return [
@@ -814,6 +835,7 @@ function buildNotes(
   normalizedTrace: CommandCenterRagTracePayload | null
 ): string[] {
   const notes: string[] = [];
+  const normalizedTraceCounts = normalizeTraceCounts(normalizedTrace);
 
   if (run?.fallbackTriggered) {
     notes.push(
@@ -837,9 +859,9 @@ function buildNotes(
   }
 
   if (
-    normalizedTrace &&
-    normalizedTrace.semantic.length === 0 &&
-    normalizedTrace.memory.length === 0 &&
+    normalizedTraceCounts &&
+    normalizedTraceCounts.semantic === 0 &&
+    normalizedTraceCounts.memory === 0 &&
     (run?.traceEvidence?.tracePresent || asArray(rawTrace.documents)?.length || asArray(rawTrace.graph)?.length)
   ) {
     notes.push("Trace metadata was returned, but no semantic or memory items were normalized.");

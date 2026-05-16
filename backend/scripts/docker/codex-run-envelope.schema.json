@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "spec_alignment_ok": {
+      "type": "boolean"
+    },
+    "schema_valid": {
+      "type": "boolean"
+    },
+    "model_self_confidence": {
+      "type": ["number", "null"]
+    }
+  },
+  "required": [
+    "status",
+    "summary"
+  ],
+  "additionalProperties": true
+}

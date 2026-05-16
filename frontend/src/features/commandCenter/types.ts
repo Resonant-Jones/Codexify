@@ -486,6 +486,7 @@ export interface CommandCenterRagTraceItem {
 }
 
 export interface CommandCenterRagTracePayload {
+  graph?: CommandCenterRagTraceItem[];
   memory: CommandCenterRagTraceItem[];
   resolvedThreadId: number;
   semantic: CommandCenterRagTraceItem[];

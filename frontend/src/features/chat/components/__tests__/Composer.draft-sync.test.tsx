@@ -122,6 +122,51 @@ describe("Composer draft sync", () => {
     expect(onDraftValueChange).toHaveBeenLastCalledWith("");
   });
 
+  it("turns /obsidian into a turn-scoped Obsidian context request", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, {
+      target: { value: "/obsidian wiki notes" },
+    });
+
+    expect(screen.getByTestId("composer-obsidian-action")).toHaveTextContent(
+      "Obsidian"
+    );
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+    expect(onSend).toHaveBeenCalledWith(
+      "wiki notes",
+      expect.objectContaining({
+        slashIntent: expect.objectContaining({
+          commandId: "obsidian",
+          queryText: "wiki notes",
+          retrievalHint: "personal_knowledge",
+          contextDirectives: [
+            {
+              kind: "connector_context",
+              connectorId: "obsidian",
+              invocation: "turn_scoped",
+              queryText: "wiki notes",
+            },
+          ],
+        }),
+      })
+    );
+  });
+
   it("keeps the textarea on the content plane and gives the control row its own padding contract", () => {
     render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />);
 
@@ -230,10 +275,7 @@ describe("Composer draft sync", () => {
     expect(api.post).toHaveBeenCalledTimes(1);
     expect(api.post).toHaveBeenCalledWith(
       "/api/media/upload/document",
-      expect.any(FormData),
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      }
+      expect.any(FormData)
     );
     expect(onSend.mock.calls[0][0]).toContain("cfy-media:document:doc-1");
     expect(onSend.mock.calls[0][0]).toContain("cfy-media-name:notes.txt");

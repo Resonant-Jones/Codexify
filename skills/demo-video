@@ -1,0 +1,35 @@
+Create a demo fixture bundle for Codexify that contains no real user data.
+
+Goal:
+Produce realistic but fictional demo assets for a product walkthrough showing:
+1. ChatGPT export import flow
+2. Conversation browsing/search
+3. Memory/document views
+4. Photo/file upload demo
+
+Requirements:
+- Do not use, inspect, copy, summarize, or transform any of my real ChatGPT export data.
+- Generate fully synthetic content only.
+- Create a Demo Conversation.json that resembles a ChatGPT export enough for Codexify’s importer to process it.
+- Include multiple fictional conversations showing different shapes:
+  - short Q&A
+  - long technical planning thread
+  - creative/worldbuilding thread
+  - debugging thread
+  - product strategy thread
+- Include timestamps, titles, message roles, IDs, and realistic nested/message structure matching the importer expectations.
+- Create a /demo-assets folder containing:
+  - sample photos or placeholder images
+  - markdown files
+  - txt notes
+  - a fake PDF or PDF-ready markdown
+  - json metadata
+- Add a README explaining that all assets are synthetic demo data.
+- Add a validation script or test fixture if appropriate.
+- Keep files small and safe to commit.
+- Do not modify production logic unless needed to support demo fixture loading.
+
+After creating the bundle:
+- Run importer-related tests if available.
+- Tell me exactly where the files were created.
+- Summarize the demo flow this bundle supports.

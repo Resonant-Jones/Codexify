@@ -1,0 +1,38 @@
+{
+  "name": "marketing-skill-v1",
+  "version": "1.0.0",
+  "mode": "draft-only",
+  "default_audience": "local-first-builders",
+  "allowed_proof_tiers": [
+    "implemented",
+    "verified",
+    "live-proven"
+  ],
+  "required_claim_fields": [
+    "claim",
+    "proof_tier",
+    "evidence_paths",
+    "status",
+    "channel",
+    "approval_state"
+  ],
+  "banned_phrases": [
+    "public launch ready",
+    "guaranteed",
+    "fully autonomous",
+    "works everywhere",
+    "zero risk",
+    "set and forget"
+  ],
+  "risk_flags": [
+    "overclaim_risk",
+    "unsupported_readiness_risk",
+    "path_collapsing_risk"
+  ],
+  "templates": {
+    "core_brief": "guardian/skills/marketing/templates/core-brief.md",
+    "channel_variant": "guardian/skills/marketing/templates/channel-variant.md",
+    "ad_copy": "guardian/skills/marketing/templates/ad-copy.md",
+    "infographic": "guardian/skills/marketing/templates/infographic.md"
+  }
+}

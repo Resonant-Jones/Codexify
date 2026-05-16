@@ -498,7 +498,7 @@ export function Composer({
           type="file"
           accept="image/*"
           multiple
-          style={{ display: "none" }}
+          style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
           onChange={(e) => {
             const files = Array.from(e.currentTarget.files ?? []);
             e.currentTarget.value = "";
@@ -511,7 +511,7 @@ export function Composer({
           // Allow docs too; backend route is /api/media/upload/file
           accept="application/pdf,text/plain,text/markdown,.md,.txt"
           multiple
-          style={{ display: "none" }}
+          style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
           onChange={(e) => {
             const files = Array.from(e.currentTarget.files ?? []);
             e.currentTarget.value = "";

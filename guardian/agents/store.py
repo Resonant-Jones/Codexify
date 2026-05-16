@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from guardian.agents.campaign_runner_store import (
+    CampaignRunnerStore,
+    CampaignRunnerStoreError,
+)
 from guardian.agents.events import build_coding_result_lineage_payload
 from guardian.db.models import (
     AgentConfidenceReport,
@@ -22,6 +27,8 @@ from guardian.db.models import (
     ChatMessage,
     ChatThread,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
@@ -54,14 +61,16 @@ def _normalize_coding_result_status(status: Any) -> str:
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
-    return _normalize_coding_result_status(status) in {
-        "ok",
-        "success",
-        "succeeded",
-        "completed",
-        "partial",
-        "partial_success",
-        "partial-success",
+    normalized = _normalize_coding_result_status(status)
+    # Terminal coding outcomes should return bounded evidence to the source
+    # thread whenever lineage is available.
+    return normalized not in {
+        "",
+        "queued",
+        "pending",
+        "running",
+        "in_progress",
+        "processing",
     }
 
 
@@ -313,37 +322,51 @@ class AgentStore:
         error: str | None = None,
         rollback_applied: bool | None = None,
         rollback_reason: str | None = None,
-    ) -> None:
+    ) -> bool:
         now = _utc_now()
+        normalized_status = _normalize_agent_run_status(status)
         if self._has_db():
             with self.db.get_session() as session:
                 row = session.query(AgentRun).filter_by(run_id=run_id).first()
                 if row is None:
-                    return
-                row.status = status
+                    return False
+                current_status = _normalize_agent_run_status(row.status)
+                if _is_terminal_agent_run_status(current_status):
+                    if not _is_terminal_agent_run_status(normalized_status):
+                        return True
+                    if normalized_status != current_status:
+                        return True
+                row.status = normalized_status
                 if error is not None:
                     row.error = error
                 if rollback_applied is not None:
                     row.rollback_applied = rollback_applied
                 if rollback_reason is not None:
                     row.rollback_reason = rollback_reason
-                if status in {"failed", "succeeded", "canceled", "escalated"}:
+                if _is_terminal_agent_run_status(normalized_status):
                     row.ended_at = now
                 session.commit()
-                return
+                return True
 
         item = self._mem_runs.get(run_id)
         if item is None:
-            return
-        item["status"] = status
+            return False
+        current_status = _normalize_agent_run_status(item.get("status"))
+        if _is_terminal_agent_run_status(current_status):
+            if not _is_terminal_agent_run_status(normalized_status):
+                return True
+            if normalized_status != current_status:
+                return True
+        item["status"] = normalized_status
         if error is not None:
             item["error"] = error
         if rollback_applied is not None:
             item["rollback_applied"] = rollback_applied
         if rollback_reason is not None:
             item["rollback_reason"] = rollback_reason
-        if status in {"failed", "succeeded", "canceled", "escalated"}:
+        if _is_terminal_agent_run_status(normalized_status):
             item["ended_at"] = now.isoformat()
+        return True
 
     def create_step(
         self,
@@ -936,6 +959,8 @@ class AgentStore:
         run_id: str,
         coding_task_id: str,
         attempt_id: str,
+        campaign_id: str | None = None,
+        work_order_id: str | None = None,
         request_id: str | None = None,
         thread_id: int | None,
         source_message_id: int | None,
@@ -1023,6 +1048,19 @@ class AgentStore:
         )
         expected_project_id = _coerce_positive_int(
             deployment_spec.get("project_id")
+        )
+        resolved_campaign_id = (
+            str(campaign_id or deployment_spec.get("campaign_id") or "").strip()
+            or None
+        )
+        resolved_work_order_id = (
+            str(
+                work_order_id or deployment_spec.get("work_order_id") or ""
+            ).strip()
+            or None
+        )
+        resolved_goal_id = (
+            str(deployment_spec.get("goal_id") or "").strip() or None
         )
         resolved_worktree_lease_id = (
             str(
@@ -1162,6 +1200,8 @@ class AgentStore:
                 "run_id": run_id,
                 "coding_task_id": coding_task_id,
                 "attempt_id": attempt_id,
+                "campaign_id": resolved_campaign_id,
+                "work_order_id": resolved_work_order_id,
                 "request_id": request_id,
                 "thread_id": expected_thread_id,
                 "source_message_id": expected_source_message_id,
@@ -1207,6 +1247,8 @@ class AgentStore:
             "run_id": run_id,
             "coding_task_id": coding_task_id,
             "attempt_id": attempt_id,
+            "campaign_id": resolved_campaign_id,
+            "work_order_id": resolved_work_order_id,
             "request_id": request_id,
             "thread_id": expected_thread_id,
             "source_message_id": expected_source_message_id,
@@ -1249,8 +1291,9 @@ class AgentStore:
         }
 
         message_id = None
-        delivery_reason = None
+        delivery_reason_code = None
         delivery_ok = False
+        delivery_status = "degraded"
         if (
             persist_message
             and expected_thread_id is not None
@@ -1258,12 +1301,14 @@ class AgentStore:
         ):
             (
                 message_id,
-                delivery_reason,
+                delivery_reason_code,
             ) = self._inject_coding_result_into_thread(
                 thread_id=expected_thread_id,
                 run_id=run_id,
                 coding_task_id=coding_task_id,
                 attempt_id=attempt_id,
+                campaign_id=resolved_campaign_id,
+                work_order_id=resolved_work_order_id,
                 request_id=request_id,
                 source_message_id=expected_source_message_id,
                 expected_user_id=expected_user_id,
@@ -1301,28 +1346,52 @@ class AgentStore:
                 patch_artifact=patch_artifact,
             )
             delivery_ok = message_id is not None
+            delivery_status = "delivered" if delivery_ok else "degraded"
         elif expected_thread_id is None:
-            delivery_reason = "missing_source_thread"
+            delivery_reason_code = "missing_source_thread"
         elif not persist_message:
-            delivery_reason = "result_status_not_persisted_as_assistant_message"
+            delivery_status = "not_requested"
+            delivery_reason_code = (
+                "result_status_not_persisted_as_assistant_message"
+            )
         else:
-            delivery_reason = "delivery_database_unavailable"
+            delivery_reason_code = "delivery_database_unavailable"
 
-        final_status = (
-            "succeeded" if persist_message and delivery_ok else "failed"
-        )
-        self.update_run_status(
+        if normalized_status in {"cancelled", "canceled"}:
+            terminal_run_status = "canceled"
+        elif _should_persist_coding_result_message(normalized_status) and (
+            normalized_status
+            in {
+                "ok",
+                "success",
+                "succeeded",
+                "completed",
+                "partial",
+                "partial_success",
+                "partial-success",
+            }
+        ):
+            terminal_run_status = "succeeded" if delivery_ok else "failed"
+        else:
+            terminal_run_status = "failed"
+
+        run_status_updated = self.update_run_status(
             run_id=run_id,
-            status=final_status,
+            status=terminal_run_status,
             error=error_message
-            or delivery_reason
+            or delivery_reason_code
             or (errors[0] if errors else None),
         )
 
         artifact_payload = dict(result_payload)
         artifact_payload["message_id"] = message_id
+        artifact_payload["result_message_id"] = message_id
         artifact_payload["delivery_ok"] = delivery_ok
-        artifact_payload["delivery_reason"] = delivery_reason
+        artifact_payload["delivery_status"] = delivery_status
+        artifact_payload["delivery_reason"] = delivery_reason_code
+        artifact_payload["delivery_reason_code"] = delivery_reason_code
+        artifact_payload["terminal_run_status"] = terminal_run_status
+        artifact_payload["terminal_run_status_updated"] = run_status_updated
         if self._has_db():
             existing_artifact = None
             for row in self.list_artifacts(
@@ -1345,13 +1414,66 @@ class AgentStore:
                     content_json=artifact_payload,
                 )
 
+            if resolved_work_order_id is not None:
+                try:
+                    from guardian.agents.work_order_store import WorkOrderStore
+
+                    WorkOrderStore(db=self.db).mark_latest_run(
+                        resolved_work_order_id,
+                        run_id=run_id,
+                        lease_id=resolved_worktree_lease_id,
+                        receipt_id=(
+                            str(message_id) if message_id is not None else None
+                        ),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[agent-store] failed to update work-order run markers: %s",
+                        exc,
+                    )
+
+            self._record_campaign_execution_attempt(
+                run=run,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                coding_task_id=coding_task_id,
+                campaign_id=resolved_campaign_id,
+                goal_id=resolved_goal_id,
+                work_order_id=resolved_work_order_id,
+                adapter_kind=adapter_kind,
+                result_status=normalized_status,
+                error_code=error_code,
+                error_message=error_message,
+                validation_results=validation_results,
+                validation_attempt_count=validation_attempt_count,
+                validation_attempts=validation_attempts,
+                final_validation_status=final_validation_status,
+                final_fail_signature=final_fail_signature,
+                best_validation_result=best_validation_result,
+                max_validation_attempts=max_validation_attempts,
+                commit_hash=resolved_commit_hash,
+                delivery_ok=delivery_ok,
+                message_id=message_id,
+                delivery_reason=delivery_reason_code,
+                source_thread_id=expected_thread_id,
+                source_message_id=expected_source_message_id,
+                result_payload=result_payload,
+            )
+
         return {
             "ok": True,
             "run_id": run_id,
             "status": normalized_status,
             "message_id": message_id,
+            "result_message_id": message_id,
             "delivery_ok": delivery_ok,
-            "delivery_reason": delivery_reason,
+            "delivery_status": delivery_status,
+            "delivery_reason": delivery_reason_code,
+            "delivery_reason_code": delivery_reason_code,
+            "thread_id": expected_thread_id,
+            "source_message_id": expected_source_message_id,
+            "terminal_run_status": terminal_run_status,
+            "terminal_run_status_updated": run_status_updated,
             "files_changed": normalized_files_changed,
             "artifacts_count": len(artifact_rows),
             "commit_hash": resolved_commit_hash,
@@ -1368,8 +1490,147 @@ class AgentStore:
             "validation_attempts": validation_attempts,
             "best_validation_result": best_validation_result,
             "max_validation_attempts": max_validation_attempts,
+            "campaign_id": resolved_campaign_id,
+            "work_order_id": resolved_work_order_id,
             "result_payload": result_payload,
         }
+
+    def _record_campaign_execution_attempt(
+        self,
+        *,
+        run: dict[str, Any] | None,
+        run_id: str,
+        attempt_id: str,
+        coding_task_id: str,
+        campaign_id: str | None,
+        goal_id: str | None,
+        work_order_id: str | None,
+        adapter_kind: str | None,
+        result_status: str,
+        error_code: str | None,
+        error_message: str | None,
+        validation_results: Any | None,
+        validation_attempt_count: Any | None,
+        validation_attempts: Any | None,
+        final_validation_status: Any | None,
+        final_fail_signature: Any | None,
+        best_validation_result: Any | None,
+        max_validation_attempts: Any | None,
+        commit_hash: str | None,
+        delivery_ok: bool,
+        message_id: int | None,
+        delivery_reason: str | None,
+        source_thread_id: int | None,
+        source_message_id: int | None,
+        result_payload: dict[str, Any],
+    ) -> None:
+        if not self._has_db():
+            return
+        if campaign_id is None and work_order_id is None:
+            return
+
+        normalized_result_status = _normalize_coding_result_status(
+            result_status
+        )
+        if normalized_result_status in {
+            "ok",
+            "success",
+            "succeeded",
+            "completed",
+            "partial",
+            "partial_success",
+            "partial-success",
+        }:
+            attempt_status = "succeeded"
+        elif normalized_result_status in {"cancelled", "canceled"}:
+            attempt_status = "cancelled"
+        else:
+            attempt_status = "failed"
+
+        started_at: datetime | None = None
+        if isinstance(run, dict):
+            for key in ("started_at", "created_at"):
+                raw = run.get(key)
+                if isinstance(raw, datetime):
+                    started_at = raw
+                    break
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        started_at = datetime.fromisoformat(raw)
+                    except ValueError:
+                        started_at = None
+                    if started_at is not None:
+                        break
+
+        validation_summary: dict[str, Any] = {}
+        if validation_results is not None:
+            validation_summary["validation_results"] = validation_results
+        if validation_attempt_count is not None:
+            validation_summary[
+                "validation_attempt_count"
+            ] = validation_attempt_count
+        if validation_attempts is not None:
+            validation_summary["validation_attempts"] = validation_attempts
+        if final_validation_status is not None:
+            validation_summary[
+                "final_validation_status"
+            ] = final_validation_status
+        if final_fail_signature is not None:
+            validation_summary["final_fail_signature"] = final_fail_signature
+        if best_validation_result is not None:
+            validation_summary[
+                "best_validation_result"
+            ] = best_validation_result
+        if max_validation_attempts is not None:
+            validation_summary[
+                "max_validation_attempts"
+            ] = max_validation_attempts
+
+        runtime_target = None
+        if isinstance(run, dict):
+            raw_runtime_target = str(run.get("runtime_target") or "").strip()
+            runtime_target = raw_runtime_target or None
+
+        try:
+            campaign_store = CampaignRunnerStore(self.db)
+            resolved_goal_id = goal_id
+            if resolved_goal_id is None and campaign_id is not None:
+                campaign = campaign_store.get_campaign(campaign_id)
+                if isinstance(campaign, dict):
+                    resolved_goal_id = (
+                        str(campaign.get("goal_id") or "").strip() or None
+                    )
+
+            campaign_store.record_execution_attempt(
+                run_id=run_id,
+                attempt_id=attempt_id,
+                status=attempt_status,
+                coding_task_id=coding_task_id,
+                campaign_id=campaign_id,
+                goal_id=resolved_goal_id,
+                work_order_id=work_order_id,
+                adapter_kind=adapter_kind,
+                runtime_target=runtime_target,
+                started_at=started_at,
+                error_code=error_code,
+                error_message=error_message,
+                validation_summary=validation_summary,
+                commit_hash=commit_hash,
+                delivery_ok=delivery_ok,
+                delivered_message_id=message_id,
+                delivery_reason=delivery_reason,
+                source_thread_id=source_thread_id,
+                source_message_id=source_message_id,
+                evidence_json=result_payload,
+            )
+        except CampaignRunnerStoreError as exc:
+            logger.warning(
+                "[agent-store] campaign attempt recording skipped: %s", exc
+            )
+        except Exception as exc:
+            logger.warning(
+                "[agent-store] campaign attempt recording failed: %s", exc
+            )
 
     def _inject_coding_result_into_thread(
         self,
@@ -1378,6 +1639,8 @@ class AgentStore:
         run_id: str,
         coding_task_id: str,
         attempt_id: str,
+        campaign_id: str | None,
+        work_order_id: str | None,
         request_id: str | None,
         source_message_id: int | None,
         expected_user_id: str | None,
@@ -1466,6 +1729,8 @@ class AgentStore:
             extra_meta.update(
                 {
                     "type": "coding_result",
+                    "campaign_id": campaign_id,
+                    "work_order_id": work_order_id,
                     "user_id": expected_user_id,
                     "project_id": expected_project_id,
                     "status": status,
@@ -1516,6 +1781,10 @@ class AgentStore:
             content_parts = [f"## Coding Task Result\n\n"]
             content_parts.append(f"**Status**: {status.upper()}\n\n")
             content_parts.append(f"**Summary**: {summary}\n\n")
+            if campaign_id:
+                content_parts.append(f"**Campaign**: `{campaign_id}`\n\n")
+            if work_order_id:
+                content_parts.append(f"**Work Order**: `{work_order_id}`\n\n")
 
             if commit_hash:
                 content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
