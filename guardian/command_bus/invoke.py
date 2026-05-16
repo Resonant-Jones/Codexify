@@ -12,8 +12,16 @@ from fastapi import HTTPException
 from guardian.command_bus.contracts import (
     INVOKE_VERSION,
     MAX_PAYLOAD_BYTES,
+    InvokeExternalPolicyRule,
     InvokePermissionProfile,
     InvokeRequest,
+)
+from guardian.connectors.external_transport_policy import (
+    CommandTuple,
+    ExternalPolicyDecision,
+    ExternalPolicyRequest,
+    ExternalPolicyRule,
+    evaluate_external_transport_policy,
 )
 from guardian.command_bus.permission_profiles import (
     PermissionProfile,
@@ -177,6 +185,90 @@ def _build_permission_profile_request(
     )
 
 
+_EXTERNAL_POLICY_TRIGGER_FIELDS: frozenset[str] = frozenset(
+    {
+        "external_transport",
+        "external_target_url",
+        "external_policy_rules",
+        "external_command_namespace",
+        "external_command_name",
+        "external_connector_name",
+    }
+)
+
+
+def _invoke_fields_set(payload: InvokeRequest) -> set[str]:
+    raw_set = getattr(payload, "model_fields_set", None)
+    if isinstance(raw_set, set):
+        return raw_set
+    legacy_set = getattr(payload, "__fields_set__", None)
+    if isinstance(legacy_set, set):
+        return legacy_set
+    return set()
+
+
+def _external_policy_is_triggered(payload: InvokeRequest) -> bool:
+    fields_set = _invoke_fields_set(payload)
+    return any(
+        field_name in fields_set
+        for field_name in _EXTERNAL_POLICY_TRIGGER_FIELDS
+    )
+
+
+def _build_external_policy_command_tuple(
+    payload: InvokeRequest,
+) -> CommandTuple | None:
+    namespace = _optional_text(payload.external_command_namespace)
+    name = _optional_text(payload.external_command_name)
+    if namespace is None or name is None:
+        return None
+    return CommandTuple(namespace=namespace, name=name)
+
+
+def _build_external_policy_rules(
+    policy_rules: tuple[InvokeExternalPolicyRule, ...],
+) -> list[ExternalPolicyRule]:
+    rules: list[ExternalPolicyRule] = []
+    for rule in policy_rules:
+        command = None
+        namespace = _optional_text(rule.command_namespace)
+        name = _optional_text(rule.command_name)
+        if namespace is not None and name is not None:
+            command = CommandTuple(namespace=namespace, name=name)
+        rules.append(
+            ExternalPolicyRule(
+                effect=rule.effect,
+                connector_name=rule.connector_name,
+                transport=rule.transport,
+                command=command,
+                url_host_pattern=rule.url_host_pattern,
+                url_scheme=rule.url_scheme,
+                project_id=rule.project_id,
+                thread_id=rule.thread_id,
+                reason=rule.reason,
+            )
+        )
+    return rules
+
+
+def _build_external_policy_request(
+    *,
+    payload: InvokeRequest,
+    auth_subject: str,
+) -> ExternalPolicyRequest:
+    connector_name = _optional_text(payload.external_connector_name) or ""
+    return ExternalPolicyRequest(
+        actor_id=payload.actor.id,
+        subject_id=auth_subject,
+        connector_name=connector_name,
+        transport=payload.external_transport or "",
+        command=_build_external_policy_command_tuple(payload),
+        target_url=payload.external_target_url,
+        project_id=_optional_text(payload.external_project_id),
+        thread_id=_optional_text(payload.external_thread_id),
+    )
+
+
 async def execute_invoke(
     *,
     payload: InvokeRequest,
@@ -254,6 +346,7 @@ async def execute_invoke(
     )
 
     permission_profile_decision = None
+    external_policy_decision: ExternalPolicyDecision | None = None
     pre_dispatch_blocked_reason: str | None = None
     if payload.permission_profile is not None:
         profile = _build_permission_profile(payload.permission_profile)
@@ -271,6 +364,26 @@ async def execute_invoke(
         if not permission_profile_decision.allowed:
             pre_dispatch_blocked_reason = (
                 f"permission_profile_denied:{permission_profile_decision.code}"
+            )
+    if _external_policy_is_triggered(payload):
+        external_policy_request = _build_external_policy_request(
+            payload=payload,
+            auth_subject=auth_subject,
+        )
+        external_policy_rules = _build_external_policy_rules(
+            payload.external_policy_rules
+        )
+        external_policy_decision = evaluate_external_transport_policy(
+            external_policy_request,
+            external_policy_rules,
+        )
+        if (
+            not external_policy_decision.allowed
+            and pre_dispatch_blocked_reason is None
+        ):
+            pre_dispatch_blocked_reason = (
+                "external_transport_policy_denied:"
+                f"{external_policy_decision.code}"
             )
 
     args_hash = compute_args_hash(args_dict)
@@ -319,6 +432,14 @@ async def execute_invoke(
             "reason": permission_profile_decision.reason,
             "blocked_before_dispatch": (
                 not permission_profile_decision.allowed
+            ),
+        }
+    if external_policy_decision is not None:
+        created_payload["external_transport_policy"] = {
+            "code": external_policy_decision.code,
+            "reason": external_policy_decision.reason,
+            "blocked_before_dispatch": (
+                not external_policy_decision.allowed
             ),
         }
     store.append_event(
@@ -378,6 +499,14 @@ async def execute_invoke(
                     not permission_profile_decision.allowed
                 ),
             }
+        if external_policy_decision is not None:
+            blocked_payload["external_transport_policy"] = {
+                "code": external_policy_decision.code,
+                "reason": external_policy_decision.reason,
+                "blocked_before_dispatch": (
+                    not external_policy_decision.allowed
+                ),
+            }
         store.append_event(
             run_id=run_id,
             event_type="run.blocked",
@@ -398,6 +527,14 @@ async def execute_invoke(
                 "reason": permission_profile_decision.reason,
                 "blocked_before_dispatch": (
                     not permission_profile_decision.allowed
+                ),
+            }
+        if external_policy_decision is not None:
+            blocked_response["external_transport_policy"] = {
+                "code": external_policy_decision.code,
+                "reason": external_policy_decision.reason,
+                "blocked_before_dispatch": (
+                    not external_policy_decision.allowed
                 ),
             }
         if invoke_policy.warnings:
