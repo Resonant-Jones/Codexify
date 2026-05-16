@@ -143,18 +143,22 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 8. **Task id:** `FB-008`
    **Title:** RunReceipt persistence model
    **Lane:** backend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/data-and-storage.md`, `docs/architecture/adr/`, possible future migration plan docs
    **Depends on:** `FB-002`, `FB-007`
+   **Proof artifact:** `docs/architecture/flow-builder-runreceipt-persistence-model.md`
    **Proof surface:** persistence proposal covering receipt immutability, run identity, step receipts, terminal state, failure reason, provenance links, command run references, retrieval posture, and semantic-step metadata
    **Non-goals:** no database migration, no model implementation, no receipt API, no activity UI
 
 9. **Task id:** `FB-009`
    **Title:** Flow activity/proof surface design
    **Lane:** frontend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/`, possible future `docs/architecture/flow-builder-activity-proof-surface.md`, future frontend contract docs
    **Depends on:** `FB-008`
+   **Proof artifact:** `docs/architecture/flow-builder-activity-proof-surface.md`
    **Proof surface:** surface design that shows receipt streams as operational evidence distinct from chat messages and task events
    **Non-goals:** no UI component implementation, no SSE subscription, no receipt route, no live proof claim
 
