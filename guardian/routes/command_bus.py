@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 import json
 from typing import Any, AsyncGenerator, Mapping
 
@@ -12,6 +13,11 @@ from fastapi.responses import StreamingResponse
 from guardian.command_bus.contracts import InvokeRequest
 from guardian.command_bus.invoke import execute_invoke
 from guardian.command_bus.manifest import build_manifest
+from guardian.command_bus.search import (
+    CommandSearchQuery,
+    records_from_manifest,
+    search_commands,
+)
 from guardian.command_bus.store import CommandBusStore
 from guardian.core.dependencies import get_current_user, require_api_key
 from guardian.extensions.activation import (
@@ -58,6 +64,25 @@ def get_store() -> CommandBusStore:
 async def get_manifest(request: Request) -> dict[str, Any]:
     manifest = build_manifest(request.app)
     return manifest.model_dump(mode="json")
+
+
+@router.get("/search")
+async def search_command_manifest(
+    request: Request,
+    q: str = Query(default=""),
+    limit: int = Query(default=20),
+) -> dict[str, Any]:
+    manifest = build_manifest(request.app)
+    records = records_from_manifest(manifest)
+    search_query = CommandSearchQuery(query=q, limit=limit)
+    results = search_commands(records, search_query)
+    bounded_limit = max(1, min(50, int(limit or 20)))
+    return {
+        "query": q,
+        "limit": bounded_limit,
+        "count": len(results),
+        "results": [asdict(result) for result in results],
+    }
 
 
 @router.post("/invoke")
