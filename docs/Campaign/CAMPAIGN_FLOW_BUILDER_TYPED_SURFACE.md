@@ -170,7 +170,7 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Target files or likely target file families:** `docs/architecture/account-export-restore-contract.md`, `docs/architecture/data-and-storage.md`, possible future export manifest docs and tests
     **Depends on:** `FB-002`, `FB-007`, `FB-008`
     **Proof artifact:** `docs/architecture/flow-builder-export-restore-inclusion-contract.md`
-    **Proof surface:** explicit decision on whether `FlowDraft`, `Activation`, and `FlowRunReceipt` enter export/restore first, including lineage preservation or explicit manifest exclusion
+    **Proof surface:** explicit inclusion contract for `FlowDraft`, compiled-plan refs, validation snapshots, `TestRun`, `Activation`, `RunReceipt`, `StepReceipt`, activity/proof reconstruction, manifest families, ID remapping, unresolved references, exclusion policy, compatibility behavior, and lineage preservation
     **Non-goals:** no export code changes, no restore implementation, no data migration
 
 11. **Task id:** `FB-011`
