@@ -412,21 +412,18 @@
     "failures": [],
     "mode": "json",
     "repo": {
-      "branch": "codex/p2-worktree-isolation-fixes",
-      "dirty": true,
-      "head": "0fa121e8f0dae5b29bcf6b16696896c88782e2fd",
+      "branch": "main",
+      "dirty": false,
+      "head": "0c244a990c5229d9d6381fb28ed4a99de85e70bb",
       "status_error": "",
-      "status_lines": [
-        " M docs/architecture/codexify-platform-readiness-audit.md",
-        " M scripts/audit_platform_readiness.py",
-        "?? CHANGELOG.beta.md",
-        "?? docs/audits/generated/2026-05-15-beta-sentinel.json",
-        "?? docs/audits/generated/2026-05-15-beta-sentinel.md",
-        "?? scripts/release/beta_release_sentinel.py",
-        "?? tests/scripts/test_audit_platform_readiness_json.py",
-        "?? tests/scripts/test_beta_release_sentinel.py"
-      ]
+      "status_lines": []
     },
+    "repo_root_relative": ".",
+    "strongest_domains": [
+      "Extension Boundary",
+      "Core Loop Integrity",
+      "Primitive Stability"
+    ],
     "summary": {
       "fail": 0,
       "overall_status": "pass",
@@ -499,13 +496,14 @@
         "evidence": "docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'",
         "label": "Ownership authority is still informal in the scanned docs"
       }
+    ],
+    "weakest_domains": [
+      "Federation Readiness",
+      "Alternate Surface Readiness",
+      "Governance Readiness"
     ]
   },
-  "blockers": [
-    "Coding results return through Guardian into the source thread without duplicate delivery.",
-    "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
-    "No internal-only or quarantined surface is part of the release claim."
-  ],
+  "blockers": [],
   "commit_subjects": [],
   "current_state": {
     "checklist": [
@@ -523,15 +521,15 @@
       },
       {
         "label": "Coding results return through Guardian into the source thread without duplicate delivery.",
-        "mark": ""
+        "mark": "x"
       },
       {
         "label": "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
-        "mark": ""
+        "mark": "x"
       },
       {
         "label": "No internal-only or quarantined surface is part of the release claim.",
-        "mark": ""
+        "mark": "x"
       }
     ],
     "path": "docs/architecture/00-current-state.md"
@@ -571,19 +569,19 @@
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Coding results return through Guardian into the source thread without duplicate delivery.",
       "notes": "Checklist item from current state.",
-      "status": "warning"
+      "status": "checked"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.",
       "notes": "Checklist item from current state.",
-      "status": "warning"
+      "status": "checked"
     },
     {
       "evidence": "docs/architecture/00-current-state.md",
       "name": "No internal-only or quarantined surface is part of the release claim.",
       "notes": "Checklist item from current state.",
-      "status": "warning"
+      "status": "checked"
     },
     {
       "evidence": "scripts/audit_platform_readiness.py",
@@ -593,20 +591,11 @@
     }
   ],
   "repo": {
-    "branch": "codex/p2-worktree-isolation-fixes",
-    "dirty": true,
-    "head": "0fa121e8f0dae5b29bcf6b16696896c88782e2fd",
+    "branch": "main",
+    "dirty": false,
+    "head": "0c244a990c5229d9d6381fb28ed4a99de85e70bb",
     "status_error": "",
-    "status_lines": [
-      " M docs/architecture/codexify-platform-readiness-audit.md",
-      " M scripts/audit_platform_readiness.py",
-      "?? CHANGELOG.beta.md",
-      "?? docs/audits/generated/2026-05-15-beta-sentinel.json",
-      "?? docs/audits/generated/2026-05-15-beta-sentinel.md",
-      "?? scripts/release/beta_release_sentinel.py",
-      "?? tests/scripts/test_audit_platform_readiness_json.py",
-      "?? tests/scripts/test_beta_release_sentinel.py"
-    ]
+    "status_lines": []
   },
   "warnings": [
     "Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling",
