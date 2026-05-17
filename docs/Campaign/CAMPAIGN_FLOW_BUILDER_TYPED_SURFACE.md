@@ -187,11 +187,13 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 12. **Task id:** `FB-012`
     **Title:** First non-side-effecting TestRun proof harness
     **Lane:** proof
+    **Status:** complete
     **Architecture impact:** yes
-    **Target files or likely target file families:** future `guardian/flow_builder/`, future tests under `tests/`, possible scripts under `scripts/proofs/`
+    **Target files or likely target file families:** `guardian/flow_builder/`, `tests/flow_builder/`
     **Depends on:** `FB-004`, `FB-005`, `FB-007`, `FB-008`
-    **Proof surface:** isolated test harness that executes only non-side-effecting steps, emits ephemeral test evidence, proves validation gating, and proves no external writes
-    **Non-goals:** no live Activation, no external connector writes, no scheduler registration, no supported beta claim
+    **Proof artifact:** `guardian/flow_builder/testrun_harness.py`, `tests/flow_builder/test_testrun_harness.py`
+    **Proof surface:** in-memory non-side-effecting test harness that validates FlowDraft against supported subset (semantic extract/summarize/decide, transform, conditional), simulates deterministic execution without model calls or external writes, and produces TestRunResult with RunReceipt-shaped proof. Tests verify no side effects, no input mutation, no backend route/API/persistence imports, and token boundedness.
+    **Non-goals:** no live Activation, no external connector writes, no scheduler registration, no persistence, no model calls, no supported beta claim.
 
 13. **Task id:** `FB-013`
     **Title:** First side-effecting workflow execution behind explicit gate

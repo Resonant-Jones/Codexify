@@ -86,9 +86,22 @@ The prototype renders concepts from these ADRs against fixture data, not runtime
 
 This prototype completes FB-011 from CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md.
 
-FB-001 through FB-011 are complete as architecture contracts.
+FB-001 through FB-012 are complete as architecture contracts.
 
-FB-012 and FB-013 remain pending for future implementation work.
+FB-013 remains pending for future implementation work.
+
+## Relationship to Backend TestRun Harness
+
+The frontend shell prototype (`FB-011`) is separate from the backend TestRun harness (`FB-012`):
+
+- **Frontend Shell (FB-011)**: `frontend/src/features/flowBuilder/` - fixture-backed UI rendering of future Flow Builder concepts. No execution, no backend wiring.
+- **Backend Harness (FB-012)**: `guardian/flow_builder/` - in-memory non-side-effecting TestRun proof harness. Accepts FlowDraft fixture shapes, validates supported subset, simulates execution, and returns RunReceipt-shaped proof. No model calls, no external writes, no persistence.
+
+These are complementary:
+- FB-011 renders concepts for UI prototyping
+- FB-012 provides backend proof-of-concept for TestRun semantics
+
+Neither implies shipped runtime support, persistence, or beta surface inclusion.
 
 ## Validation
 
