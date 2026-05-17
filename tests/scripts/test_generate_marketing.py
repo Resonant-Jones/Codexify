@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,20 @@ FIXTURE_ROOT = Path("tests/fixtures/marketing/source")
 SUITABILITY_FIXTURE_ROOT = Path("tests/fixtures/marketing/suitability/source")
 GOLDEN_ROOT = Path("tests/fixtures/marketing/golden/CAMPAIGN_TEST")
 
+PUBLIC_ARTIFACT_NAMES = [
+    "core-brief.md",
+    "channel-website.md",
+    "channel-social.md",
+    "channel-community.md",
+    "ad-copy.md",
+    "infographic-spec.md",
+]
+
+DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
+    "No copy-ready public claims were available for this campaign. "
+    "Review evidence ledger before publication."
+)
+
 FORBIDDEN_PUBLIC_PHRASES = [
     "not release-ready",
     "release-ready for this path: no",
@@ -53,7 +68,37 @@ FORBIDDEN_PUBLIC_PHRASES = [
     "codexify:queue:",
     "adr-020",
     "1dae1662d",
+    "depends on",
+    "per adr",
 ]
+
+FORBIDDEN_PUBLIC_PATTERNS = [
+    re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE),
+]
+
+
+def _public_artifact_texts(campaign_dir: Path) -> dict[str, str]:
+    return {
+        name: (campaign_dir / name).read_text(encoding="utf-8")
+        for name in PUBLIC_ARTIFACT_NAMES
+    }
+
+
+def _assert_public_artifacts_clean(
+    campaign_dir: Path,
+    forbidden_claim_texts: list[str],
+    require_placeholder: bool = False,
+) -> None:
+    artifacts = _public_artifact_texts(campaign_dir)
+    combined = "\n".join(artifacts.values())
+    for phrase in FORBIDDEN_PUBLIC_PHRASES:
+        assert phrase not in combined.lower()
+    for pattern in FORBIDDEN_PUBLIC_PATTERNS:
+        assert not pattern.search(combined)
+    for text in forbidden_claim_texts:
+        assert text not in combined
+    if require_placeholder:
+        assert DRAFT_SAFE_PUBLIC_PLACEHOLDER in combined
 
 
 def test_truth_extraction_and_precedence() -> None:
@@ -226,6 +271,23 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     )
 
     evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    copy_ready_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is True
+    ]
+    non_copy_ready_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is False
+    ]
+    _assert_public_artifacts_clean(
+        campaign_dir,
+        forbidden_claim_texts=non_copy_ready_claim_texts,
+    )
+    combined_public = "\n".join(_public_artifact_texts(campaign_dir).values())
+    assert any(text in combined_public for text in copy_ready_claim_texts)
+
     assert evidence["schema_version"] == EVIDENCE_LEDGER_SCHEMA_VERSION
     assert evidence["approval_state"] == "draft"
     assert evidence["mode"] == "draft"
@@ -355,6 +417,70 @@ def test_max_claims_keeps_a_copy_ready_claim(tmp_path: Path) -> None:
     assert (
         evidence["claims"][0]["presentation_role"]
         == PRESENTATION_PUBLIC_COPY_SEED
+    )
+
+
+def test_zero_copy_ready_claims_render_draft_safe_placeholders(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    shutil.copytree(SUITABILITY_FIXTURE_ROOT, source_root)
+
+    campaign_file = source_root / "docs" / "Campaign" / "CAMPAIGN_SAMPLE.md"
+    campaign_file.write_text(
+        "\n".join(
+            [
+                "# Campaign Suitability Sample",
+                "",
+                "- Campaign audit path docs/architecture/00-current-state.md records proof 1dae1662d.",
+                "- TASK-2026-05-11-CODING-RESULT traces task envelope execution.",
+                "- codexify:queue:coding-execution backs coding work-order execution.",
+                "- Depends on: ADR-020",
+                "- Per ADR-020 contract:",
+                "- Release-ready for this path: no; not release-ready until runtime proof passes.",
+                "- The migrator failed before compose startup in the latest run.",
+                "- Re-run the live Compose proof after the blocked dependency install path is restored.",
+                "- Proof artifact: docs/proofs/2026-05-12-compose-proof.md",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    current_state = (
+        source_root / "docs" / "architecture" / "00-current-state.md"
+    )
+    if current_state.exists():
+        current_state.unlink()
+    dev_log = source_root / "docs" / "DEV_LOG" / "Dev-Log-Sample.md"
+    if dev_log.exists():
+        dev_log.unlink()
+
+    generate_marketing_artifacts(
+        source_root=source_root,
+        campaign_id="CAMPAIGN_PLACEHOLDER",
+        audience="local-first-builders",
+        channels=["website", "social", "community"],
+        mode="draft",
+        output_root=output_root,
+        generated_at="2026-05-12T00:00:00Z",
+    )
+
+    campaign_dir = output_root / "CAMPAIGN_PLACEHOLDER"
+    evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    assert all(claim["copy_ready"] is False for claim in evidence["claims"])
+    assert any(
+        claim["channel_eligible"] is True for claim in evidence["claims"]
+    )
+    forbidden_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is False
+    ]
+    _assert_public_artifacts_clean(
+        campaign_dir,
+        forbidden_claim_texts=forbidden_claim_texts,
+        require_placeholder=True,
     )
 
 

@@ -484,6 +484,70 @@ def _workspace_backend_obsidian_results(
     return normalized_results
 
 
+def _normalize_obsidian_retrieval_results(
+    results: list[Any],
+    *,
+    user_id: str,
+    retrieval_policy: dict[str, Any] | None,
+    policy_reason: str,
+    assume_obsidian_namespace: bool = False,
+) -> list[dict[str, Any]]:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_results: list[dict[str, Any]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        namespace = _extract_result_namespace(item)
+        if namespace and namespace != OBSIDIAN_NAMESPACE:
+            continue
+        if not namespace and not assume_obsidian_namespace:
+            continue
+        item_user_id = _extract_result_user_id(item)
+        if normalized_user_id and item_user_id not in {
+            normalized_user_id,
+            None,
+        }:
+            continue
+
+        scoped_item = dict(item)
+        scoped_metadata = dict(item.get("metadata") or {})
+        scoped_metadata["namespace"] = OBSIDIAN_NAMESPACE
+        scoped_metadata["source_type"] = "obsidian"
+        scoped_metadata["role"] = "document"
+        if normalized_user_id and not item_user_id:
+            scoped_metadata["user_id"] = normalized_user_id
+            scoped_metadata["owner_user_id"] = normalized_user_id
+            scoped_item["user_id"] = normalized_user_id
+            scoped_item["owner_user_id"] = normalized_user_id
+        scoped_item["metadata"] = scoped_metadata
+        scoped_item["meta"] = dict(scoped_metadata)
+        scoped_item["namespace"] = OBSIDIAN_NAMESPACE
+        scoped_item["source_type"] = "obsidian"
+        scoped_item["role"] = "document"
+        scoped_item["retrieval_lane"] = "obsidian_semantic"
+        scoped_item["policy_reason"] = policy_reason
+        scoped_item["retrieval_policy"] = dict(retrieval_policy or {})
+        normalized_results.append(
+            _annotate_retrieval_item(
+                scoped_item,
+                source_type="obsidian",
+                role="document",
+                thread_id=_coerce_int(
+                    scoped_item.get("thread_id")
+                    or scoped_metadata.get("thread_id")
+                ),
+                project_id=_coerce_int(
+                    scoped_item.get("project_id")
+                    or scoped_metadata.get("project_id")
+                ),
+                retrieval_lane="obsidian_semantic",
+                policy_reason=policy_reason,
+                retrieval_policy=dict(retrieval_policy or {}),
+            )
+        )
+    return normalized_results
+
+
 def _looks_like_json(text: str) -> bool:
     s = (text or "").lstrip()
     if not s:
@@ -924,11 +988,20 @@ class ContextBroker:
                     not conversation_only and self._obsidian_retrieval_enabled()
                 ):
                     try:
-                        semantic_obsidian = await self._search_semantic(
+                        raw_obsidian_results = await self._search_semantic(
                             query,
                             k_semantic,
                             namespace=OBSIDIAN_NAMESPACE,
                             user_id=resolved_user_id,
+                        )
+                        semantic_obsidian = (
+                            _normalize_obsidian_retrieval_results(
+                                raw_obsidian_results,
+                                user_id=resolved_user_id,
+                                retrieval_policy=effective_context_policy,
+                                policy_reason="workspace",
+                                assume_obsidian_namespace=True,
+                            )
                         )
                     except Exception as exc:
                         logger.warning(
@@ -1618,75 +1691,30 @@ class ContextBroker:
                 if normalized_source_mode == SOURCE_MODE_PERSONAL_KNOWLEDGE
                 else "workspace"
             )
-            return [
-                _annotate_retrieval_item(
-                    item,
-                    source_type=str(
-                        item.get("source_type")
-                        or item.get("metadata", {}).get("source_type")
-                        or "obsidian"
-                    ).strip()
-                    or "obsidian",
-                    role=str(
-                        item.get("role")
-                        or item.get("metadata", {}).get("role")
-                        or "document"
-                    ).strip()
-                    or "document",
-                    thread_id=_coerce_int(
-                        item.get("thread_id")
-                        or item.get("metadata", {}).get("thread_id")
-                    ),
-                    project_id=_coerce_int(
-                        item.get("project_id")
-                        or item.get("metadata", {}).get("project_id")
-                    ),
-                    retrieval_lane="obsidian_semantic",
-                    policy_reason=policy_reason,
-                    retrieval_policy=dict(retrieval_policy or {}),
-                )
-                for item in results
-            ]
-            resolved_user_id = str(user_id or "").strip()
-            if not resolved_user_id:
-                return results
-            scoped_results: list[dict[str, Any]] = []
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-                namespace = str(
-                    item.get("namespace")
-                    or (item.get("metadata") or {}).get("namespace")
-                    or ""
-                ).strip()
-                if namespace != OBSIDIAN_NAMESPACE:
-                    scoped_results.append(item)
-                    continue
-                if self._result_user_id(item) == resolved_user_id:
-                    scoped_results.append(item)
-                    continue
-                scoped_item = dict(item)
-                metadata = scoped_item.get("metadata")
-                scoped_metadata = (
-                    dict(metadata) if isinstance(metadata, dict) else {}
-                )
-                scoped_metadata["user_id"] = resolved_user_id
-                scoped_metadata["owner_user_id"] = resolved_user_id
-                scoped_item["metadata"] = scoped_metadata
-                scoped_item["user_id"] = resolved_user_id
-                scoped_item["owner_user_id"] = resolved_user_id
-                scoped_results.append(scoped_item)
-            if scoped_results:
-                return scoped_results
+            normalized_results = _normalize_obsidian_retrieval_results(
+                results,
+                user_id=str(user_id or ""),
+                retrieval_policy=retrieval_policy,
+                policy_reason=policy_reason,
+                assume_obsidian_namespace=True,
+            )
+            if normalized_results:
+                return normalized_results
 
+            # The worker-local vector store can be empty even when the
+            # supported workspace backend has the same Obsidian corpus.
             backend_results = _workspace_backend_obsidian_results(
                 query=query,
-                user_id=resolved_user_id,
+                user_id=str(user_id or "").strip(),
                 k=k,
             )
-            if backend_results:
-                return backend_results
-            return scoped_results
+            return _normalize_obsidian_retrieval_results(
+                backend_results,
+                user_id=str(user_id or ""),
+                retrieval_policy=retrieval_policy,
+                policy_reason=policy_reason,
+                assume_obsidian_namespace=True,
+            )
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Obsidian retrieval failed user=%s project=%s: %s",
