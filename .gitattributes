@@ -6,4 +6,6 @@ src-tauri/tauri.conf.json -filter -diff -merge text
 
 # Codex Runner JSON schemas must stay as normal text (not LFS)
 codex_runner/schemas/*.json -filter -diff -merge text
+# Golden marketing fixtures must remain plaintext JSON for deterministic tests
+tests/fixtures/marketing/golden/**/*.json -filter -diff -merge text
 *.json !text !filter !merge !diff
