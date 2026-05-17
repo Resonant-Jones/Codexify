@@ -1,9 +1,10 @@
 """
-Tests for Flow Builder Non-Side-Effecting TestRun Harness
+Tests for Flow Builder TestRun Harness
 
 These tests verify:
 - valid fixture returns completed TestRunResult and completed RunReceipt
 - no side effects are recorded
+- gated harness-local side effects require an explicit gate
 - semantic extract/summarize/decide steps produce StepReceipts
 - conditional container marks skipped branch steps as skipped
 - unsupported notification/document/task/command steps block validation
@@ -20,9 +21,12 @@ from typing import Any, Mapping
 import pytest
 
 from guardian.flow_builder import (
+    HARNESS_SIDE_EFFECT_KIND,
     SUPPORTED_SEMANTIC_KINDS,
     UNSUPPORTED_STEP_KINDS,
     RunReceipt,
+    SideEffectGate,
+    SideEffectRecord,
     StepReceipt,
     TestRunResult,
     ValidationIssue,
@@ -34,6 +38,7 @@ from guardian.flow_builder import (
     is_valid_test_run_state,
     is_valid_validation_issue_code,
     is_valid_validation_severity,
+    run_gated_side_effect_test,
     run_non_side_effecting_test,
     validate_no_side_effect_subset,
 )
@@ -136,6 +141,57 @@ def make_side_effecting_flow_draft() -> dict:
             },
         ],
     }
+
+
+def make_gated_side_effect_flow_draft() -> dict:
+    """Create a FlowDraft with a gated internal-note command step."""
+    return {
+        "id": "flow-draft:gate-001",
+        "title": "Gated Side Effect Flow",
+        "status": "draft",
+        "steps": [
+            {
+                "id": "step:internal-note-001",
+                "kind": "command",
+                "label": "Record internal note",
+                "position": 1,
+                "config": {
+                    "side_effect_kind": "record_internal_note",
+                    "side_effect_risk_class": "internal_write",
+                    "target_ref": "thread:test-001",
+                    "payload_summary": "Harness-local internal note for proof only.",
+                    "idempotency_key": "idempotency:note-001",
+                },
+            },
+        ],
+        "provenance": {
+            "origin_thread_id": "thread:test-001",
+        },
+        "starter": {
+            "id": "starter:manual-001",
+            "kind": "manual",
+            "label": "Manual trigger",
+        },
+    }
+
+
+def make_side_effect_gate(
+    *,
+    enabled: bool = True,
+    mode: str = "explicit_harness_gate",
+    allowed_kinds: list[str] | None = None,
+    approved_by: str = "operator:test-001",
+    approval_reason: str = "Explicit harness gate for proof only.",
+) -> SideEffectGate:
+    """Create an explicit harness gate fixture."""
+    default_kind = next(iter(HARNESS_SIDE_EFFECT_KIND))
+    return SideEffectGate(
+        enabled=enabled,
+        mode=mode,
+        allowed_kinds=list(allowed_kinds or [default_kind]),
+        approved_by=approved_by,
+        approval_reason=approval_reason,
+    )
 
 
 def make_decide_flow_draft() -> dict:
@@ -245,9 +301,14 @@ class TestTokenValidation:
             "missing_required_field",
             "unsupported_step_kind",
             "side_effect_not_allowed",
+            "side_effect_gate_required",
+            "side_effect_kind_unsupported",
+            "idempotency_key_required",
+            "external_side_effect_forbidden",
             "missing_substep",
             "unsupported_semantic_kind",
             "invalid_condition",
+            "receipt_required",
         }
         for code in valid_codes:
             assert is_valid_validation_issue_code(code) is True
@@ -475,6 +536,137 @@ class TestExecution:
 
         assert result.failure_reason is not None
         assert "Validation blocked" in result.failure_reason
+
+
+class TestGatedSideEffectExecution:
+    """Tests for the explicit harness-local side-effect proof path."""
+
+    def test_non_side_effecting_run_still_blocks_gated_command_step(self):
+        draft = make_gated_side_effect_flow_draft()
+        result = run_non_side_effecting_test(draft)
+
+        assert result.state == "blocked"
+        assert result.run_receipt is not None
+        assert result.run_receipt.state == "blocked"
+        assert any(
+            issue.code == "unsupported_step_kind"
+            for issue in result.validation_summary.issues
+        )
+
+    def test_gated_internal_side_effect_requires_enabled_gate(self):
+        draft = make_gated_side_effect_flow_draft()
+        gate = make_side_effect_gate(enabled=False)
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "blocked"
+        assert any(
+            issue.code == "side_effect_gate_required"
+            for issue in result.validation_summary.issues
+        )
+
+    def test_gated_internal_side_effect_requires_explicit_gate_mode(self):
+        draft = make_gated_side_effect_flow_draft()
+        gate = make_side_effect_gate(mode="manual_override")
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "blocked"
+        assert any(
+            issue.code == "side_effect_gate_required"
+            for issue in result.validation_summary.issues
+        )
+
+    def test_gated_internal_side_effect_requires_allowed_kind(self):
+        draft = make_gated_side_effect_flow_draft()
+        gate = make_side_effect_gate(allowed_kinds=["other_kind"])
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "blocked"
+        assert any(
+            issue.code == "side_effect_kind_unsupported"
+            for issue in result.validation_summary.issues
+        )
+
+    def test_gated_internal_side_effect_requires_idempotency_key(self):
+        draft = make_gated_side_effect_flow_draft()
+        draft["steps"][0]["config"].pop("idempotency_key")
+        gate = make_side_effect_gate()
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "blocked"
+        assert any(
+            issue.code == "idempotency_key_required"
+            for issue in result.validation_summary.issues
+        )
+
+    @pytest.mark.parametrize(
+        "risk_class",
+        ["external_write", "third_party_share", "identity_sensitive"],
+    )
+    def test_forbidden_risk_classes_block_gated_side_effects(self, risk_class):
+        draft = make_gated_side_effect_flow_draft()
+        draft["steps"][0]["config"]["side_effect_risk_class"] = risk_class
+        gate = make_side_effect_gate()
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "blocked"
+        assert any(
+            issue.code == "external_side_effect_forbidden"
+            for issue in result.validation_summary.issues
+        )
+
+    def test_successful_gated_internal_side_effect_records_evidence(self):
+        draft = make_gated_side_effect_flow_draft()
+        gate = make_side_effect_gate()
+
+        result = run_gated_side_effect_test(draft, gate=gate)
+
+        assert result.state == "completed"
+        assert result.run_receipt is not None
+        assert result.side_effect_records
+        assert len(result.side_effect_records) == 1
+        record = result.side_effect_records[0]
+        assert isinstance(record, SideEffectRecord)
+        assert record.intent_kind == "record_internal_note"
+        assert record.risk_class == "internal_write"
+        assert record.target_ref == "thread:test-001"
+        assert record.idempotency_key == "idempotency:note-001"
+        assert record.state == "recorded"
+        assert record.approved_by == "operator:test-001"
+        assert record.approval_reason == "Explicit harness gate for proof only."
+        assert result.run_receipt.side_effect_summary
+        assert "record_internal_note" in result.run_receipt.side_effect_summary
+        assert (
+            "approved_by=operator:test-001"
+            in result.run_receipt.side_effect_summary
+        )
+        step_receipts = result.run_receipt.step_receipts
+        assert len(step_receipts) == 1
+        assert step_receipts[0].side_effect_refs == [record.id]
+
+    def test_successful_gated_internal_side_effect_does_not_mutate_input(self):
+        draft = make_gated_side_effect_flow_draft()
+        original_draft = copy.deepcopy(draft)
+        gate = make_side_effect_gate()
+
+        run_gated_side_effect_test(draft, gate=gate)
+
+        assert draft == original_draft
+
+    def test_side_effect_tokens_are_not_global_protocol_tokens(self):
+        from guardian import protocol_tokens as global_tokens
+        from guardian.flow_builder import tokens as fb_tokens
+
+        assert "explicit_harness_gate" in fb_tokens.SIDE_EFFECT_MODE
+        assert "record_internal_note" in fb_tokens.HARNESS_SIDE_EFFECT_KIND
+        assert "internal_write" in fb_tokens.SIDE_EFFECT_RISK_CLASS
+        assert not hasattr(global_tokens, "SIDE_EFFECT_MODE")
+        assert not hasattr(global_tokens, "SIDE_EFFECT_RISK_CLASS")
+        assert not hasattr(global_tokens, "HARNESS_SIDE_EFFECT_KIND")
 
 
 # =============================================================================

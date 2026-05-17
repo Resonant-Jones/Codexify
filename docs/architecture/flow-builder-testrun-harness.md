@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the non-side-effecting Flow Builder TestRun proof harness (`FB-012`).
+This document describes the non-side-effecting Flow Builder TestRun proof harness (`FB-012`) plus the FB-013 gated side-effect proof path.
 
 This is harness documentation only. It is not runtime truth, not API support, and not release support.
 
@@ -10,16 +10,16 @@ This is harness documentation only. It is not runtime truth, not API support, an
 
 - **Type**: backend pure-contract proof harness
 - **Source**: CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md
-- **Task**: FB-012
-- **Status**: complete (in-memory non-side-effecting harness only)
+- **Task**: FB-012 / FB-013
+- **Status**: complete (in-memory non-side-effecting harness plus gated in-memory side-effect proof path)
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `guardian/flow_builder/tokens.py` | Harness-local token registries for Flow Builder. Bounded sets. Separate from global runtime protocol tokens. |
-| `guardian/flow_builder/contracts.py` | Pure dataclass contracts for ValidationIssue, ValidationSummary, StepReceipt, RunReceipt, TestRunResult. No DB imports. |
-| `guardian/flow_builder/testrun_harness.py` | Main harness: `validate_no_side_effect_subset()` and `run_non_side_effecting_test()`. |
+| `guardian/flow_builder/contracts.py` | Pure dataclass contracts for ValidationIssue, ValidationSummary, StepReceipt, RunReceipt, TestRunResult, and in-memory side-effect proof evidence. No DB imports. |
+| `guardian/flow_builder/testrun_harness.py` | Main harness: `validate_no_side_effect_subset()`, `run_non_side_effecting_test()`, and `run_gated_side_effect_test()`. |
 | `guardian/flow_builder/__init__.py` | Module exports. |
 | `tests/flow_builder/test_testrun_harness.py` | 50+ tests covering validation, execution, immutability, import isolation, receipt shape, and token boundedness. |
 
@@ -47,6 +47,21 @@ The TestRun harness:
    - Condition metadata for conditional branches
    - Side effect summary showing zero side effects
 
+4. **Records** a single gated harness-local side-effect proof path:
+   - `record_internal_note` is the only allowed side-effect kind
+   - explicit harness gate required
+   - receipt-shaped evidence remains in memory only
+
+## FB-013 Gated Side-Effect Proof Path
+
+FB-013 adds only an in-memory harness-local side-effect proof path.
+
+- The only allowed side-effect kind is `record_internal_note`.
+- The gate is explicit, disabled by default, and not Activation.
+- This does not write to the database, filesystem, network, command bus, Redis, cron, or external services.
+- This does not make Flow Builder runtime execution part of the supported beta surface.
+- Future real side-effecting execution must use durable receipts, policy checks, idempotency, and likely command-bus integration in separate tasks.
+
 ## Supported Subset
 
 | Step Kind | Supported | Notes |
@@ -69,6 +84,7 @@ The TestRun harness:
 - No model provider calls
 - No Activation implementation
 - No side-effecting execution
+- No database, filesystem, network, command bus, Redis, cron, or external service writes in the FB-013 proof path
 
 ## Test Coverage
 
@@ -77,6 +93,7 @@ Tests verify:
 - **Token validation**: Supported/unsupported step kinds, semantic kinds, states, severity, codes
 - **Validation**: Valid fixtures pass, missing fields block, side-effecting steps block, unsupported semantic kinds block
 - **Execution**: Completed results, step receipts with semantic metadata, skipped branch steps, transform steps
+- **Gated side-effect proof**: explicit harness gate, `record_internal_note` proof path, side-effect record evidence, step-side-effect refs, and receipt summary content
 - **Immutability**: Input FlowDraft not mutated after harness runs
 - **Import isolation**: No database, API, Redis, model provider, or command bus imports
 - **Receipt shape**: Required fields present, semantic metadata for semantic steps, condition metadata for conditional branches
@@ -120,8 +137,8 @@ Aligns with accepted ADRs:
 ## Relationship to Campaign Tasks
 
 - FB-011: Frontend fixture shell (separate)
-- FB-012: This harness (complete)
-- FB-013: Pending side-effecting execution (future)
+- FB-012: Non-side-effecting harness path (complete)
+- FB-013: Gated side-effect proof path (complete)
 
 ## Validation
 

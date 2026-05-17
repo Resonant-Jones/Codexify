@@ -86,20 +86,20 @@ The prototype renders concepts from these ADRs against fixture data, not runtime
 
 This prototype completes FB-011 from CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md.
 
-FB-001 through FB-012 are complete as architecture contracts.
-
-FB-013 remains pending for future implementation work.
+FB-001 through FB-013 are complete as architecture contracts.
 
 ## Relationship to Backend TestRun Harness
 
-The frontend shell prototype (`FB-011`) is separate from the backend TestRun harness (`FB-012`):
+The frontend shell prototype (`FB-011`) is separate from the backend TestRun harness (`FB-012` / `FB-013`):
 
 - **Frontend Shell (FB-011)**: `frontend/src/features/flowBuilder/` - fixture-backed UI rendering of future Flow Builder concepts. No execution, no backend wiring.
 - **Backend Harness (FB-012)**: `guardian/flow_builder/` - in-memory non-side-effecting TestRun proof harness. Accepts FlowDraft fixture shapes, validates supported subset, simulates execution, and returns RunReceipt-shaped proof. No model calls, no external writes, no persistence.
+- **Backend Harness (FB-013)**: `guardian/flow_builder/` - explicit-gate harness-local side-effect proof path. The only supported side-effect kind is `record_internal_note`, and the proof remains in memory only. No external writes, no persistence, no runtime execution claim.
 
 These are complementary:
 - FB-011 renders concepts for UI prototyping
 - FB-012 provides backend proof-of-concept for TestRun semantics
+- FB-013 provides backend proof-of-concept for an explicitly gated harness-local side-effect record
 
 Neither implies shipped runtime support, persistence, or beta surface inclusion.
 

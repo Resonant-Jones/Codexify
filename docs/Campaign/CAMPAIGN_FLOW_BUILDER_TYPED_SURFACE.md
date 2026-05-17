@@ -196,12 +196,14 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
     **Non-goals:** no live Activation, no external connector writes, no scheduler registration, no persistence, no model calls, no supported beta claim.
 
 13. **Task id:** `FB-013`
-    **Title:** First side-effecting workflow execution behind explicit gate
+    **Title:** First gated side-effect proof path
     **Lane:** backend implementation
+    **Status:** complete
     **Architecture impact:** yes
     **Target files or likely target file families:** future `guardian/flow_builder/`, command bus or cron integration files if selected by prior contracts, tests under `tests/`, operator proof docs
     **Depends on:** `FB-007`, `FB-008`, `FB-010`, `FB-012`
-    **Proof surface:** explicit operator gate, validation pass, activation record, durable receipt, idempotency evidence, provenance links, and side-effect references for every external mutation
+    **Proof artifact:** `guardian/flow_builder/testrun_harness.py`, `tests/flow_builder/test_testrun_harness.py`
+    **Proof surface:** in-memory gated side-effect proof path only. The harness-local action kind is `record_internal_note`, gated by an explicit enabled harness gate in `explicit_harness_gate` mode, with idempotency evidence and in-memory receipt-shaped side-effect records only. This does not imply runtime persistence, external writes, activation, or shipped Flow Builder execution.
     **Non-goals:** no recursive agent loop, no hidden prompt-only workflow behavior, no unreceipted side effects, no beta surface widening without separate release decision
 
 ## Recommended First Implementation Slice

@@ -147,6 +147,62 @@ class StepReceipt:
 
 
 # =============================================================================
+# Side Effect Contracts
+# =============================================================================
+
+
+@dataclass
+class SideEffectIntent:
+    """
+    Parsed intent for a harness-local side effect.
+
+    This is an FB-013 in-memory proof artifact only. It is not a general
+    runtime execution contract.
+    """
+
+    kind: str
+    risk_class: str
+    target_ref: str
+    payload_summary: str
+    idempotency_key: str
+    requires_gate: bool = True
+
+
+@dataclass
+class SideEffectRecord:
+    """
+    In-memory side-effect proof record.
+
+    Mirrors the FB-013 gated harness evidence surface only.
+    """
+
+    id: str
+    intent_kind: str
+    risk_class: str
+    target_ref: str
+    idempotency_key: str
+    state: str = "recorded"
+    payload_summary: str = ""
+    created_at: str = ""
+    failure_reason: Optional[str] = None
+    approved_by: Optional[str] = None
+    approval_reason: Optional[str] = None
+
+
+@dataclass
+class SideEffectGate:
+    """
+    Explicit harness-local gate for the FB-013 proof path.
+    """
+
+    enabled: bool
+    mode: str
+    allowed_kinds: List[str] = field(default_factory=list)
+    approved_by: str = ""
+    approval_reason: str = ""
+
+
+# =============================================================================
 # Run Receipt Contract
 # =============================================================================
 
@@ -232,6 +288,7 @@ class TestRunResult:
     state: str  # TEST_RUN_STATE token
     validation_summary: ValidationSummary
     run_receipt: Optional[RunReceipt] = None
+    side_effect_records: List[SideEffectRecord] = field(default_factory=list)
     initiated_by: str = "test-harness"
     created_at: str = ""
     started_at: Optional[str] = None

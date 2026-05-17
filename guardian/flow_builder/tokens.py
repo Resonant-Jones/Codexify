@@ -16,6 +16,8 @@ Token families:
 - ACTION_STEP_KIND: authored step family labels
 - SEMANTIC_STEP_KIND: bounded AI step semantic intents
 - SIDE_EFFECT_MODE: execution side effect risk modes
+- SIDE_EFFECT_RISK_CLASS: harness-local risk classes
+- HARNESS_SIDE_EFFECT_KIND: harness-local side-effect kind labels
 
 Reference: flow-builder-token-domains.md, ADR-027
 """
@@ -86,6 +88,10 @@ VALIDATION_ISSUE_CODE = frozenset(
         "missing_required_field",
         "unsupported_step_kind",
         "side_effect_not_allowed",
+        "side_effect_gate_required",
+        "side_effect_kind_unsupported",
+        "idempotency_key_required",
+        "external_side_effect_forbidden",
         "missing_substep",
         "unsupported_semantic_kind",
         "invalid_condition",
@@ -135,6 +141,31 @@ SEMANTIC_STEP_KIND = frozenset(
 SIDE_EFFECT_MODE = frozenset(
     {
         "none",
+        "explicit_harness_gate",
+    }
+)
+
+# =============================================================================
+# Side Effect Risk Class (harness-local)
+# =============================================================================
+
+SIDE_EFFECT_RISK_CLASS = frozenset(
+    {
+        "none",
+        "internal_write",
+        "external_write",
+        "third_party_share",
+        "identity_sensitive",
+    }
+)
+
+# =============================================================================
+# Harness Side Effect Kind (harness-local)
+# =============================================================================
+
+HARNESS_SIDE_EFFECT_KIND = frozenset(
+    {
+        "record_internal_note",
     }
 )
 
