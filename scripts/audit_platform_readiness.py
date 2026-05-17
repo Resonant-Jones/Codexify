@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -46,24 +46,6 @@ def existing_path(candidates: tuple[str, ...] | list[str]) -> Path | None:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
-
-
-def run_git(args: list[str]) -> str:
-    import subprocess
-
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip() or "unknown git error"
-        raise RuntimeError(f"git {' '.join(args)} failed: {stderr}")
-    return completed.stdout
 
 
 def contains_patterns(
@@ -843,11 +825,8 @@ def collect_repo_metadata() -> dict[str, object]:
             line.rstrip() for line in status_output.splitlines() if line.strip()
         ]
     except RuntimeError as exc:
-        status_error = str(exc)
-
-    if not branch and head:
-        branch = f"detached@{head[:7]}"
-
+        if not status_error:
+            status_error = str(exc)
     return {
         "branch": branch,
         "head": head,
@@ -938,7 +917,7 @@ def render_json_report(reports: list[DomainReport]) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Audit Codexify platform readiness from repo-local evidence."
+        description="Run the Codexify platform readiness audit."
     )
     parser.add_argument(
         "--json",
