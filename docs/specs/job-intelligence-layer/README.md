@@ -17,6 +17,7 @@ Baseline orientation document:
 - [`06-job-profile-draft-contract.md`](./06-job-profile-draft-contract.md): Proposes the first non-runtime Job Profile contract draft to structure future schema and review-planning work.
 - [`07-extraction-pass-contract.md`](./07-extraction-pass-contract.md): Defines the first planning contract for turning raw intake text into reviewable structured draft extraction outputs.
 - [`08-human-review-gate-contract.md`](./08-human-review-gate-contract.md): Defines the planning boundary between generated draft data and future confirmed operational records.
+- [`09-lineage-and-revision-contract.md`](./09-lineage-and-revision-contract.md): Defines planning expectations for source traceability, revision history, confirmation lineage, and supersession relationships.
 
 ## Do Not Assume
 
