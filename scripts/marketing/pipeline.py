@@ -361,7 +361,9 @@ def classify_claim_candidate(text: str) -> str:
 
 
 def _looks_like_implementation_breadcrumb(text: str) -> bool:
-    return any(pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS)
+    return any(
+        pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
+    )
 
 
 def _looks_like_internal_anchor(text: str) -> bool:
@@ -410,6 +412,33 @@ def assign_presentation_roles(claims: list[Claim]) -> list[Claim]:
     for claim in claims:
         assign_presentation_role(claim)
     return claims
+
+
+def _select_claims_for_cap(claims: list[Claim], max_claims: int) -> list[Claim]:
+    if max_claims <= 0:
+        return []
+
+    if len(claims) <= max_claims:
+        return claims
+
+    selected = list(claims[:max_claims])
+    if any(claim.copy_ready for claim in selected):
+        return selected
+
+    first_copy_ready_index = next(
+        (
+            index
+            for index, claim in enumerate(claims)
+            if claim.presentation_role == PRESENTATION_PUBLIC_COPY_SEED
+            and claim.copy_ready
+        ),
+        None,
+    )
+    if first_copy_ready_index is None:
+        return selected
+
+    selected[-1] = claims[first_copy_ready_index]
+    return selected
 
 
 def extract_claim_candidates(documents: list[SourceDocument]) -> list[Claim]:
@@ -830,8 +859,8 @@ def generate_marketing_artifacts(
     documents = collect_source_documents(source_root)
     candidates = extract_claim_candidates(documents)
     merged = merge_claims_by_precedence(candidates)
-    selected_claims = merged[:max_claims]
-    assign_presentation_roles(selected_claims)
+    assign_presentation_roles(merged)
+    selected_claims = _select_claims_for_cap(merged, max_claims)
 
     if not selected_claims:
         raise ValueError("No claim candidates found in canonical sources")

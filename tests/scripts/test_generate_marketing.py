@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts.marketing.pipeline import (
+    ALLOWED_PRESENTATION_ROLES,
     CANDIDATE_MARKETABLE_CLAIM,
     CANDIDATE_METADATA_REFERENCE,
     CANDIDATE_RISK_OR_BLOCKER,
@@ -20,7 +21,6 @@ from scripts.marketing.pipeline import (
     PRESENTATION_SUPPORTING_EVIDENCE,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
-    ALLOWED_PRESENTATION_ROLES,
     Claim,
     assign_presentation_roles,
     collect_source_documents,
@@ -303,8 +303,7 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         claim["channel_eligible"] is not None for claim in evidence["claims"]
     )
     assert all(
-        claim["presentation_role"] is not None
-        for claim in evidence["claims"]
+        claim["presentation_role"] is not None for claim in evidence["claims"]
     )
     assert all(claim["copy_ready"] is not None for claim in evidence["claims"])
     assert all(claim["risk_flags"] is not None for claim in evidence["claims"])
@@ -325,11 +324,37 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         evidence["marketable_claims"]
     )
     assert len(evidence["non_marketable_claims"]) == len(
-        [
-            claim
-            for claim in evidence["claims"]
-            if not claim["channel_eligible"]
-        ]
+        [claim for claim in evidence["claims"] if not claim["channel_eligible"]]
+    )
+
+
+def test_max_claims_keeps_a_copy_ready_claim(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    shutil.copytree(SUITABILITY_FIXTURE_ROOT, source_root)
+
+    result = generate_marketing_artifacts(
+        source_root=source_root,
+        campaign_id="CAMPAIGN_MAX_ONE",
+        audience="local-first-builders",
+        channels=["website", "social", "community"],
+        mode="draft",
+        output_root=output_root,
+        max_claims=1,
+        generated_at="2026-05-12T00:00:00Z",
+    )
+
+    assert result["claim_count"] == 1
+    assert result["marketable_claim_count"] == 1
+
+    evidence = json.loads(
+        (output_root / "CAMPAIGN_MAX_ONE" / "evidence-ledger.json").read_text()
+    )
+    assert len(evidence["claims"]) == 1
+    assert evidence["claims"][0]["copy_ready"] is True
+    assert (
+        evidence["claims"][0]["presentation_role"]
+        == PRESENTATION_PUBLIC_COPY_SEED
     )
 
 
