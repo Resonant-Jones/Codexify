@@ -18,6 +18,7 @@ Baseline orientation document:
 - [`07-extraction-pass-contract.md`](./07-extraction-pass-contract.md): Defines the first planning contract for turning raw intake text into reviewable structured draft extraction outputs.
 - [`08-human-review-gate-contract.md`](./08-human-review-gate-contract.md): Defines the planning boundary between generated draft data and future confirmed operational records.
 - [`09-lineage-and-revision-contract.md`](./09-lineage-and-revision-contract.md): Defines planning expectations for source traceability, revision history, confirmation lineage, and supersession relationships.
+- [`10-mvp-validation-scenario.md`](./10-mvp-validation-scenario.md): Defines the first synthetic MVP scenario and proof expectations before any implementation work begins.
 
 ## Do Not Assume
 
