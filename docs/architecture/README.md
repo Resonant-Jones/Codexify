@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-28
+Last updated: 2026-05-16
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -36,6 +36,10 @@ Start here first when you need current-state interpretation rather than structur
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
+
+If you are working on Execution Ledger gate artifacts, acceptance-criteria mapping, implementation-plan artifacts, or completion/proof evidence mapping over Campaign Runner and Guardian rails, start with [`Execution Ledger Gate Artifacts Contract`](./execution-ledger-gate-artifacts-contract.md) after ADR-028.
+
+If you are working on proposed Execution Ledger token vocabularies (gate decisions, plan states, acceptance results, proof decisions, escalation reasons) before runtime tokenization, start with [`Execution Ledger Token Domain Proposal`](./execution-ledger-token-domain-proposal.md) after the gate/artifact contract.
 
 If you are working on Pi SDK integration, Pi-like external coding-agent harnesses, or invocation governance boundaries, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) first, then apply [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md) for Guardian ownership and result-return doctrine.
 
@@ -74,6 +78,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
+- [Execution Ledger Gate Artifacts Contract](./execution-ledger-gate-artifacts-contract.md): docs-only follow-through contract for ADR-028 defining gate artifacts, acceptance-criteria mapping, implementation plans, and completion/proof evidence mapping onto Campaign Runner and Guardian execution surfaces.
+- [Execution Ledger Token Domain Proposal](./execution-ledger-token-domain-proposal.md): docs-only proposal for candidate Execution Ledger token domains, semantics, and registry placement guidance before runtime tokenization.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
 - [Guardian Intent Spine and Cross-Surface Control Plane](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md): canonical cross-surface intent envelope and dispatch contract for chat, voice, automations, CLI, and future plugin surfaces.
@@ -82,6 +88,19 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
 - [Flow Builder Elicitation Lane ADR](./adr/006-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
 - [Flow Builder Thread, Draft, and Receipts Contract ADR](./adr/014-flow-builder-thread-draft-and-receipts-contract.md): canonical Guardian-thread, FlowDraft, Builder-view, and run-receipt contract for flow authoring semantics.
+- [Flow Builder Typed Surface and Run Receipt Contract ADR](./adr/027-flow-builder-typed-surface-and-run-receipt-contract.md): typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.
+- [Flow Builder Token Domain Inventory](./flow-builder-token-domains.md): candidate token domains for future Flow Builder implementation only; planning inventory, not runtime truth.
+- [FlowDraft Schema Proposal](./flowdraft-schema-proposal.md): future durable draft shape for Flow Builder artifacts only; schema planning, not runtime truth.
+- [VariableChip and TypedStepOutput Contract](./variable-chip-typed-output-contract.md): future variable wiring and typed output contract only; planning surface, not runtime truth.
+- [Flow Builder ValidationIssue Taxonomy](./flow-builder-validation-issue-taxonomy.md): future validation taxonomy only; planning surface, not runtime truth.
+- [Flow Builder SemanticStep Contract](./flow-builder-semantic-step-contract.md): future semantic AI-step contract only; planning surface, not runtime truth.
+- [Flow Builder ConditionalContainer Contract](./flow-builder-conditional-container-contract.md): future conditional control-flow contract only; planning surface, not runtime truth.
+- [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
+- [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
+- [Flow Builder Activity and Proof Surface Design](./flow-builder-activity-proof-surface.md): future activity/proof surface design only; planning surface, not runtime truth.
+- [Flow Builder TestRun and Activation Contract](./flow-builder-testrun-activation-contract.md): future backend contract for execution attempts and durable enablement only; planning surface, not runtime truth.
+- [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
+- [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
 - [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.

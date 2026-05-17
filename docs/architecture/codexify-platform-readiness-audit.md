@@ -38,6 +38,7 @@ It performs objective checks only:
 - repo-relative file existence checks for key runtime and documentation anchors
 - lightweight text matching for health, flow, storage, federation, ownership, roadmap, and risk signals
 - explicit `PASS`, `WARN`, and `FAIL` reporting for those objective findings
+- a `--json` mode that emits bounded machine-readable output for generated audit and release automation
 
 It does not fabricate subjective architectural scores. Where the repo cannot prove a judgment, the CLI prints manual review prompts instead of pretending to know the answer.
 
@@ -48,3 +49,11 @@ python scripts/audit_platform_readiness.py
 ```
 
 The script exits `0` when no `FAIL` results are found, and exits `1` when any `FAIL` result is present.
+
+JSON mode is also supported for downstream automation:
+
+```bash
+python scripts/audit_platform_readiness.py --json
+```
+
+In JSON mode, stdout is a single machine-readable JSON document. Human-readable audit prose stays in plain mode only.

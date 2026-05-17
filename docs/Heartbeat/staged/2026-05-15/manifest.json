@@ -1,0 +1,34 @@
+{
+  "schema_version": "heartbeat.outbox.v1",
+  "date": "2026-05-15",
+  "generated_at": "2026-05-15T22:31:31.330141+00:00",
+  "review_required": true,
+  "review_passed": true,
+  "review_status": "passed",
+  "review_skipped": false,
+  "source_heartbeat_report": "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/Heartbeat/generated/2026-05-15-heartbeat.md",
+  "source_artifacts": [
+    "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.md",
+    "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json",
+    "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/Website/dev-blog/generated/2026-05-15.md",
+    "/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/ResonantConstructs/daily-insights/generated/2026-05-15.md"
+  ],
+  "generated_files": [
+    "2026-05-15-beta-sentinel.md",
+    "2026-05-15-beta-sentinel.json",
+    "2026-05-15-dev-blog.md",
+    "2026-05-15-daily-insight.md",
+    "release-summary.md",
+    "website-update.md",
+    "substack-draft.md",
+    "email-draft.md",
+    "source-heartbeat.md"
+  ],
+  "total_files": 9,
+  "publication": {
+    "enabled": false,
+    "targets": [],
+    "note": "Publication is deferred. This outbox is a local staging area only."
+  },
+  "warnings": []
+}

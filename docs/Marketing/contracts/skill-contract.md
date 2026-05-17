@@ -33,6 +33,8 @@ Every `claims[]` entry is required to include:
 - `claim`
 - `candidate_class`
 - `channel_eligible`
+- `presentation_role`
+- `copy_ready`
 - `risk_flags`
 - `evidence_paths`
 - `proof_tier`
@@ -43,9 +45,14 @@ Field types:
 
 - `candidate_class`: string
 - `channel_eligible`: boolean
+- `presentation_role`: string, one of `public_copy_seed`, `supporting_evidence`, `internal_anchor`, `risk_note`, `metadata_reference`
+- `copy_ready`: boolean
 - `risk_flags`: array of strings
 
 Grouped fields `marketable_claims` and `non_marketable_claims` are derived convenience views and must remain consistent with filtering `claims[]` by `channel_eligible`.
+
+`presentation_role` is the item-level use policy for rendering. `copy_ready` is the verbatim public-prose gate. Channel templates must consume only items where `presentation_role == "public_copy_seed"` and `copy_ready == true` for visible public copy. Non-copy-ready implementation breadcrumbs may remain channel-eligible as support, but must not be printed verbatim in website, social, community, ad, or infographic prose.
+Public render context must be built from `public_copy_claims`; `marketable_claims` may still carry support evidence and must not be rendered verbatim unless they are also copy-ready public seeds.
 
 ## Governance
 
@@ -53,7 +60,8 @@ Grouped fields `marketable_claims` and `non_marketable_claims` are derived conve
 - `approval_state` is always `draft`
 - run history appends to `docs/Marketing/generated/history/run-history.jsonl`
 - claim suitability pass is mandatory before draft rendering
-- channel variants consume only `marketable_claim` entries
+- presentation-role pass is mandatory after claim suitability classification and before draft rendering
+- channel variants consume only copy-ready `public_copy_seed` entries for visible prose
 - non-marketable evidence (`risk_or_blocker`, `task_instruction`, `metadata_reference`, `internal_evidence`) must be preserved in review outputs and the evidence ledger
 
 ## Future Compatibility Seam
