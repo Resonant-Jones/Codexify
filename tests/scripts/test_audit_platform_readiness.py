@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from scripts import audit_platform_readiness as readiness
@@ -128,3 +129,19 @@ def test_extension_boundary_keeps_manual_review_maturity_language(
     assert report.suggested_score in {"manual review required", "1-2 likely"}
     assert len(report.manual_prompts) == 4
     assert any(check.status == "WARN" for check in report.checks)
+
+
+def test_platform_readiness_json_mode_is_parseable(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(readiness, "REPO_ROOT", tmp_path)
+
+    exit_code = readiness.main(["--json"])
+    captured = capsys.readouterr()
+
+    payload = json.loads(captured.out)
+    assert exit_code in {0, 1}
+    assert payload["repo_root_relative"] == "."
+    assert set(payload["summary"]) == {"pass", "warn", "fail"}
+    assert payload["domains"]
+    assert all("checks" in domain for domain in payload["domains"])
