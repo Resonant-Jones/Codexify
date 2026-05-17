@@ -120,6 +120,23 @@ const summarizeStep: FlowStepFixture = {
 };
 
 /**
+ * Sample conditional step.
+ * Keeps the ordered step list at four top-level steps.
+ */
+const conditionalStep: FlowStepFixture = {
+  id: "step:score-check-001",
+  kind: "conditional",
+  label: "High score check",
+  position: 3,
+  config: {
+    conditionalContainerId: "container:score-check-001",
+  },
+  inputBindings: [],
+  outputDefinitions: [],
+  validationState: "valid",
+};
+
+/**
  * Sample conditional container with then-substeps.
  */
 const conditionalContainer: ConditionalContainerFixture = {
@@ -649,7 +666,7 @@ const sampleActivityEvents: ActivityEventFixture[] = [
 export const flowBuilderFixture: FlowBuilderFixtureData = {
   draft: sampleFlowDraft,
   starter: sampleStarter,
-  steps: [extractStep, summarizeStep],
+  steps: [extractStep, summarizeStep, conditionalStep, notificationStep],
   conditionalContainer: conditionalContainer,
   typedOutputs: sampleTypedOutputs,
   variableChips: sampleVariableChips,
@@ -686,10 +703,6 @@ export function getOrderedSteps(
     for (const substep of fixture.conditionalContainer.elseSubsteps) {
       result.push({ step: substep, isConditionalSubstep: true, branch: "else" });
     }
-  }
-
-  for (const step of [notificationStep]) {
-    result.push({ step, isConditionalSubstep: false, branch: null });
   }
 
   return result;

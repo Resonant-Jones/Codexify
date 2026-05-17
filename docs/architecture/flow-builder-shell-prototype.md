@@ -28,7 +28,8 @@ This is documentation only. It is not runtime truth, not backend implementation,
 
 The shell prototype renders these future Flow Builder concepts as fixture-backed UI:
 
-- **Draft Overview Card**: FlowDraft fixture with title, status, runtime support, and starter
+- **Starter Card**: manual starter fixture with kind, label, and approval posture
+- **Draft Overview Card**: FlowDraft fixture with title, status, runtime support, and timestamps
 - **Ordered Step List**: semantic extract step, semantic summarize step, conditional container with then/else branches, notification action step
 - **Variable Chips & Outputs Panel**: typed outputs with value types, scope, and sensitivity indicators
 - **Validation Summary Panel**: validation state, eligibility flags, and issue display with severity
@@ -51,6 +52,7 @@ This prototype is fixture-backed only. It does not include:
 Frontend tests verify:
 
 - Shell renders fixture title
+- Starter card renders manual starter details
 - Semantic steps render correctly
 - Conditional container renders with branches
 - Variable chips render with sensitivity indicators

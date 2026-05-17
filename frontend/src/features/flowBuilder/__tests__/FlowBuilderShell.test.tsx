@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { FlowBuilderShell } from "../FlowBuilderShell";
 import { flowBuilderFixture } from "../fixtures";
 
@@ -27,9 +27,10 @@ describe("FlowBuilderShell", () => {
     expect(screen.getByText("Lead Qualification Flow")).toBeInTheDocument();
   });
 
-  it("renders starter label", () => {
+  it("renders starter card", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
+    expect(screen.getByRole("heading", { level: 3, name: "Starter" })).toBeInTheDocument();
     expect(screen.getByText("Manual trigger")).toBeInTheDocument();
   });
 
@@ -49,8 +50,8 @@ describe("FlowBuilderShell", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
     expect(screen.getByText("High score check")).toBeInTheDocument();
-    expect(screen.getByText("Then branch")).toBeInTheDocument();
-    expect(screen.getByText("Else branch")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Then branch/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Else branch/i })).toBeInTheDocument();
   });
 
   it("renders notification action step", () => {
@@ -59,13 +60,19 @@ describe("FlowBuilderShell", () => {
     expect(screen.getByText("Send qualification summary")).toBeInTheDocument();
   });
 
+  it("renders four top-level ordered steps", () => {
+    render(<FlowBuilderShell fixture={flowBuilderFixture} />);
+
+    expect(screen.getByText("4 total steps")).toBeInTheDocument();
+  });
+
   it("renders variable chips", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
-    expect(screen.getByText("Contact Name")).toBeInTheDocument();
-    expect(screen.getByText("Company")).toBeInTheDocument();
-    expect(screen.getByText("Email Address")).toBeInTheDocument();
-    expect(screen.getByText("Qualification Score")).toBeInTheDocument();
+    expect(screen.getAllByText("Contact Name")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Company")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Email Address")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Qualification Score")[0]).toBeInTheDocument();
   });
 
   it("marks sensitive chip appropriately", () => {
@@ -94,7 +101,9 @@ describe("FlowBuilderShell", () => {
 
     expect(screen.getByText("test-run:sample-001")).toBeInTheDocument();
     expect(screen.getByText("TestRun")).toBeInTheDocument();
-    expect(screen.getByText("completed")).toBeInTheDocument();
+    const testRunSection = screen.getByText("test-run:sample-001").closest(".fb-test-run-section");
+    expect(testRunSection).not.toBeNull();
+    expect(within(testRunSection as HTMLElement).getByText("completed")).toBeInTheDocument();
   });
 
   it("renders Activation summary with paused state", () => {
@@ -102,7 +111,11 @@ describe("FlowBuilderShell", () => {
 
     expect(screen.getByText("activation:sample-001")).toBeInTheDocument();
     expect(screen.getByText("Activation")).toBeInTheDocument();
-    expect(screen.getByText("paused")).toBeInTheDocument();
+    const activationSection = screen
+      .getByText("activation:sample-001")
+      .closest(".fb-activation-section");
+    expect(activationSection).not.toBeNull();
+    expect(within(activationSection as HTMLElement).getByText("paused")).toBeInTheDocument();
   });
 
   it("renders RunReceipt summary", () => {
@@ -115,8 +128,8 @@ describe("FlowBuilderShell", () => {
   it("renders step receipts with completed and skipped states", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
-    expect(screen.getByText("completed")).toBeInTheDocument();
-    expect(screen.getByText("skipped")).toBeInTheDocument();
+    expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("skipped").length).toBeGreaterThan(0);
     expect(screen.getByText(/Branch: else/)).toBeInTheDocument();
   });
 
@@ -151,7 +164,7 @@ describe("FlowBuilderShell", () => {
   it("renders prototype banner warning", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
-    expect(screen.getByText(/Fixture data only/)).toBeInTheDocument();
+    expect(screen.getByText(/No execution, persistence, or API wiring/i)).toBeInTheDocument();
   });
 
   it("renders step count", () => {
@@ -198,9 +211,11 @@ describe("FlowBuilderShell", () => {
   it("renders condition expression details", () => {
     render(<FlowBuilderShell fixture={flowBuilderFixture} />);
 
-    expect(screen.getByText(/qualification_score/)).toBeInTheDocument();
+    expect(screen.getByText(/step:extract-leads-001\.output\.qualification_score/)).toBeInTheDocument();
     expect(screen.getByText("greater_than")).toBeInTheDocument();
-    expect(screen.getByText("70")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) => node?.classList.contains("fb-conditional-condition") && node.textContent?.includes("70"))
+    ).toBeInTheDocument();
   });
 
   it("renders step receipts with semantic metadata", () => {

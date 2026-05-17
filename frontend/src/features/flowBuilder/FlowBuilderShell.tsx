@@ -17,6 +17,7 @@ import React from "react";
 
 import type {
   FlowBuilderFixtureData,
+  FlowStarterFixture,
   FlowStepFixture,
   VariableChipFixture,
   ValidationSummaryFixture,
@@ -58,10 +59,8 @@ function SectionHeader({ children, className = "" }: { children: React.ReactNode
  */
 function DraftOverviewCard({
   draft,
-  starter,
 }: {
   draft: FlowBuilderFixtureData["draft"];
-  starter: FlowBuilderFixtureData["starter"];
 }) {
   return (
     <section className="fb-shell-card fb-draft-overview" aria-labelledby="draft-overview-heading">
@@ -82,12 +81,37 @@ function DraftOverviewCard({
           <dd>{draft.runtimeSupport}</dd>
         </div>
         <div className="fb-draft-meta-row">
-          <dt>Starter</dt>
-          <dd>{starter.label}</dd>
-        </div>
-        <div className="fb-draft-meta-row">
           <dt>Updated</dt>
           <dd>{new Date(draft.updatedAt).toLocaleString()}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * Starter card component.
+ */
+function StarterCard({ starter }: { starter: FlowStarterFixture }) {
+  return (
+    <section className="fb-shell-card fb-starter-card" aria-labelledby="starter-heading">
+      <h3 id="starter-heading">Starter</h3>
+      <dl className="fb-starter-meta">
+        <div className="fb-meta-row">
+          <dt>Label</dt>
+          <dd>{starter.label}</dd>
+        </div>
+        <div className="fb-meta-row">
+          <dt>Kind</dt>
+          <dd>{starter.kind}</dd>
+        </div>
+        <div className="fb-meta-row">
+          <dt>Description</dt>
+          <dd>{String(starter.config.description ?? "Prototype starter fixture")}</dd>
+        </div>
+        <div className="fb-meta-row">
+          <dt>Requires Approval</dt>
+          <dd>{String(Boolean(starter.config.requiresApproval))}</dd>
         </div>
       </dl>
     </section>
@@ -141,46 +165,45 @@ function StepList({ steps, conditionalContainer }: {
                   {(step.config as Record<string, unknown>)?.instruction as string}
                 </p>
               )}
+              {step.kind === "conditional" && conditionalContainer && (
+                <div className="fb-conditional-body">
+                  <p className="fb-conditional-condition">
+                    Condition: {conditionalContainer.condition.lhs}{" "}
+                    <strong>{conditionalContainer.condition.operator}</strong>{" "}
+                    {conditionalContainer.condition.rhs}
+                  </p>
+                  <div className="fb-conditional-branches">
+                    <div className="fb-conditional-branch fb-branch-then">
+                      <h4>
+                        Then branch ({conditionalContainer.substeps.length}
+                        {conditionalContainer.substeps.length !== 1 ? " steps" : " step"})
+                      </h4>
+                      <ul>
+                        {conditionalContainer.substeps.map((substep) => (
+                          <li key={substep.id}>{substep.label}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="fb-conditional-branch fb-branch-else">
+                      <h4>
+                        Else branch ({conditionalContainer.elseSubsteps.length}
+                        {conditionalContainer.elseSubsteps.length !== 1 ? " steps" : " step"})
+                      </h4>
+                      <ul>
+                        {conditionalContainer.elseSubsteps.map((substep) => (
+                          <li key={substep.id}>{substep.label}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}
-        {conditionalContainer && (
-          <li className="fb-step-item fb-step-item-conditional">
-            <div className="fb-step-item-header">
-              <span className="fb-step-position">{steps.length + 1}</span>
-              <span className="fb-step-label">{conditionalContainer.label}</span>
-              <StepBadge kind="conditional" />
-            </div>
-            <div className="fb-conditional-body">
-              <p className="fb-conditional-condition">
-                Condition: {conditionalContainer.condition.lhs}{" "}
-                <strong>{conditionalContainer.condition.operator}</strong>{" "}
-                {conditionalContainer.condition.rhs}
-              </p>
-              <div className="fb-conditional-branches">
-                <div className="fb-conditional-branch fb-branch-then">
-                  <h4>Then branch ({conditionalContainer.substeps.length} step{conditionalContainer.substeps.length !== 1 ? "s" : ""})</h4>
-                  <ul>
-                    {conditionalContainer.substeps.map((substep) => (
-                      <li key={substep.id}>{substep.label}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="fb-conditional-branch fb-branch-else">
-                  <h4>Else branch ({conditionalContainer.elseSubsteps.length} step{conditionalContainer.elseSubsteps.length !== 1 ? "s" : ""})</h4>
-                  <ul>
-                    {conditionalContainer.elseSubsteps.map((substep) => (
-                      <li key={substep.id}>{substep.label}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </li>
-        )}
       </ol>
       <div className="fb-step-count">
-        {steps.length + (conditionalContainer ? 1 : 0) + 1} total steps
+        {steps.length} total steps
       </div>
     </section>
   );
@@ -537,7 +560,8 @@ export function FlowBuilderShell({ fixture = flowBuilderFixture, className = "" 
       <main className="fb-shell-content">
         {/* Authoring Lane */}
         <div className="fb-authoring-lane">
-          <DraftOverviewCard draft={fixture.draft} starter={fixture.starter} />
+          <StarterCard starter={fixture.starter} />
+          <DraftOverviewCard draft={fixture.draft} />
           <StepList steps={fixture.steps} conditionalContainer={fixture.conditionalContainer} />
         </div>
 
