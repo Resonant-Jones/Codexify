@@ -123,9 +123,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 6. **Task id:** `FB-006`
    **Title:** ConditionalContainer contract and UI model
    **Lane:** frontend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/adr/`, possible future `docs/architecture/flow-builder-conditional-container.md`, future frontend model docs
    **Depends on:** `FB-002`, `FB-003`, `FB-004`, `FB-005`
+   **Proof artifact:** `docs/architecture/flow-builder-conditional-container-contract.md`
    **Proof surface:** contract note proving the default authoring model is linear steps with structured conditional containers, branch context, at least one nested substep, and no arbitrary DAG claim
    **Non-goals:** no canvas implementation, no drag/drop branch UI, no execution compiler
 
@@ -152,9 +154,11 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 9. **Task id:** `FB-009`
    **Title:** Flow activity/proof surface design
    **Lane:** frontend contract
+   **Status:** complete
    **Architecture impact:** yes
    **Target files or likely target file families:** `docs/architecture/`, possible future `docs/architecture/flow-builder-activity-proof-surface.md`, future frontend contract docs
    **Depends on:** `FB-008`
+   **Proof artifact:** `docs/architecture/flow-builder-activity-proof-surface.md`
    **Proof surface:** surface design that shows receipt streams as operational evidence distinct from chat messages and task events
    **Non-goals:** no UI component implementation, no SSE subscription, no receipt route, no live proof claim
 

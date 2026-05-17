@@ -14,7 +14,11 @@
 
 ## Public Claims (Copy-Ready, Evidence-Bound)
 
-{claims_bullets}
+{public_copy_claims_bullets}
+
+## Internal Supporting Evidence
+
+{supporting_evidence_bullets}
 
 ## Supporting Evidence Anchors
 
