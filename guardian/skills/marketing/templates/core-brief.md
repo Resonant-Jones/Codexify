@@ -12,11 +12,15 @@
 
 {core_narrative}
 
-## Public Claims (Copy-Ready)
+## Public Claims (Copy-Ready, Evidence-Bound)
 
 {public_copy_claims_bullets}
 
 ## Internal Supporting Evidence
+
+{supporting_evidence_bullets}
+
+## Supporting Evidence Anchors
 
 {supporting_evidence_bullets}
 
