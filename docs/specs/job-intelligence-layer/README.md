@@ -20,6 +20,7 @@ Baseline orientation document:
 - [`09-lineage-and-revision-contract.md`](./09-lineage-and-revision-contract.md): Defines planning expectations for source traceability, revision history, confirmation lineage, and supersession relationships.
 - [`10-mvp-validation-scenario.md`](./10-mvp-validation-scenario.md): Defines the first synthetic MVP scenario and proof expectations before any implementation work begins.
 - [`11-prompt-and-pipeline-contract.md`](./11-prompt-and-pipeline-contract.md): Defines the planning decomposition for future pass-based prompt and processing pipeline behavior before runtime implementation.
+- [`12-implementation-readiness-plan.md`](./12-implementation-readiness-plan.md): Defines the implementation-readiness boundary and first executable proof constraints before any runtime work begins.
 
 ## Do Not Assume
 
