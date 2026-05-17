@@ -53,6 +53,7 @@ from guardian.context.retrieval_router_policy import (
     normalize_retrieval_override_mode,
     normalize_source_mode,
     resolve_context_assembly_policy,
+    resolve_retrieval_plan,
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
