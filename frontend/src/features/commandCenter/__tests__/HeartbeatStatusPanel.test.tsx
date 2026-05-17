@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import * as React from "react";
 
 import HeartbeatStatusPanel from "@/features/commandCenter/HeartbeatStatusPanel";
@@ -46,7 +46,9 @@ describe("HeartbeatStatusPanel", () => {
 
     expect(screen.getByText("Heartbeat Status")).toBeInTheDocument();
     expect(screen.getByText("2026-05-14")).toBeInTheDocument();
-    expect(screen.getByText("Passed")).toBeInTheDocument();
+    // Both review + outbox may render "Passed" — use getAllByText
+    const passed = screen.getAllByText("Passed");
+    expect(passed.length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Read-only")).toBeInTheDocument();
     expect(screen.getByText("Manual-only")).toBeInTheDocument();
     expect(screen.getByText("Publishing disabled")).toBeInTheDocument();
@@ -72,7 +74,9 @@ describe("HeartbeatStatusPanel", () => {
 
     render(<HeartbeatStatusPanel enabled />);
 
-    expect(screen.getByText("Missing")).toBeInTheDocument();
+    // Both review + outbox render "Missing" — expect at least 2
+    const missing = screen.getAllByText("Missing");
+    expect(missing.length).toBeGreaterThanOrEqual(2);
     // Should still render, not crash
     expect(screen.getByText("Heartbeat Status")).toBeInTheDocument();
   });
@@ -89,7 +93,8 @@ describe("HeartbeatStatusPanel", () => {
     // Warning badge should appear (two: review + outbox)
     const warnings = screen.getAllByText("Warning");
     expect(warnings.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Review gate was skipped")).toBeInTheDocument();
+    // Warning text is rendered with bullet prefix: "• Review gate was skipped"
+    expect(document.body).toHaveTextContent("Review gate was skipped");
   });
 
   it("renders failed status with failures", () => {
@@ -103,7 +108,8 @@ describe("HeartbeatStatusPanel", () => {
 
     const faileds = screen.getAllByText("Failed");
     expect(faileds.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Step failed: Beta Release Sentinel")).toBeInTheDocument();
+    // Failure text is rendered with bullet prefix: "• Step failed: Beta Release Sentinel"
+    expect(document.body).toHaveTextContent("Step failed: Beta Release Sentinel");
   });
 
   it("shows publication disabled label", () => {
