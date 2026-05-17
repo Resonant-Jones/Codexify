@@ -38,6 +38,7 @@ It performs objective checks only:
 - repo-relative file existence checks for key runtime and documentation anchors
 - lightweight text matching for health, flow, storage, federation, ownership, roadmap, and risk signals
 - explicit `PASS`, `WARN`, and `FAIL` reporting for those objective findings
+- a `--json` mode that emits bounded machine-readable output for generated audit and release automation
 
 It does not fabricate subjective architectural scores. Where the repo cannot prove a judgment, the CLI prints manual review prompts instead of pretending to know the answer.
 
