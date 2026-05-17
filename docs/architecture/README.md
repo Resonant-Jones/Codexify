@@ -102,6 +102,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
 - [Flow Builder Export and Restore Inclusion Contract](./flow-builder-export-restore-inclusion-contract.md): future export/restore inclusion contract for Flow Builder artifacts only; planning surface, not runtime truth.
 - [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
+- [Flow Builder Shell Prototype](./flow-builder-shell-prototype.md): fixture-backed frontend shell for future Flow Builder authoring and proof-surface concepts only; not runtime truth and not release support. FB-011 proof artifact.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 - [Candidate Trace Surface](./candidate-trace-surface.md): backend-only pre-answer candidate diagnostic surface, TTL-bound and excluded from export.
 - [Candidate Trace Ingestion Pipeline](./candidate-ingest-pipeline.md): backend-only ingest seam for normalized candidate-trace payloads; log-only scaffold for future graph/entity extraction.

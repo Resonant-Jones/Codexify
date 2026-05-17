@@ -176,11 +176,13 @@ This is sequencing guidance only. It does not implement Flow Builder runtime beh
 11. **Task id:** `FB-011`
     **Title:** Frontend Flow Builder shell prototype
     **Lane:** frontend implementation
+    **Status:** complete
     **Architecture impact:** no
-    **Target files or likely target file families:** `frontend/src/features/flowBuilder/`, `frontend/tests/` or colocated Vitest files, frontend route/shell files only if needed
+    **Target files or likely target file families:** `frontend/src/features/flowBuilder/`
     **Depends on:** `FB-002`, `FB-003`, `FB-004`, `FB-006`, `FB-009`
-    **Proof surface:** targeted frontend tests showing one shared typed draft object, validation display from contract fixtures, no runtime execution, and no beta nav/supported-surface expansion unless separately approved
-    **Non-goals:** no backend route, no persistence, no TestRun, no Activation, no live execution, no release-surface claim
+    **Proof artifact:** `frontend/src/features/flowBuilder/FlowBuilderShell.tsx`
+    **Proof surface:** fixture-backed UI prototype with types.ts, fixtures.ts, FlowBuilderShell.tsx, FlowBuilderShell.css, index.ts, and FlowBuilderShell.test.tsx. Frontend tests assert fixture rendering, semantic steps, conditional containers, variable chips, validation warnings, TestRun/Activation summaries, activity events, and absence of live execution controls (no "Run now", "Activate now", or "Execute" buttons).
+    **Non-goals:** no backend route, no persistence, no TestRun implementation, no Activation implementation, no live execution, no release-surface claim. Fixture data is not runtime proof.
 
 12. **Task id:** `FB-012`
     **Title:** First non-side-effecting TestRun proof harness
