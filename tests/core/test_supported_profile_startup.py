@@ -174,6 +174,27 @@ def test_supported_profile_health_reports_active_profile(monkeypatch) -> None:
             client.close()
 
 
+def test_supported_profile_health_loads_during_startup(monkeypatch) -> None:
+    with _loaded_guardian_api(monkeypatch) as guardian_api:
+        client = TestClient(guardian_api.app)
+        try:
+            response = client.get("/api/health/llm")
+            assert response.status_code == 200
+            payload = response.json()
+            details = payload["details"]
+            supported_profile = details["supported_profile"]
+
+            assert supported_profile["name"] == "v1-local-core-web-mcp"
+            assert supported_profile["valid"] is True
+            assert supported_profile["release_hold"] is False
+            assert details["provider_truth"]["supported_profile_name"] == (
+                "v1-local-core-web-mcp"
+            )
+            assert details["provider_truth"]["supported_profile_valid"] is True
+        finally:
+            client.close()
+
+
 def test_supported_profile_startup_fails_on_provider_drift(monkeypatch) -> None:
     with _loaded_guardian_api(monkeypatch, LLM_PROVIDER="groq") as guardian_api:
         with pytest.raises(RuntimeError, match="supported profile drift"):

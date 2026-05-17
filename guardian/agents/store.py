@@ -74,24 +74,34 @@ def _should_persist_coding_result_message(status: str) -> bool:
     }
 
 
-_AGENT_RUN_STATUS_ALIASES: dict[str, str] = {
-    "cancelled": "canceled",
-    "canceled": "canceled",
-    "completed": "succeeded",
-    "success": "succeeded",
-}
-_AGENT_RUN_TERMINAL_STATUSES = {"failed", "succeeded", "canceled", "escalated"}
-
-
-def _normalize_agent_run_status(status: Any) -> str:
-    value = str(status or "").strip().lower()
-    if not value:
-        return "failed"
-    return _AGENT_RUN_STATUS_ALIASES.get(value, value)
-
-
-def _is_terminal_agent_run_status(status: Any) -> bool:
-    return _normalize_agent_run_status(status) in _AGENT_RUN_TERMINAL_STATUSES
+def _extract_patch_artifact_metadata(
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        kind = str(artifact.get("kind") or "").strip().lower()
+        if kind != "coding_patch":
+            continue
+        status = str(artifact.get("status") or "").strip()
+        return {
+            "kind": "coding_patch",
+            "status": status or None,
+            "path": str(artifact.get("path") or "").strip() or None,
+            "manifest_path": (
+                str(artifact.get("manifest_path") or "").strip() or None
+            ),
+            "sha256": str(artifact.get("sha256") or "").strip() or None,
+            "size_bytes": artifact.get("size_bytes"),
+            "run_id": str(artifact.get("run_id") or "").strip() or None,
+            "coding_task_id": (
+                str(artifact.get("coding_task_id") or "").strip() or None
+            ),
+            "attempt_id": (
+                str(artifact.get("attempt_id") or "").strip() or None
+            ),
+        }
+    return None
 
 
 @dataclass
@@ -1002,6 +1012,7 @@ class AgentStore:
             else {"value": str(artifact)}
             for artifact in (artifacts or [])
         ]
+        patch_artifact = _extract_patch_artifact_metadata(artifact_rows)
         if not normalized_files_changed:
             normalized_files_changed = [
                 artifact.get("path", artifact.get("name", ""))
@@ -1228,6 +1239,7 @@ class AgentStore:
                 "lease_required": resolved_lease_required,
                 "branch_name": resolved_lease_branch_name,
                 "worktree_path": resolved_lease_worktree_path,
+                "patch_artifact": patch_artifact,
                 "result_captured_by_guardian": True,
             }
 
@@ -1274,6 +1286,7 @@ class AgentStore:
             "lease_required": resolved_lease_required,
             "branch_name": resolved_lease_branch_name,
             "worktree_path": resolved_lease_worktree_path,
+            "patch_artifact": patch_artifact,
             "result_captured_by_guardian": True,
         }
 
@@ -1330,6 +1343,7 @@ class AgentStore:
                 lease_required=resolved_lease_required,
                 lease_branch_name=resolved_lease_branch_name,
                 lease_worktree_path=resolved_lease_worktree_path,
+                patch_artifact=patch_artifact,
             )
             delivery_ok = message_id is not None
             delivery_status = "delivered" if delivery_ok else "degraded"
@@ -1659,6 +1673,7 @@ class AgentStore:
         lease_required: bool = False,
         lease_branch_name: str | None = None,
         lease_worktree_path: str | None = None,
+        patch_artifact: dict[str, Any] | None = None,
     ) -> tuple[int | None, str | None]:
         if not self._has_db():
             return None, "delivery_database_unavailable"
@@ -1727,6 +1742,7 @@ class AgentStore:
                     "lease_required": lease_required,
                     "branch_name": lease_branch_name,
                     "worktree_path": lease_worktree_path,
+                    "patch_artifact": patch_artifact,
                     "result_captured_by_guardian": True,
                     "error_code": error_code,
                     "error_message": error_message,

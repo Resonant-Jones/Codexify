@@ -1,6 +1,13 @@
 # Campaign Brief: {campaign_id}
 
-{claims_bullets}
+## Public Claims (Copy-Ready)
 
-Risk Flags:
+{public_copy_claims_bullets}
+
+## Internal Supporting Evidence
+
+{supporting_evidence_bullets}
+
+## Risk Flags
+
 {risk_flags_bullets}

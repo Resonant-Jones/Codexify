@@ -96,9 +96,9 @@ def _sanitize_supported_profile_state(
         "version": supported_profile.get("version"),
         "surface": supported_profile.get("surface"),
         "valid": supported_profile.get("valid"),
-        "mismatches": list(supported_profile.get("mismatches") or []),
-        "routes": dict(supported_profile.get("routes") or {}),
-        "criticality": dict(supported_profile.get("criticality") or {}),
+        "mismatches": list(supported_profile.get("mismatches") or []),  # type: ignore[call-overload]
+        "routes": dict(supported_profile.get("routes") or {}),  # type: ignore[call-overload]
+        "criticality": dict(supported_profile.get("criticality") or {}),  # type: ignore[call-overload]
     }
 
 
@@ -532,7 +532,7 @@ def health(request: Request):
             ],
             "release_hold": supported_profile_posture_state["release_hold"],
         }
-    elif supported_profile_posture_state.get("name") is not None:
+    elif supported_profile_posture_state.get("valid") is not None:
         details["supported_profile"] = supported_profile_posture_state
     return _health_response("core", "ok", details)
 
