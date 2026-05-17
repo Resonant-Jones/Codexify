@@ -85,6 +85,23 @@ class InvokePermissionProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class InvokeExternalPolicyRule(BaseModel):
+    """Optional supplied rule for external transport policy checks."""
+
+    effect: Literal["allow", "deny"]
+    connector_name: str | None = Field(default=None, max_length=255)
+    transport: str | None = Field(default=None, max_length=64)
+    command_namespace: str | None = Field(default=None, max_length=255)
+    command_name: str | None = Field(default=None, max_length=255)
+    url_host_pattern: str | None = Field(default=None, max_length=512)
+    url_scheme: str | None = Field(default=None, max_length=32)
+    project_id: str | None = Field(default=None, max_length=255)
+    thread_id: str | None = Field(default=None, max_length=255)
+    reason: str = Field(default="", max_length=1024)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class InvokeRequest(BaseModel):
     """Command invocation payload."""
 
@@ -95,6 +112,18 @@ class InvokeRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=255)
     provenance_json: dict[str, Any] = Field(default_factory=dict)
     permission_profile: InvokePermissionProfile | None = None
+    external_transport: str | None = Field(default=None, max_length=64)
+    external_target_url: str | None = Field(default=None, max_length=2048)
+    external_policy_rules: tuple[InvokeExternalPolicyRule, ...] = Field(
+        default_factory=tuple
+    )
+    external_command_namespace: str | None = Field(
+        default=None, max_length=255
+    )
+    external_command_name: str | None = Field(default=None, max_length=255)
+    external_project_id: str | None = Field(default=None, max_length=255)
+    external_thread_id: str | None = Field(default=None, max_length=255)
+    external_connector_name: str | None = Field(default=None, max_length=255)
 
     model_config = ConfigDict(extra="forbid")
 
