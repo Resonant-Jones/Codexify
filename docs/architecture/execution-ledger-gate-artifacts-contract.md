@@ -10,6 +10,19 @@ This document does not implement runtime behavior. It defines contract expectati
 - governing ADR: ADR-028 Execution Ledger Campaign Runner Contract
 - implementation status: docs-only contract; runtime implementation deferred
 
+## Implementation Note: Backend Contract Models
+- `guardian/agents/execution_ledger_contracts.py` now provides backend-only pure contract models for gate artifacts and acceptance criteria.
+- The models use the bounded Execution Ledger token registry.
+- The models are not yet persisted, routed, exposed through APIs, or wired into Campaign Runner execution.
+- Future persistence or API adoption requires separate architecture-aligned implementation tasks and tests.
+- Runtime behavior remains unchanged.
+
+## Implementation Note: Backend Metadata Storage Seam
+- `guardian/agents/execution_ledger_store.py` now provides a backend-internal storage helper for gate artifacts under work-order metadata.
+- The storage seam uses existing work-order metadata and does not add schema.
+- The seam is not exposed through routes or UI.
+- The seam does not change Campaign Runner behavior, work-order lifecycle behavior, Guardian execution, Command Center, or release posture.
+- Future API/UI adoption requires separate architecture-aligned implementation tasks and tests.
 ## Source Set
 ### Governing docs
 - `docs/architecture/00-current-state.md`
