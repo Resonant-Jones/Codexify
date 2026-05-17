@@ -1,10 +1,10 @@
 # Beta Release Sentinel — 2026-05-15
 
 ## Repo status
-- Branch: `codex/p2-worktree-isolation-fixes`
-- Head: `0fa121e8f0dae5b29bcf6b16696896c88782e2fd`
-- Worktree clean: `False`
-- ` M docs/architecture/codexify-platform-readiness-audit.md |  M scripts/audit_platform_readiness.py | ?? CHANGELOG.beta.md | ?? docs/audits/generated/2026-05-15-beta-sentinel.json | ?? docs/audits/generated/2026-05-15-beta-sentinel.md | ?? scripts/release/beta_release_sentinel.py | ?? tests/scripts/test_audit_platform_readiness_json.py | ?? tests/scripts/test_beta_release_sentinel.py`
+- Branch: `main`
+- Head: `0c244a990c5229d9d6381fb28ed4a99de85e70bb`
+- Worktree clean: `True`
+- Worktree appears clean.
 
 ## Current beta promise
 - Local-first beta hardening.
@@ -16,9 +16,9 @@
 - [checked] Supported-profile flags match the local-only beta contract. — docs/architecture/00-current-state.md (Checklist item from current state.)
 - [checked] Fresh live evidence exists on the current `main` tip for the supported path. — docs/architecture/00-current-state.md (Checklist item from current state.)
 - [checked] Chat completion and upload -> embed -> readback are proven on the supported stack. — docs/architecture/00-current-state.md (Checklist item from current state.)
-- [warning] Coding results return through Guardian into the source thread without duplicate delivery. — docs/architecture/00-current-state.md (Checklist item from current state.)
-- [warning] Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review. — docs/architecture/00-current-state.md (Checklist item from current state.)
-- [warning] No internal-only or quarantined surface is part of the release claim. — docs/architecture/00-current-state.md (Checklist item from current state.)
+- [checked] Coding results return through Guardian into the source thread without duplicate delivery. — docs/architecture/00-current-state.md (Checklist item from current state.)
+- [checked] Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review. — docs/architecture/00-current-state.md (Checklist item from current state.)
+- [checked] No internal-only or quarantined surface is part of the release claim. — docs/architecture/00-current-state.md (Checklist item from current state.)
 - [proven] Platform readiness audit execution — scripts/audit_platform_readiness.py (Audit script executed and returned JSON summary.)
 
 ## Evidence summary
@@ -28,9 +28,7 @@
 - No new commit subjects found for this window.
 
 ## Blockers
-- Coding results return through Guardian into the source thread without duplicate delivery.
-- Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.
-- No internal-only or quarantined surface is part of the release claim.
+- None currently listed.
 
 ## Warnings
 - Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling
