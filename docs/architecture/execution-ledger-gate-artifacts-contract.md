@@ -23,6 +23,7 @@ This document does not implement runtime behavior. It defines contract expectati
 - The seam is not exposed through routes or UI.
 - The seam does not change Campaign Runner behavior, work-order lifecycle behavior, Guardian execution, Command Center, or release posture.
 - Future API/UI adoption requires separate architecture-aligned implementation tasks and tests.
+
 ## Source Set
 ### Governing docs
 - `docs/architecture/00-current-state.md`

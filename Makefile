@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -353,6 +353,32 @@ heartbeat-outbox:
 		CMD="$$CMD --strict"; \
 	fi; \
 	$$CMD
+
+# Full end-to-end heartbeat pipeline: run, review, stage, inspect.
+# Stops on the first failed step.
+#
+# Usage:
+#   make heartbeat-full DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md" FORCE=1
+#   make heartbeat-full   # beta-only (dev-blog and insight auto-skipped)
+#   make heartbeat-full STRICT=1   # strict review and inspection
+#
+# Pass-through variables:
+#   DATE             -> all four child targets
+#   DEV_BLOG_SOURCE  -> heartbeat
+#   INSIGHT_SOURCE   -> heartbeat
+#   FORCE=1          -> heartbeat, heartbeat-stage
+#   STRICT=1         -> heartbeat-review, heartbeat-outbox
+heartbeat-full:
+	@echo "=== Heartbeat Full Pipeline ==="
+	@echo "Step 1/4: heartbeat"
+	@$(MAKE) heartbeat || { echo "ERROR: heartbeat failed"; exit 1; }
+	@echo "Step 2/4: heartbeat-review"
+	@$(MAKE) heartbeat-review || { echo "ERROR: heartbeat-review failed"; exit 1; }
+	@echo "Step 3/4: heartbeat-stage"
+	@$(MAKE) heartbeat-stage || { echo "ERROR: heartbeat-stage failed"; exit 1; }
+	@echo "Step 4/4: heartbeat-outbox"
+	@$(MAKE) heartbeat-outbox || { echo "ERROR: heartbeat-outbox failed"; exit 1; }
+	@echo "=== Heartbeat Full Pipeline Complete ==="
 
 # Build the public portal staging tree
 public-export:

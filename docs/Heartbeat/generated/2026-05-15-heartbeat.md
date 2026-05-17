@@ -1,12 +1,12 @@
 # Heartbeat Orchestrator — 2026-05-15
 
 **Date:** 2026-05-15
-**Generated:** 2026-05-15T20:52:13Z
+**Generated:** 2026-05-15T22:31:08Z
 
 ## Repo Status
 
 - **Branch:** `main`
-- **Head:** `def1b12a4572a55602d6141ab6d0863508853a42`
+- **Head:** `afa565dd3751318345df29869634f41a459a6252`
 - **Worktree clean:** yes
 
 ## Run Summary
@@ -14,18 +14,19 @@
 | Step | Status | Artifacts | Notes |
 |------|--------|-----------|-------|
 | Beta Release Sentinel | `passed` | /Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.md, /Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json | — |
-| Daily Dev Blog Ingestion | `skipped` | — | Skipped by --skip-dev-blog |
-| Resonant Constructs Daily Insight | `skipped` | — | Skipped by --skip-daily-insight |
+| Daily Dev Blog Ingestion | `passed` | docs/Website/dev-blog/generated/2026-05-15.md | Ingestion completed |
+| Resonant Constructs Daily Insight | `passed` | /Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/ResonantConstructs/daily-insights/generated/2026-05-15.md | — |
 
 ## Generated Artifacts
 
 - `/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.md`
 - `/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/audits/generated/2026-05-15-beta-sentinel.json`
+- `docs/Website/dev-blog/generated/2026-05-15.md`
+- `/Users/resonant_jones/.codex/worktrees/cd5b/Codexify/docs/ResonantConstructs/daily-insights/generated/2026-05-15.md`
 
 ## Skipped Steps
 
-- Daily Dev Blog Ingestion (--skip-dev-blog)
-- Resonant Constructs Daily Insight (--skip-daily-insight)
+- *(none)*
 
 ## Warnings
 
