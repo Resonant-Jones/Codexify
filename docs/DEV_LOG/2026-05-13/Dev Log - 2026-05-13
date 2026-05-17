@@ -1,0 +1,111 @@
+Dev Log - 2026-05-13
+
+Summary
+
+marketing contract hardening and runtime repair day
+
+Today was split between making the marketing generation path more evidence-bound and repairing the coding-result return path so terminal state handling stayed truthful. The work did not add a new flagship surface. It tightened the rules around what the marketing system can claim, how generated artifacts are recorded, and how the worker reports completion back into the rest of the system.
+
+The underlying pattern was consistent across both threads: reduce ambiguity, keep provenance visible, and stop the repo from implying more certainty than the runtime or source material actually support. That showed up in the marketing evidence ledger, the beta release sentinel, the generated campaign bundle, and the return-state repair in Guardian.
+
+What I completed
+
+Marketing generation and evidence contracts
+
+- Normalized the marketing evidence ledger schema so the generated campaign artifacts have a cleaner, more explicit record of what was used to justify the output.
+- Populated the marketing ledger eligibility fields so the generator can separate supported material from weaker or ineligible inputs more deliberately.
+- Added the marketing CLI skill and fixture scaffolding that backs the generation path and its tests.
+- Added the marketing documentation and campaign artifacts for the 2026-05-11 and 2026-05-13 runs, including core briefs, channel variants, review notes, run metadata, infographic specs, and the generated history entries.
+- Added the daily marketing automation run artifacts for 2026-05-13 so the campaign output is preserved as a concrete run, not just a transient prompt result.
+
+What changed here:
+- The marketing pipeline now has a more disciplined evidence trail.
+- Generated output is easier to audit because the supporting ledger and run metadata are explicit instead of implicit.
+- The day’s campaign artifacts are now tied to a repeatable generation path rather than a one-off draft.
+
+Beta release sentinel and release truth
+
+- Isolated the beta release sentinel changes and added the supporting audit artifacts.
+- Refreshed the weekly current-state override so the short-horizon truth stays aligned with the current repo shape.
+- Updated the current-state docs and fixed the migrator password-hash bootstrap path.
+
+What changed here:
+- Release-truth handling is less likely to drift from the actual repository state.
+- The beta sentinel now has its own bounded change set instead of being mixed into unrelated cleanup.
+- The current-state layer stayed in sync with the work that landed earlier in the day.
+
+Coding result return path
+
+- Repaired the coding-result return and terminal run state handling in Guardian.
+- Adjusted the supporting store and worker tests so the return path is exercised against the updated lifecycle behavior.
+- Added a stored coding agent session context artifact to preserve the proof trail around the relevant Command Center work.
+
+What changed here:
+- Terminal handling is more explicit, which reduces the chance that a completed result is misread as a stalled or orphaned run.
+- The worker/store seam is now more honest about the end of a run instead of collapsing state too early.
+- The session artifact keeps the evidence path attached to the repair work.
+
+Related repository support
+
+- Added the daily dev blog ingestion script and its tests, which gives the docs side a more direct way to capture daily output.
+- Reverted unintended frontend and campaign file carryover so the day’s work stayed bounded to the actual intended slices.
+
+Important outcome
+
+The main shift today is that both the marketing system and the coding-result path became more truthful about their own outputs.
+
+The marketing side is no longer just producing copy. It is producing copy with a ledger, eligibility rules, run metadata, and archived artifacts that make the evidence path visible. That matters because the system can now say less when the source material is weaker, which is the correct direction for a repo that cares about claims staying grounded.
+
+The runtime side stopped treating completion as a vague end state and started handling return-state transitions with more discipline. That makes Guardian less likely to blur together terminal, completed, and still-in-flight results. In practice, that is the difference between a system that looks finished and one that actually tracks completion honestly.
+
+Commits
+
+- `69c1f217a` - Add daily marketing automation run artifacts for 2026-05-13
+- `85258b6a5` - Repair coding result return and terminal run state
+- `9ac50780c` - Normalize marketing evidence ledger schema
+- `b3081ae3e` - Isolate beta release sentinel changes
+- `47d93e734` - Populate marketing ledger eligibility fields
+- `fd77db51d` - Add marketing documentation and campaign artifacts
+- `bb680ab2f` - Add marketing CLI skill and fixture scaffolding
+- `2367b891a` - Add stored coding agent session context artifact
+- `8564e159b` - Update current-state docs and fix migrator password-hash bootstrap
+- `f93951235` - Add daily dev blog ingestion script
+- `76b79bb3d` - marketing Campaign Run Test
+- `c8b60c12d` - docs: refresh weekly current-state override
+
+Notes
+
+- This log is based on repo evidence and git history, not live runtime proof.
+- The marketing work is supported by generated artifacts, schema changes, fixtures, and tests, but I did not validate the full marketing flow live in this turn.
+- The coding-result repair is backed by worker and store changes plus tests, but I am not claiming an end-to-end live proof from this evidence alone.
+- There was also a cleanup commit that reverted unintended carryover, but I kept the commit list focused on the substantive May 13 workstreams.
+
+Next likely moves
+
+- Exercise the marketing generation path against the updated eligibility and ledger rules.
+- Verify the coding-result return path in the running app or through a focused integration test.
+- Keep the current-state doc synchronized with the latest release and runtime truth.
+- Decide whether the beta sentinel needs any additional guardrails or operator-facing notes.
+- Fold the new dev blog ingestion path into whatever daily-doc workflow is now preferred.
+
+Closing thought
+
+The day mattered because it made two different parts of the repo less eager to overstate themselves. The marketing path became more evidential, and the worker return path became more precise. That is a small shift on paper, but it improves the honesty of the system in places where ambiguity would otherwise accumulate.
+
+Narrative Log
+
+Dev Log - 2026-05-13
+
+Today was a day of tightening boundaries rather than opening new ones.
+
+The marketing work came first, and it was mostly about discipline. The evidence ledger was normalized, the eligibility fields were populated, and the generation path was backed by proper CLI scaffolding and fixtures. That combination matters more than it sounds like it does. It means the system is not just manufacturing campaign text, it is preserving the path that justified the text in the first place. The generated briefs, channel variants, review notes, and run metadata are all part of that same move toward traceability. The output is easier to reason about because the system now records why it was allowed to say what it said.
+
+The beta release sentinel work fit the same pattern. Rather than letting release truth get mixed into unrelated edits, it was isolated into its own changeset with its own audit artifacts. That kind of separation is mundane, but it is exactly what keeps the repo from turning release claims into a fog of incidental changes. The current-state docs were refreshed too, which matters because release posture only stays believable when the short-horizon truth is kept current.
+
+The runtime repair in Guardian was the other important correction. The coding-result return path and terminal run state were adjusted so completion is handled more explicitly. That is not just a cleanup detail. A system like this can easily blur the line between finished, orphaned, and still-running if the end of the lifecycle is not treated carefully. Fixing that makes the worker and the store more honest about what a run actually is at the moment it ends.
+
+There was also some supporting work around daily dev blog ingestion and session capture. Those pieces do not change the core product story by themselves, but they strengthen the repository as a record of its own work. That matters in a system where proof, history, and generated artifacts all need to stay connected rather than drifting apart.
+
+What changed underneath the surface is that both the marketing and runtime paths became more conservative in a good way. The marketing side is less likely to oversell, because the evidence path is now first-class. The worker side is less likely to misstate state, because terminal transitions are handled with more care. That is the kind of day that reduces future confusion before it ever appears.
+
+The next useful step is to validate those tighter boundaries in the running system, then keep the current-state and release artifacts aligned so the docs do not outrun the code.

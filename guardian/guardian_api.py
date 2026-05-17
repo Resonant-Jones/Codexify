@@ -502,6 +502,7 @@ from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
+from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import (
     delegations,
     devtools,
@@ -1212,6 +1213,11 @@ _include_router(
         app.include_router(coding_work_orders.orchestrator_router),
         app.include_router(coding_work_orders.campaign_runner_router),
     ),
+)
+_include_router(
+    label="heartbeat",
+    flag_name="CODEXIFY_ENABLE_HEARTBEAT_ROUTES",
+    include_fn=lambda: app.include_router(heartbeat_routes.router),
 )
 _include_router(
     label="command_bus",
