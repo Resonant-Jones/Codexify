@@ -1,0 +1,48 @@
+sequenceDiagram
+    participant User as User
+    participant FE as React frontend
+    participant API as Chat API routes
+    participant PG as Postgres
+    participant Redis as Redis queue/lock/events
+    participant Worker as Chat worker
+    participant Broker as Context broker
+    participant Retrieve as Retrieval layers
+    participant Router as Provider router
+    participant Provider as Model provider
+    participant Trace as Trace/eval surfaces
+    participant Events as Task event surface
+
+    User->>FE: Compose message
+    FE->>API: POST /api/chat/threads (first-send path when needed)
+    API->>PG: Persist thread
+    FE->>API: POST /api/chat/{thread_id}/messages
+    API->>PG: Persist user message
+    FE->>API: POST /api/chat/{thread_id}/complete
+
+    API->>Redis: Acquire turn lock
+    API->>Redis: Enqueue ChatCompletionTask
+    API->>Redis: Best-effort task.created
+    API-->>FE: task_id, turn_id, trace_url, messages_url
+    Note over API,FE: Route acceptance is not completion.
+
+    FE->>Events: Subscribe /api/tasks/{task_id}/events
+    Worker->>Redis: Dequeue task + emit task.running
+    Worker->>Broker: Assemble context
+    Broker->>Retrieve: Thread + doc + vector + memory assembly
+    Broker-->>Worker: Context bundle + retrieval posture
+
+    Worker->>Router: Select provider/model path
+    Router->>Provider: Execute completion
+    Provider-->>Worker: Assistant output
+
+    Worker->>PG: Persist assistant message + audit/domain rows
+    Worker->>Trace: Persist trace snapshot + enqueue eval lane
+    Note over Worker,Trace: Worker-visible completion payload is stronger proof for executed behavior; debug-only reconstruction is diagnostic.
+
+    Worker->>Redis: Publish terminal task event + release turn lock
+    Redis-->>Events: Task stream updated
+    Events-->>FE: Lifecycle events (publication)
+    Note over Events,FE: Task-event publication is not guaranteed UI receipt.
+
+    FE->>API: GET messages_url
+    API-->>FE: Updated thread messages

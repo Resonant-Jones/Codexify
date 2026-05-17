@@ -1,0 +1,68 @@
+flowchart LR
+    subgraph clients["User and client boundary"]
+        U["User"]
+        B["Browser client\nclient/UI surface\nsupported/proven"]
+        T["Tauri desktop shell\noptional client shell\nnot current release promise"]
+        FE["React frontend\nclient/UI surface\nsupported/proven"]
+        LS["Frontend local/session state\noperational/ephemeral client state"]
+    end
+
+    subgraph runtime["FastAPI runtime boundary (local Docker Compose supported path)"]
+        API["FastAPI backend\nsupported/proven"]
+        CHAT["Chat/thread API\nsupported/proven"]
+        COMP["Completion service\nsupported/proven"]
+        CTX["Context broker\nsupported/proven"]
+        PROUTER["Provider router\nmodel/provider boundary\nsupported/proven (local-only posture)"]
+        WORKERS["Worker layer\nchat/embed/document/warmup/cron\nsupported/proven"]
+        CMD["Command bus / tool lane\ninternal/control-plane\nnot current release promise"]
+        CRON["Cron / automation lane\ninternal/control-plane\nnot current release promise"]
+        INGEST["Media/document ingestion\nsupported/proven"]
+        EVENTS["Task + event surfaces\noperational/ephemeral transport\nsupported/proven"]
+        TRACE["Debug trace + eval surfaces\ndiagnostic/proof surfaces\nnot release-proof by themselves"]
+    end
+
+    subgraph stores["Storage and transport boundaries"]
+        PG["Postgres\ndurable state\nsystem of record"]
+        REDIS["Redis\noperational/ephemeral\nqueues/locks/events/heartbeat"]
+        VEC["Vector store\ndurable semantic corpus"]
+        OBJ["File/object storage\ndurable media/document bytes"]
+        NEO["Neo4j graph lane\noptional/feature-flagged\nnot current release promise"]
+    end
+
+    subgraph providers["Model/provider boundary"]
+        LOCAL["Local provider path\nsupported/proven beta posture"]
+        CLOUD["Cloud provider lanes\nnot current release promise"]
+    end
+
+    U --> B
+    U --> T
+    B --> FE
+    T --> FE
+    FE <--> LS
+    FE --> API
+    FE --> EVENTS
+    API --> CHAT
+    CHAT --> REDIS
+    CHAT --> PG
+    REDIS --> WORKERS
+    WORKERS --> COMP
+    COMP --> CTX
+    COMP --> PROUTER
+    COMP --> PG
+    COMP --> EVENTS
+    COMP --> TRACE
+    CTX <--> PG
+    CTX <--> VEC
+    CTX -. optional .-> NEO
+    INGEST --> OBJ
+    INGEST --> PG
+    INGEST --> REDIS
+    WORKERS --> INGEST
+    API --> CMD
+    API --> CRON
+    CMD --> PG
+    CRON --> REDIS
+    CRON --> PG
+    EVENTS --> FE
+    PROUTER --> LOCAL
+    PROUTER -. governed but not supported profile default .-> CLOUD
