@@ -22,7 +22,6 @@ from scripts.marketing.pipeline import (
     PRESENTATION_SUPPORTING_EVIDENCE,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
-    ALLOWED_PRESENTATION_ROLES,
     Claim,
     assign_presentation_roles,
     collect_source_documents,
@@ -366,8 +365,6 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         claim["channel_eligible"] is not None for claim in evidence["claims"]
     )
     assert all(
-        claim["presentation_role"] is not None
-        for claim in evidence["claims"]
         claim["presentation_role"] is not None for claim in evidence["claims"]
     )
     assert all(claim["copy_ready"] is not None for claim in evidence["claims"])
@@ -389,11 +386,6 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         evidence["marketable_claims"]
     )
     assert len(evidence["non_marketable_claims"]) == len(
-        [
-            claim
-            for claim in evidence["claims"]
-            if not claim["channel_eligible"]
-        ]
         [claim for claim in evidence["claims"] if not claim["channel_eligible"]]
     )
 
