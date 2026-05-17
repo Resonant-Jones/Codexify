@@ -22,6 +22,7 @@ from scripts.marketing.pipeline import (
     PRESENTATION_SUPPORTING_EVIDENCE,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
+    ALLOWED_PRESENTATION_ROLES,
     Claim,
     assign_presentation_roles,
     collect_source_documents,
@@ -51,6 +52,17 @@ DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
 )
 
 FORBIDDEN_PUBLIC_PHRASES = [
+    "not release-ready",
+    "release-ready for this path: no",
+    "failed before",
+    "migrator failed",
+    "task.failed",
+    "blocked",
+    "missing revision",
+    "restore the missing",
+    "re-run",
+    "not yet runtime-owned",
+    "worker runtime artifact",
     "task-2026",
     "docs/architecture/",
     "guardian/queue/",
@@ -354,6 +366,8 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         claim["channel_eligible"] is not None for claim in evidence["claims"]
     )
     assert all(
+        claim["presentation_role"] is not None
+        for claim in evidence["claims"]
         claim["presentation_role"] is not None for claim in evidence["claims"]
     )
     assert all(claim["copy_ready"] is not None for claim in evidence["claims"])
@@ -375,6 +389,11 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         evidence["marketable_claims"]
     )
     assert len(evidence["non_marketable_claims"]) == len(
+        [
+            claim
+            for claim in evidence["claims"]
+            if not claim["channel_eligible"]
+        ]
         [claim for claim in evidence["claims"] if not claim["channel_eligible"]]
     )
 
