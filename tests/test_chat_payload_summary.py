@@ -79,3 +79,32 @@ def test_payload_summary_retrieval_injection_flags():
     assert summary["retrieval_injected"] is True
     assert summary["semantic_count"] == 2
     assert summary["memory_count"] == 1
+
+
+def test_payload_summary_does_not_count_generic_semantic_or_docs_as_obsidian():
+    messages = [
+        {"role": "system", "content": "=== BASE SYSTEM ==="},
+        {"role": "user", "content": "What changed?"},
+    ]
+
+    bundle = {
+        "semantic": [{"text": "thread hit 1"}, {"text": "thread hit 2"}],
+        "obsidian": [],
+        "memory": [],
+        "graph": [],
+        "docs": {
+            "thread": [{"title": "Thread Doc"}],
+            "project": [{"title": "Project Doc"}],
+            "global": [],
+        },
+    }
+
+    summary = build_sanitized_payload_summary(
+        messages, bundle, provider="groq", model="llama3"
+    )
+
+    assert summary["semantic_count"] == 2
+    assert summary["obsidian_count"] == 0
+    assert summary["obsidian_injected"] is False
+    assert summary["linked_document_count"] == 2
+    assert summary["retrieval_injected"] is False

@@ -16,6 +16,10 @@
 
 {visual_arc}
 
+## Draft Safety
+
+{draft_warning}
+
 ## Prompt Pack
 
 ### Prompt A (Diagram-first)
@@ -30,3 +34,4 @@
 
 - approval_state: `draft`
 - render_mode: `spec-and-prompt-only`
+- visible_claim_source: `public_copy_seed.copy_ready`
