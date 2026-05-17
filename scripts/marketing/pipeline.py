@@ -367,7 +367,9 @@ def classify_claim_candidate(text: str) -> str:
 
 
 def _looks_like_implementation_breadcrumb(text: str) -> bool:
-    return any(pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS)
+    return any(
+        pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
+    )
     return any(
         pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
     )
@@ -609,6 +611,9 @@ def _claims_bullets(claims: list[Claim], with_evidence: bool = True) -> str:
 
 
 def _copy_ready_claims(claims: list[Claim]) -> list[Claim]:
+    return [claim for claim in claims if claim.copy_ready]
+
+
 def _public_copy_text(claim: Claim) -> str:
     public_message = getattr(claim, "public_message", None)
     if isinstance(public_message, str) and public_message.strip():
@@ -625,8 +630,6 @@ def _public_copy_claims(claims: list[Claim]) -> list[Claim]:
     ]
 
 
-def _supporting_evidence_bullets(claims: list[Claim]) -> str:
-    supporting = [
 def _supporting_evidence_claims(claims: list[Claim]) -> list[Claim]:
     return [
         claim
