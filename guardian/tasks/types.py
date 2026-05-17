@@ -515,7 +515,7 @@ class CodingExecutionTask(BaseTask):
     work_order_id: str | None = None
     user_id: str = ""
     project_id: int | None = None
-    adapter_kind: CodingAgentAdapterKind = "mock"
+    adapter_kind: CodingAgentAdapterKind = "pi_codex_runner"
     instructions: str = ""
     repo_root: str | None = None
     context_summary: str | None = None
@@ -571,7 +571,7 @@ class CodingExecutionTask(BaseTask):
                 _normalize_executor_id(
                     payload.get("adapter_kind") or payload.get("adapterKind")
                 )
-                or "mock"
+                or "pi_codex_runner"
             ),
             instructions=str(payload.get("instructions") or "").strip(),
             repo_root=_coerce_optional_text(

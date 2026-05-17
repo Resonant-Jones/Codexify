@@ -22,6 +22,7 @@ from fastapi import (
     Body,
     Depends,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -1017,11 +1018,11 @@ def _find_generated_image_for_asset(
 async def upload_image(
     request: Request,
     file: UploadFile = File(...),
-    project_id: Optional[int] = Body(default=None),
-    thread_id: Optional[int] = Body(default=None),
-    user_id: str = Body(default="default"),
-    tag: Optional[str] = Body(default=None),
-    source_tag: Optional[str] = Body(default=None),
+    project_id: Optional[int] = Form(default=None),
+    thread_id: Optional[int] = Form(default=None),
+    user_id: str = Form(default="default"),
+    tag: Optional[str] = Form(default=None),
+    source_tag: Optional[str] = Form(default=None),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
@@ -1439,11 +1440,11 @@ async def delete_image(
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
-    project_id: Optional[int] = Body(default=None),
-    thread_id: Optional[int] = Body(default=None),
-    user_id: str = Body(default="default"),
-    tag: Optional[str] = Body(default=None),
-    source_tag: Optional[str] = Body(default=None),
+    project_id: Optional[int] = Form(default=None),
+    thread_id: Optional[int] = Form(default=None),
+    user_id: str = Form(default="default"),
+    tag: Optional[str] = Form(default=None),
+    source_tag: Optional[str] = Form(default=None),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """

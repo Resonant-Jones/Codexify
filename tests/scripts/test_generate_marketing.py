@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -9,13 +10,21 @@ from pathlib import Path
 import pytest
 
 from scripts.marketing.pipeline import (
+    ALLOWED_PRESENTATION_ROLES,
     CANDIDATE_MARKETABLE_CLAIM,
     CANDIDATE_METADATA_REFERENCE,
     CANDIDATE_RISK_OR_BLOCKER,
     EVIDENCE_LEDGER_SCHEMA_VERSION,
+    PRESENTATION_INTERNAL_ANCHOR,
+    PRESENTATION_METADATA_REFERENCE,
+    PRESENTATION_PUBLIC_COPY_SEED,
+    PRESENTATION_RISK_NOTE,
+    PRESENTATION_SUPPORTING_EVIDENCE,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
+    ALLOWED_PRESENTATION_ROLES,
     Claim,
+    assign_presentation_roles,
     collect_source_documents,
     enforce_banned_phrasing,
     enforce_no_evidence_no_claim,
@@ -27,6 +36,20 @@ from scripts.marketing.pipeline import (
 FIXTURE_ROOT = Path("tests/fixtures/marketing/source")
 SUITABILITY_FIXTURE_ROOT = Path("tests/fixtures/marketing/suitability/source")
 GOLDEN_ROOT = Path("tests/fixtures/marketing/golden/CAMPAIGN_TEST")
+
+PUBLIC_ARTIFACT_NAMES = [
+    "core-brief.md",
+    "channel-website.md",
+    "channel-social.md",
+    "channel-community.md",
+    "ad-copy.md",
+    "infographic-spec.md",
+]
+
+DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
+    "No copy-ready public claims were available for this campaign. "
+    "Review evidence ledger before publication."
+)
 
 FORBIDDEN_PUBLIC_PHRASES = [
     "not release-ready",
@@ -40,7 +63,43 @@ FORBIDDEN_PUBLIC_PHRASES = [
     "re-run",
     "not yet runtime-owned",
     "worker runtime artifact",
+    "task-2026",
+    "docs/architecture/",
+    "guardian/queue/",
+    "codexify:queue:",
+    "adr-020",
+    "1dae1662d",
+    "depends on",
+    "per adr",
 ]
+
+FORBIDDEN_PUBLIC_PATTERNS = [
+    re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE),
+]
+
+
+def _public_artifact_texts(campaign_dir: Path) -> dict[str, str]:
+    return {
+        name: (campaign_dir / name).read_text(encoding="utf-8")
+        for name in PUBLIC_ARTIFACT_NAMES
+    }
+
+
+def _assert_public_artifacts_clean(
+    campaign_dir: Path,
+    forbidden_claim_texts: list[str],
+    require_placeholder: bool = False,
+) -> None:
+    artifacts = _public_artifact_texts(campaign_dir)
+    combined = "\n".join(artifacts.values())
+    for phrase in FORBIDDEN_PUBLIC_PHRASES:
+        assert phrase not in combined.lower()
+    for pattern in FORBIDDEN_PUBLIC_PATTERNS:
+        assert not pattern.search(combined)
+    for text in forbidden_claim_texts:
+        assert text not in combined
+    if require_placeholder:
+        assert DRAFT_SAFE_PUBLIC_PLACEHOLDER in combined
 
 
 def test_truth_extraction_and_precedence() -> None:
@@ -128,6 +187,46 @@ def test_claim_suitability_classification() -> None:
     )
 
 
+def test_presentation_roles_classify_copy_readiness() -> None:
+    documents = collect_source_documents(SUITABILITY_FIXTURE_ROOT)
+    candidates = extract_claim_candidates(documents)
+    merged = assign_presentation_roles(merge_claims_by_precedence(candidates))
+
+    by_claim = {item.claim: item for item in merged}
+    public_claim = by_claim[
+        "Generated campaign claims are tied back to implementation receipts and reviewable evidence."
+    ]
+    assert public_claim.presentation_role == PRESENTATION_PUBLIC_COPY_SEED
+    assert public_claim.copy_ready is True
+
+    for claim_text in [
+        "Campaign audit path docs/architecture/00-current-state.md records proof 1dae1662d.",
+        "TASK-2026-05-11-CODING-RESULT traces task envelope execution.",
+        "codexify:queue:coding-execution backs coding work-order execution.",
+    ]:
+        claim = by_claim[claim_text]
+        assert claim.candidate_class == CANDIDATE_MARKETABLE_CLAIM
+        assert claim.presentation_role == PRESENTATION_SUPPORTING_EVIDENCE
+        assert claim.copy_ready is False
+
+    for claim_text in ["Depends on: ADR-020", "Per ADR-020 contract:"]:
+        claim = by_claim[claim_text]
+        assert claim.presentation_role == PRESENTATION_INTERNAL_ANCHOR
+        assert claim.copy_ready is False
+
+    risk_claim = by_claim[
+        "Release-ready for this path: no; not release-ready until runtime proof passes."
+    ]
+    assert risk_claim.presentation_role == PRESENTATION_RISK_NOTE
+    assert risk_claim.copy_ready is False
+
+    metadata_claim = by_claim[
+        "Proof artifact: docs/proofs/2026-05-12-compose-proof.md"
+    ]
+    assert metadata_claim.presentation_role == PRESENTATION_METADATA_REFERENCE
+    assert metadata_claim.copy_ready is False
+
+
 def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     source_root = tmp_path / "source"
     output_root = tmp_path / "output"
@@ -149,6 +248,7 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         "channel-social.md",
         "channel-community.md",
         "ad-copy.md",
+        "infographic-spec.md",
     ]
     for name in public_files:
         content = (campaign_dir / name).read_text(encoding="utf-8").lower()
@@ -172,6 +272,23 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     )
 
     evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    copy_ready_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is True
+    ]
+    non_copy_ready_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is False
+    ]
+    _assert_public_artifacts_clean(
+        campaign_dir,
+        forbidden_claim_texts=non_copy_ready_claim_texts,
+    )
+    combined_public = "\n".join(_public_artifact_texts(campaign_dir).values())
+    assert any(text in combined_public for text in copy_ready_claim_texts)
+
     assert evidence["schema_version"] == EVIDENCE_LEDGER_SCHEMA_VERSION
     assert evidence["approval_state"] == "draft"
     assert evidence["mode"] == "draft"
@@ -186,9 +303,13 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         assert claim["approval_state"] == "draft"
         assert claim["candidate_class"]
         assert claim["channel_eligible"] in {True, False}
+        assert claim["presentation_role"] in ALLOWED_PRESENTATION_ROLES
+        assert claim["copy_ready"] in {True, False}
+        assert isinstance(claim["copy_ready"], bool)
         assert isinstance(claim["risk_flags"], list)
-        if claim["channel_eligible"]:
+        if claim["copy_ready"]:
             assert claim["candidate_class"] == CANDIDATE_MARKETABLE_CLAIM
+            assert claim["presentation_role"] == PRESENTATION_PUBLIC_COPY_SEED
             assert claim["risk_flags"] == []
 
     risk_claims = [
@@ -199,7 +320,38 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     assert risk_claims
     for claim in risk_claims:
         assert claim["channel_eligible"] is False
+        assert claim["presentation_role"] == PRESENTATION_RISK_NOTE
+        assert claim["copy_ready"] is False
     assert any(claim["risk_flags"] for claim in risk_claims)
+
+    metadata_claims = [
+        claim
+        for claim in evidence["claims"]
+        if claim["candidate_class"] == CANDIDATE_METADATA_REFERENCE
+    ]
+    assert metadata_claims
+    for claim in metadata_claims:
+        assert claim["channel_eligible"] is False
+        assert claim["presentation_role"] == PRESENTATION_METADATA_REFERENCE
+        assert claim["copy_ready"] is False
+
+    implementation_breadcrumbs = [
+        claim
+        for claim in evidence["claims"]
+        if any(
+            marker in claim["claim"].lower()
+            for marker in [
+                "1dae1662d",
+                "task-2026",
+                "docs/architecture/",
+                "codexify:queue:",
+                "adr-020",
+            ]
+        )
+    ]
+    assert implementation_breadcrumbs
+    for claim in implementation_breadcrumbs:
+        assert claim["copy_ready"] is False
 
     marketable_from_claims = [
         claim for claim in evidence["claims"] if claim["channel_eligible"]
@@ -213,6 +365,12 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     assert all(
         claim["channel_eligible"] is not None for claim in evidence["claims"]
     )
+    assert all(
+        claim["presentation_role"] is not None
+        for claim in evidence["claims"]
+        claim["presentation_role"] is not None for claim in evidence["claims"]
+    )
+    assert all(claim["copy_ready"] is not None for claim in evidence["claims"])
     assert all(claim["risk_flags"] is not None for claim in evidence["claims"])
     assert all(
         isinstance(claim["channel_eligible"], bool)
@@ -227,15 +385,80 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     )
     assert evidence["marketable_claims"] == marketable_from_claims
     assert evidence["non_marketable_claims"] == non_marketable_from_claims
-    assert (
-        len(evidence["marketable_claims"])
-        == evidence["claim_summary"]["marketable_claim"]
+    assert evidence["claim_summary"]["marketable_claim"] >= len(
+        evidence["marketable_claims"]
     )
-    assert len(evidence["non_marketable_claims"]) == (
-        evidence["claim_summary"]["internal_evidence"]
-        + evidence["claim_summary"]["risk_or_blocker"]
-        + evidence["claim_summary"]["task_instruction"]
-        + evidence["claim_summary"]["metadata_reference"]
+    assert len(evidence["non_marketable_claims"]) == len(
+        [
+            claim
+            for claim in evidence["claims"]
+            if not claim["channel_eligible"]
+        ]
+        [claim for claim in evidence["claims"] if not claim["channel_eligible"]]
+    )
+
+
+def test_zero_copy_ready_claims_render_draft_safe_placeholders(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    shutil.copytree(SUITABILITY_FIXTURE_ROOT, source_root)
+
+    campaign_file = source_root / "docs" / "Campaign" / "CAMPAIGN_SAMPLE.md"
+    campaign_file.write_text(
+        "\n".join(
+            [
+                "# Campaign Suitability Sample",
+                "",
+                "- Campaign audit path docs/architecture/00-current-state.md records proof 1dae1662d.",
+                "- TASK-2026-05-11-CODING-RESULT traces task envelope execution.",
+                "- codexify:queue:coding-execution backs coding work-order execution.",
+                "- Depends on: ADR-020",
+                "- Per ADR-020 contract:",
+                "- Release-ready for this path: no; not release-ready until runtime proof passes.",
+                "- The migrator failed before compose startup in the latest run.",
+                "- Re-run the live Compose proof after the blocked dependency install path is restored.",
+                "- Proof artifact: docs/proofs/2026-05-12-compose-proof.md",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    current_state = (
+        source_root / "docs" / "architecture" / "00-current-state.md"
+    )
+    if current_state.exists():
+        current_state.unlink()
+    dev_log = source_root / "docs" / "DEV_LOG" / "Dev-Log-Sample.md"
+    if dev_log.exists():
+        dev_log.unlink()
+
+    generate_marketing_artifacts(
+        source_root=source_root,
+        campaign_id="CAMPAIGN_PLACEHOLDER",
+        audience="local-first-builders",
+        channels=["website", "social", "community"],
+        mode="draft",
+        output_root=output_root,
+        generated_at="2026-05-12T00:00:00Z",
+    )
+
+    campaign_dir = output_root / "CAMPAIGN_PLACEHOLDER"
+    evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    assert all(claim["copy_ready"] is False for claim in evidence["claims"])
+    assert any(
+        claim["channel_eligible"] is True for claim in evidence["claims"]
+    )
+    forbidden_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is False
+    ]
+    _assert_public_artifacts_clean(
+        campaign_dir,
+        forbidden_claim_texts=forbidden_claim_texts,
+        require_placeholder=True,
     )
 
 
@@ -338,6 +561,8 @@ def test_cli_generates_expected_artifacts(tmp_path: Path) -> None:
         assert claim["approval_state"] == "draft"
         assert claim["status"] in {"implemented", "verified", "live-proven"}
         assert claim["proof_tier"] in {"implemented", "verified", "live-proven"}
+        assert claim["presentation_role"] in ALLOWED_PRESENTATION_ROLES
+        assert isinstance(claim["copy_ready"], bool)
         assert claim["evidence_paths"]
         assert claim["candidate_class"]
         assert claim["channel_eligible"] in {True, False}

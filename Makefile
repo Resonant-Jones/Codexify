@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -204,6 +204,16 @@ morning-audit:
 evening-audit:
 	$(PYTHON) scripts/daily_audit.py --phase evening
 
+# Generate draft marketing artifacts from canonical truth sources.
+# Usage: make generate-marketing args="--campaign-id CAMPAIGN_2026_05_11 --audience local-first-builders --channels website,social,community --mode draft"
+generate-marketing:
+	$(PYTHON) scripts/marketing/generate_marketing.py $(args)
+
+# Automation wrapper for draft-only marketing generation.
+# Usage: make generate-marketing-automation args="--date 2026-05-12 --campaign-suffix MARKETING_V1 --audience local-first-builders --channels website,social,community --mode draft"
+generate-marketing-automation:
+	$(PYTHON) scripts/marketing/run_marketing_automation.py $(args)
+
 # ────────────────────────────────
 # Regression Prevention Audit Infrastructure
 #
@@ -260,6 +270,115 @@ audit-ritual-monthly:
 # Generate quarterly ritual agenda
 audit-ritual-quarterly:
 	$(PYTHON) scripts/audit/ritual.py --cadence quarterly
+
+# ────────────────────────────────
+# Heartbeat Orchestrator
+#
+# Runs Beta Release Sentinel (always), Daily Dev Blog ingestion,
+# and Resonant Constructs Daily Insight generator in one pass.
+#
+# Usage:
+#   make heartbeat DATE=2026-05-14 DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md INSIGHT_SOURCE=docs/ResonantConstructs/daily-insights/README.md FORCE=1
+#
+#   make heartbeat   # defaults to today, skips dev-blog and insight unless sources provided
+# ────────────────────────────────
+heartbeat:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/run_heartbeat_orchestrator.py --date $$DATE"; \
+	if [ -n "$${DEV_BLOG_SOURCE:-}" ]; then \
+		CMD="$$CMD --dev-blog-source $$DEV_BLOG_SOURCE"; \
+	else \
+		CMD="$$CMD --skip-dev-blog"; \
+	fi; \
+	if [ -n "$${INSIGHT_SOURCE:-}" ]; then \
+		for src in $$INSIGHT_SOURCE; do \
+			CMD="$$CMD --insight-source $$src"; \
+		done; \
+	else \
+		CMD="$$CMD --skip-daily-insight"; \
+	fi; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
+	fi; \
+	echo "Running: $$CMD"; \
+	$$CMD
+
+# Review a heartbeat run report for the given date.
+#
+# Usage:
+#   make heartbeat-review DATE=2026-05-14
+#   make heartbeat-review DATE=2026-05-14 STRICT=1
+#   make heartbeat-review   # defaults to today
+heartbeat-review:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/review_heartbeat_run.py --date $$DATE"; \
+	if [ "$${STRICT:-}" = "1" ]; then \
+		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
+
+# Stage heartbeat artifacts into a flat outbox directory.
+#
+# Usage:
+#   make heartbeat-stage DATE=2026-05-14
+#   make heartbeat-stage DATE=2026-05-14 FORCE=1
+#   make heartbeat-stage   # defaults to today
+heartbeat-stage:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/stage_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${FORCE:-}" = "1" ]; then \
+		CMD="$$CMD --force"; \
+	fi; \
+	$$CMD
+
+# Inspect a staged heartbeat outbox directory.
+#
+# Usage:
+#   make heartbeat-inspect DATE=2026-05-14
+#   make heartbeat-inspect   # defaults to today
+heartbeat-inspect:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE
+
+# Inspect a staged heartbeat outbox directory (alias).
+#
+# Usage:
+#   make heartbeat-outbox DATE=2026-05-14
+#   make heartbeat-outbox DATE=2026-05-14 STRICT=1
+#   make heartbeat-outbox   # defaults to today
+heartbeat-outbox:
+	@DATE="$${DATE:-$$(date +%Y-%m-%d)}"; \
+	CMD="$(PYTHON) scripts/content/inspect_heartbeat_outbox.py --date $$DATE"; \
+	if [ "$${STRICT:-}" = "1" ]; then \
+		CMD="$$CMD --strict"; \
+	fi; \
+	$$CMD
+
+# Full end-to-end heartbeat pipeline: run, review, stage, inspect.
+# Stops on the first failed step.
+#
+# Usage:
+#   make heartbeat-full DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md" FORCE=1
+#   make heartbeat-full   # beta-only (dev-blog and insight auto-skipped)
+#   make heartbeat-full STRICT=1   # strict review and inspection
+#
+# Pass-through variables:
+#   DATE             -> all four child targets
+#   DEV_BLOG_SOURCE  -> heartbeat
+#   INSIGHT_SOURCE   -> heartbeat
+#   FORCE=1          -> heartbeat, heartbeat-stage
+#   STRICT=1         -> heartbeat-review, heartbeat-outbox
+heartbeat-full:
+	@echo "=== Heartbeat Full Pipeline ==="
+	@echo "Step 1/4: heartbeat"
+	@$(MAKE) heartbeat || { echo "ERROR: heartbeat failed"; exit 1; }
+	@echo "Step 2/4: heartbeat-review"
+	@$(MAKE) heartbeat-review || { echo "ERROR: heartbeat-review failed"; exit 1; }
+	@echo "Step 3/4: heartbeat-stage"
+	@$(MAKE) heartbeat-stage || { echo "ERROR: heartbeat-stage failed"; exit 1; }
+	@echo "Step 4/4: heartbeat-outbox"
+	@$(MAKE) heartbeat-outbox || { echo "ERROR: heartbeat-outbox failed"; exit 1; }
+	@echo "=== Heartbeat Full Pipeline Complete ==="
 
 # Build the public portal staging tree
 public-export:

@@ -13,6 +13,7 @@ import TraceWorkbench, {
 } from "@/features/commandCenter/components/TraceWorkbench";
 import EventConsole from "@/features/commandCenter/components/EventConsole";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
+import HeartbeatStatusPanel from "@/features/commandCenter/HeartbeatStatusPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -303,6 +304,9 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
             </div>
           </div>
         );
+
+      case "heartbeat":
+        return <HeartbeatStatusPanel enabled />;
 
       case "runtime-health":
         return (

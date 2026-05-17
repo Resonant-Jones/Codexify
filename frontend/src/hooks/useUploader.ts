@@ -27,6 +27,10 @@ export type UploadedImageItem = {
   id?: string;
   filename?: string;
   src_url?: string;
+  project?: number | string;
+  project_id?: number | string;
+  thread_id?: number | string;
+  source_tag?: string;
   kind?: "image";
 };
 
@@ -491,6 +495,10 @@ export function useUploader({
             id: uploadedImage?.id,
             filename: uploadedImage?.filename || f.name,
             src_url: uploadedOk ? imageUrl : undefined,
+            project: uploadedImage?.project_id ?? effectiveProjectId,
+            project_id: uploadedImage?.project_id ?? effectiveProjectId,
+            thread_id: uploadedImage?.thread_id ?? effectiveThreadId,
+            source_tag: uploadedImage?.source_tag,
             kind: "image",
           });
           if (uploadedOk) imgSuccess += 1;
@@ -643,6 +651,10 @@ export function useUploader({
             id: serverDoc?.id || uploadedDoc?.id,
             filename,
             src_url: docUrl || undefined,
+            project_id: serverDoc?.project_id ?? uploadedDoc?.project_id ?? effectiveProjectId,
+            projectId: serverDoc?.projectId ?? uploadedDoc?.projectId ?? effectiveProjectId,
+            thread_id: serverDoc?.thread_id ?? uploadedDoc?.thread_id ?? effectiveThreadId,
+            threadId: serverDoc?.threadId ?? uploadedDoc?.threadId ?? effectiveThreadId,
             kind: "document" as const,
             embeddingStatus:
               serverDoc?.embedding_status || serverDoc?.embeddingStatus,

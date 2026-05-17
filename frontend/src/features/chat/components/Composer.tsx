@@ -7,7 +7,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, X, FileText } from "lucide-react";
+import { BookOpen, Send, X, FileText } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
@@ -79,6 +79,20 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
+  slashIntent?: {
+    commandId: "obsidian";
+    rawToken: string;
+    queryText: string;
+    intentKind: "knowledge";
+    retrievalHint: "personal_knowledge";
+    rawInput: string;
+    contextDirectives: Array<{
+      kind: "connector_context";
+      connectorId: "obsidian";
+      invocation: "turn_scoped";
+      queryText: string;
+    }>;
+  };
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -177,6 +191,10 @@ export function Composer({
   onDepthModeChange,
   onVoiceTurn,
   voiceTurnLabel = "Upload voice turn",
+  sourceMode = "project",
+  sourceOptions = [],
+  onSourceModeChange,
+  projectName,
 }: {
   onSend: (t: string, options?: ComposerSendOptions) => Promise<void> | void;
   ensureThreadIdForAttachments?: (
@@ -210,6 +228,16 @@ export function Composer({
   onDepthModeChange?: (mode: DepthMode) => void;
   onVoiceTurn?: () => void;
   voiceTurnLabel?: string;
+  sourceMode?: string;
+  sourceOptions?: ComposerSelectOption[];
+  onSourceModeChange?: (mode: string) => void;
+  projectId?: number | string | null;
+  projectName?: string | null;
+  documentTiles?: unknown[];
+  onDocumentTileRemove?: (tile: unknown) => void;
+  currentRequestState?: unknown;
+  providerRuntimeState?: unknown;
+  onCatalogRefresh?: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const syncDebounceMs = Math.max(
@@ -245,6 +273,7 @@ export function Composer({
   const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const [obsidianSlashActive, setObsidianSlashActive] = useState(false);
   const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
@@ -376,6 +405,30 @@ export function Composer({
     return lines.join("\n\n").trim();
   };
 
+  const parseObsidianSlashIntent = (rawValue: string): ComposerSendOptions["slashIntent"] | undefined => {
+    const rawInput = rawValue.trim();
+    const match = rawInput.match(/^\/obsidian(?:\s+([\s\S]*))?$/i);
+    if (!match) return undefined;
+    const queryText = String(match[1] || "").trim();
+    if (!queryText) return undefined;
+    return {
+      commandId: "obsidian",
+      rawToken: "/obsidian",
+      queryText,
+      intentKind: "knowledge",
+      retrievalHint: "personal_knowledge",
+      rawInput,
+      contextDirectives: [
+        {
+          kind: "connector_context",
+          connectorId: "obsidian",
+          invocation: "turn_scoped",
+          queryText,
+        },
+      ],
+    };
+  };
+
   const resolveProjectId = () => {
     // Prefer explicit storage values to reduce reliance on URL shape.
     const fromStorage = inferProjectIdFromStorage();
@@ -445,9 +498,7 @@ export function Composer({
     form.append("tag", "uploaded");
 
     try {
-      const res = await api.post(endpoint, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post(endpoint, form);
       const data = (res as any)?.data ?? res;
       const src = data?.src_url;
       if (!src) {
@@ -489,7 +540,8 @@ export function Composer({
       return;
     }
 
-    const bodyText = value.trim();
+    const slashIntent = parseObsidianSlashIntent(value);
+    const bodyText = slashIntent?.queryText ?? value.trim();
     const hasAttachments = draftAttachments.length > 0;
     if (!bodyText && !hasAttachments) return;
 
@@ -532,6 +584,7 @@ export function Composer({
           uploadThreadId != null && uploadThreadId !== threadId
             ? uploadThreadId
             : undefined,
+        ...(slashIntent ? { slashIntent } : {}),
       });
 
       // Clear the draft after a successful send.
@@ -650,6 +703,12 @@ export function Composer({
     }
     void send();
   };
+  const sourceLabel =
+    sourceOptions.find((option) => option.value === sourceMode)?.label ??
+    (sourceMode === "personal_knowledge" ? "Personal Knowledge" : "Project");
+  const lineageLabel = projectName?.trim()
+    ? `Send a message to ${projectName.trim()}`
+    : "Send a message";
 
   return (
     <>
@@ -664,6 +723,7 @@ export function Composer({
           className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
         >
           <Textarea
+            data-testid="composer-textarea"
             ref={ref}
             rows={MIN_COMPOSER_ROWS}
             value={value}
@@ -671,6 +731,7 @@ export function Composer({
               const next = e.target.value;
               setValue(next);
               valueRef.current = next;
+              setObsidianSlashActive(/^\/obsidian(?:\s|$)/i.test(next.trimStart()));
               scheduleDraftCommit(next);
             }}
             onBlur={() => commitDraftNow(valueRef.current)}
@@ -689,6 +750,16 @@ export function Composer({
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
             }}
           />
+
+          {!value.trim() && !draftAttachments.length ? (
+            <div
+              data-testid="composer-lineage-copy"
+              className="px-[var(--composer-text-pad-x,14px)] text-[11px] leading-snug"
+              style={{ color: "var(--muted)" }}
+            >
+              {lineageLabel}
+            </div>
+          ) : null}
 
           {draftAttachments.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -729,7 +800,7 @@ export function Composer({
             type="file"
             accept={ACCEPTED_ATTACHMENTS}
             multiple
-            style={{ display: "none" }}
+            style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
             onChange={(e) => {
               const files = e.target.files;
               e.currentTarget.value = "";
@@ -742,7 +813,7 @@ export function Composer({
             className={cn(
               CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
               CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
-              "flex w-full items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+              "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
             )}
           >
             <div
@@ -774,6 +845,28 @@ export function Composer({
                 voiceTurnDisabled={voiceTurnDisabled}
                 voiceTurnLabel={voiceTurnLabel}
               />
+              {obsidianSlashActive ? (
+                <div
+                  data-testid="composer-obsidian-action"
+                  className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
+                  style={{ color: "var(--text)" }}
+                  title="Obsidian context will be queried for this turn"
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  <span>Obsidian</span>
+                </div>
+              ) : null}
+              {sourceOptions.length > 0 ? (
+                <ComposerSelectMenu
+                  ariaLabel="Select retrieval source"
+                  menuLabel="Source"
+                  valueLabel={sourceLabel}
+                  options={sourceOptions}
+                  selectedValue={sourceMode}
+                  disabled={draftControlsDisabled}
+                  onSelect={(value) => onSourceModeChange?.(value)}
+                />
+              ) : null}
               <ComposerSelectMenu
                 ariaLabel="Select provider"
                 menuLabel="Provider"
@@ -810,6 +903,7 @@ export function Composer({
               data-testid="composer-send-slot"
               className={cn(
                 "flex shrink-0 items-center justify-center",
+                "justify-self-end",
                 CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
               )}
             >
