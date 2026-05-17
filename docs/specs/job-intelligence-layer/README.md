@@ -16,6 +16,7 @@ Baseline orientation document:
 - [`05-open-questions.md`](./05-open-questions.md): Lists unresolved decisions required before implementation work is justified.
 - [`06-job-profile-draft-contract.md`](./06-job-profile-draft-contract.md): Proposes the first non-runtime Job Profile contract draft to structure future schema and review-planning work.
 - [`07-extraction-pass-contract.md`](./07-extraction-pass-contract.md): Defines the first planning contract for turning raw intake text into reviewable structured draft extraction outputs.
+- [`08-human-review-gate-contract.md`](./08-human-review-gate-contract.md): Defines the planning boundary between generated draft data and future confirmed operational records.
 
 ## Do Not Assume
 
