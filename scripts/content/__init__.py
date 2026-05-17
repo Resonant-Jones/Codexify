@@ -1,1 +1,1 @@
-"""Content generation scripts."""
+"""Content generation scripts package."""
