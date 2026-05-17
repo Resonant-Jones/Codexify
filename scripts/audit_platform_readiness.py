@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -781,10 +783,46 @@ def weakest_domains(reports: list[DomainReport]) -> list[str]:
     ]
 
 
+def build_summary(reports: list[DomainReport]) -> dict[str, object]:
+    return {
+        "pass": sum(report.count("PASS") for report in reports),
+        "warn": sum(report.count("WARN") for report in reports),
+        "fail": sum(report.count("FAIL") for report in reports),
+    }
+
+
+def report_to_dict(report: DomainReport) -> dict[str, object]:
+    return {
+        "name": report.name,
+        "suggested_score": report.suggested_score,
+        "summary": report.summary,
+        "manual_prompts": report.manual_prompts,
+        "checks": [
+            {
+                "status": check.status,
+                "label": check.label,
+                "evidence": check.evidence,
+            }
+            for check in report.checks
+        ],
+        "pass_count": report.count("PASS"),
+        "warn_count": report.count("WARN"),
+        "fail_count": report.count("FAIL"),
+    }
+
+
+def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
+    return {
+        "repo_root_relative": ".",
+        "summary": build_summary(reports),
+        "strongest_domains": strongest_domains(reports),
+        "weakest_domains": weakest_domains(reports),
+        "domains": [report_to_dict(report) for report in reports],
+    }
+
+
 def render_report(reports: list[DomainReport]) -> None:
-    total_pass = sum(report.count("PASS") for report in reports)
-    total_warn = sum(report.count("WARN") for report in reports)
-    total_fail = sum(report.count("FAIL") for report in reports)
+    summary = build_summary(reports)
 
     print("Codexify Platform Readiness Audit")
     print("Repo-local evidence pass")
@@ -807,9 +845,9 @@ def render_report(reports: list[DomainReport]) -> None:
 
     print("=" * 80)
     print("Final Summary")
-    print(f"  PASS: {total_pass}")
-    print(f"  WARN: {total_warn}")
-    print(f"  FAIL: {total_fail}")
+    print(f"  PASS: {summary['pass']}")
+    print(f"  WARN: {summary['warn']}")
+    print(f"  FAIL: {summary['fail']}")
     print(
         "  Domains needing manual review: "
         "Alternate Surface Readiness and Governance Readiness remain fully manual; "
@@ -823,9 +861,29 @@ def render_report(reports: list[DomainReport]) -> None:
     )
 
 
-def main() -> int:
+def render_json_report(reports: list[DomainReport]) -> None:
+    print(json.dumps(build_json_payload(reports), indent=2, sort_keys=True))
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the Codexify platform readiness audit."
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human-readable text.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     reports = build_reports()
-    render_report(reports)
+    if args.json:
+        render_json_report(reports)
+    else:
+        render_report(reports)
     return (
         1
         if any(
