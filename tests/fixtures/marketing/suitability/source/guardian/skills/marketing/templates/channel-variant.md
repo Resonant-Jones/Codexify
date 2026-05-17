@@ -1,5 +1,17 @@
 # Channel Variant: {channel}
 
+## Audience Hook
+
+{hook}
+
+## Message
+
 {message}
 
-{claims_bullets}
+## Public Copy Claims
+
+{public_copy_claims_bullets}
+
+## Draft Safety
+
+{draft_warning}

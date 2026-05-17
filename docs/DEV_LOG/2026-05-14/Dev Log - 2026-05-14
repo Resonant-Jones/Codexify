@@ -1,0 +1,116 @@
+Dev Log - 2026-05-14
+
+Summary
+
+flow-surface truth, workspace retrieval repair, and daily insight generation day
+
+Today was split across three tightly related tracks: tightening the Flow Builder surface contract, repairing workspace-local Obsidian retrieval and its surrounding image/upload plumbing, and adding a daily insight generation path for Resonant Constructs. The common thread was not new spectacle. It was making the surfaces more honest about what they accept, what they route, and what they can prove.
+
+The day also carried a release-truth thread through the current-state docs. That kept the short-horizon runtime story aligned with the code and the proof artifacts instead of allowing the docs to drift ahead of the actual behavior.
+
+What I completed
+
+Flow Builder surface contract and architecture notes
+
+- Added the Flow Builder typed surface ADR so the typed surface and run-receipt contract are explicit rather than implied.
+- Added the Flow Builder token domain inventory so the surface has a clearer map of the tokens it is allowed to use.
+- Added the Flow Builder surface research application note to document how the surface should be applied in practice.
+- Added the Flow Builder typed surface campaign artifact so the repo has a concrete campaign record tied to that surface work.
+
+What changed here:
+- The Flow Builder slice now has a more explicit contract boundary.
+- Token usage is easier to reason about because the domain inventory is written down instead of inferred.
+- The research note and campaign artifact make the surface work less ad hoc and more reusable.
+
+Workspace-local Obsidian retrieval and input routing
+
+- Repaired the workspace Obsidian retrieval injection path.
+- Recorded the workspace-local Obsidian retrieval proof attempt so the evidence trail is preserved.
+- Updated the current-state docs after the workspace Obsidian proof to keep the short-horizon truth aligned.
+- Added `/obsidian` routing, upload form params, and the AGENTS.md root guidance needed to support the new surface.
+- Fixed upload button visibility and external provider image routing so the composer path stays usable when the provider image path is not local.
+
+What changed here:
+- Workspace-local retrieval is less likely to disappear behind a brittle injection seam.
+- The proof path is now captured explicitly, which matters because this area is easy to overstate without evidence.
+- The composer and media routing changes make the upload path more legible and less likely to hide the control at the wrong time.
+
+Daily insight generation and supporting content systems
+
+- Added the Resonant Constructs daily insight generator and its tests.
+- Added the supporting docs for the daily-insights surface so the generator has a stable home in the repo.
+- Added the `generated/.gitkeep` placeholder so the output directory exists as a real destination.
+- Added marketing claim presentation roles and expanded the marketing evidence path so generated material can distinguish presentation roles from stronger claims.
+
+What changed here:
+- The daily insight flow now exists as a concrete generation path rather than a loose idea.
+- The supporting docs and tests make the surface easier to rerun and easier to keep honest.
+- The marketing claim roles reinforce the same direction as the other work: make the system explicit about what kind of statement it is making.
+
+Supporting maintenance
+
+- Fixed the migrator bcrypt import so the bootstrap path stayed healthy.
+- Kept the repo’s current-state and release notes in sync with the proof and routing work.
+
+Important outcome
+
+The biggest shift today is that the repo became more explicit about how typed surfaces, retrieval paths, and generated outputs are supposed to work.
+
+Flow Builder is no longer just a loose surface concept. It now has a typed-surface contract, a token-domain map, and an application note that make the intended boundaries easier to preserve.
+
+Workspace-local Obsidian retrieval also moved from a fragile promise toward a named, test-backed path. That matters because retrieval seams are easy places for the system to quietly overclaim or silently fail. The proof attempt and current-state refresh make the failure surface easier to inspect instead of hiding it.
+
+Commits
+
+- `a94acb9a1` - fix: upload button visibility and external provider image routing
+- `09c101bd1` - Add Flow Builder surface research application note
+- `63aca3b22` - Add Flow Builder typed surface ADR
+- `4e379784d` - feat: /obsidian routing, upload Form params, and AGENTS.md
+- `dac91f906` - Add Resonant Constructs daily insight generator
+- `ad22f0ab6` - fix: handle data URLs in _encode_image_url_to_base64 for Ollama local path
+- `a9d7cc8b7` - Fix migrator bcrypt import
+- `5e8118664` - Record workspace-local Obsidian retrieval proof attempt
+- `a151ae3e4` - Repair workspace Obsidian retrieval injection
+- `fa9945871` - Update current state after workspace Obsidian proof
+- `e010b0424` - Add Flow Builder typed surface campaign
+- `dab67962d` - Add marketing claim presentation roles
+- `551c21ca2` - Add Flow Builder token domain inventory
+- `25bb8b296` - Add Resonant Constructs daily insight generator
+- `cce4d792e` - Add FlowDraft schema proposal
+
+Notes
+
+- This log is based on repo evidence and git history, not live runtime proof.
+- The Obsidian retrieval path has a proof attempt and follow-up fixes, but I am not claiming a fully live-validated end-to-end flow from this evidence alone.
+- The daily insight generator is supported by code and tests, but I did not execute the generator live in this turn.
+- The untracked `docs/DEV_LOG/2026-05-15/` scratch directory remains in the tree and was left untouched.
+
+Next likely moves
+
+- Validate the workspace-local Obsidian retrieval path in the running app.
+- Exercise the daily insight generator against a real input bundle.
+- Confirm the upload button and external image routing behave correctly in the composer UI.
+- Keep the Flow Builder typed surface and token-domain docs aligned with the implementation.
+- Refresh any current-state or release notes if the new surfaces are now part of the short-horizon truth.
+
+Closing thought
+
+The day was mostly about making the system harder to misread. The typed surface became more explicit, retrieval became more inspectable, and the generated content paths became easier to trust because they now carry more of their own evidence.
+
+Narrative Log
+
+Dev Log - 2026-05-14
+
+Today was a boundary day again, but with a different center of gravity than yesterday.
+
+The Flow Builder work set the tone first. The typed surface ADR, token-domain inventory, and research application note all pushed the same idea: if a surface is going to be reused, it needs a contract that names its inputs, its receipts, and its allowed vocabulary. That is not paperwork for its own sake. It is the difference between a surface that can be composed safely and one that only works as long as everyone remembers the unwritten rules.
+
+The Obsidian retrieval work was the sharper correction. Workspace-local retrieval is exactly the kind of seam that can become ambiguous fast: was the content found, injected, routed, or merely implied? The repair and proof attempt forced that seam to become more concrete. The follow-up current-state update mattered for the same reason. Once a proof path exists, the short-horizon docs need to say what really happened, not what the system would prefer to believe happened.
+
+The composer and upload routing fixes fit into that same line of work. If upload visibility is wrong or external provider image handling is unclear, the UI can create false confidence very quickly. Tightening those edges makes the surface more usable, but more importantly it makes it less misleading.
+
+The daily insight generator added a second output path to the repo, but it did not really change the theme. It extended the same discipline into a new content surface: generation with a home, tests, and a directory that exists on purpose. The marketing claim role changes point in the same direction. Statements need to advertise what kind of statement they are making.
+
+What changed underneath the surface is that the repo is leaning harder into explicit contracts and named evidence paths. That is a good direction for a system that wants to stay local-first and truth-bound. It reduces the amount of guesswork required to use the surface, and it reduces the amount of trust required to believe it.
+
+The next useful step is straightforward: verify the repaired retrieval and upload paths live, then keep the typed-surface and insight-generator docs synchronized with whatever actually lands next.
