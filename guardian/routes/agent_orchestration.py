@@ -98,7 +98,7 @@ class CodingExecutionRequest(BaseModel):
     attempt_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     project_id: int | None = None
-    adapter_kind: str = Field(default="mock", min_length=1)
+    adapter_kind: str = Field(default="pi_codex_runner", min_length=1)
     instructions: str = Field(min_length=1)
     repo_root: str | None = None
     context_summary: str | None = None
@@ -204,14 +204,15 @@ async def start_run(
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
 ) -> dict[str, Any]:
-    """Execute a coding task via PiCodexRunnerAdapter.
+    """Execute a coding task via a registered coding adapter.
 
     Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
-    appropriate adapter (pi_codex_runner by default).
+    requested adapter kind.
 
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
     """
-    # Create deployment to track this coding task
+    # Create deployment to track this coding task and preserve the requested
+    # adapter kind in Guardian-owned intake state.
     flow_id = f"coding_{envelope.coding_task_id}"
     deployment = _store.create_deployment(
         flow_id=flow_id,
@@ -272,8 +273,8 @@ async def execute_coding_task(
     )
 
     # Create run for tracking
-    # The DB only tracks the execution surface here; the Pi adapter remains
-    # the implementation detail behind the worker.
+    # The DB only tracks the execution surface here; the worker resolves the
+    # requested registered adapter at execution time.
     run = _store.create_run(
         deployment_id=deployment["deployment_id"],
         thread_id=deployment.get("thread_id"),

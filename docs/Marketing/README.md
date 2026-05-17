@@ -29,7 +29,11 @@ Every claim must be tagged as exactly one of:
 - Human approval is required before publish.
 - Generated assets are derived outputs, not system truth.
 - A claim suitability gate is mandatory: only `marketable_claim` items can flow into website/social/community/ad copy.
+- A presentation-role gate is mandatory: only `public_copy_seed` items with `copy_ready: true` may appear verbatim in public-facing prose.
 - Blocker/failure/task/reference evidence is preserved for audit in `review-notes.md` and classified in `evidence-ledger.json`.
+
+Reviewer note: implementation breadcrumbs such as ADR fragments, task IDs, commit hashes, file paths, and queue names may support claims as evidence, but they should not appear verbatim in generated public-facing copy.
+Reviewer note: if a public artifact scan finds raw ADR/task/file-path/queue/commit breadcrumbs, rendering is broken even when the ledger itself is valid.
 
 ## Generator Command
 
@@ -51,4 +55,5 @@ Run the automation wrapper (auto-derives campaign ID by date) with:
 - `audience/`: target personas and channel posture
 - `messaging/`: pillars tied to proof-tiers and evidence
 - `contracts/`: machine and operator-facing generation contracts
+- `campaign-intelligence/`: reusable internal packet templates, source maps, claim gates, visual lanes, and engine prompts
 - `generated/`: generated draft artifacts and append-only run history

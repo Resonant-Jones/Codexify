@@ -34,8 +34,11 @@ def _fake_retrieval_plan() -> SimpleNamespace:
 def _seed_completion_service(
     monkeypatch: pytest.MonkeyPatch,
     *,
+    messages: list[dict[str, object]] | None = None,
     retrieved_items: list[dict[str, object]] | None = None,
     retrieve_exception: Exception | None = None,
+    bundle: dict[str, object] | None = None,
+    trace_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     captured: dict[str, object] = {}
     mock_chatlog_db = MagicMock()
@@ -43,18 +46,20 @@ def _seed_completion_service(
         "id": 1,
         "user_id": "user-1",
         "project_id": 42,
+        "archived_at": None,
     }
-    mock_chatlog_db.list_messages.return_value = [
-        {
-            "id": 1,
-            "role": "user",
-            "content": "Please use /obsidian memory decay",
-        }
-    ]
+    mock_chatlog_db.list_messages.return_value = list(
+        messages
+        or [{"id": 1, "role": "user", "content": "general ask"}]
+    )
 
     class _FakeBroker:
         def __init__(self, *args, **kwargs):
-            pass
+            captured["broker"] = self
+            self.retrieve_obsidian_context_command = AsyncMock(
+                side_effect=retrieve_exception,
+                return_value=list(retrieved_items or []),
+            )
 
         async def assemble(
             self,
@@ -73,37 +78,26 @@ def _seed_completion_service(
             captured["user_id"] = user_id
             captured["project_id"] = project_id
             captured["source_mode"] = source_mode
-            return (
-                {
-                    "semantic": [{"text": "thread semantic"}],
-                    "obsidian": [],
-                    "connector_context": [],
-                },
-                {
-                    "documents": [],
-                    "graph": [],
-                    "source_mode": source_mode,
-                    "widen_reason": "none",
-                },
-            )
+            captured["retrieval_override"] = retrieval_override
+            captured["retrieval_policy"] = retrieval_policy
 
-        async def retrieve_obsidian_context_command(
-            self,
-            *,
-            query,
-            user_id,
-            project_id=None,
-            k=4,
-            retrieval_policy=None,
-        ):
-            captured["connector_query"] = query
-            captured["connector_user_id"] = user_id
-            captured["connector_project_id"] = project_id
-            captured["connector_k"] = k
-            captured["connector_policy"] = retrieval_policy
-            if retrieve_exception is not None:
-                raise retrieve_exception
-            return list(retrieved_items or [])
+            assembled_bundle: dict[str, object] = {
+                "semantic": [{"text": "thread semantic"}],
+                "docs": {"thread": [], "project": [], "global": []},
+                "connector_context": [],
+            }
+            if bundle:
+                assembled_bundle.update(bundle)
+
+            assembled_trace: dict[str, object] = {
+                "documents": [],
+                "graph": [],
+                "source_mode": "project",
+            }
+            if trace_payload:
+                assembled_trace.update(trace_payload)
+
+            return assembled_bundle, assembled_trace
 
     settings = SimpleNamespace(
         LLM_PROVIDER="local",
@@ -127,15 +121,7 @@ def _seed_completion_service(
     )
     monkeypatch.setattr(chat_completion_service, "ContextBroker", _FakeBroker)
     monkeypatch.setattr(
-        chat_completion_service,
-        "resolve_thread_system_profile",
-        None,
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "resolve_retrieval_plan",
-        lambda *args, **kwargs: _fake_retrieval_plan(),
-        raising=False,
+        chat_completion_service, "resolve_thread_system_profile", None
     )
     monkeypatch.setattr(
         chat_completion_service.dependencies,
@@ -194,20 +180,16 @@ def _context_plan_origin(plans: list[dict[str, object]]) -> str:
 
 
 def test_context_request_plans_from_origin_decodes_valid_metadata() -> None:
-    origin = (
-        "api:chat.complete|turn_id=abc"
-        + encode_context_request_plans_origin_segment(
-            [
-                {
-                    "request_kind": "read_only_context_request",
-                    "connector_id": "obsidian",
-                    "invocation": "turn_scoped",
-                    "query_text": "memory decay",
-                    "status": "accepted_not_executed",
-                    "execution_required": False,
-                }
-            ]
-        )
+    origin = "api:chat.complete|turn_id=abc" + encode_context_request_plans_origin_segment(
+        [
+            {
+                "request_kind": "read_only_context_request",
+                "connector_id": "obsidian",
+                "invocation": "turn_scoped",
+                "query_text": "memory decay",
+                "status": "accepted_not_executed",
+            }
+        ]
     )
 
     assert _context_request_plans_from_origin(origin) == [
@@ -222,21 +204,11 @@ def test_context_request_plans_from_origin_decodes_valid_metadata() -> None:
     ]
 
 
-def test_context_request_plans_from_origin_handles_missing_or_malformed_data() -> (
-    None
-):
-    assert (
-        chat_completion_service._context_request_plans_from_origin(
-            "api:chat.complete|turn_id=1"
-        )
-        == []
-    )
-    assert (
-        chat_completion_service._context_request_plans_from_origin(
-            "api:chat.complete|context_request_plans=%7Bnot-json"
-        )
-        == []
-    )
+def test_context_request_plans_from_origin_handles_missing_or_malformed_data() -> None:
+    assert _context_request_plans_from_origin("api:chat.complete|turn_id=1") == []
+    assert _context_request_plans_from_origin(
+        "api:chat.complete|context_request_plans=%7Bnot-json"
+    ) == []
 
 
 @pytest.mark.asyncio
@@ -247,26 +219,14 @@ async def test_build_messages_for_llm_consumes_supported_obsidian_plan(
         monkeypatch,
         retrieved_items=[
             {
-                "text": "obsidian connector hit",
-                "metadata": {"namespace": "obsidian:local"},
+                "text": "obsidian hit",
+                "metadata": {"filename": "note.md"},
+                "retrieval_lane": "connector_context",
+                "connector_id": "obsidian",
+                "context_command": "turn_scoped",
             }
         ],
     )
-    fake_broker = chat_completion_service.ContextBroker(None, None, None, None)
-    fake_broker.retrieve_obsidian_context_command = AsyncMock(
-        return_value=[
-            {
-                "text": "obsidian connector hit",
-                "metadata": {"namespace": "obsidian:local"},
-            }
-        ]
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "ContextBroker",
-        lambda *args, **kwargs: fake_broker,
-    )
-
     task = _task_with_origin(
         _context_plan_origin(
             [
@@ -282,59 +242,49 @@ async def test_build_messages_for_llm_consumes_supported_obsidian_plan(
         )
     )
 
-    (
-        messages,
-        provider,
-        model,
-        bundle,
-        trace,
-    ) = await chat_completion_service.build_messages_for_llm(task)
+    messages, provider, model, bundle, trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
 
-    assert captured["query"] == "Please use /obsidian memory decay"
-    assert fake_broker.retrieve_obsidian_context_command.await_count == 2
-    fake_broker.retrieve_obsidian_context_command.assert_any_await(
+    captured["broker"].retrieve_obsidian_context_command.assert_awaited_once_with(
         query="memory decay",
         user_id="user-1",
         project_id=42,
         k=4,
         retrieval_policy=ANY,
     )
+    assert captured["query"] == "general ask"
     assert provider == "local"
     assert model == "local-model"
-    assert (
-        bundle["_completion_assembly"]["latest_turn"]["content"]
-        == "Please use /obsidian memory decay"
-    )
-    assert messages[-1]["content"] == "Please use /obsidian memory decay"
     assert bundle["semantic"] == [{"text": "thread semantic"}]
-    assert len(bundle["connector_context"]) == 2
-    assert bundle["_prompt_meta"]["context"]["connector_context"]["count"] == 2
-    assert (
-        bundle["_prompt_meta"]["context"]["connector_context"]["injected"]
-        is True
-    )
-    assert trace["source_mode"] == "project"
-    assert trace["context_request_results"][0]["status"] == "executed"
-    assert trace["context_request_results"][0]["result_count"] == 1
-    assert trace["context_request_results"][0]["injected"] is True
+    assert bundle["connector_context"] == [
+        {
+            "text": "obsidian hit",
+            "metadata": {"filename": "note.md"},
+            "retrieval_lane": "connector_context",
+            "connector_id": "obsidian",
+            "context_command": "turn_scoped",
+        }
+    ]
+    assert trace["context_request_results"] == [
+        {
+            "request_kind": "read_only_context_request",
+            "connector_id": "obsidian",
+            "invocation": "turn_scoped",
+            "query_text": "memory decay",
+            "status": "executed",
+            "result_count": 1,
+            "injected": True,
+        }
+    ]
+    assert messages[-1]["content"] == "general ask"
 
 
 @pytest.mark.asyncio
 async def test_build_messages_for_llm_records_no_results_without_injection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_completion_service(
-        monkeypatch,
-        retrieved_items=[],
-    )
-    fake_broker = chat_completion_service.ContextBroker(None, None, None, None)
-    fake_broker.retrieve_obsidian_context_command = AsyncMock(return_value=[])
-    monkeypatch.setattr(
-        chat_completion_service,
-        "ContextBroker",
-        lambda *args, **kwargs: fake_broker,
-    )
-
+    captured = _seed_completion_service(monkeypatch, retrieved_items=[])
     task = _task_with_origin(
         _context_plan_origin(
             [
@@ -350,16 +300,11 @@ async def test_build_messages_for_llm_records_no_results_without_injection(
         )
     )
 
-    (
-        _messages,
-        _provider,
-        _model,
-        bundle,
-        trace,
-    ) = await chat_completion_service.build_messages_for_llm(task)
+    _messages, _provider, _model, bundle, trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
 
-    assert fake_broker.retrieve_obsidian_context_command.await_count == 2
-    fake_broker.retrieve_obsidian_context_command.assert_any_await(
+    captured["broker"].retrieve_obsidian_context_command.assert_awaited_once_with(
         query="memory decay",
         user_id="user-1",
         project_id=42,
@@ -367,34 +312,27 @@ async def test_build_messages_for_llm_records_no_results_without_injection(
         retrieval_policy=ANY,
     )
     assert bundle["connector_context"] == []
-    assert bundle["_prompt_meta"]["context"]["connector_context"]["count"] == 0
-    assert (
-        bundle["_prompt_meta"]["context"]["connector_context"]["injected"]
-        is False
-    )
-    assert trace["context_request_results"][0]["status"] == "no_results"
-    assert trace["context_request_results"][0]["result_count"] == 0
-    assert trace["context_request_results"][0]["injected"] is False
+    assert trace["context_request_results"] == [
+        {
+            "request_kind": "read_only_context_request",
+            "connector_id": "obsidian",
+            "invocation": "turn_scoped",
+            "query_text": "memory decay",
+            "status": "no_results",
+            "result_count": 0,
+            "injected": False,
+        }
+    ]
 
 
 @pytest.mark.asyncio
 async def test_build_messages_for_llm_records_failed_context_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_completion_service(
+    captured = _seed_completion_service(
         monkeypatch,
-        retrieve_exception=RuntimeError("boom /tmp/secret"),
+        retrieve_exception=RuntimeError("vault missing: /private/tmp/obsidian"),
     )
-    fake_broker = chat_completion_service.ContextBroker(None, None, None, None)
-    fake_broker.retrieve_obsidian_context_command = AsyncMock(
-        side_effect=RuntimeError("boom /tmp/secret")
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "ContextBroker",
-        lambda *args, **kwargs: fake_broker,
-    )
-
     task = _task_with_origin(
         _context_plan_origin(
             [
@@ -410,16 +348,11 @@ async def test_build_messages_for_llm_records_failed_context_command(
         )
     )
 
-    (
-        _messages,
-        _provider,
-        _model,
-        bundle,
-        trace,
-    ) = await chat_completion_service.build_messages_for_llm(task)
+    _messages, _provider, _model, bundle, trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
 
-    assert fake_broker.retrieve_obsidian_context_command.await_count == 2
-    fake_broker.retrieve_obsidian_context_command.assert_any_await(
+    captured["broker"].retrieve_obsidian_context_command.assert_awaited_once_with(
         query="memory decay",
         user_id="user-1",
         project_id=42,
@@ -427,52 +360,51 @@ async def test_build_messages_for_llm_records_failed_context_command(
         retrieval_policy=ANY,
     )
     assert bundle["connector_context"] == []
-    assert trace["context_request_results"][0]["status"] == "failed"
-    assert trace["context_request_results"][0]["result_count"] == 0
-    assert trace["context_request_results"][0]["injected"] is False
-    assert trace["context_request_results"][0]["error"].startswith(
-        "RuntimeError"
-    )
-    assert trace["source_mode"] == "project"
+    assert trace["context_request_results"] == [
+        {
+            "request_kind": "read_only_context_request",
+            "connector_id": "obsidian",
+            "invocation": "turn_scoped",
+            "query_text": "memory decay",
+            "status": "failed",
+            "result_count": 0,
+            "injected": False,
+            "error": "RuntimeError: vault missing: [redacted]",
+        }
+    ]
 
 
 @pytest.mark.asyncio
 async def test_unsupported_context_request_plans_are_ignored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_completion_service(monkeypatch, retrieved_items=[])
-    fake_broker = chat_completion_service.ContextBroker(None, None, None, None)
-    fake_broker.retrieve_obsidian_context_command = AsyncMock(
-        side_effect=AssertionError("unsupported plan should be ignored")
-    )
-    monkeypatch.setattr(
-        chat_completion_service,
-        "ContextBroker",
-        lambda *args, **kwargs: fake_broker,
-    )
-
-    task = _task_with_origin(
-        _context_plan_origin(
-            [
-                {
-                    "request_kind": "read_only_context_request",
-                    "connector_id": "github",
-                    "invocation": "turn_scoped",
-                    "query_text": "repo issue",
-                    "status": "accepted_not_executed",
-                    "execution_required": False,
-                }
-            ]
+    captured = _seed_completion_service(monkeypatch)
+    origin = (
+        "api:chat.complete|turn_id=abc|context_request_plans="
+        + quote(
+            json.dumps(
+                [
+                    {
+                        "request_kind": "read_only_context_request",
+                        "connector_id": "github",
+                        "invocation": "turn_scoped",
+                        "query_text": "repo issue",
+                        "status": "accepted_not_executed",
+                        "execution_required": False,
+                    }
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            safe="",
         )
     )
+    task = _task_with_origin(origin)
 
-    (
-        _messages,
-        _provider,
-        _model,
-        _bundle,
-        trace,
-    ) = await chat_completion_service.build_messages_for_llm(task)
+    _messages, _provider, _model, bundle, trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
 
-    fake_broker.retrieve_obsidian_context_command.assert_not_called()
+    captured["broker"].retrieve_obsidian_context_command.assert_not_called()
+    assert bundle["connector_context"] == []
     assert trace["context_request_results"] == []

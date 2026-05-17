@@ -1,0 +1,126 @@
+{
+  "schema_version": "heartbeat.schedule.v1",
+  "kind": "heartbeat-schedule",
+  "cadence": "daily",
+  "timezone": "America/New_York",
+  "description": "Declarative specification of the local heartbeat run schedule. Does not implement scheduling, cron, deployment, or external publication.",
+  "lanes": {
+    "beta_release_sentinel": {
+      "script": "scripts/release/beta_release_sentinel.py",
+      "required": true,
+      "skip_flag": "--skip-beta-sentinel",
+      "outputs": [
+        "docs/audits/generated/{date}-beta-sentinel.md",
+        "docs/audits/generated/{date}-beta-sentinel.json"
+      ]
+    },
+    "daily_dev_blog": {
+      "script": "scripts/content/ingest_daily_dev_blog.py",
+      "required": false,
+      "source_arg": "--dev-blog-source",
+      "skip_flag": "--skip-dev-blog",
+      "outputs": [
+        "docs/Website/dev-blog/generated/{date}.md"
+      ]
+    },
+    "resonant_daily_insight": {
+      "script": "scripts/content/generate_resonant_daily_insight.py",
+      "required": false,
+      "source_arg": "--insight-source",
+      "source_repeatable": true,
+      "skip_flag": "--skip-daily-insight",
+      "outputs": [
+        "docs/ResonantConstructs/daily-insights/generated/{date}.md"
+      ]
+    }
+  },
+  "orchestrator": {
+    "script": "scripts/content/run_heartbeat_orchestrator.py",
+    "output": "docs/Heartbeat/generated/{date}-heartbeat.md"
+  },
+  "review_gate": {
+    "script": "scripts/content/review_heartbeat_run.py",
+    "required_status": "passed",
+    "strict_recommended": true,
+    "inputs": {
+      "STRICT": {
+        "description": "Set STRICT=1 to treat warnings as failures.",
+        "required": false
+      }
+    }
+  },
+  "default_sources": {
+    "daily_dev_blog": [
+      "docs/Website/dev-blog/README.md"
+    ],
+    "resonant_daily_insight": [
+      "docs/ResonantConstructs/daily-insights/README.md",
+      "docs/ResonantConstructs/README.md"
+    ]
+  },
+  "schedules": [
+    {
+      "id": "daily-local-heartbeat",
+      "label": "Daily Local Heartbeat",
+      "name": "Daily Local Heartbeat",
+      "description": "Full manual local heartbeat run with dev blog and two insight sources. Run from repo root via make heartbeat.",
+      "cadence": "daily",
+      "enabled": false,
+      "activation_mode": "manual_only",
+      "run_command": "make heartbeat FORCE=1",
+      "schedule": "manual",
+      "review_after": true,
+      "review_command": "make heartbeat-review STRICT=1",
+      "required_inputs": {
+        "DATE": {
+          "description": "Date for the heartbeat run (YYYY-MM-DD). Defaults to today.",
+          "required": false
+        },
+        "DEV_BLOG_SOURCE": {
+          "description": "Path to dev blog Markdown source. Omit to skip dev blog lane.",
+          "required": false
+        },
+        "INSIGHT_SOURCE": {
+          "description": "Path to insight Markdown source (repeatable). Omit to skip insight lane.",
+          "required": false
+        },
+        "FORCE": {
+          "description": "Set FORCE=1 to overwrite existing artifacts. Omit to fail if artifacts exist.",
+          "required": false
+        }
+      },
+      "generated_artifacts": [
+        "docs/Heartbeat/generated/{date}-heartbeat.md",
+        "docs/audits/generated/{date}-beta-sentinel.md",
+        "docs/audits/generated/{date}-beta-sentinel.json",
+        "docs/Website/dev-blog/generated/{date}.md",
+        "docs/ResonantConstructs/daily-insights/generated/{date}.md"
+      ],
+      "publication": {
+        "enabled": false,
+        "targets": [],
+        "note": "Publication (email, Substack, website, external sync) is deferred to later tasks."
+      },
+      "notes": [
+        "This is a manual local schedule only. No cron, deployment, or external automation.",
+        "Run from the repo root. All child scripts are invoked as subprocesses.",
+        "Beta Release Sentinel always runs. Dev blog and insight lanes require source arguments."
+      ]
+    }
+  ],
+  "deferred": [
+    "cron / systemd timer / launchd scheduling",
+    "CI/CD pipeline integration",
+    "email notification on failure",
+    "Substack or website auto-publish",
+    "external sync or deployment",
+    "Slack / webhook alerts",
+    "dashboard integration",
+    "automatic retry on transient failure"
+  ],
+  "caveats": [
+    "Passing the review gate confirms lanes ran and artifacts exist; it is not release approval.",
+    "This manifest is a specification, not an active schedule. Scheduling is deferred.",
+    "No external publication is performed by any heartbeat script."
+  ]
+}

@@ -48,7 +48,8 @@ Use this note as the local map for all ADRs.
 12. [[012-Post-Completion-Eval-Spine|ADR-012 Post-Completion Eval Spine]] — durable post-completion trace snapshot and attempt-scoped quality verdict seam, inspection-only and non-gating.
 13. [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] — backend-only verified personal-facts injection seam, bounded and user-scoped.
 14. [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] — canonical contract for Guardian threads, flow drafts, Builder support lanes, and run receipts.
-15. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
+15. [[027-flow-builder-typed-surface-and-run-receipt-contract|ADR-027 Flow Builder Typed Surface and Run Receipt Contract]] — typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.
+16. [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] — user-governed continuity layer above thread-first chat, with working-set decay and provenance.
 16. [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] — user-governed continuity control plane for scope, decay, import treatment, exclusions, inspection, and reset semantics.
 17. [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] — deterministic graph-write identity and ephemeral receipt claims for the inspection-only graph lane.
 18. [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] — canonical live-proof harness for the `retrievalSource="workspace"` seam on the supported local Compose path; release-evidence tool only.
@@ -62,6 +63,7 @@ Use this note as the local map for all ADRs.
 24. [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] — governing ADR for Context Commands, active connector semantics, slash-command connector invocation, and connector/tool boundary doctrine.
 24. [[025-workspace-obsidian-selection-and-injection-contract|ADR-024 Workspace Obsidian Selection and Injection Contract]] — canonical contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
+26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 
 ---
 
@@ -200,6 +202,22 @@ Primary companion notes:
   * [[system-overview|System Overview]]
   * [[00-current-state]]
 
+
+* [[027-flow-builder-typed-surface-and-run-receipt-contract|ADR-027 Flow Builder Typed Surface and Run Receipt Contract]] links to:
+
+
+  * [[006-flow-builder-elicitation-lane|Flow Builder Elicitation Lane]]
+  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|Flow Builder Thread, Draft, and Receipts Contract]]
+  * [[flow-builder-surface-research-application|Flow Builder Surface Research Application]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
+  * [[agent-tool-loop-contract|Agent Tool Loop Contract]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
 * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] links to:
 
   * [[router-decision-table|Retrieval Router Decision Table]]
@@ -324,6 +342,25 @@ Primary companion notes:
   * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
   * [[data-and-storage|Data and Storage]]
   * [[config-and-ops|Config and Ops]]
+  * [[00-current-state]]
+
+* [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] links to:
+
+  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
+  * [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
+  * [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]]
+  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]]
+  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
+  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
+  * [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]]
+  * [[027-flow-builder-typed-surface-and-run-receipt-contract|ADR-027 Flow Builder Typed Surface and Run Receipt Contract]]
+  * [[execution-ledger-phase-1-repo-aware-recon|Execution Ledger Phase 1 Repo-Aware Recon]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+  * [[flows|Critical Flows]]
+  * [[data-and-storage|Data and Storage]]
   * [[00-current-state]]
 ---
 

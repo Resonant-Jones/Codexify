@@ -19,6 +19,7 @@ const LENSES: LensEntry[] = [
   { id: "agent-command", label: "Agent Command", icon: "⚡", ariaLabel: "Agent Command lens" },
   { id: "observability", label: "Observability", icon: "◉", ariaLabel: "Observability lens" },
   { id: "runtime-health", label: "Runtime Health", icon: "♥", ariaLabel: "Runtime Health lens" },
+  { id: "heartbeat", label: "Heartbeat", icon: "⊛", ariaLabel: "Heartbeat pipeline lens" },
   { id: "event-console", label: "Event Console", icon: "☰", ariaLabel: "Event Console lens" },
   { id: "deep-settings", label: "Deep Settings", icon: "⚙", ariaLabel: "Deep Settings lens" },
   { id: "extensions", label: "Extensions", icon: "⬡", ariaLabel: "Extensions lens" },

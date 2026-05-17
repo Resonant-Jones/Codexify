@@ -2,33 +2,70 @@
 
 Evidence-led beta readiness changes only.
 
-## 2026-05-13
+
+## 2026-05-15
 
 ### Evidence
-
-- Normalize marketing evidence ledger schema
-- Repair coding result return and terminal run state
-- Add daily marketing automation run artifacts for 2026-05-13
-- docs: refresh weekly current-state override
-- Add Runner supervision summary to Agent Command
-- Add initial marketing campaign draft artifacts
-- Add marketing automation wrapper command
-- Add marketing claim suitability gate
-- test(marketing): add fixture corpus, golden outputs, and pipeline coverage
-- feat(marketing): add deterministic generator CLI and command wiring
-- docs(marketing): add truth layer and reusable skill contracts
-- Repair Command Center shell ergonomics
-- Restore context directive and PI contract test coverage
-- Repair Command Center shell blank screen
-- alembic upgrade
+- No new commit subjects discovered for this sentinel window.
 
 ### Blockers
-
 - Coding results return through Guardian into the source thread without duplicate delivery.
 - Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.
 - No internal-only or quarantined surface is part of the release claim.
 
 ### Warnings
+- Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling
+- Primitive Stability: Repo-local docs warn about contract drift in tool primitives
+- Extension Boundary: Architecture docs describe command bus, cron, and coding-agent seams
+- Extension Boundary: Legacy /tools compatibility route status
+- Observability: Observability docs leave some logging guarantees unverified
+- Durability & Recovery: Roadmap docs warn that sync delivery is not yet durable
+- Durability & Recovery: Risk register warns about Redis persistence or replay gaps
+- Alternate Surface Readiness: Repo-local docs still describe shell-level coupling
+- Federation Readiness: Roadmap docs warn that sync subscriptions are process-local
+- Federation Readiness: Risk register warns that federation remains security- and config-sensitive
+- Governance Readiness: Ownership authority is still informal in the scanned docs
 
-- Platform readiness audit did not return valid JSON.
-- Worktree is dirty; release evidence should use a clean tree.
+## 2026-05-15
+
+### Evidence
+- No new commit subjects discovered for this sentinel window.
+
+### Blockers
+- Coding results return through Guardian into the source thread without duplicate delivery.
+- Workspace-local Obsidian retrieval has fresh current-tip proof that survives supersession review.
+- No internal-only or quarantined surface is part of the release claim.
+
+### Warnings
+- Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling
+- Primitive Stability: Repo-local docs warn about contract drift in tool primitives
+- Extension Boundary: Architecture docs describe command bus, cron, and coding-agent seams
+- Extension Boundary: Legacy /tools compatibility route status
+- Observability: Observability docs leave some logging guarantees unverified
+- Durability & Recovery: Roadmap docs warn that sync delivery is not yet durable
+- Durability & Recovery: Risk register warns about Redis persistence or replay gaps
+- Alternate Surface Readiness: Repo-local docs still describe shell-level coupling
+- Federation Readiness: Roadmap docs warn that sync subscriptions are process-local
+- Federation Readiness: Risk register warns that federation remains security- and config-sensitive
+- Governance Readiness: Ownership authority is still informal in the scanned docs
+
+## 2026-05-15
+
+### Evidence
+- No new commit subjects discovered for this sentinel window.
+
+### Blockers
+- None.
+
+### Warnings
+- Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling
+- Primitive Stability: Repo-local docs warn about contract drift in tool primitives
+- Extension Boundary: Architecture docs describe command bus, cron, and coding-agent seams
+- Extension Boundary: Legacy /tools compatibility route status
+- Observability: Observability docs leave some logging guarantees unverified
+- Durability & Recovery: Roadmap docs warn that sync delivery is not yet durable
+- Durability & Recovery: Risk register warns about Redis persistence or replay gaps
+- Alternate Surface Readiness: Repo-local docs still describe shell-level coupling
+- Federation Readiness: Roadmap docs warn that sync subscriptions are process-local
+- Federation Readiness: Risk register warns that federation remains security- and config-sensitive
+- Governance Readiness: Ownership authority is still informal in the scanned docs
