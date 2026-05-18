@@ -970,6 +970,10 @@ class ContextBroker:
         resolved_user_id = str(user_id or "").strip()
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
+        memory_preselection_active = bool(enable_memory_preselection_active)
+        memory_preselection_enabled = bool(
+            enable_memory_preselection_trace or memory_preselection_active
+        )
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
         requested_source_mode = normalize_source_mode(source_mode)
         base_policy = derive_default_retrieval_policy(source_mode)
@@ -1394,6 +1398,7 @@ class ContextBroker:
 
         # Include memory search for deep and diagnostic modes
         memory_widen_reason = WIDEN_REASON_NONE
+        memory_preselection_trace: dict[str, Any] | None = None
         memory_trace: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
@@ -1462,6 +1467,50 @@ class ContextBroker:
                     "boundary": source_mode_boundary,
                     "source_mode": normalized_source_mode,
                 }
+
+        memory_preselection_trace = _build_memory_preselection_trace(
+            enabled=memory_preselection_enabled,
+            active=memory_preselection_active,
+            query=query,
+            user_id=resolved_user_id,
+            project_id=resolved_project_id,
+            thread_id=thread_id,
+            persona_id=memory_preselection_persona_id,
+            identity_depth=memory_preselection_identity_depth,
+            include_diary_excluded=memory_preselection_include_diary_excluded,
+            memory_items=context.get("memory", []),
+            candidate_headers=memory_preselection_candidate_headers,
+        )
+        if (
+            memory_preselection_active
+            and memory_preselection_trace is not None
+            and isinstance(context.get("memory"), list)
+        ):
+            selected_candidate_ids = [
+                str(candidate_id).strip()
+                for candidate_id in memory_preselection_trace.get(
+                    "selected_candidate_ids", []
+                )
+                if str(candidate_id).strip()
+            ]
+            scoped_candidate_ids = selected_candidate_ids + [
+                str(entry.get("candidate_id") or "").strip()
+                for entry in memory_preselection_trace.get("suppressed", [])
+                if isinstance(entry, dict)
+                and str(entry.get("candidate_id") or "").strip()
+            ]
+            filtered_memory_items, active_influence, applied = (
+                _apply_memory_preselection_active_influence(
+                    context.get("memory", []),
+                    selected_candidate_ids=selected_candidate_ids,
+                    scoped_candidate_ids=scoped_candidate_ids,
+                )
+            )
+            if applied:
+                context["memory"] = filtered_memory_items
+            memory_preselection_trace["active_influence"] = active_influence
+            memory_preselection_trace["affected_retrieval"] = applied
+            memory_preselection_trace["affected_prompt_injection"] = applied
 
         # Include sensor snapshot for diagnostic mode only
         if normalized_depth == "diagnostic":

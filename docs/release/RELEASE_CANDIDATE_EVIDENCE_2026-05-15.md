@@ -1,7 +1,8 @@
-# Release Candidate Evidence Index — 2026-05-15
+# Release Candidate Evidence Index - 2026-05-15
 
 ## Scope
-This is the front door for the current local-first beta release candidate evidence bundle. It links the proof artifacts that define what is true now and keeps the release claims bounded to the current-state contract.
+
+This is the front door for the current local-first beta release candidate evidence bundle. It points at the proof artifacts that define what is true now and keeps the release claims bounded to the current-state contract.
 
 ## Current Release Posture
 

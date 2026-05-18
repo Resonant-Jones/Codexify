@@ -838,15 +838,20 @@ def collect_repo_metadata() -> dict[str, object]:
     try:
         branch = run_git(["branch", "--show-current"]).strip()
         head = run_git(["rev-parse", "HEAD"]).strip()
-        status_output = run_git(["status", "--short", "--untracked-files=all"])
-        status_lines = [
-            line.rstrip() for line in status_output.splitlines() if line.strip()
-        ]
     except RuntimeError as exc:
         status_error = str(exc)
 
     if not branch and head:
         branch = f"detached@{head[:7]}"
+
+    try:
+        status_output = run_git(["status", "--short", "--untracked-files=all"])
+        status_lines = [
+            line.rstrip() for line in status_output.splitlines() if line.strip()
+        ]
+    except RuntimeError as exc:
+        if not status_error:
+            status_error = str(exc)
 
     return {
         "branch": branch,
