@@ -44,6 +44,18 @@ class _FakeVectorStore:
         ]
 
 
+class _FakePersonalFactsDB:
+    def list_facts(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        active_only: bool = True,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        return []
+
+
 def _snapshot_guardian_api_env() -> dict[str, str | None]:
     return {key: os.environ.get(key) for key in _GUARDIAN_API_ENV_KEYS}
 
@@ -136,3 +148,19 @@ def test_supported_path_exposes_truthful_retrieval_health_surface(
             client.get("/api/tools/manifest", headers=headers).status_code
             == 404
         )
+
+        from guardian.routes import personal_facts
+
+        monkeypatch.setattr(
+            personal_facts,
+            "chatlog_db",
+            _FakePersonalFactsDB(),
+            raising=False,
+        )
+
+        personal_facts_response = client.get(
+            "/api/personal-facts",
+            headers=headers,
+        )
+        assert personal_facts_response.status_code == 200
+        assert personal_facts_response.json() == {"ok": True, "facts": []}
