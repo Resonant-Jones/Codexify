@@ -11,5 +11,6 @@ def test_v1_supported_profile_manifest_loads() -> None:
         == "http://host.docker.internal:11434/v1"
     )
     assert manifest.route_status("command_bus") == "internal_only"
+    assert manifest.route_status("personal_facts") == "enabled"
     assert manifest.route_status("tools") == "quarantined"
     assert manifest.route_status("media") == "enabled"
