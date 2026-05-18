@@ -132,7 +132,10 @@ def _runtime_prompt_setup(monkeypatch: pytest.MonkeyPatch):
             user_id,
             project_id=None,
             source_mode="project",
+            retrieval_policy=None,
+            **kwargs,
         ):
+            _ = retrieval_policy, kwargs
             return {"semantic": [], "graph": []}, {
                 "documents": [],
                 "graph": [],
