@@ -1253,6 +1253,9 @@ class ContextBroker:
                 0,
                 "skipped",
             )
+            context["obsidian"] = self._filter_codex_entries(
+                context.get("obsidian", [])
+            )
             return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
             try:
@@ -1802,6 +1805,20 @@ class ContextBroker:
             )
         except Exception:
             pass
+
+        # Apply codex entry retrieval exclusion before returning
+        context["semantic"] = self._filter_codex_entries(
+            context.get("semantic", [])
+        )
+        context["obsidian"] = self._filter_codex_entries(
+            context.get("obsidian", [])
+        )
+        if isinstance(context.get("docs"), dict):
+            context["docs"] = self._filter_codex_from_doc_buckets(context["docs"])
+        if "memory" in context:
+            context["memory"] = self._filter_codex_entries(
+                context.get("memory", [])
+            )
 
         return context, rag_trace
 
@@ -2480,6 +2497,52 @@ class ContextBroker:
         }:
             return 0
         return 1
+
+    @staticmethod
+    def _filter_codex_entries(
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter out codex entries with retrieval disabled.
+
+        Codex entries are excluded from retrieval by default unless
+        explicitly opted in via ``retrieval_enabled: true`` in their
+        frontmatter. This filter checks both top-level and nested
+        metadata fields.
+        """
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                filtered.append(item)
+                continue
+
+            source_type = str(item.get("source_type") or "").strip().lower()
+            if source_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                metadata = item.get("metadata")
+                if isinstance(metadata, dict):
+                    if retrieval_enabled is None:
+                        retrieval_enabled = metadata.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            doc_type = str(item.get("type") or "").strip().lower()
+            if doc_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            filtered.append(item)
+        return filtered
+
+    @staticmethod
+    def _filter_codex_from_doc_buckets(
+        docs: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Apply codex entry filtering across all doc buckets."""
+        return {
+            key: ContextBroker._filter_codex_entries(value)
+            for key, value in docs.items()
+        }
 
     @classmethod
     def _sort_retrieval_items(
