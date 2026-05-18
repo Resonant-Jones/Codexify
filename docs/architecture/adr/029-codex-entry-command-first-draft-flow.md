@@ -28,6 +28,8 @@ Users need a lightweight way to capture conversation highlights as structured Ma
    - `source_message_id` (or `source_message_ids` range) — the prior messages whose content fed the draft
    - `thread_id` is required; `project_id` and `persona_id` are nullable
 
+Slash aliases are exact command aliases only. They do not imply semantic detection, display-label aliasing, or automatic Codex Entry creation.
+
 ## Consequences
 
 - **Positive**: Chat-native, no new UI chrome, reuses existing codex infrastructure
