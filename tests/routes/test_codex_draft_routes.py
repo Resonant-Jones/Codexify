@@ -17,6 +17,8 @@ from guardian.codex.lineage import (
 )
 from guardian.routes import codex as codex_routes
 
+API_HEADERS = {"X-API-Key": "test"}
+
 
 @pytest.fixture(autouse=True)
 def _reset_lineage_state():
@@ -40,7 +42,9 @@ def _seed_chatlog(
     )
     with Session() as session:
         session.execute(
-            text("CREATE TABLE IF NOT EXISTS chat_threads (id INTEGER PRIMARY KEY)")
+            text(
+                "CREATE TABLE IF NOT EXISTS chat_threads (id INTEGER PRIMARY KEY)"
+            )
         )
         session.execute(
             text(
@@ -75,6 +79,7 @@ def _seed_chatlog(
 
     # Wire the chatlog db dependency
     from guardian.codex import lineage as lineage_mod
+
     _set_lineage_session_factory(Session)
 
     # Create a simple mock chatlog_db
@@ -93,13 +98,16 @@ def _seed_chatlog(
                     {"tid": tid, "limit": limit, "offset": offset},
                 ).fetchall()
             return [
-                {"id": row[0], "thread_id": row[1], "role": row[2], "content": row[3]}
+                {
+                    "id": row[0],
+                    "thread_id": row[1],
+                    "role": row[2],
+                    "content": row[3],
+                }
                 for row in rows
             ]
 
-    monkeypatch.setattr(
-        codex_routes, "chatlog_db", MockChatlogDB()
-    )
+    monkeypatch.setattr(codex_routes, "chatlog_db", MockChatlogDB())
 
 
 def _make_app() -> FastAPI:
@@ -111,6 +119,7 @@ def _make_app() -> FastAPI:
 # ---------------------------------------------------------------------------
 # Draft endpoint tests
 # ---------------------------------------------------------------------------
+
 
 def test_draft_returns_candidate(monkeypatch, tmp_path):
     """POST /api/codex/entries/draft returns a draft from prior context."""
@@ -124,16 +133,24 @@ def test_draft_returns_candidate(monkeypatch, tmp_path):
         thread_id=10,
         messages=[
             {"id": 1, "role": "user", "content": "What is decentralized AI?"},
-            {"id": 2, "role": "assistant", "content": "It's AI that runs on edge devices..."},
+            {
+                "id": 2,
+                "role": "assistant",
+                "content": "It's AI that runs on edge devices...",
+            },
             {"id": 3, "role": "user", "content": "/codex_entry"},
         ],
     )
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries/draft", json={
-        "thread_id": 10,
-        "trigger_message_id": 3,
-    })
+    response = client.post(
+        "/api/codex/entries/draft",
+        json={
+            "thread_id": 10,
+            "trigger_message_id": 3,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -148,6 +165,7 @@ def test_draft_returns_candidate(monkeypatch, tmp_path):
     assert payload["draft"]["lineage"]["trigger_message_id"] == 3
     assert 1 in payload["draft"]["lineage"]["source_message_ids"]
     assert 2 in payload["draft"]["lineage"]["source_message_ids"]
+    assert 3 not in payload["draft"]["lineage"]["source_message_ids"]
 
 
 def test_draft_does_not_persist_entry(monkeypatch, tmp_path):
@@ -167,10 +185,14 @@ def test_draft_does_not_persist_entry(monkeypatch, tmp_path):
     )
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries/draft", json={
-        "thread_id": 20,
-        "trigger_message_id": 11,
-    })
+    response = client.post(
+        "/api/codex/entries/draft",
+        json={
+            "thread_id": 20,
+            "trigger_message_id": 11,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -197,10 +219,14 @@ def test_draft_no_context_returns_empty(monkeypatch, tmp_path):
     )
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries/draft", json={
-        "thread_id": 30,
-        "trigger_message_id": 50,
-    })
+    response = client.post(
+        "/api/codex/entries/draft",
+        json={
+            "thread_id": 30,
+            "trigger_message_id": 50,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -222,9 +248,13 @@ def test_draft_empty_thread_returns_no_context(monkeypatch, tmp_path):
     )
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries/draft", json={
-        "thread_id": 40,
-    })
+    response = client.post(
+        "/api/codex/entries/draft",
+        json={
+            "thread_id": 40,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -236,6 +266,7 @@ def test_draft_empty_thread_returns_no_context(monkeypatch, tmp_path):
 # Save endpoint tests
 # ---------------------------------------------------------------------------
 
+
 def test_save_persists_markdown(monkeypatch, tmp_path):
     """POST /api/codex/entries persists a Codex Entry with frontmatter."""
     codex_root = tmp_path / "codex"
@@ -243,17 +274,21 @@ def test_save_persists_markdown(monkeypatch, tmp_path):
     monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries", json={
-        "title": "Test Entry",
-        "body": "# Hello\n\nThis is a test.",
-        "thread_id": 10,
-        "source_thread_id": 10,
-        "source_message_id": 2,
-        "trigger_message_id": 3,
-        "message_ids": [1, 2],
-        "created_from": "slash_command",
-        "retrieval_enabled": False,
-    })
+    response = client.post(
+        "/api/codex/entries",
+        json={
+            "title": "Test Entry",
+            "body": "# Hello\n\nThis is a test.",
+            "thread_id": 10,
+            "source_thread_id": 10,
+            "source_message_id": 2,
+            "trigger_message_id": 3,
+            "message_ids": [1, 2],
+            "created_from": "slash_command",
+            "retrieval_enabled": False,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -269,8 +304,13 @@ def test_save_persists_markdown(monkeypatch, tmp_path):
     content = cdx_files[0].read_text(encoding="utf-8")
     assert "created_from: slash_command" in content
     assert "retrieval_enabled: false" in content
-    assert "source_message_id: '2'" in content or "source_message_id: 2" in content
-    assert "trigger_message_id: '3'" in content or "trigger_message_id: 3" in content
+    assert (
+        "source_message_id: '2'" in content or "source_message_id: 2" in content
+    )
+    assert (
+        "trigger_message_id: '3'" in content
+        or "trigger_message_id: 3" in content
+    )
 
 
 def test_save_persists_created_from(monkeypatch, tmp_path):
@@ -280,11 +320,15 @@ def test_save_persists_created_from(monkeypatch, tmp_path):
     monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries", json={
-        "title": "From Slash",
-        "body": "Content",
-        "created_from": "slash_command",
-    })
+    response = client.post(
+        "/api/codex/entries",
+        json={
+            "title": "From Slash",
+            "body": "Content",
+            "created_from": "slash_command",
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["entry"]["created_from"] == "slash_command"
@@ -301,11 +345,15 @@ def test_save_persists_retrieval_enabled_false(monkeypatch, tmp_path):
     monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries", json={
-        "title": "Retrieval Off",
-        "body": "Content",
-        "retrieval_enabled": False,
-    })
+    response = client.post(
+        "/api/codex/entries",
+        json={
+            "title": "Retrieval Off",
+            "body": "Content",
+            "retrieval_enabled": False,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["entry"]["retrieval_enabled"] is False
@@ -322,12 +370,16 @@ def test_save_trigger_separate_from_source(monkeypatch, tmp_path):
     monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
 
     client = TestClient(_make_app())
-    response = client.post("/api/codex/entries", json={
-        "title": "Trigger vs Source",
-        "body": "Body",
-        "source_message_id": 10,
-        "trigger_message_id": 11,
-    })
+    response = client.post(
+        "/api/codex/entries",
+        json={
+            "title": "Trigger vs Source",
+            "body": "Body",
+            "source_message_id": 10,
+            "trigger_message_id": 11,
+        },
+        headers=API_HEADERS,
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["entry"]["source_message_id"] == "10"
