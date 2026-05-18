@@ -17,10 +17,14 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 
 ## What changed recently
 - `main` added a read-only Heartbeat status route (`GET /api/heartbeat/status`) and a Heartbeat lens in Agent Command Center.  Execution, scheduling, and publishing remain manual and deferred.
+- `main` added an internal/manual local-model draft adapter for generating
+  reviewable Markdown drafts from explicit repo-local Markdown sources. It is
+  an artifact lane only and does not widen the beta release promise.
 - `main` added `flow-builder-testrun-activation-contract.md`.
 - `main` added `flow-builder-runreceipt-persistence-model.md`.
 - `main` also resolved a current-state merge and kept the override doc in sync with the KB map.
-- No new shipped runtime surface landed with those docs-only changes.
+- No new shipped runtime surface landed with those docs-only changes or the
+  manual draft adapter.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -36,11 +40,18 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - `main` now also shows a runner supervision summary inside Agent Command, but that is a UI/control-plane refinement, not a broader release expansion.
 - Campaign Runner MVP control-plane spine exists on backend surfaces for goal/campaign representation and durable execution-attempt ledger evidence, while remaining recommendation-only for next-work selection.
 - Agent Command Center can now display read-only Heartbeat pipeline status via the `GET /api/heartbeat/status` route and the Heartbeat lens in Command Center.  This surfaces the latest local heartbeat date, review status, outbox status, and publication-disabled posture without adding execution, scheduling, or publishing.
+- Local-model-assisted draft generation now exists as an internal/manual
+  artifact lane over explicit local Markdown sources. Drafts are labeled as
+  model-assisted and review-required, include source paths and model metadata,
+  and do not publish, schedule, dispatch commands, or approve release
+  readiness.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
+- Do not assume local-model draft generation is connected to Heartbeat,
+  publishing, scheduling, command dispatch, or release approval.
 - Do not assume successful Codex adapter completion: the live proof terminal run ended `failed` because the adapter timed out, even though Guardian delivery and terminal-state behavior passed.
 - Do not assume UI dispatch, lease allocation, live MiniMax/Codex execution, or merge automation are release-proven; the worker-control Command Center seam is recommendation-only and non-dispatch.
 - Do not assume Flow Builder planning docs imply a shipped runtime Flow Builder release surface.
