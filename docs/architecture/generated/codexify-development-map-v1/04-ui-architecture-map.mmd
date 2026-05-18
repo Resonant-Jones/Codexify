@@ -1,19 +1,19 @@
 flowchart TD
-    APP["AppShell global token injection"] --> ROOT["Root tokens"]
+    APP["AppShell token injection"] --> ROOT["Root tokens"]
     ROOT --> LAYOUT["Layout tokens"]
-    ROOT --> LEGACY["Legacy semantic aliases"]
-    LAYOUT --> COMPONENT["Component tokens"]
-    LEGACY --> COMPONENT
+    ROOT --> ALIAS["Legacy semantic aliases"]
+    LAYOUT --> COMP["Component tokens"]
+    ALIAS --> COMP
 
-    COMPONENT --> VISIBLE["Visible UI surfaces\nglass cards/panels/chips/inputs/modals"]
-    COMPONENT --> STRUCTURE["Structural layout frames\nmain card hierarchy + sanctioned regions"]
+    COMP --> SURF["Visible surfaces<br/>glass/panel/chip/input/modal categories"]
+    COMP --> FRAME["Structural layout frames<br/>primary card hierarchy + sanctioned regions"]
 
-    STRUCTURE --> WORKSPACE["Workspace surface (UI structural)\nworkspace drawer/supporting region where blueprint allows"]
-    STRUCTURE --> GUARDIAN["Guardian/chat surface"]
-    STRUCTURE --> DOCS["Documents surface"]
-    STRUCTURE --> DASH["Dashboard surface"]
-    STRUCTURE --> SETTINGS["Settings surface"]
-    STRUCTURE --> GALLERY["Gallery surface"]
+    FRAME --> WORKSPACE["Workspace surface<br/>(drawer/supporting region where blueprint permits)"]
+    FRAME --> GUARD["Guardian/chat surface"]
+    FRAME --> DOCVIEW["Documents surface"]
+    FRAME --> DASH["Dashboard surface"]
+    FRAME --> SETTINGS["Settings surface"]
+    FRAME --> GALLERY["Gallery surface"]
 
-    VISIBLE --> DIAG["Diagnostics/cognitive surfaces\nopt-in, constrained visibility"]
-    DIAG --> EVIDENCE["Evidence/context/trace/insight UI layers\nconceptual and diagnostic"]
+    SURF --> DIAG["Diagnostics / cognitive surfaces<br/>opt-in visibility"]
+    DIAG --> STACK["Evidence / context / trace / insight layers<br/>conceptual UI stack"]

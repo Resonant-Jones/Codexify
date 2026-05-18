@@ -57,37 +57,37 @@ It is not a release promise, roadmap, ADR, or implementation plan.
 flowchart LR
     subgraph users["User / clients"]
         U["User"]
-        B["Browser\nclient/UI surface\nsupported/proven"]
-        T["Tauri desktop shell\noptional client shell\nnot current release promise as supported install replacement"]
-        FE["React frontend\nclient/UI surface\nsupported/proven"]
-        CLS["Frontend local/session storage\noperational/ephemeral client state"]
+        B["Browser<br/>client/UI surface<br/>supported/proven"]
+        T["Tauri desktop shell<br/>optional client shell<br/>not current release promise as supported install replacement"]
+        FE["React frontend<br/>client/UI surface<br/>supported/proven"]
+        CLS["Frontend local/session storage<br/>operational/ephemeral client state"]
     end
 
     subgraph runtime["FastAPI runtime boundary (supported local Docker Compose path)"]
-        API["FastAPI backend\nsupported/proven"]
-        CHAT["Chat/thread API\nsupported/proven"]
-        COMP["Completion service\nsupported/proven"]
-        CTX["Context broker\nsupported/proven"]
-        ROUTER["Provider router\nmodel/provider boundary\nsupported/proven (local-only posture)"]
-        WORK["Worker layer\nchat/chat-embed/document-embed/warmup/cron\nsupported/proven"]
-        CMD["Command bus / tool lane\ninternal/control-plane\nnot current release promise"]
-        CRON["Cron / automation lane\ninternal/control-plane\nnot current release promise"]
-        ING["Media/document ingestion\nsupported/proven"]
-        EV["Event surfaces\n/api/events + /api/tasks/*/events\noperational/ephemeral transport"]
-        TRACE["Trace/eval diagnostic surfaces\nproof/diagnostic surfaces\nnot release proof by themselves"]
+        API["FastAPI backend<br/>supported/proven"]
+        CHAT["Chat/thread API<br/>supported/proven"]
+        COMP["Completion service<br/>supported/proven"]
+        CTX["Context broker<br/>supported/proven"]
+        ROUTER["Provider router<br/>model/provider boundary<br/>supported/proven (local-only posture)"]
+        WORK["Worker layer<br/>chat/chat-embed/document-embed/warmup/cron<br/>supported/proven"]
+        CMD["Command bus / tool lane<br/>internal/control-plane<br/>not current release promise"]
+        CRON["Cron / automation lane<br/>internal/control-plane<br/>not current release promise"]
+        ING["Media/document ingestion<br/>supported/proven"]
+        EV["Event surfaces<br/>/api/events + /api/tasks/*/events<br/>operational/ephemeral transport"]
+        TRACE["Trace/eval diagnostic surfaces<br/>proof/diagnostic surfaces<br/>not release proof by themselves"]
     end
 
     subgraph data["Data and transport boundaries"]
-        PG["Postgres\ndurable state\nsystem of record"]
-        R["Redis\noperational/ephemeral\nqueues/locks/events/heartbeat"]
-        V["Vector store\ndurable semantic retrieval corpus"]
-        FS["File/object storage\ndurable media/document bytes"]
-        NEO["Neo4j graph lane\noptional/feature-flagged\nnot current release promise"]
+        PG["Postgres<br/>durable state<br/>system of record"]
+        R["Redis<br/>operational/ephemeral<br/>queues/locks/events/heartbeat"]
+        V["Vector store<br/>durable semantic retrieval corpus"]
+        FS["File/object storage<br/>durable media/document bytes"]
+        NEO["Neo4j graph lane<br/>optional/feature-flagged<br/>not current release promise"]
     end
 
     subgraph providers["Local/cloud provider boundary"]
-        LP["Local provider path\nsupported/proven beta posture"]
-        CP["Cloud provider lanes\nnot current release promise"]
+        LP["Local provider path<br/>supported/proven beta posture"]
+        CP["Cloud provider lanes<br/>not current release promise"]
     end
 
     U --> B
@@ -176,12 +176,13 @@ sequenceDiagram
 
     Worker->>PG: Persist assistant message + audit/domain events
     Worker->>Trace: Persist trace snapshot + enqueue eval lane
-    Note over Worker,Trace: Worker-visible completion payload is stronger executed-path proof than debug-only reconstruction.
+    Note over Worker,Trace: Worker-visible completion payload is stronger executed-path proof.
+    Note over Worker,Trace: Debug-only reconstruction remains diagnostic.
 
     Worker->>Redis: Publish terminal task event + release lock
     Redis-->>Stream: Task events available
     Stream-->>FE: Lifecycle updates
-    Note over Stream,FE: Task-event publication is not UI receipt.
+    Note over Stream,FE: Task-event publication is not guaranteed UI receipt.
 
     FE->>API: Refresh messages_url
     API-->>FE: Updated thread/messages
@@ -204,10 +205,10 @@ flowchart TB
 
     subgraph durable["Durable state"]
         PG["Postgres system of record"]
-        CORE["projects\nchat_threads\nchat_messages"]
-        DOCS["uploaded_documents\nmedia_assets\nthread_documents\nproject_document_links"]
-        MEM["memory_entries\npersonal_facts (+ evidence/revisions)"]
-        OPS["command_runs\ncron_runs\nevents_outbox\naudit surfaces"]
+        CORE["projects<br/>chat_threads<br/>chat_messages"]
+        DOCS["uploaded_documents<br/>media_assets<br/>thread_documents<br/>project_document_links"]
+        MEM["memory_entries<br/>personal_facts (+ evidence/revisions)"]
+        OPS["command_runs<br/>cron_runs<br/>events_outbox<br/>audit surfaces"]
         VEC["Vector store semantic retrieval corpus"]
         OBJ["File/object storage media/document bytes"]
     end
@@ -220,11 +221,11 @@ flowchart TB
     end
 
     subgraph optional["Optional/feature-flagged"]
-        NEO["Neo4j graph context/write lane\nnot current release promise"]
+        NEO["Neo4j graph context/write lane<br/>not current release promise"]
     end
 
     subgraph client["Client-local state"]
-        CLS["frontend local/session storage\nauth/session/runtime overrides/drafts/preferences"]
+        CLS["frontend local/session storage<br/>auth/session/runtime overrides/drafts/preferences"]
     end
 
     FE <--> CLS
@@ -266,18 +267,18 @@ flowchart TD
     LAYOUT --> COMP["Component tokens"]
     ALIAS --> COMP
 
-    COMP --> SURF["Visible surfaces\nglass/panel/chip/input/modal categories"]
-    COMP --> FRAME["Structural layout frames\nprimary card hierarchy + sanctioned regions"]
+    COMP --> SURF["Visible surfaces<br/>glass/panel/chip/input/modal categories"]
+    COMP --> FRAME["Structural layout frames<br/>primary card hierarchy + sanctioned regions"]
 
-    FRAME --> WORKSPACE["Workspace surface\n(drawer/supporting region where blueprint permits)"]
+    FRAME --> WORKSPACE["Workspace surface<br/>(drawer/supporting region where blueprint permits)"]
     FRAME --> GUARD["Guardian/chat surface"]
     FRAME --> DOCVIEW["Documents surface"]
     FRAME --> DASH["Dashboard surface"]
     FRAME --> SETTINGS["Settings surface"]
     FRAME --> GALLERY["Gallery surface"]
 
-    SURF --> DIAG["Diagnostics / cognitive surfaces\nopt-in visibility"]
-    DIAG --> STACK["Evidence / context / trace / insight layers\nconceptual UI stack"]
+    SURF --> DIAG["Diagnostics / cognitive surfaces<br/>opt-in visibility"]
+    DIAG --> STACK["Evidence / context / trace / insight layers<br/>conceptual UI stack"]
 ```
 
 UI canon note:

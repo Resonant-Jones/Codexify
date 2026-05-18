@@ -1,68 +1,74 @@
 flowchart LR
-    subgraph clients["User and client boundary"]
+    subgraph users["User / clients"]
         U["User"]
-        B["Browser client\nclient/UI surface\nsupported/proven"]
-        T["Tauri desktop shell\noptional client shell\nnot current release promise"]
-        FE["React frontend\nclient/UI surface\nsupported/proven"]
-        LS["Frontend local/session state\noperational/ephemeral client state"]
+        B["Browser<br/>client/UI surface<br/>supported/proven"]
+        T["Tauri desktop shell<br/>optional client shell<br/>not current release promise as supported install replacement"]
+        FE["React frontend<br/>client/UI surface<br/>supported/proven"]
+        CLS["Frontend local/session storage<br/>operational/ephemeral client state"]
     end
 
-    subgraph runtime["FastAPI runtime boundary (local Docker Compose supported path)"]
-        API["FastAPI backend\nsupported/proven"]
-        CHAT["Chat/thread API\nsupported/proven"]
-        COMP["Completion service\nsupported/proven"]
-        CTX["Context broker\nsupported/proven"]
-        PROUTER["Provider router\nmodel/provider boundary\nsupported/proven (local-only posture)"]
-        WORKERS["Worker layer\nchat/embed/document/warmup/cron\nsupported/proven"]
-        CMD["Command bus / tool lane\ninternal/control-plane\nnot current release promise"]
-        CRON["Cron / automation lane\ninternal/control-plane\nnot current release promise"]
-        INGEST["Media/document ingestion\nsupported/proven"]
-        EVENTS["Task + event surfaces\noperational/ephemeral transport\nsupported/proven"]
-        TRACE["Debug trace + eval surfaces\ndiagnostic/proof surfaces\nnot release-proof by themselves"]
+    subgraph runtime["FastAPI runtime boundary (supported local Docker Compose path)"]
+        API["FastAPI backend<br/>supported/proven"]
+        CHAT["Chat/thread API<br/>supported/proven"]
+        COMP["Completion service<br/>supported/proven"]
+        CTX["Context broker<br/>supported/proven"]
+        ROUTER["Provider router<br/>model/provider boundary<br/>supported/proven (local-only posture)"]
+        WORK["Worker layer<br/>chat/chat-embed/document-embed/warmup/cron<br/>supported/proven"]
+        CMD["Command bus / tool lane<br/>internal/control-plane<br/>not current release promise"]
+        CRON["Cron / automation lane<br/>internal/control-plane<br/>not current release promise"]
+        ING["Media/document ingestion<br/>supported/proven"]
+        EV["Event surfaces<br/>/api/events + /api/tasks/*/events<br/>operational/ephemeral transport"]
+        TRACE["Trace/eval diagnostic surfaces<br/>proof/diagnostic surfaces<br/>not release proof by themselves"]
     end
 
-    subgraph stores["Storage and transport boundaries"]
-        PG["Postgres\ndurable state\nsystem of record"]
-        REDIS["Redis\noperational/ephemeral\nqueues/locks/events/heartbeat"]
-        VEC["Vector store\ndurable semantic corpus"]
-        OBJ["File/object storage\ndurable media/document bytes"]
-        NEO["Neo4j graph lane\noptional/feature-flagged\nnot current release promise"]
+    subgraph data["Data and transport boundaries"]
+        PG["Postgres<br/>durable state<br/>system of record"]
+        R["Redis<br/>operational/ephemeral<br/>queues/locks/events/heartbeat"]
+        V["Vector store<br/>durable semantic retrieval corpus"]
+        FS["File/object storage<br/>durable media/document bytes"]
+        NEO["Neo4j graph lane<br/>optional/feature-flagged<br/>not current release promise"]
     end
 
-    subgraph providers["Model/provider boundary"]
-        LOCAL["Local provider path\nsupported/proven beta posture"]
-        CLOUD["Cloud provider lanes\nnot current release promise"]
+    subgraph providers["Local/cloud provider boundary"]
+        LP["Local provider path<br/>supported/proven beta posture"]
+        CP["Cloud provider lanes<br/>not current release promise"]
     end
 
     U --> B
     U --> T
     B --> FE
     T --> FE
-    FE <--> LS
+    FE <--> CLS
+
     FE --> API
-    FE --> EVENTS
+    FE --> EV
     API --> CHAT
-    CHAT --> REDIS
+    CHAT --> R
     CHAT --> PG
-    REDIS --> WORKERS
-    WORKERS --> COMP
+
+    R --> WORK
+    WORK --> COMP
     COMP --> CTX
-    COMP --> PROUTER
+    COMP --> ROUTER
     COMP --> PG
-    COMP --> EVENTS
+    COMP --> EV
     COMP --> TRACE
+
     CTX <--> PG
-    CTX <--> VEC
-    CTX -. optional .-> NEO
-    INGEST --> OBJ
-    INGEST --> PG
-    INGEST --> REDIS
-    WORKERS --> INGEST
+    CTX <--> V
+    CTX -. optional/flagged .-> NEO
+
+    WORK --> ING
+    ING --> FS
+    ING --> PG
+    ING --> R
+
     API --> CMD
     API --> CRON
     CMD --> PG
-    CRON --> REDIS
+    CRON --> R
     CRON --> PG
-    EVENTS --> FE
-    PROUTER --> LOCAL
-    PROUTER -. governed but not supported profile default .-> CLOUD
+
+    EV --> FE
+    ROUTER --> LP
+    ROUTER -. governed inventory lane, not supported posture default .-> CP
