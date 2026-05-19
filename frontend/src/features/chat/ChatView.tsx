@@ -22,6 +22,8 @@ import type {
   StreamingDraft,
 } from "@/features/chat/useChat";
 import api from "@/lib/api";
+import { CodexDraftCard } from "@/features/chat/components/CodexDraftCard";
+import type { CodexDraft } from "@/api/codex";
 import { cn } from "@/lib/utils";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
@@ -237,6 +239,10 @@ export function ChatView({
   streamingDraft = null,
   onCancelInference,
   onSwitchToFast,
+  codexDraft = null,
+  onCodexDraftSave,
+  onCodexDraftDownload,
+  onCodexDraftDismiss,
 }: {
   threadId: number;
   guardianName?: string;
@@ -262,6 +268,10 @@ export function ChatView({
   streamingDraft?: StreamingDraft | null;
   onCancelInference?: () => void;
   onSwitchToFast?: () => void;
+  codexDraft?: CodexDraft | null;
+  onCodexDraftSave?: (draft: CodexDraft) => void | Promise<void>;
+  onCodexDraftDownload?: (draft: CodexDraft) => void;
+  onCodexDraftDismiss?: () => void;
 }) {
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
@@ -957,6 +967,15 @@ export function ChatView({
               </div>
             );
           })}
+
+          {codexDraft && onCodexDraftSave && onCodexDraftDownload && onCodexDraftDismiss ? (
+            <CodexDraftCard
+              draft={codexDraft}
+              onSave={onCodexDraftSave}
+              onDownload={onCodexDraftDownload}
+              onDismiss={onCodexDraftDismiss}
+            />
+          ) : null}
 
           {showStreamingDraft ? (
             <div
