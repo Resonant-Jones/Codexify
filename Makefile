@@ -392,6 +392,14 @@ public-sync:
 	fi
 	bash scripts/release/sync_public_directory.sh "$(target)"
 
+# Publish the current snapshot into the public repo and push origin/main
+public-publish:
+	@if [ -z "$(target)" ]; then \
+		echo "Usage: make public-publish target=/path/to/public-repo [message=...]"; \
+		exit 1; \
+	fi
+	bash scripts/release/publish_public_portal.sh "$(target)" "$(message)"
+
 # Help target
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(firstword $(MAKEFILE_LIST)) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
