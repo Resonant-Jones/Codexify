@@ -268,6 +268,40 @@ That dry-run should:
 
 This slice is recommended because it exercises scope policy, provenance, change detection, draft generation, and proof reporting without widening the supported runtime promise.
 
+## Implementation Note: Backend Dry-Run Harness
+
+A backend-only dry-run harness now exists under `guardian/knowledge_compiler/`.
+
+It proves only:
+
+- project-scoped source normalization contracts
+- deterministic hash-based change detection
+- draft-only compiled artifact proposals
+- dry-run proof report shape
+
+It does not prove:
+
+- persistence
+- routing
+- retrieval behavior
+- scheduling
+- graph writes
+- model execution
+- UI review
+- publication
+- export/restore inclusion
+- autonomous maintenance
+
+Validation command used:
+
+- `pytest -v tests/knowledge_compiler/test_dry_run.py`
+
+Test file path:
+
+- `tests/knowledge_compiler/test_dry_run.py`
+
+Future live behavior still requires separate implementation work and the documentation follow-through described below. This dry-run harness is proof of a pure backend seam only; it is not a release promise.
+
 ## Documentation Follow-Through
 
 Future implementation tasks should update related architecture docs only when live behavior changes:
