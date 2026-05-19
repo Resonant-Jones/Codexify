@@ -52,7 +52,6 @@ Field types:
 Grouped fields `marketable_claims` and `non_marketable_claims` are derived convenience views and must remain consistent with filtering `claims[]` by `channel_eligible`.
 
 `presentation_role` is the item-level use policy for rendering. `copy_ready` is the verbatim public-prose gate. Channel templates must consume only items where `presentation_role == "public_copy_seed"` and `copy_ready == true` for visible public copy. Non-copy-ready implementation breadcrumbs may remain channel-eligible as support, but must not be printed verbatim in website, social, community, ad, or infographic prose.
-Public render context must be built from `public_copy_claims`; `marketable_claims` may still carry support evidence and must not be rendered verbatim unless they are also copy-ready public seeds.
 
 ## Governance
 
