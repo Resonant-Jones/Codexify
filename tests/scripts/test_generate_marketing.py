@@ -51,6 +51,17 @@ DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
 )
 
 FORBIDDEN_PUBLIC_PHRASES = [
+    "not release-ready",
+    "release-ready for this path: no",
+    "failed before",
+    "migrator failed",
+    "task.failed",
+    "blocked",
+    "missing revision",
+    "restore the missing",
+    "re-run",
+    "not yet runtime-owned",
+    "worker runtime artifact",
     "task-2026",
     "docs/architecture/",
     "guardian/queue/",

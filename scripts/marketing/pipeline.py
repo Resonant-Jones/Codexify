@@ -630,8 +630,6 @@ def _supporting_evidence_claims(claims: list[Claim]) -> list[Claim]:
         if claim.presentation_role
         in {PRESENTATION_SUPPORTING_EVIDENCE, PRESENTATION_INTERNAL_ANCHOR}
     ]
-
-
 def _supporting_evidence_bullets(claims: list[Claim]) -> str:
     supporting = _supporting_evidence_claims(claims)
     if not supporting:
@@ -668,8 +666,6 @@ def _draft_warning(public_copy_claims: list[Claim]) -> str:
     if public_copy_claims:
         return "- none"
     return f"- {DRAFT_SAFE_PUBLIC_PLACEHOLDER}"
-
-
 def _claims_bullets_for_review(claims: list[Claim]) -> str:
     if not claims:
         return "- none"
