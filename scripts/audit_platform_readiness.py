@@ -813,14 +813,19 @@ def report_to_dict(report: DomainReport) -> dict[str, object]:
     return {
         "name": report.name,
         "suggested_score": report.suggested_score,
-        "counts": {
-            "pass": report.count("PASS"),
-            "warn": report.count("WARN"),
-            "fail": report.count("FAIL"),
-        },
         "summary": report.summary,
         "manual_prompts": report.manual_prompts,
-        "checks": [asdict(check) for check in report.checks],
+        "checks": [
+            {
+                "status": check.status,
+                "label": check.label,
+                "evidence": check.evidence,
+            }
+            for check in report.checks
+        ],
+        "pass_count": report.count("PASS"),
+        "warn_count": report.count("WARN"),
+        "fail_count": report.count("FAIL"),
     }
 
 
@@ -858,7 +863,6 @@ def collect_repo_metadata() -> dict[str, object]:
 
 
 def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
-    summary = build_summary(reports)
     warnings = [
         {
             "domain": report.name,
@@ -882,14 +886,9 @@ def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
 
     return {
         "mode": "json",
-        "repo": collect_repo_metadata(),
         "repo_root_relative": ".",
-        "summary": {
-            **summary,
-            "strongest_domains": strongest_domains(reports),
-            "weakest_domains": weakest_domains(reports),
-            "overall_status": "pass" if summary["fail"] == 0 else "fail",
-        },
+        "repo": collect_repo_metadata(),
+        "summary": build_summary(reports),
         "strongest_domains": strongest_domains(reports),
         "weakest_domains": weakest_domains(reports),
         "domains": [report_to_dict(report) for report in reports],
