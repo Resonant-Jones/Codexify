@@ -142,7 +142,6 @@ def test_platform_readiness_json_mode_is_parseable(
     payload = json.loads(captured.out)
     assert exit_code in {0, 1}
     assert payload["repo_root_relative"] == "."
-    assert {"pass", "warn", "fail"}.issubset(payload["summary"])
-    assert payload["summary"]["overall_status"] in {"pass", "fail"}
+    assert set(payload["summary"]) == {"pass", "warn", "fail"}
     assert payload["domains"]
     assert all("checks" in domain for domain in payload["domains"])
