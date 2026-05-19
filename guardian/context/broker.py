@@ -787,70 +787,9 @@ def _coerce_memory_preselection_headers(
     return normalized
 
 
-def _extract_memory_item_candidate_id(item: Any) -> str | None:
-    if not isinstance(item, dict):
-        return None
-
-    candidate_id = str(item.get("id") or "").strip()
-    if candidate_id:
-        return candidate_id
-
-    metadata = item.get("metadata")
-    if isinstance(metadata, dict):
-        candidate_id = str(
-            metadata.get("id") or metadata.get("source_message_id") or ""
-        ).strip()
-        if candidate_id:
-            return candidate_id
-    return None
-
-
-def _apply_memory_preselection_active_influence(
-    memory_items: Sequence[Any],
-    *,
-    selected_candidate_ids: Sequence[str],
-    scoped_candidate_ids: Sequence[str],
-) -> tuple[list[Any], dict[str, Any], bool]:
-    allowed_ids = {str(candidate_id).strip() for candidate_id in selected_candidate_ids}
-    allowed_ids.discard("")
-    scoped_ids = {str(candidate_id).strip() for candidate_id in scoped_candidate_ids}
-    scoped_ids.discard("")
-
-    filtered_items: list[Any] = []
-    removed_candidate_ids: list[str] = []
-    unchanged_item_count = 0
-
-    original_items = list(memory_items)
-    for item in original_items:
-        candidate_id = _extract_memory_item_candidate_id(item)
-        if (
-            candidate_id is not None
-            and candidate_id in scoped_ids
-            and candidate_id not in allowed_ids
-        ):
-            removed_candidate_ids.append(candidate_id)
-            continue
-
-        filtered_items.append(item)
-        unchanged_item_count += 1
-
-    applied = filtered_items != original_items
-    influence = {
-        "applied": applied,
-        "allowed_candidate_ids": sorted(allowed_ids),
-        "removed_candidate_ids": sorted(set(removed_candidate_ids)),
-        "unchanged_item_count": unchanged_item_count,
-    }
-    return filtered_items, influence, applied
-
-
 def _build_memory_preselection_trace(
     *,
     enabled: bool,
-    active: bool = False,
-    affected_retrieval: bool = False,
-    affected_prompt_injection: bool = False,
-    active_influence: dict[str, Any] | None = None,
     query: str,
     user_id: str,
     project_id: int | None,
@@ -902,31 +841,18 @@ def _build_memory_preselection_trace(
         }
         for suppressed in result.suppressed
     ]
-    selected_candidate_ids = [
-        entry["candidate_id"] for entry in selected_entries
-    ]
-    mode = "active" if active else "trace_only"
-
-    if active_influence is None:
-        active_influence = {
-            "applied": False,
-            "allowed_candidate_ids": selected_candidate_ids,
-            "removed_candidate_ids": [],
-            "unchanged_item_count": len(memory_items),
-        }
 
     return {
-        "mode": mode,
         "enabled": True,
-        "active": bool(active),
         "selected_count": len(selected_entries),
         "suppressed_count": len(suppressed_entries),
-        "selected_candidate_ids": selected_candidate_ids,
+        "selected_candidate_ids": [
+            entry["candidate_id"] for entry in selected_entries
+        ],
         "selected": selected_entries,
         "suppressed": suppressed_entries,
-        "affected_retrieval": bool(affected_retrieval),
-        "affected_prompt_injection": bool(affected_prompt_injection),
-        "active_influence": active_influence,
+        "affected_retrieval": False,
+        "affected_prompt_injection": False,
     }
 
 
@@ -999,7 +925,6 @@ class ContextBroker:
         retrieval_override: Optional[dict[str, Any]] = None,
         retrieval_policy: Optional[dict[str, Any]] = None,
         enable_memory_preselection_trace: bool = False,
-        enable_memory_preselection_active: bool = False,
         memory_preselection_candidate_headers: Optional[
             Sequence[MemoryCandidateHeader | dict[str, Any]]
         ] = None,
@@ -1225,8 +1150,7 @@ class ContextBroker:
                 "obsidian_count": len(obsidian_docs),
             }
             memory_preselection_trace = _build_memory_preselection_trace(
-                enabled=memory_preselection_enabled,
-                active=memory_preselection_active,
+                enabled=enable_memory_preselection_trace,
                 query=query,
                 user_id=resolved_user_id,
                 project_id=resolved_project_id,
@@ -1252,6 +1176,9 @@ class ContextBroker:
                 "skipped",
                 0,
                 "skipped",
+            )
+            context["obsidian"] = self._filter_codex_entries(
+                context.get("obsidian", [])
             )
             return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
@@ -1782,6 +1709,18 @@ class ContextBroker:
             "personal_facts_context": personal_facts_trace,
             "verified_personal_facts_context": personal_facts_trace,
         }
+        memory_preselection_trace = _build_memory_preselection_trace(
+            enabled=enable_memory_preselection_trace,
+            query=query,
+            user_id=resolved_user_id,
+            project_id=resolved_project_id,
+            thread_id=thread_id,
+            persona_id=memory_preselection_persona_id,
+            identity_depth=memory_preselection_identity_depth,
+            include_diary_excluded=memory_preselection_include_diary_excluded,
+            memory_items=context.get("memory", []),
+            candidate_headers=memory_preselection_candidate_headers,
+        )
         if memory_preselection_trace is not None:
             rag_trace["memory_preselection"] = memory_preselection_trace
 
@@ -1802,6 +1741,20 @@ class ContextBroker:
             )
         except Exception:
             pass
+
+        # Apply codex entry retrieval exclusion before returning
+        context["semantic"] = self._filter_codex_entries(
+            context.get("semantic", [])
+        )
+        context["obsidian"] = self._filter_codex_entries(
+            context.get("obsidian", [])
+        )
+        if isinstance(context.get("docs"), dict):
+            context["docs"] = self._filter_codex_from_doc_buckets(context["docs"])
+        if "memory" in context:
+            context["memory"] = self._filter_codex_entries(
+                context.get("memory", [])
+            )
 
         return context, rag_trace
 
@@ -2480,6 +2433,52 @@ class ContextBroker:
         }:
             return 0
         return 1
+
+    @staticmethod
+    def _filter_codex_entries(
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter out codex entries with retrieval disabled.
+
+        Codex entries are excluded from retrieval by default unless
+        explicitly opted in via ``retrieval_enabled: true`` in their
+        frontmatter. This filter checks both top-level and nested
+        metadata fields.
+        """
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                filtered.append(item)
+                continue
+
+            source_type = str(item.get("source_type") or "").strip().lower()
+            if source_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                metadata = item.get("metadata")
+                if isinstance(metadata, dict):
+                    if retrieval_enabled is None:
+                        retrieval_enabled = metadata.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            doc_type = str(item.get("type") or "").strip().lower()
+            if doc_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            filtered.append(item)
+        return filtered
+
+    @staticmethod
+    def _filter_codex_from_doc_buckets(
+        docs: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Apply codex entry filtering across all doc buckets."""
+        return {
+            key: ContextBroker._filter_codex_entries(value)
+            for key, value in docs.items()
+        }
 
     @classmethod
     def _sort_retrieval_items(

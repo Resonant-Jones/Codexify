@@ -8,6 +8,7 @@ export type SlashCommandId =
   | "secure"
   | "connect"
   | "obsidian"
+  | "codex_entry"
   | "help";
 
 export type SlashCommandIntentKind =
@@ -17,6 +18,7 @@ export type SlashCommandIntentKind =
   | "automation"
   | "security"
   | "integration"
+  | "codex"
   | "help";
 
 export type SlashCommandRetrievalHint =
@@ -146,6 +148,18 @@ export const SLASH_COMMANDS = [
     scaffold: "/obsidian",
     effects: {
       intentKind: "integration",
+      retrievalHint: "none",
+    },
+  },
+  {
+    id: "codex_entry",
+    label: "Codex Entry",
+    description: "Generate a Codex Entry draft from the conversation.",
+    aliases: ["codex", "entry", "artifact"],
+    keywords: ["save", "draft", "note", "capture", "preserve"],
+    scaffold: "/codex_entry",
+    effects: {
+      intentKind: "codex",
       retrievalHint: "none",
     },
   },
