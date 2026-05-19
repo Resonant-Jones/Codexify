@@ -32,22 +32,22 @@ copy_file "${SOURCE_BUNDLE_DIR}/.env.example" "${TARGET_DIR}/releases/Codexify-B
 copy_file "${SOURCE_BUNDLE_DIR}/docker-compose.yml" "${TARGET_DIR}/releases/Codexify-Beta/docker-compose.yml"
 
 cat >"${TARGET_DIR}/README.md" <<'EOF'
-# Codexify Publishing Portal
+# Codexify Core
 
-This repository is the public release surface for Codexify.
+This repository is the public snapshot for Codexify.
 
-It is intentionally smaller than the private Source Vault. It exists so stable
-snapshots can be published on a controlled cadence without broadcasting every
-development change.
+It is not the private Source Vault. It contains the curated files that are safe
+to publish: the public handoff bundle, public docs, contribution guidance, and
+security guidance.
 
 Start here:
 
-- Read `releases/Codexify-Beta/README.md` for the public handoff bundle.
-- Read `docs/public/install/README.md` for the intended install path.
+- Read `releases/Codexify-Beta/README.md` for the current handoff bundle.
+- Read `docs/public/install/README.md` for the public install path.
 - Read `docs/public/security/README.md` for the public security policy.
 
-The source-of-truth development repository stays private. This portal only
-receives curated, release-ready updates.
+If you need the full development tree, internal notes, or unreleased work, that
+stays in the private repository.
 EOF
 
 cat >"${TARGET_DIR}/SECURITY.md" <<'EOF'
