@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
@@ -746,6 +748,7 @@ def _fetch_coding_result_artifacts(
     return store.list_artifacts(run_id=run_id, artifact_type="coding_result")
 
 
+<<<<<<< HEAD
 def _fetch_campaign_attempts(
     db: _TestDB, campaign_id: str
 ) -> list[CampaignExecutionAttempt]:
@@ -767,6 +770,17 @@ def _fetch_work_order(
             .filter_by(work_order_id=work_order_id)
             .first()
         )
+=======
+def _find_coding_patch_artifact(
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        if str(artifact.get("kind") or "") == "coding_patch":
+            return artifact
+    return None
+>>>>>>> 0fa121e8f (Capture isolated coding worker patch artifacts)
 
 
 def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
@@ -2377,6 +2391,7 @@ def test_worktree_isolation_disabled_preserves_direct_execution(
         adapter_kind="codex",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "false")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     adapter_calls = _install_fake_adapter(
@@ -2401,6 +2416,7 @@ def test_worktree_isolation_disabled_preserves_direct_execution(
     terminal_payload = published[-1][2]
     assert terminal_payload["status"] == "completed"
     assert "worktree" not in terminal_payload
+    assert terminal_payload.get("patch_artifact") is None
 
 
 def test_worktree_isolation_enabled_runs_adapter_and_validation_in_isolated_cwd(
@@ -2460,6 +2476,284 @@ def test_worktree_isolation_enabled_runs_adapter_and_validation_in_isolated_cwd(
     assert terminal_payload["worktree"]["cleanup_attempted"] is True
     assert terminal_payload["worktree"]["cleanup_ok"] is True
     assert terminal_payload["worktree"]["kept_for_inspection"] is False
+
+
+def test_worktree_isolation_preserves_relative_subdirectory_cwd(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "isolated-subdir-repo")
+    package_dir = repo / "packages" / "alpha"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    (package_dir / "package.json").write_text(
+        '{\n  "name": "alpha"\n}\n',
+        encoding="utf-8",
+    )
+    _run_git(repo, "add", "packages/alpha/package.json")
+    _run_git(repo, "commit", "-m", "add package subdirectory")
+
+    seeded = _seed_source_context(
+        db, user_id="isolated-subdir-user", project_name="isolated-subdir"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+    monkeypatch.delenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", raising=False)
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    adapter_calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Isolated subdir execution."),
+        adapter_kind="codex",
+    )
+    validation_calls = _install_fake_validation_runner(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-isolated-subdir",
+        cwd=str(package_dir),
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allowed_paths": [str(package_dir)],
+        },
+    )
+
+    worker._process_task(task)
+
+    assert len(adapter_calls) == 1
+    assert len(validation_calls) == 1
+    isolated_cwd = adapter_calls[0].cwd
+    expected_suffix = os.path.join("packages", "alpha")
+    assert isolated_cwd.endswith(expected_suffix)
+    assert isolated_cwd != str(repo)
+    assert validation_calls[0]["cwd"] == isolated_cwd
+
+
+def test_isolated_success_captures_patch_manifest_and_terminal_metadata(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-capture-tracked-repo")
+    head_before = _run_git(repo, "rev-parse", "HEAD").stdout.strip()
+    readme_before = (repo / "README.md").read_text(encoding="utf-8")
+    seeded = _seed_source_context(
+        db, user_id="patch-tracked-user", project_name="patch-tracked"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
+
+    class _TrackedChangeAdapter:
+        def execute(self, request: Any) -> Any:
+            readme_path = Path(request.cwd) / "README.md"
+            readme_path.write_text("seed\ntracked change\n", encoding="utf-8")
+            return SimpleNamespace(
+                status="ok", summary="tracked change applied"
+            )
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"codex": _TrackedChangeAdapter()}
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-tracked",
+        cwd=str(repo),
+        permission_policy={"allowed_paths": [str(repo)]},
+    )
+
+    worker._process_task(task)
+
+    terminal_payload = published[-1][2]
+    assert terminal_payload["status"] == "completed"
+    assert "task.patch_artifact_created" in [e for _, e, _ in published]
+    patch_artifact = terminal_payload.get("patch_artifact")
+    assert isinstance(patch_artifact, dict)
+    assert patch_artifact["kind"] == "coding_patch"
+    assert patch_artifact["status"] == "captured"
+    patch_path = patch_artifact.get("path")
+    manifest_path = patch_artifact.get("manifest_path")
+    assert isinstance(patch_path, str)
+    assert isinstance(manifest_path, str)
+    assert Path(patch_path).exists()
+    assert Path(manifest_path).exists()
+    patch_text = Path(patch_path).read_text(encoding="utf-8")
+    assert "README.md" in patch_text
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    assert manifest["run_id"] == run_id
+    assert manifest["coding_task_id"] == "coding-task-patch-tracked"
+    assert manifest["attempt_id"] == "attempt-1"
+    assert manifest["patch_status"] == "captured"
+    assert manifest["patch_path"] == patch_path
+    assert manifest["patch_sha256"] == patch_artifact["sha256"]
+    assert manifest["changed_paths_total"] >= 1
+    assert isinstance(manifest["changed_paths"], list)
+    assert len(manifest["changed_paths"]) <= 50
+
+    result_artifacts = _fetch_coding_result_artifacts(store, run_id)
+    assert len(result_artifacts) == 1
+    stored_artifacts = result_artifacts[0]["content_json"]["artifacts"]
+    stored_patch = _find_coding_patch_artifact(stored_artifacts)
+    assert isinstance(stored_patch, dict)
+    assert stored_patch["status"] == "captured"
+    assert stored_patch["path"] == patch_path
+    assert stored_patch["manifest_path"] == manifest_path
+    assert "patch_content" not in stored_patch
+
+    assert terminal_payload["worktree"]["cleanup_attempted"] is True
+    assert terminal_payload["worktree"]["cleanup_ok"] is True
+    assert terminal_payload["worktree"]["kept_for_inspection"] is False
+    isolated_worktree_path = terminal_payload["worktree"]["worktree_path"]
+    assert isolated_worktree_path is not None
+    assert not Path(isolated_worktree_path).exists()
+    assert Path(manifest_path).exists()
+
+    assert _run_git(repo, "rev-parse", "HEAD").stdout.strip() == head_before
+    assert (repo / "README.md").read_text(encoding="utf-8") == readme_before
+
+
+def test_isolated_success_patch_capture_includes_untracked_file(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-capture-untracked-repo")
+    seeded = _seed_source_context(
+        db, user_id="patch-untracked-user", project_name="patch-untracked"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+
+    class _UntrackedAdapter:
+        def execute(self, request: Any) -> Any:
+            untracked_path = Path(request.cwd) / "new-untracked.txt"
+            untracked_path.write_text("new file\n", encoding="utf-8")
+            return SimpleNamespace(
+                status="ok", summary="untracked file created"
+            )
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"codex": _UntrackedAdapter()}
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-untracked",
+        cwd=str(repo),
+        permission_policy={"allowed_paths": [str(repo)]},
+    )
+
+    worker._process_task(task)
+
+    terminal_payload = published[-1][2]
+    assert terminal_payload["status"] == "completed"
+    patch_artifact = terminal_payload.get("patch_artifact")
+    assert isinstance(patch_artifact, dict)
+    assert patch_artifact["status"] == "captured"
+    patch_path = patch_artifact.get("path")
+    assert isinstance(patch_path, str)
+    patch_text = Path(patch_path).read_text(encoding="utf-8")
+    assert "new-untracked.txt" in patch_text
+
+
+def test_patch_artifact_root_can_stay_clean_with_gitignore_rule(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-artifact-gitignore-repo")
+    (repo / ".gitignore").write_text(
+        ".codexify/coding-artifacts/\n",
+        encoding="utf-8",
+    )
+    _run_git(repo, "add", ".gitignore")
+    _run_git(repo, "commit", "-m", "ignore local coding artifacts")
+
+    seeded = _seed_source_context(
+        db, user_id="patch-gitignore-user", project_name="patch-gitignore"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+    monkeypatch.delenv("CODING_WORKER_PATCH_ARTIFACT_ROOT", raising=False)
+
+    class _NoopAdapter:
+        def execute(self, request: Any) -> Any:
+            Path(request.cwd, "README.md").write_text(
+                "seed\nartifact check\n",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(status="ok", summary="artifact check")
+
+    monkeypatch.setattr(coding_worker, "ADAPTERS", {"codex": _NoopAdapter()})
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-gitignore",
+        cwd=str(repo),
+        permission_policy={"allowed_paths": [str(repo)]},
+    )
+
+    worker._process_task(task)
+
+    assert _run_git(repo, "status", "--porcelain").stdout.strip() == ""
 
 
 def test_dirty_original_checkout_does_not_block_isolated_execution(
@@ -2616,6 +2910,61 @@ def test_worktree_creation_failure_fails_closed(
     assert adapter_calls == []
     assert [event for _, event, _ in published] == ["task.failed"]
     assert published[-1][2]["error_code"] == "WORKTREE_CREATE_FAILED"
+
+
+def test_unknown_adapter_with_isolation_honors_failure_cleanup_policy(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "unknown-adapter-isolated-repo")
+    seeded = _seed_source_context(
+        db,
+        user_id="unknown-adapter-isolated-user",
+        project_name="unknown-adapter-isolated",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="mystery_adapter",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"pi_codex_runner": object()}
+    )
+
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-unknown-adapter-isolated",
+        cwd=str(repo),
+    )
+
+    worker._process_task(task)
+
+    assert published[-1][1] == "task.failed"
+    failure_payload = published[-1][2]
+    assert failure_payload["error_code"] == "ADAPTER_NOT_FOUND"
+    worktree = failure_payload.get("worktree")
+    assert isinstance(worktree, dict)
+    assert worktree["enabled"] is True
+    assert worktree["created"] is True
+    assert worktree["kept_for_inspection"] is False
+    assert worktree["cleanup_attempted"] is True
+    assert worktree["cleanup_ok"] is True
+    worktree_path = worktree.get("worktree_path")
+    assert isinstance(worktree_path, str)
+    assert not Path(worktree_path).exists()
 
 
 def test_isolated_success_cleans_up_by_default_without_promoting_changes(
@@ -2794,6 +3143,222 @@ def test_keep_on_failure_false_cleans_isolated_worktree(
     cleaned_path = terminal_payload["worktree"]["worktree_path"]
     assert cleaned_path is not None
     assert not Path(cleaned_path).exists()
+
+
+def test_validation_failure_preserves_patch_artifact_evidence(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-validation-failure-repo")
+    readme_before = (repo / "README.md").read_text(encoding="utf-8")
+    seeded = _seed_source_context(
+        db,
+        user_id="patch-validation-failure-user",
+        project_name="patch-validation-failure",
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+
+    class _FailingValidationAdapter:
+        def execute(self, request: Any) -> Any:
+            Path(request.cwd, "README.md").write_text(
+                "seed\nvalidation failure change\n",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(status="ok", summary="adapter success")
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"codex": _FailingValidationAdapter()}
+    )
+    _install_fake_validation_runner(
+        monkeypatch,
+        result=subprocess.CompletedProcess(
+            ["pytest", "-q"],
+            1,
+            stdout="1 failed\n",
+            stderr="",
+        ),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-validation-failure",
+        cwd=str(repo),
+        validation_command="pytest -q",
+        max_validation_attempts=1,
+        permission_policy={"allow_shell": True, "allowed_paths": [str(repo)]},
+    )
+
+    worker._process_task(task)
+
+    terminal_payload = published[-1][2]
+    assert terminal_payload["status"] == "failed"
+    patch_artifact = terminal_payload.get("patch_artifact")
+    assert isinstance(patch_artifact, dict)
+    assert patch_artifact["status"] == "captured"
+    patch_path = patch_artifact.get("path")
+    manifest_path = patch_artifact.get("manifest_path")
+    assert isinstance(patch_path, str)
+    assert isinstance(manifest_path, str)
+    assert Path(patch_path).exists()
+    assert Path(manifest_path).exists()
+    assert terminal_payload["worktree"]["cleanup_attempted"] is True
+    assert terminal_payload["worktree"]["cleanup_ok"] is True
+    assert terminal_payload["worktree"]["kept_for_inspection"] is False
+    assert (repo / "README.md").read_text(encoding="utf-8") == readme_before
+
+
+def test_oversized_patch_writes_manifest_without_partial_patch(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-too-large-repo")
+    seeded = _seed_source_context(
+        db, user_id="patch-too-large-user", project_name="patch-too-large"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.setenv("CODING_WORKER_PATCH_MAX_BYTES", "1024")
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_SUCCESS", "false")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+
+    class _LargePatchAdapter:
+        def execute(self, request: Any) -> Any:
+            payload = "x" * 8192
+            Path(request.cwd, "large-change.txt").write_text(
+                payload,
+                encoding="utf-8",
+            )
+            return SimpleNamespace(status="ok", summary="large diff")
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"codex": _LargePatchAdapter()}
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-too-large",
+        cwd=str(repo),
+        permission_policy={"allowed_paths": [str(repo)]},
+    )
+
+    worker._process_task(task)
+
+    terminal_payload = published[-1][2]
+    assert terminal_payload["status"] == "completed"
+    patch_artifact = terminal_payload.get("patch_artifact")
+    assert isinstance(patch_artifact, dict)
+    assert patch_artifact["status"] == "too_large"
+    assert patch_artifact["path"] is None
+    manifest_path = patch_artifact.get("manifest_path")
+    assert isinstance(manifest_path, str)
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    assert manifest["patch_status"] == "too_large"
+    assert manifest["patch_path"] is None
+    assert manifest["patch_total_bytes"] is not None
+    assert manifest["patch_total_bytes"] > 1024
+
+
+def test_mutation_scope_violation_blocks_apply_ready_patch_artifact(
+    db,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    repo = _init_temp_git_repo(tmp_path, "patch-scope-block-repo")
+    seeded = _seed_source_context(
+        db, user_id="patch-scope-block-user", project_name="patch-scope-block"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="codex",
+    )
+    monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
+    monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
+    monkeypatch.setenv("CODING_WORKER_KEEP_WORKTREE_ON_FAILURE", "false")
+    monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
+
+    class _ScopeViolatingAdapter:
+        def execute(self, request: Any) -> Any:
+            Path(request.cwd, "out-of-scope.txt").write_text(
+                "scope violation\n",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(status="ok", summary="scope violation")
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"codex": _ScopeViolatingAdapter()}
+    )
+    monkeypatch.setattr(
+        coding_worker,
+        "_enforce_isolated_mutation_scope",
+        lambda **_kwargs: (
+            False,
+            "MUTATION_SCOPE_VIOLATION",
+            "mutation outside allowed_paths",
+        ),
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-patch-scope-blocked",
+        cwd=str(repo),
+        permission_policy={"allowed_paths": [str(repo / "allowed-only")]},
+    )
+
+    worker._process_task(task)
+
+    terminal_payload = published[-1][2]
+    assert terminal_payload["status"] == "failed"
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    patch_artifact = terminal_payload.get("patch_artifact")
+    assert isinstance(patch_artifact, dict)
+    assert patch_artifact["status"] == "blocked_scope_violation"
+    assert patch_artifact["path"] is None
+    manifest_path = patch_artifact.get("manifest_path")
+    assert isinstance(manifest_path, str)
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    assert manifest["patch_status"] == "blocked_scope_violation"
+    assert manifest["patch_path"] is None
+    assert manifest["mutation_guard_status"] == "blocked"
 
 
 def test_keep_on_success_flag_preserves_isolated_worktree(
