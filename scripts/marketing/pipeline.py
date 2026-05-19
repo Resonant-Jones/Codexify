@@ -906,6 +906,11 @@ def generate_marketing_artifacts(
     supporting_evidence_bullets = _supporting_evidence_bullets(
         marketable_claims
     )
+    draft_warning = (
+        "- approval_state: `draft`\n"
+        "- publish_gate: `manual`\n"
+        "- auto_publish: `disabled`"
+    )
 
     assembled_channel_text: list[str] = []
     rendered_channels: dict[str, str] = {}
@@ -916,7 +921,10 @@ def generate_marketing_artifacts(
             channel=channel,
             hook=_channel_hook(channel),
             message=_channel_message(channel, channel_claims),
-            claims_bullets=_claims_bullets(channel_claims, with_evidence=False),
+            public_copy_claims_bullets=_claims_bullets(
+                channel_claims, with_evidence=False
+            ),
+            draft_warning=draft_warning,
         )
         enforce_banned_phrasing(rendered, contract.banned_phrases)
         rendered_channels[channel] = rendered
@@ -939,6 +947,7 @@ def generate_marketing_artifacts(
         ad_tier_3=ad_claims[2].proof_tier
         if len(ad_claims) > 2
         else STATUS_IMPLEMENTED,
+        draft_warning=draft_warning,
     )
     enforce_banned_phrasing(ad_rendered, contract.banned_phrases)
 
@@ -963,6 +972,7 @@ def generate_marketing_artifacts(
         prompt_b=(
             "Design an operator-facing infographic that emphasizes local-first reliability, identity boundaries, and failure visibility. Include badges for implemented, verified, and live-proven claims. Avoid hype language."
         ),
+        draft_warning=draft_warning,
     )
     enforce_banned_phrasing(infographic_rendered, contract.banned_phrases)
 
