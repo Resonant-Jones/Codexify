@@ -80,17 +80,17 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 export type ComposerSendOptions = {
   threadIdOverride?: number;
   slashIntent?: {
-    commandId: "obsidian";
-    rawToken: string;
-    queryText: string;
-    intentKind: "knowledge";
-    retrievalHint: "personal_knowledge";
+    commandId: string;
+    rawToken?: string;
+    queryText?: string;
+    intentKind: string;
+    retrievalHint?: string;
     rawInput: string;
-    contextDirectives: Array<{
-      kind: "connector_context";
-      connectorId: "obsidian";
-      invocation: "turn_scoped";
-      queryText: string;
+    contextDirectives?: Array<{
+      kind: string;
+      connectorId?: string;
+      invocation?: string;
+      queryText?: string;
     }>;
   };
 };
@@ -405,28 +405,45 @@ export function Composer({
     return lines.join("\n\n").trim();
   };
 
-  const parseObsidianSlashIntent = (rawValue: string): ComposerSendOptions["slashIntent"] | undefined => {
+  const parseSlashIntent = (rawValue: string): ComposerSendOptions["slashIntent"] | undefined => {
     const rawInput = rawValue.trim();
-    const match = rawInput.match(/^\/obsidian(?:\s+([\s\S]*))?$/i);
-    if (!match) return undefined;
-    const queryText = String(match[1] || "").trim();
-    if (!queryText) return undefined;
-    return {
-      commandId: "obsidian",
-      rawToken: "/obsidian",
-      queryText,
-      intentKind: "knowledge",
-      retrievalHint: "personal_knowledge",
-      rawInput,
-      contextDirectives: [
-        {
-          kind: "connector_context",
-          connectorId: "obsidian",
-          invocation: "turn_scoped",
-          queryText,
-        },
-      ],
-    };
+
+    // Obsidian: /obsidian <query>
+    const obsidianMatch = rawInput.match(/^\/obsidian(?:\s+([\s\S]*))?$/i);
+    if (obsidianMatch) {
+      const queryText = String(obsidianMatch[1] || "").trim();
+      if (!queryText) return undefined;
+      return {
+        commandId: "obsidian",
+        rawToken: "/obsidian",
+        queryText,
+        intentKind: "knowledge",
+        retrievalHint: "personal_knowledge",
+        rawInput,
+        contextDirectives: [
+          {
+            kind: "connector_context",
+            connectorId: "obsidian",
+            invocation: "turn_scoped",
+            queryText,
+          },
+        ],
+      };
+    }
+
+    // Codex Entry: /codex_entry (or aliases /codex, /entry, /artifact)
+    const codexMatch = rawInput.match(/^\/(codex_entry|codex|entry|artifact)(?:\s.*)?$/i);
+    if (codexMatch) {
+      return {
+        commandId: "codex_entry",
+        rawToken: `/${codexMatch[1].toLowerCase()}`,
+        intentKind: "codex",
+        retrievalHint: "none",
+        rawInput,
+      };
+    }
+
+    return undefined;
   };
 
   const resolveProjectId = () => {
@@ -540,7 +557,7 @@ export function Composer({
       return;
     }
 
-    const slashIntent = parseObsidianSlashIntent(value);
+    const slashIntent = parseSlashIntent(value);
     const bodyText = slashIntent?.queryText ?? value.trim();
     const hasAttachments = draftAttachments.length > 0;
     if (!bodyText && !hasAttachments) return;

@@ -64,6 +64,7 @@ Use this note as the local map for all ADRs.
 24. [[025-workspace-obsidian-selection-and-injection-contract|ADR-024 Workspace Obsidian Selection and Injection Contract]] — canonical contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
+27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
 
 ---
 
@@ -361,6 +362,14 @@ Primary companion notes:
   * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
   * [[flows|Critical Flows]]
   * [[data-and-storage|Data and Storage]]
+  * [[00-current-state]]
+
+* [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] links to:
+
+  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
+  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
   * [[00-current-state]]
 ---
 
