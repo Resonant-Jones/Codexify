@@ -20,7 +20,6 @@ from scripts.marketing.pipeline import (
     PRESENTATION_SUPPORTING_EVIDENCE,
     STATUS_LIVE_PROVEN,
     STATUS_VERIFIED,
-    ALLOWED_PRESENTATION_ROLES,
     Claim,
     assign_presentation_roles,
     collect_source_documents,
@@ -303,8 +302,7 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         claim["channel_eligible"] is not None for claim in evidence["claims"]
     )
     assert all(
-        claim["presentation_role"] is not None
-        for claim in evidence["claims"]
+        claim["presentation_role"] is not None for claim in evidence["claims"]
     )
     assert all(claim["copy_ready"] is not None for claim in evidence["claims"])
     assert all(claim["risk_flags"] is not None for claim in evidence["claims"])
@@ -325,11 +323,71 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
         evidence["marketable_claims"]
     )
     assert len(evidence["non_marketable_claims"]) == len(
-        [
-            claim
-            for claim in evidence["claims"]
-            if not claim["channel_eligible"]
-        ]
+        [claim for claim in evidence["claims"] if not claim["channel_eligible"]]
+    )
+
+
+def test_zero_copy_ready_claims_render_draft_safe_placeholders(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    output_root = tmp_path / "output"
+    shutil.copytree(SUITABILITY_FIXTURE_ROOT, source_root)
+
+    campaign_file = source_root / "docs" / "Campaign" / "CAMPAIGN_SAMPLE.md"
+    campaign_file.write_text(
+        "\n".join(
+            [
+                "# Campaign Suitability Sample",
+                "",
+                "- Campaign audit path docs/architecture/00-current-state.md records proof 1dae1662d.",
+                "- TASK-2026-05-11-CODING-RESULT traces task envelope execution.",
+                "- codexify:queue:coding-execution backs coding work-order execution.",
+                "- Depends on: ADR-020",
+                "- Per ADR-020 contract:",
+                "- Release-ready for this path: no; not release-ready until runtime proof passes.",
+                "- The migrator failed before compose startup in the latest run.",
+                "- Re-run the live Compose proof after the blocked dependency install path is restored.",
+                "- Proof artifact: docs/proofs/2026-05-12-compose-proof.md",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    current_state = (
+        source_root / "docs" / "architecture" / "00-current-state.md"
+    )
+    if current_state.exists():
+        current_state.unlink()
+    dev_log = source_root / "docs" / "DEV_LOG" / "Dev-Log-Sample.md"
+    if dev_log.exists():
+        dev_log.unlink()
+
+    generate_marketing_artifacts(
+        source_root=source_root,
+        campaign_id="CAMPAIGN_PLACEHOLDER",
+        audience="local-first-builders",
+        channels=["website", "social", "community"],
+        mode="draft",
+        output_root=output_root,
+        generated_at="2026-05-12T00:00:00Z",
+    )
+
+    campaign_dir = output_root / "CAMPAIGN_PLACEHOLDER"
+    evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
+    assert all(claim["copy_ready"] is False for claim in evidence["claims"])
+    assert any(
+        claim["channel_eligible"] is True for claim in evidence["claims"]
+    )
+    forbidden_claim_texts = [
+        claim["claim"]
+        for claim in evidence["claims"]
+        if claim["copy_ready"] is False
+    ]
+    _assert_public_artifacts_clean(
+        campaign_dir,
+        forbidden_claim_texts=forbidden_claim_texts,
+        require_placeholder=True,
     )
 
 

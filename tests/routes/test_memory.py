@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.utils import get_test_auth_headers
+
 SERVER_USER_ID = "local_user"
 
 
@@ -55,19 +57,13 @@ def mock_memory_db(mock_db):
 @pytest.fixture
 def auth_headers():
     """Return headers with API key and spoofed user ID."""
-    return {
-        "X-API-Key": "test-api-key",
-        "X-User-Id": "spoofed_user",
-    }
+    return get_test_auth_headers(user_id="spoofed_user")
 
 
 @pytest.fixture
 def other_user_headers():
     """Return headers with API key and different spoofed user ID."""
-    return {
-        "X-API-Key": "test-api-key",
-        "X-User-Id": "other_spoofed_user",
-    }
+    return get_test_auth_headers(user_id="other_spoofed_user")
 
 
 @pytest.fixture
