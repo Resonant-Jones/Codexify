@@ -1,13 +1,28 @@
-# Daily Audit — 2026-05-19
+# Daily Audit — 2026-05-20
 
 ## Repo Status
-- Date: 2026-05-19
+- Date: 2026-05-20
 - Phase: `morning`
-- Branch: `main`
-- HEAD: `d1574f7954c6bcd06b58b84ef331d35dc568c5c4`
+- Branch: `codex/daily-dev-log`
+- HEAD: `b46782d657129052248e2a141d0127aee107acee`
 - Worktree: dirty
 - Status lines:
-  - ` D docs/architecture/00-current-state.md`
+  - ` M docs/Marketing/generated/history/run-history.jsonl`
+  - ` M docs/audits/daily/evening/latest.json`
+  - ` M docs/audits/daily/evening/latest.md`
+  - ` M docs/audits/latest.json`
+  - ` M docs/audits/latest.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/run-metadata.json`
+  - `?? docs/audits/daily/evening/2026-05-19-audit.json`
+  - `?? docs/audits/daily/evening/2026-05-19-audit.md`
 
 ## Audit CLI Summary
 - Selected mode: `json`
@@ -31,27 +46,26 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 4
-- Unique files changed: 18
-- Files changed: `docker-compose.yml`, `docs/audits/daily/evening/2026-05-18-audit.json`, `docs/audits/daily/evening/2026-05-18-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `frontend/src/features/commandCenter/api.ts`, `guardian/workers/coding_worker.py`, `config/supported_profiles/v1-local-core-web-mcp.yaml`, `guardian/guardian_api.py`, `tests/core/test_supported_profile.py`, `tests/routes/test_retrieve_health_or_mount.py`, `docs/Heartbeat/README.md`, `docs/architecture/00-current-state.md`, `scripts/content/generate_local_model_draft.py`, `tests/scripts/test_generate_local_model_draft.py`, `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx`
+- Commit count: 5
+- Unique files changed: 25
+- Files changed: `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh`, `Makefile`, `docs/release/public-portal-snapshot-workflow.md`, `scripts/release/publish_public_portal.sh`, `scripts/release/sync_public_directory.sh`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `scripts/marketing/pipeline.py`, `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `d1574f7954c6` | Fix supported profile and draft adapter wiring | `docker-compose.yml`, `docs/audits/daily/evening/2026-05-18-audit.json`, `docs/audits/daily/evening/2026-05-18-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `frontend/src/features/commandCenter/api.ts`, `guardian/workers/coding_worker.py` |
-| `019a5f2d2fec` | Fix personal facts settings route | `config/supported_profiles/v1-local-core-web-mcp.yaml`, `guardian/guardian_api.py`, `tests/core/test_supported_profile.py`, `tests/routes/test_retrieve_health_or_mount.py` |
-| `f1439c72385e` | Add local model draft adapter | `docs/Heartbeat/README.md`, `docs/architecture/00-current-state.md`, `scripts/content/generate_local_model_draft.py`, `tests/scripts/test_generate_local_model_draft.py` |
-| `0ca9fa5e64f1` | Surface runtime visual state in GuardianChatWithSidebar | `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx` |
+| `b46782d65712` | clarify public snapshot readme | `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh` |
+| `d8561f5e6c8f` | add public portal publish workflow | `Makefile`, `docs/release/public-portal-snapshot-workflow.md`, `scripts/release/publish_public_portal.sh`, `scripts/release/sync_public_directory.sh` |
+| `036971c0d573` | Fix marketing draft template rendering | `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `scripts/marketing/pipeline.py` |
+| `22d3a17d26ab` | Refresh daily audit artifacts | `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `7fc55d4ba684` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 2 | `docs/Heartbeat/README.md`, `docs/architecture/00-current-state.md` |
-| `audit` | 6 | `docs/audits/daily/evening/2026-05-18-audit.json`, `docs/audits/daily/evening/2026-05-18-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `providers` | 2 | `config/supported_profiles/v1-local-core-web-mcp.yaml`, `tests/core/test_supported_profile.py` |
-| `frontend` | 2 | `frontend/src/features/commandCenter/api.ts`, `frontend/src/components/persona/layout/GuardianChatWithSidebar.tsx` |
-| `tests` | 2 | `tests/routes/test_retrieve_health_or_mount.py`, `tests/scripts/test_generate_local_model_draft.py` |
-| `infra` | 1 | `docker-compose.yml` |
-| `unknown` | 3 | `guardian/workers/coding_worker.py`, `guardian/guardian_api.py`, `scripts/content/generate_local_model_draft.py` |
+| `docs` | 13 | `docs/release/public-portal-snapshot-workflow.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `audit` | 6 | `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `config` | 1 | `Makefile` |
+| `sync` | 1 | `scripts/release/sync_public_directory.sh` |
+| `unknown` | 4 | `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh`, `scripts/release/publish_public_portal.sh`, `scripts/marketing/pipeline.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
