@@ -1,40 +1,36 @@
-# 04 Memory Identity and Sovereignty Boundaries
+# Memory, Identity, and Sovereignty Boundaries
 
-## Baseline doctrine
+## Memory doctrine
 
-`Current`:
-- Chat history is not durable identity by default.
-- Deep identity is opt-in.
-- Personas borrow identity; they do not own it.
-- Durable sensitive-trait inference requires explicit consent boundaries.
+- `Current`: Chat history is not durable identity by default.
+- `Current`: Light identity modeling exists as a minimal imprint layer.
+- `Current`: Deep identity is opt-in, inspectable, editable, and resettable when described by current policy.
 
-## Identity posture for public explanation
+## Persona doctrine
 
-`Current`:
-- Codexify may store chat history and continuity artifacts, but that is not the same as silently constructing a permanent identity profile.
-- Identity-sensitive modeling is governed, inspectable, and user-resettable where described by policy.
+- `Current`: Personas borrow identity. They do not own it.
+- `Current`: Cross-persona continuity must remain user-directed, not silently assumed.
 
-## Persona rule
+## Sensitive inference rule
 
-`Current`:
-- Personas are presentation or behavioral masks over a user-owned identity substrate.
-- Public copy must not imply that personas become separate persons, owners, or hidden operators over a user's data.
+- `Current`: No durable sensitive trait inference without explicit consent.
+- `Current`: Topics such as diagnosis, politics, trauma, religion, sexual orientation, and gender identity may appear in diary-like chat history without becoming durable identity flags by default.
 
-## Sensitive inference boundary
+## Public-copy implications
 
-`Current`:
-- No durable clinical, political, religious, sexual, or similarly sensitive trait inference should be implied without explicit consent.
-- Public copy should not imply manipulative profiling, hidden psychometrics, or covert identity extraction.
+- Do not imply hidden profiling.
+- Do not imply manipulative personalization.
+- Do not imply the system silently builds a secret identity dossier.
+- Do use language about inspectability, consent, editability, reset, and user control.
 
 ## Sovereignty language
 
-Ground sovereignty language in:
-- inspectability
-- consent
-- reset/delete/export capability
-- user control over what becomes durable
+- `Safe`: sovereignty through inspectability, explicit boundaries, and user control
+- `Unsafe`: sovereignty as mystical omnipotence or absolute privacy guarantee
 
-Avoid sovereignty language that implies:
-- perfect security guarantees
-- invisible benevolent profiling
-- automatic deep self-knowledge extraction
+## Public sentence patterns
+
+- Safe: "Memory is bounded, inspectable, and user-governed."
+- Safe: "Identity features are not the same thing as chat history."
+- Unsafe: "Codexify learns who you really are."
+- Unsafe: "Codexify builds a deep psychological model by default."
