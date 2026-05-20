@@ -1,0 +1,48 @@
+flowchart TB
+    subgraph runtime["Runtime access nodes"]
+        API["FastAPI routes + workers"]
+        FE["Frontend client"]
+    end
+
+    subgraph durable["Durable state"]
+        PG["Postgres system of record"]
+        CORE["projects<br/>chat_threads<br/>chat_messages"]
+        DOCS["uploaded_documents<br/>media_assets<br/>thread_documents<br/>project_document_links"]
+        MEM["memory_entries<br/>personal_facts (+ evidence/revisions)"]
+        OPS["command_runs<br/>cron_runs<br/>events_outbox<br/>audit surfaces"]
+        VEC["Vector store semantic retrieval corpus"]
+        OBJ["File/object storage media/document bytes"]
+    end
+
+    subgraph operational["Operational/ephemeral state"]
+        REDIS["Redis transport"]
+        Q["queues: chat/document-embed/chat-embed/cron"]
+        L["turn locks + cancellation"]
+        E["task events + heartbeat"]
+    end
+
+    subgraph optional["Optional/feature-flagged"]
+        NEO["Neo4j graph context/write lane<br/>not current release promise"]
+    end
+
+    subgraph client["Client-local state"]
+        CLS["frontend local/session storage<br/>auth/session/runtime overrides/drafts/preferences"]
+    end
+
+    FE <--> CLS
+    FE --> API
+
+    API <--> PG
+    API <--> REDIS
+    API <--> VEC
+    API <--> OBJ
+    API -. optional/flagged .-> NEO
+
+    PG --> CORE
+    PG --> DOCS
+    PG --> MEM
+    PG --> OPS
+
+    REDIS --> Q
+    REDIS --> L
+    REDIS --> E

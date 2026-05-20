@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-04-28
+Last updated: 2026-05-19
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -23,6 +23,8 @@ Source anchors:
 # Codexify Architecture KB
 
 Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
+It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+
 If you need the live operational truth layer, read `00-current-state.md` first and treat the rest of the KB as supporting context.
 
 ## What Codexify Is
@@ -76,6 +78,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [Codex Knowledge Compiler Contract](./codex-knowledge-compiler-contract.md): docs-only architecture contract for the reusable scoped knowledge-compilation pattern behind Codex Wiki / LLM Wiki / compiled project memory. It does not claim runtime implementation or release support and does not override `00-current-state.md`.
 - [Codexify Development Map v1](./codexify-development-map-v1.md): visual current-state orientation map for subsystem boundaries, dependency edges, data spine, UI/runtime separation, and development maturity posture. It is not a release promise and does not override `00-current-state.md`.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
@@ -95,7 +98,10 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [VariableChip and TypedStepOutput Contract](./variable-chip-typed-output-contract.md): future variable wiring and typed output contract only; planning surface, not runtime truth.
 - [Flow Builder ValidationIssue Taxonomy](./flow-builder-validation-issue-taxonomy.md): future validation taxonomy only; planning surface, not runtime truth.
 - [Flow Builder SemanticStep Contract](./flow-builder-semantic-step-contract.md): future semantic AI-step contract only; planning surface, not runtime truth.
+- [Flow Builder ConditionalContainer Contract](./flow-builder-conditional-container-contract.md): future conditional control-flow contract only; planning surface, not runtime truth.
+- [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.
 - [Flow Builder Surface Research Application](./flow-builder-surface-research-application.md): research-derived concept mapping from Workspace Studio to Codexify Flow Builder vocabulary and future task candidates (research input, not runtime truth).
+- [Flow Builder Activity and Proof Surface Design](./flow-builder-activity-proof-surface.md): future activity/proof surface design only; planning surface, not runtime truth.
 - [Flow Builder TestRun and Activation Contract](./flow-builder-testrun-activation-contract.md): future backend contract for execution attempts and durable enablement only; planning surface, not runtime truth.
 - [Flow Builder Typed Surface Campaign](../Campaign/CAMPAIGN_FLOW_BUILDER_TYPED_SURFACE.md): implementation sequencing guidance for ADR-027 follow-through; this is not runtime truth and does not widen the supported beta surface.
 - [Memory Graph Derived Write Hook ADR](./adr/007-memory-graph-derived-write-hook.md): derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
@@ -177,6 +183,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 
 ## Keep This KB Current
 
+- Keep [`00-current-state.md`](./00-current-state.md) first in the doc map when refreshing this KB.
 - Update the matching doc whenever a critical path changes:
   - chat/RAG/ingestion/tool flow changes belong in `flows.md`
   - schema/storage changes belong in `data-and-storage.md`

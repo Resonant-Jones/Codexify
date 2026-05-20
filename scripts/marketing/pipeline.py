@@ -361,7 +361,12 @@ def classify_claim_candidate(text: str) -> str:
 
 
 def _looks_like_implementation_breadcrumb(text: str) -> bool:
-    return any(pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS)
+    return any(
+        pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
+    )
+    return any(
+        pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
+    )
 
 
 def _looks_like_internal_anchor(text: str) -> bool:
@@ -600,6 +605,17 @@ def _claims_bullets(claims: list[Claim], with_evidence: bool = True) -> str:
 
 
 def _copy_ready_claims(claims: list[Claim]) -> list[Claim]:
+    return [claim for claim in claims if claim.copy_ready]
+
+
+def _public_copy_text(claim: Claim) -> str:
+    public_message = getattr(claim, "public_message", None)
+    if isinstance(public_message, str) and public_message.strip():
+        return public_message.strip()
+    return claim.claim
+
+
+def _public_copy_claims(claims: list[Claim]) -> list[Claim]:
     return [
         claim
         for claim in claims
@@ -608,8 +624,8 @@ def _copy_ready_claims(claims: list[Claim]) -> list[Claim]:
     ]
 
 
-def _supporting_evidence_bullets(claims: list[Claim]) -> str:
-    supporting = [
+def _supporting_evidence_claims(claims: list[Claim]) -> list[Claim]:
+    return [
         claim
         for claim in claims
         if claim.presentation_role
@@ -906,6 +922,11 @@ def generate_marketing_artifacts(
     supporting_evidence_bullets = _supporting_evidence_bullets(
         marketable_claims
     )
+    draft_warning = (
+        "- approval_state: `draft`\n"
+        "- publish_gate: `manual`\n"
+        "- auto_publish: `disabled`"
+    )
 
     assembled_channel_text: list[str] = []
     rendered_channels: dict[str, str] = {}
@@ -916,7 +937,10 @@ def generate_marketing_artifacts(
             channel=channel,
             hook=_channel_hook(channel),
             message=_channel_message(channel, channel_claims),
-            claims_bullets=_claims_bullets(channel_claims, with_evidence=False),
+            public_copy_claims_bullets=_claims_bullets(
+                channel_claims, with_evidence=False
+            ),
+            draft_warning=draft_warning,
         )
         enforce_banned_phrasing(rendered, contract.banned_phrases)
         rendered_channels[channel] = rendered
@@ -939,6 +963,7 @@ def generate_marketing_artifacts(
         ad_tier_3=ad_claims[2].proof_tier
         if len(ad_claims) > 2
         else STATUS_IMPLEMENTED,
+        draft_warning=draft_warning,
     )
     enforce_banned_phrasing(ad_rendered, contract.banned_phrases)
 
@@ -963,6 +988,7 @@ def generate_marketing_artifacts(
         prompt_b=(
             "Design an operator-facing infographic that emphasizes local-first reliability, identity boundaries, and failure visibility. Include badges for implemented, verified, and live-proven claims. Avoid hype language."
         ),
+        draft_warning=draft_warning,
     )
     enforce_banned_phrasing(infographic_rendered, contract.banned_phrases)
 

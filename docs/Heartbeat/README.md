@@ -334,6 +334,149 @@ through the Makefile target.
 Run inspection after staging to verify the outbox before any further
 pipeline step.
 
+## Agent Command Center status
+
+Heartbeat pipeline status is visible inside Agent Command Center as a
+**read-only** lens (⊛ Heartbeat).  The panel displays:
+
+- Latest heartbeat date
+- Review status (passed / warning / failed / missing)
+- Outbox status (passed / warning / failed / missing)
+- Publication status (always disabled)
+- Staged file count
+- Warnings and failures if present
+- Manual command hint (`make heartbeat-full …`)
+
+The status is fetched via `GET /api/heartbeat/status`, which reads
+repo-local artifacts only.  It does **not** run scripts, shell out,
+publish, or schedule.
+
+**No run, publish, or schedule buttons are present.**  The surface is
+labeled `Read-only`, `Manual-only`, and `Publishing disabled`.  A future
+Agent Command Center execution wiring is deferred to a separate
+architecture-impact task.
+
+## Local model draft adapter
+
+`scripts/content/generate_local_model_draft.py` is an optional manual adapter
+for creating model-assisted Markdown drafts from existing repo-local Markdown
+artifacts. It can support future Heartbeat, marketing, release-note, website,
+Substack, and email draft lanes, but it is only a drafting helper.
+
+The adapter:
+
+- reads explicit local Markdown source files
+- calls an explicitly configured local OpenAI-compatible chat endpoint
+- writes one reviewable Markdown draft to the explicit `--output` path
+- records source paths, model metadata, a sanitized endpoint label, and the
+  required model-assisted draft review note
+
+The adapter does **not** publish, schedule, run Heartbeat, stage an outbox,
+inspect an outbox, dispatch commands, call Codexify cron/workers, approve beta
+readiness, or mutate source artifacts. Source artifacts remain authoritative;
+generated language is draft text only.
+
+### Manual usage
+
+From the repo root:
+
+```bash
+CODEXIFY_LOCAL_DRAFT_ENDPOINT=http://localhost:11434/v1 \
+CODEXIFY_LOCAL_DRAFT_MODEL=local-test \
+python scripts/content/generate_local_model_draft.py \
+  --date 2026-05-17 \
+  --source docs/Heartbeat/README.md \
+  --output docs/Heartbeat/staged/2026-05-17/website-update.model-draft.md \
+  --draft-kind website-update
+```
+
+Use `--dry-run` to print the planned inputs, output path, provider, model, and
+sanitized endpoint without writing a file. Use `--force` only when deliberately
+overwriting an existing draft.
+
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `CODEXIFY_LOCAL_DRAFT_ENDPOINT` | Preferred local OpenAI-compatible endpoint base URL |
+| `CODEXIFY_LOCAL_DRAFT_MODEL` | Preferred local draft model name |
+| `CODEXIFY_ALLOW_LOCAL_DRAFT_LAN` | Set to `1` to allow local LAN or Tailscale-style IP endpoints |
+
+Fallbacks are `LOCAL_BASE_URL` for the endpoint and `LOCAL_CHAT_MODEL` for the
+model. The provider is fixed to `local`. Cloud endpoints are rejected.
+
+### Review and truth boundary
+
+Every generated draft includes:
+
+> Model-assisted draft — review required before publication.
+
+Review is mandatory before any external use. The model may draft wording, but
+it must not create truth: it is instructed to use only supplied source text, avoid
+invented metrics or release promises, and put unresolved gaps in the draft
+instead of filling them in.
+
+Heartbeat orchestration, scheduling, publishing, and release truth-gating remain
+deterministic/manual. This adapter does not change the `make heartbeat-full`,
+`make heartbeat-review`, `make heartbeat-stage`, or `make heartbeat-outbox`
+contracts.
+## Full pipeline (`make heartbeat-full`)
+
+The `make heartbeat-full` target runs the complete heartbeat pipeline
+end-to-end in a single command: generate → review → stage → inspect.
+It stops on the first failed step.
+
+### Usage
+
+```bash
+# Full run with content sources
+make heartbeat-full \
+  DEV_BLOG_SOURCE=docs/Website/dev-blog/README.md \
+  INSIGHT_SOURCE="docs/ResonantConstructs/daily-insights/README.md docs/ResonantConstructs/README.md" \
+  FORCE=1
+
+# Beta-only run (dev-blog and insight auto-skipped when sources not provided)
+make heartbeat-full
+
+# Strict run (warnings treated as failures in review and inspection)
+make heartbeat-full STRICT=1
+
+# Custom date
+make heartbeat-full DATE=2026-05-14 FORCE=1
+```
+
+### What it runs
+
+| Step | Target | What happens |
+|---|---|---|
+| 1. Generate | `make heartbeat` | Runs Beta Release Sentinel, Daily Dev Blog, Resonant Daily Insight |
+| 2. Review | `make heartbeat-review` | Validates the heartbeat report (strict when `STRICT=1`) |
+| 3. Stage | `make heartbeat-stage` | Copies artifacts + generates drafts to `docs/Heartbeat/staged/` |
+| 4. Inspect | `make heartbeat-outbox` | Validates the staged outbox (strict when `STRICT=1`) |
+
+### Pass-through variables
+
+| Variable | Passed to |
+|---|---|
+| `DATE` | All four child targets |
+| `DEV_BLOG_SOURCE` | `heartbeat` |
+| `INSIGHT_SOURCE` | `heartbeat` |
+| `FORCE=1` | `heartbeat`, `heartbeat-stage` |
+| `STRICT=1` | `heartbeat-review`, `heartbeat-outbox` |
+
+### Caveats
+
+- **Staging requires strict review to pass.** If review fails (e.g., because
+  a lane was skipped and `STRICT=1`), staging is blocked and the pipeline
+  stops.
+- This is the **recommended manual operator command** for running the full
+  heartbeat flow.
+- **Agent Command Center wiring is deferred** to a separate
+  architecture-impact task.  The `heartbeat-full` command creates the
+  operator seam that a future ACC task can invoke through a governed path.
+- **This does not schedule or publish anything.**  All steps are manual
+  and local.
+
 ## Reviewing a heartbeat run
 
 The `review_heartbeat_run.py` script validates a heartbeat report without
