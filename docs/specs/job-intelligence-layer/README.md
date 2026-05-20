@@ -22,6 +22,10 @@ Baseline orientation document:
 - [`11-prompt-and-pipeline-contract.md`](./11-prompt-and-pipeline-contract.md): Defines the planning decomposition for future pass-based prompt and processing pipeline behavior before runtime implementation.
 - [`12-implementation-readiness-plan.md`](./12-implementation-readiness-plan.md): Defines the implementation-readiness boundary and first executable proof constraints before any runtime work begins.
 
+## Synthetic Fixtures
+
+- [`fixtures/plumbing-three-handle-drip/`](./fixtures/plumbing-three-handle-drip/): Synthetic docs-local fixture set for the first future Job Intelligence proof.
+
 ## Do Not Assume
 
 - No runtime implementation exists.
