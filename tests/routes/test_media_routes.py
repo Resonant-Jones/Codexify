@@ -13,11 +13,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from guardian.db.models import UploadedDocument
+from tests.utils import get_test_api_key, get_test_auth_headers
 
 # Set environment variables early
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("GUARDIAN_API_KEY", "test")
+os.environ["GUARDIAN_API_KEY"] = get_test_api_key()
+os.environ["GUARDIAN_AUTH_MODE"] = "local"
+os.environ["GUARDIAN_EXPOSURE_MODE"] = "local_safe"
+os.environ["CODEXIFY_MULTI_USER_ENABLED"] = "false"
 os.environ["CODEXIFY_BETA_CORE_ONLY"] = "0"
 os.environ.setdefault("CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES", "1")
 os.environ.setdefault("CODEXIFY_ENABLE_MEDIA_TTS_ROUTES", "1")
@@ -40,9 +44,7 @@ def app():
 @pytest.fixture
 def client(app):
     """Create test client."""
-    return TestClient(
-        app, headers={"X-API-Key": os.environ["GUARDIAN_API_KEY"]}
-    )
+    return TestClient(app, headers=get_test_auth_headers())
 
 
 def _mock_db_with_session() -> tuple[MagicMock, MagicMock]:

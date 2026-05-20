@@ -1,50 +1,56 @@
-# 08 Public Claim Discipline
+# Public Claim Discipline
 
-## Canonical labels
+## Required labels
 
-- `Current`: supported or otherwise safely claimable now
-- `In development`: actively being built or hardened, not yet a shipped promise
-- `Exploration`: a plausible direction or contract-bearing concept, not a product promise
-- `Roadmap`: intentional future direction, still non-shipped
-- `Philosophy`: worldview, design doctrine, or framing principle
+- `Current`: supported and safe to describe as present reality
+- `In development`: active work with meaningful implementation motion, but not safe to present as shipped
+- `Exploration`: researched, drafted, or partially scaffolded, but not product promise
+- `Roadmap`: directional future intent
+- `Philosophy`: values, doctrine, and framing that guide the product without claiming a shipped feature
 
 ## General rules
 
-- Every public-facing capability statement should carry one of the labels above in working drafts.
-- Only `Current` statements should be eligible for direct capability claims on high-visibility surfaces.
-- `In development`, `Exploration`, and `Roadmap` may appear only when clearly labeled.
-- `Philosophy` must never be mistaken for shipped functionality.
+- Every public-facing capability statement should carry one of the labels above.
+- Choose the narrowest truthful label.
+- `Current` must align with current-state docs and supported-path proof posture.
+- Do not turn architecture presence into claim permission.
 
-## Capability claim rules
+## Rules for capability claims
 
-- Do not claim a feature as `Current` just because code, routes, flags, ADRs, or schemas exist.
-- Prefer proof-backed statements anchored in `00-current-codexify-truth.md`.
-- If support is limited to the local Compose path, say so.
+- Route presence is not enough.
+- Catalog presence is not enough.
+- Spec or ADR presence is not enough.
+- A current claim should describe supported behavior, not just code existence.
 
-## Beta and download claim rules
+## Rules for beta and download claims
 
-- Do not imply general availability when the product is in beta hardening.
-- Do not imply desktop packaging replaces the supported local Compose path unless current truth changes.
-- Do not imply cloud-hosted onboarding or multi-environment support by default.
+- Beta claims must stay narrow and evidence-backed.
+- Do not imply public launch readiness without dated evidence.
+- Do not imply desktop packaging replaces the supported Compose path.
 
-## Local-first claim rules
+## Rules for local-first claims
 
-- Safe: "Current supported beta posture is local-first."
-- Unsafe: "Codexify already supports every local and cloud deployment mode equally."
+- Local-first can be claimed as current posture.
+- Do not silently widen that into cloud parity or universal offline guarantees.
 
-## AI and agent claim rules
+## Rules for AI and agent claims
 
-- Safe: "Codexify coordinates chat, retrieval, and worker-backed execution on the supported path."
-- Unsafe: "Codexify already ships autonomous delegation, federation, or open-ended agent orchestration as a public promise."
+- Do not claim fully autonomous agents.
+- Do not claim unsupervised delegation as a public promise.
+- Do not claim command-bus, federation, or graph concepts as shipped product highlights unless current truth changes.
 
-## Image and worldbuilding claim rules
+## Rules for image and worldbuilding claims
 
-- Images may communicate locality, continuity, provenance, and inspectability.
-- Images must not imply shipped worlds, interfaces, or autonomous capabilities that do not exist.
+- Images may dramatize doctrine.
+- Images must not imply unproven runtime behavior.
+- Environmental storytelling must stay behind current product truth, not outrun it.
 
 ## Safe and unsafe examples
 
-- Safe `Current`: "Codexify's current supported path is a local Docker Compose stack."
-- Safe `Philosophy`: "Codexify is designed as a continuity substrate for ongoing work."
-- Unsafe: "Codexify beta already runs as a cloud-native distributed agent network."
-- Unsafe: "Codexify.Space reflects the same runtime stack as the product itself."
+| Claim | Label | Safe? | Why |
+|---|---|---:|---|
+| "Codexify is currently being hardened around a supported local Docker Compose runtime." | `Current` | yes | Matches current-state truth. |
+| "Codexify supports cloud-provider beta workflows." | `Current` | no | Current docs say not to assume that. |
+| "Codexify is designed around user-owned continuity and inspectable runtime truth." | `Philosophy` | yes | Doctrine-backed and not overstated. |
+| "Codexify has optional graph concepts in the repo, but graph writes remain default-off on the supported path." | `Exploration` | yes | Truthful and bounded. |
+| "Codexify.Space runs the same architecture as Codexify." | `Current` | no | Cross-repo implementation claim without proof. |

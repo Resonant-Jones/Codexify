@@ -14,6 +14,7 @@ from guardian.core.dependencies import RequestUserScope
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.routes import chat
 from guardian.services import builtin_help_ingest as help_ingest
+from tests.utils import get_test_api_key, get_test_auth_headers
 
 
 def _accepted_task_created_event(task_id: str) -> dict[str, object]:
@@ -34,7 +35,7 @@ def _accepted_task_created_event(task_id: str) -> dict[str, object]:
 def _supported_help_startup_client(
     monkeypatch, tmp_path
 ) -> Iterator[tuple[TestClient, object, dict[str, int]]]:
-    monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+    monkeypatch.setenv("GUARDIAN_API_KEY", get_test_api_key())
     monkeypatch.setenv("CODEXIFY_BETA_CORE_ONLY", "0")
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
     monkeypatch.setenv("ENABLE_OUTBOX", "0")
@@ -230,7 +231,9 @@ def _supported_help_startup_client(
         lambda: fake_guardian_db,
     )
 
-    with TestClient(guardian_api.app) as client:
+    with TestClient(
+        guardian_api.app, headers=get_test_auth_headers()
+    ) as client:
         try:
             yield client, fake_guardian_db, ingest_calls
         finally:
@@ -280,9 +283,9 @@ def test_golden_completion_acceptance_contract(monkeypatch):
 
     app = FastAPI()
     app.include_router(chat.api_chat_router)
-    app.dependency_overrides[chat.require_api_key] = lambda: "test-api-key"
+    app.dependency_overrides[chat.require_api_key] = get_test_api_key
 
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=get_test_auth_headers()) as test_client:
         response = test_client.post("/api/chat/1/complete", json={})
 
     assert response.status_code == 200
@@ -463,7 +466,7 @@ def test_golden_supported_retrieval_path(monkeypatch, tmp_path):
     ):
         response = client.get(
             "/api/media/documents",
-            headers={"X-API-Key": "test-api-key"},
+            headers=get_test_auth_headers(),
             params={"tag": "builtin_help"},
         )
         assert response.status_code == 200

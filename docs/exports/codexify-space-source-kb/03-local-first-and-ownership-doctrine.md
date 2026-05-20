@@ -1,42 +1,37 @@
-# 03 Local First and Ownership Doctrine
+# Local-First and Ownership Doctrine
 
-## Supported path
+## Local-first supported path
 
-`Current`: The supported path today is local Docker Compose with a local-only provider posture.
+- `Current`: The supported path is local Docker Compose with local-only provider posture.
+- `Current`: Local-first is the release truth, not a fallback mode.
 
 ## Ownership boundary
 
-`Current`:
-- User projects, threads, documents, and identity-sensitive materials are meant to stay under user-controlled runtime boundaries.
-- Local-first is the primary trust posture, not a marketing accent.
+- `Current`: User work, threads, documents, and continuity surfaces are meant to stay under user-visible control.
+- `Philosophy`: Codexify's value proposition is not just model access. It is ownership of the surrounding memory and artifact layer.
 
 ## What local-first means here
 
-`Current`:
-- The supported runtime starts from the user's own machine and local stack.
-- Provider posture is intentionally local-only on the supported profile.
-- System truth is inspectable through health and runtime surfaces.
+- The supported runtime runs locally.
+- Provider posture is explicitly local-only on the supported path.
+- Storage, retrieval, and artifact continuity are described as user-bounded product surfaces.
+- Inspectability matters as much as output quality.
 
 ## What local-first does not automatically mean
 
-`Current`:
-- It does not mean zero operational complexity.
-- It does not mean no queues, no workers, or no background services.
-- It does not mean every possible deployment mode is equally supported.
-- It does not mean packaged desktop has replaced the supported Compose path.
+- It does not automatically mean offline under every condition.
+- It does not automatically mean no network dependencies exist anywhere in the repo.
+- It does not automatically mean every packaging path is equally supported.
+- It does not automatically mean every future provider or sync concept is approved for release.
 
 ## Cloud-provider caution
 
-`Current`:
-- Architecture and config surfaces may reference cloud-capable lanes.
-- Public claims must not convert that into "cloud beta support" unless current truth explicitly changes.
+- `Current`: Treat cloud-provider support as outside the safe default unless current truth changes.
+- `Public rule`: If a public page mentions cloud options at all, it must be clearly labeled and non-default.
 
 ## Public claim guidance
 
-Safe:
-- "Codexify's current supported beta path is local-first and user-run."
-- "The product is designed around user-owned runtime boundaries."
-
-Unsafe:
-- "Codexify is already a hosted cloud service."
-- "Any runtime mode shown in docs is equally supported today."
+- Safe: "Local-first is the supported product posture."
+- Safe: "The current supported path is a local runtime."
+- Unsafe: "Run anywhere with seamless cloud-provider support."
+- Unsafe: "Desktop and Compose are identical supported paths."

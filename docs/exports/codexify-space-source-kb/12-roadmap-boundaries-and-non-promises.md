@@ -1,36 +1,31 @@
-# 12 Roadmap Boundaries and Non Promises
+# Roadmap Boundaries and Non-Promises
 
-## Keep out of current public promises
+## Keep these out of default public promise
 
-`Current`:
-- internal-only operator surfaces
-- experimental routes and diagnostics
-- cloud-provider support unless current truth explicitly proves it
-- federation as a public supported release claim
-- graph writes as a public supported release claim
-- command bus internals as a user-facing promise
-- delegation or autonomous worker orchestration as a public shipped capability
+- internal-only command surfaces
+- experimental delegation paths
+- autonomous agent framing
+- graph-write claims
+- federation claims
+- broad command-bus claims
+- unsupported cloud-provider support claims
+- desktop-packaging parity claims
 
-## Publicly discuss only with clear labels
+## Current boundary calls
 
-`Exploration` or `Roadmap`:
-- federation directions
-- richer graph-backed continuity
-- broader automation and delegation
-- Pi-like coding-agent harnesses
-- self-extending plugin ambitions beyond the presently bounded contract surfaces
+- `Exploration`: graph concepts may be discussed only as bounded optional architecture, not as current product promise
+- `Exploration`: Pi-like invocation boundary work is contract and validation only, not live runtime execution
+- `Exploration`: self-extending plugin doctrine exists, but autonomous plugin execution does not
+- `Roadmap`: richer command-center or observability-deck surfaces may be discussed only as future-facing work
 
-## Codexify.Space-specific caution
+## Public-site specific non-promises
 
-`Roadmap`:
-- Chronograph or environmental AI website behavior belongs to Codexify.Space roadmap unless and until the Space repo actually implements it.
-- It is not Codexify infrastructure truth by default.
+- Chronograph or environmental AI behavior on Codexify.Space should be treated as Codexify.Space roadmap unless independently implemented there.
+- Worldbuilding systems on the public site are not evidence that Codexify runtime features exist.
 
-## Other current warnings to preserve
+## Other warnings to preserve
 
-`Current`:
-- route presence is not release proof
-- catalog presence is not support proof
-- request acceptance is not completion
-- event publication is not UI receipt
-- internal artifacts and manual lanes must not be described as user-ready product surfaces
+- Acceptance is not completion.
+- Event publication is not UI receipt.
+- Health truth, catalog truth, and support truth must stay distinct.
+- Current docs and proof posture beat old README-era ambition.

@@ -1,42 +1,39 @@
-# 07 UI Visual Doctrine Transfer
+# UI and Visual Doctrine Transfer
 
-## Transferable doctrine
+## What transfers
 
-`Philosophy`:
-- token discipline
-- visual consistency
-- structural clarity
-- restraint over noise
-- atmosphere with legibility
+- `Current doctrine`: token discipline
+- `Current doctrine`: structural consistency
+- `Current doctrine`: restraint over improvisation
+- `Current doctrine`: atmosphere plus legibility
 
-## Rules that transfer well to Codexify.Space
+## Token discipline
 
-`Current`:
-- Treat design tokens as a governing system, not ad hoc styling.
-- Preserve consistency across surfaces instead of improvising each section.
-- Favor clear information hierarchy and readable density.
+- The app UI treats tokens as law, not suggestion.
+- Public-site work should preserve the same attitude even if the exact implementation differs.
+- Repeated visual meaning should come from a system, not ad hoc exceptions.
 
-`Philosophy`:
-- Glass, spatial layering, and environmental depth can inspire the site.
-- They should be used as mood and structure, not as a claim that the website is the Codexify app.
+## Glass and spatial law
 
-## Boundary between app UI and website UI
+- `Current inspiration`: layered glass, slab structure, and spacing law are part of Codexify's app-side design canon.
+- `Transfer rule`: use this as inspiration for atmosphere and structural seriousness, not as a claim that Codexify.Space literally shares the same implementation.
 
-`Current`:
-- Codexify app UI and Codexify.Space website UI are separate surfaces.
-- The website can inherit tone and doctrine without pretending to be the live product shell.
+## Separation rule
 
-## Visual direction for the public site
+- Codexify app UI and Codexify.Space website UI are not the same thing.
+- The site may borrow mood, discipline, and structure without pretending to be the runtime shell.
 
-`Philosophy`:
-- preserve atmosphere
-- preserve restraint
-- preserve legibility
-- preserve architectural seriousness
-- avoid generic dark SaaS sameness when it weakens identity
+## Site-facing visual principles
 
-## What to avoid
+- Preserve atmosphere.
+- Preserve restraint.
+- Preserve legibility.
+- Preserve structural clarity.
+- Avoid generic dark SaaS layouts when they flatten identity.
+- Avoid decorative noise that weakens proof, continuity, or sovereignty themes.
 
-- generic dashboard clichés
-- decorative glass without information structure
-- cinematic worldbuilding that contradicts current product truth
+## Practical transfer
+
+- Favor deliberate grids, path-like movement, and artifact-oriented composition.
+- Use interface motifs carefully: panels, ledgers, archives, traces, observatory instruments.
+- Keep diagnostics-inspired visuals readable and sober.

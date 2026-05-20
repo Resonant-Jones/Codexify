@@ -1,42 +1,34 @@
-# 05 Retrieval Continuity and Artifact Lineage
+# Retrieval, Continuity, and Artifact Lineage
 
 ## Continuity surfaces
 
-`Current`:
-- Threads
-- Projects
-- Documents
-- Uploaded or generated artifacts
-
-These are the main surfaces through which Codexify carries work forward.
+- `Current`: Threads are continuity surfaces.
+- `Current`: Projects are continuity surfaces.
+- `Current`: Documents and uploaded artifacts are continuity surfaces.
+- `Philosophy`: The system is strongest when the path from question to artifact stays visible.
 
 ## Retrieval doctrine
 
-`Current`:
-- Retrieval is working context assembly.
-- It is not mystical memory.
-- The system can assemble context from recent messages, thread-linked documents, and supported workspace-local materials.
+- `Current`: Retrieval is working context, not mystical memory.
+- `Current`: Upload -> embed -> readback is part of the supported path.
+- `Current`: Workspace-local retrieval is supported on the current tip.
+- `Rule`: Public descriptions should emphasize context assembly, retrieval posture, and bounded source selection.
 
-## Upload embed readback
+## Provenance and lineage
 
-`Current`:
-- Upload -> embed -> readback is part of the supported-path truth.
-- Public explanation should frame this as user materials becoming retrievable working context, not as magic ingestion.
+- `Current`: Source provenance and relationship structure matter in export and restore doctrine.
+- `Current`: Source thread and source message lineage matter in contracts around result return and durable artifacts.
+- `Philosophy`: Artifacts should not appear as if they came from nowhere.
 
-## Artifact lineage doctrine
+## What Codexify.Space should teach
 
-`Current`:
-- Artifacts should stay linked to source threads, messages, documents, or other originating surfaces where applicable.
-- Provenance matters for auditability, replay safety, and honest explanation of where outputs came from.
+- Retrieval is how working context gets assembled.
+- A project can keep track of documents, threads, and outputs together.
+- The value is not only the final artifact but the lineage that produced it.
 
-## Source provenance
+## Visual and content implications
 
-`Current`:
-- Export/restore doctrine and Codex lineage rules treat provenance as durable context that should not be silently erased.
-- Public-site content should favor language such as "traceable," "linked," and "inspectable" over vague memory mysticism.
-
-## Visual and content implications for Codexify.Space
-
-`Philosophy`:
-- Show continuity as threads, paths, linked artifacts, notebooks, ledgers, and archives.
-- Show retrieval as selective resurfacing of user-owned material, not a glowing oracle with no source boundary.
+- Show thread-to-document-to-artifact relationships.
+- Prefer diagrams, timelines, path imagery, and library or ledger metaphors.
+- Avoid portraying retrieval as psychic omniscience.
+- Avoid "the AI simply remembers everything" framing.

@@ -1,0 +1,49 @@
+sequenceDiagram
+    participant User as User
+    participant FE as React frontend
+    participant API as Chat routes
+    participant PG as Postgres
+    participant Redis as Redis queue/lock/events
+    participant Worker as Chat worker
+    participant Broker as Context broker
+    participant Retrieval as Retrieval layers
+    participant Router as Provider router
+    participant Provider as Model provider
+    participant Trace as Trace/eval surfaces
+    participant Stream as Task event surface
+
+    User->>FE: Compose/send message
+    FE->>API: POST /api/chat/threads (when first-send)
+    API->>PG: Persist thread
+    FE->>API: POST /api/chat/{thread_id}/messages
+    API->>PG: Persist user message
+    FE->>API: POST /api/chat/{thread_id}/complete
+
+    API->>Redis: Acquire turn lock
+    API->>Redis: Enqueue ChatCompletionTask
+    API->>Redis: Best-effort task.created
+    API-->>FE: task_id, turn_id, messages_url, trace_url
+    Note over API,FE: Route acceptance is not completion.
+
+    FE->>Stream: Subscribe /api/tasks/{task_id}/events
+    Worker->>Redis: Dequeue task + emit task.running
+    Worker->>Broker: Assemble context
+    Broker->>Retrieval: Thread/doc/vector/memory/workspace retrieval
+    Broker-->>Worker: Context bundle + posture/provenance
+
+    Worker->>Router: Resolve provider/model lane
+    Router->>Provider: Execute completion
+    Provider-->>Worker: Assistant output
+
+    Worker->>PG: Persist assistant message + audit/domain events
+    Worker->>Trace: Persist trace snapshot + enqueue eval lane
+    Note over Worker,Trace: Worker-visible completion payload is stronger executed-path proof.
+    Note over Worker,Trace: Debug-only reconstruction remains diagnostic.
+
+    Worker->>Redis: Publish terminal task event + release lock
+    Redis-->>Stream: Task events available
+    Stream-->>FE: Lifecycle updates
+    Note over Stream,FE: Task-event publication is not guaranteed UI receipt.
+
+    FE->>API: Refresh messages_url
+    API-->>FE: Updated thread/messages
