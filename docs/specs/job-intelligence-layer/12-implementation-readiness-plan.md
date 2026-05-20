@@ -79,6 +79,7 @@ Recommended sequence for future tasks:
 8. review packet emitted as JSON or Markdown artifact
 
 This is a recommendation for future tasks, not implementation in this task.
+A docs-local synthetic fixture set now exists at `fixtures/plumbing-three-handle-drip/`. It is not executable, it is not under `tests/`, and it is intended to become source material for a future proof task.
 
 ## Minimal Inputs
 
