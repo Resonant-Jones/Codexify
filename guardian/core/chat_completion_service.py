@@ -14,7 +14,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 from urllib.parse import unquote
 
 from fastapi import HTTPException
@@ -53,6 +53,7 @@ from guardian.context.retrieval_router_policy import (
     normalize_retrieval_override_mode,
     normalize_source_mode,
     resolve_context_assembly_policy,
+    resolve_retrieval_plan,
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
@@ -383,6 +384,12 @@ async def _build_messages_for_llm_compat(
     task: ChatCompletionTask,
     *,
     user_id: str | None = None,
+    enable_memory_preselection_trace: bool | None = None,
+    enable_memory_preselection_active: bool | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_persona_id: str | None = None,
+    memory_preselection_identity_depth: str | None = None,
+    memory_preselection_include_diary_excluded: bool | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -395,15 +402,65 @@ async def _build_messages_for_llm_compat(
         signature = inspect.signature(builder)
     except (TypeError, ValueError):
         signature = None
-    accepts_user_id = False
+    accepts_kwargs = False
     if signature is not None:
-        accepts_user_id = any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "user_id"
-            for name, parameter in signature.parameters.items()
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
         )
-    if accepts_user_id:
-        return await builder(task, user_id=user_id)
-    return await builder(task)
+
+    def _accepts(name: str) -> bool:
+        return accepts_kwargs or (
+            signature is not None and name in signature.parameters
+        )
+
+    call_kwargs: dict[str, Any] = {}
+    if _accepts("user_id"):
+        call_kwargs["user_id"] = user_id
+    if (
+        enable_memory_preselection_trace is not None
+        and _accepts("enable_memory_preselection_trace")
+    ):
+        call_kwargs["enable_memory_preselection_trace"] = bool(
+            enable_memory_preselection_trace
+        )
+    if (
+        enable_memory_preselection_active is not None
+        and _accepts("enable_memory_preselection_active")
+    ):
+        call_kwargs["enable_memory_preselection_active"] = bool(
+            enable_memory_preselection_active
+        )
+    if (
+        memory_preselection_candidate_headers is not None
+        and _accepts("memory_preselection_candidate_headers")
+    ):
+        call_kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
+    if (
+        memory_preselection_persona_id is not None
+        and _accepts("memory_preselection_persona_id")
+    ):
+        call_kwargs["memory_preselection_persona_id"] = (
+            memory_preselection_persona_id
+        )
+    if (
+        memory_preselection_identity_depth is not None
+        and _accepts("memory_preselection_identity_depth")
+    ):
+        call_kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
+    if (
+        memory_preselection_include_diary_excluded is not None
+        and _accepts("memory_preselection_include_diary_excluded")
+    ):
+        call_kwargs["memory_preselection_include_diary_excluded"] = bool(
+            memory_preselection_include_diary_excluded
+        )
+
+    return await builder(task, **call_kwargs)
 
 
 def build_context_system_message(bundle: dict[str, Any] | None) -> str | None:
@@ -849,6 +906,39 @@ def _resolve_effective_source_mode_for_assembly(
     if override_mode in {"none", "conversation"}:
         return normalized_source_mode
     return normalized_source_mode
+
+
+def _broker_memory_preselection_kwargs(
+    *,
+    enable_memory_preselection_trace: bool | None = None,
+    enable_memory_preselection_active: bool | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_persona_id: str | None = None,
+    memory_preselection_identity_depth: str | None = None,
+    memory_preselection_include_diary_excluded: bool | None = None,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if enable_memory_preselection_trace is True:
+        kwargs["enable_memory_preselection_trace"] = True
+    if enable_memory_preselection_active is True:
+        kwargs["enable_memory_preselection_active"] = True
+    if memory_preselection_candidate_headers is not None:
+        kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
+    if memory_preselection_persona_id is not None:
+        kwargs["memory_preselection_persona_id"] = (
+            memory_preselection_persona_id
+        )
+    if memory_preselection_identity_depth is not None:
+        kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
+    if memory_preselection_include_diary_excluded is not None:
+        kwargs["memory_preselection_include_diary_excluded"] = bool(
+            memory_preselection_include_diary_excluded
+        )
+    return kwargs
 
 
 def _task_routing_debug_metadata(task: Any) -> dict[str, Any]:
@@ -1313,32 +1403,62 @@ async def _assemble_context_bundle(
     retrieval_override: dict[str, Any] | None = None,
     retrieval_policy: dict[str, Any] | None = None,
     request_user_id: str | None = None,
+    enable_memory_preselection_trace: bool | None = None,
+    enable_memory_preselection_active: bool | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_persona_id: str | None = None,
+    memory_preselection_identity_depth: str | None = None,
+    memory_preselection_include_diary_excluded: bool | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     _ = request_user_id
+    memory_preselection_kwargs = _broker_memory_preselection_kwargs(
+        enable_memory_preselection_trace=enable_memory_preselection_trace,
+        enable_memory_preselection_active=enable_memory_preselection_active,
+        memory_preselection_candidate_headers=memory_preselection_candidate_headers,
+        memory_preselection_persona_id=memory_preselection_persona_id,
+        memory_preselection_identity_depth=memory_preselection_identity_depth,
+        memory_preselection_include_diary_excluded=memory_preselection_include_diary_excluded,
+    )
+    assemble_kwargs = dict(
+        thread_id=thread_id,
+        query=query,
+        depth_mode=depth_mode,
+        user_id=user_id,
+        project_id=project_id,
+        source_mode=source_mode,
+        retrieval_override=retrieval_override,
+        retrieval_policy=retrieval_policy,
+    )
+    assemble_kwargs.update(memory_preselection_kwargs)
     try:
-        return await broker.assemble(
-            thread_id,
-            query=query,
-            depth_mode=depth_mode,
-            user_id=user_id,
-            project_id=project_id,
-            source_mode=source_mode,
-            retrieval_override=retrieval_override,
-            retrieval_policy=retrieval_policy,
-        )
+        return await broker.assemble(**assemble_kwargs)
     except TypeError as exc:
         error_text = str(exc)
         retrieval_override_error = "retrieval_override" in error_text
         retrieval_policy_error = "retrieval_policy" in error_text
         source_mode_error = "source_mode" in error_text
         project_id_error = "project_id" in error_text
+        preselection_error = "memory_preselection" in error_text
         if not (
             retrieval_override_error
             or retrieval_policy_error
             or source_mode_error
             or project_id_error
+            or preselection_error
         ):
             raise
+        if preselection_error:
+            retry_kwargs = dict(assemble_kwargs)
+            for key in (
+                "enable_memory_preselection_trace",
+                "enable_memory_preselection_active",
+                "memory_preselection_candidate_headers",
+                "memory_preselection_persona_id",
+                "memory_preselection_identity_depth",
+                "memory_preselection_include_diary_excluded",
+            ):
+                retry_kwargs.pop(key, None)
+            return await broker.assemble(**retry_kwargs)
         if retrieval_override_error and not (
             retrieval_policy_error or source_mode_error or project_id_error
         ):
@@ -3227,6 +3347,12 @@ async def build_messages_for_llm(
     task: ChatCompletionTask,
     *,
     user_id: str | None = None,
+    enable_memory_preselection_trace: bool | None = None,
+    enable_memory_preselection_active: bool | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_persona_id: str | None = None,
+    memory_preselection_identity_depth: str | None = None,
+    memory_preselection_include_diary_excluded: bool | None = None,
 ) -> tuple[
     list[dict[str, str]],
     str,
@@ -3460,6 +3586,12 @@ async def build_messages_for_llm(
             source_mode=source_mode,
             retrieval_override=routing_debug_metadata.get("retrieval_override"),
             retrieval_policy=retrieval_policy,
+            enable_memory_preselection_trace=enable_memory_preselection_trace,
+            enable_memory_preselection_active=enable_memory_preselection_active,
+            memory_preselection_candidate_headers=memory_preselection_candidate_headers,
+            memory_preselection_persona_id=memory_preselection_persona_id,
+            memory_preselection_identity_depth=memory_preselection_identity_depth,
+            memory_preselection_include_diary_excluded=memory_preselection_include_diary_excluded,
         )
         if thread_execution.persona_id:
             # Thread config personaId is request-scoped input, not actor
@@ -4113,19 +4245,88 @@ def run_chat_completion_task(
     task: ChatCompletionTask,
     *,
     user_id: str | None = None,
+    enable_memory_preselection_trace: bool | None = None,
+    enable_memory_preselection_active: bool | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_persona_id: str | None = None,
+    memory_preselection_identity_depth: str | None = None,
+    memory_preselection_include_diary_excluded: bool | None = None,
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     persist_assistant_message: bool = True,
 ) -> dict[str, Any]:
     """Execute one completion with shared context assembly/provider routing."""
+    compat_builder = _build_messages_for_llm_compat
+    try:
+        compat_signature = inspect.signature(compat_builder)
+    except (TypeError, ValueError):
+        compat_signature = None
+    compat_accepts_kwargs = False
+    if compat_signature is not None:
+        compat_accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in compat_signature.parameters.values()
+        )
+
+    def _compat_accepts(name: str) -> bool:
+        return compat_accepts_kwargs or (
+            compat_signature is not None and name in compat_signature.parameters
+        )
+
+    compat_call_kwargs: dict[str, Any] = {}
+    if _compat_accepts("user_id"):
+        compat_call_kwargs["user_id"] = user_id
+    if (
+        enable_memory_preselection_trace is not None
+        and _compat_accepts("enable_memory_preselection_trace")
+    ):
+        compat_call_kwargs["enable_memory_preselection_trace"] = bool(
+            enable_memory_preselection_trace
+        )
+    if (
+        enable_memory_preselection_active is not None
+        and _compat_accepts("enable_memory_preselection_active")
+    ):
+        compat_call_kwargs["enable_memory_preselection_active"] = bool(
+            enable_memory_preselection_active
+        )
+    if (
+        memory_preselection_candidate_headers is not None
+        and _compat_accepts("memory_preselection_candidate_headers")
+    ):
+        compat_call_kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
+    if (
+        memory_preselection_persona_id is not None
+        and _compat_accepts("memory_preselection_persona_id")
+    ):
+        compat_call_kwargs["memory_preselection_persona_id"] = (
+            memory_preselection_persona_id
+        )
+    if (
+        memory_preselection_identity_depth is not None
+        and _compat_accepts("memory_preselection_identity_depth")
+    ):
+        compat_call_kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
+    if (
+        memory_preselection_include_diary_excluded is not None
+        and _compat_accepts("memory_preselection_include_diary_excluded")
+    ):
+        compat_call_kwargs["memory_preselection_include_diary_excluded"] = bool(
+            memory_preselection_include_diary_excluded
+        )
+
     build_result: tuple[
         list[dict[str, str]],
         str,
         str,
         dict[str, Any],
         dict[str, Any] | None,
-    ] = asyncio.run(_build_messages_for_llm_compat(task, user_id=user_id))
+    ] = asyncio.run(compat_builder(task, **compat_call_kwargs))
     messages_for_llm, provider, model, bundle, trace = build_result
 
     settings = get_settings()

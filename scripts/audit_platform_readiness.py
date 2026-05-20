@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import json
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +46,24 @@ def existing_path(candidates: tuple[str, ...] | list[str]) -> Path | None:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def run_git(args: list[str]) -> str:
+    import subprocess
+
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() or "unknown git error"
+        raise RuntimeError(f"git {' '.join(args)} failed: {stderr}")
+    return completed.stdout
 
 
 def contains_patterns(
@@ -781,10 +801,104 @@ def weakest_domains(reports: list[DomainReport]) -> list[str]:
     ]
 
 
+def build_summary(reports: list[DomainReport]) -> dict[str, object]:
+    return {
+        "pass": sum(report.count("PASS") for report in reports),
+        "warn": sum(report.count("WARN") for report in reports),
+        "fail": sum(report.count("FAIL") for report in reports),
+    }
+
+
+def report_to_dict(report: DomainReport) -> dict[str, object]:
+    return {
+        "name": report.name,
+        "suggested_score": report.suggested_score,
+        "summary": report.summary,
+        "manual_prompts": report.manual_prompts,
+        "checks": [
+            {
+                "status": check.status,
+                "label": check.label,
+                "evidence": check.evidence,
+            }
+            for check in report.checks
+        ],
+        "pass_count": report.count("PASS"),
+        "warn_count": report.count("WARN"),
+        "fail_count": report.count("FAIL"),
+    }
+
+
+def collect_repo_metadata() -> dict[str, object]:
+    branch = ""
+    head = ""
+    status_lines: list[str] = []
+    status_error = ""
+
+    try:
+        branch = run_git(["branch", "--show-current"]).strip()
+        head = run_git(["rev-parse", "HEAD"]).strip()
+    except RuntimeError as exc:
+        status_error = str(exc)
+
+    if not branch and head:
+        branch = f"detached@{head[:7]}"
+
+    try:
+        status_output = run_git(["status", "--short", "--untracked-files=all"])
+        status_lines = [
+            line.rstrip() for line in status_output.splitlines() if line.strip()
+        ]
+    except RuntimeError as exc:
+        if not status_error:
+            status_error = str(exc)
+
+    return {
+        "branch": branch,
+        "head": head,
+        "dirty": bool(status_lines) if status_error == "" else None,
+        "status_lines": status_lines,
+        "status_error": status_error,
+    }
+
+
+def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
+    warnings = [
+        {
+            "domain": report.name,
+            "label": check.label,
+            "evidence": check.evidence,
+        }
+        for report in reports
+        for check in report.checks
+        if check.status == "WARN"
+    ]
+    failures = [
+        {
+            "domain": report.name,
+            "label": check.label,
+            "evidence": check.evidence,
+        }
+        for report in reports
+        for check in report.checks
+        if check.status == "FAIL"
+    ]
+
+    return {
+        "mode": "json",
+        "repo_root_relative": ".",
+        "repo": collect_repo_metadata(),
+        "summary": build_summary(reports),
+        "strongest_domains": strongest_domains(reports),
+        "weakest_domains": weakest_domains(reports),
+        "domains": [report_to_dict(report) for report in reports],
+        "warnings": warnings,
+        "failures": failures,
+    }
+
+
 def render_report(reports: list[DomainReport]) -> None:
-    total_pass = sum(report.count("PASS") for report in reports)
-    total_warn = sum(report.count("WARN") for report in reports)
-    total_fail = sum(report.count("FAIL") for report in reports)
+    summary = build_summary(reports)
 
     print("Codexify Platform Readiness Audit")
     print("Repo-local evidence pass")
@@ -807,9 +921,9 @@ def render_report(reports: list[DomainReport]) -> None:
 
     print("=" * 80)
     print("Final Summary")
-    print(f"  PASS: {total_pass}")
-    print(f"  WARN: {total_warn}")
-    print(f"  FAIL: {total_fail}")
+    print(f"  PASS: {summary['pass']}")
+    print(f"  WARN: {summary['warn']}")
+    print(f"  FAIL: {summary['fail']}")
     print(
         "  Domains needing manual review: "
         "Alternate Surface Readiness and Governance Readiness remain fully manual; "
@@ -823,9 +937,29 @@ def render_report(reports: list[DomainReport]) -> None:
     )
 
 
-def main() -> int:
+def render_json_report(reports: list[DomainReport]) -> None:
+    print(json.dumps(build_json_payload(reports), indent=2, sort_keys=True))
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Audit Codexify platform readiness from repo-local evidence."
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human-readable text.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     reports = build_reports()
-    render_report(reports)
+    if args.json:
+        render_json_report(reports)
+    else:
+        render_report(reports)
     return (
         1
         if any(

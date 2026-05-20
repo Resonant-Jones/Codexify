@@ -77,6 +77,17 @@ make public-sync target=/path/to/Publishing-Portal
 
 This copies the full staged tree into the fresh public repository in one step.
 
+### 2b) Publish and push in one step
+
+Run:
+
+```bash
+make public-publish target=/path/to/Publishing-Portal
+```
+
+This refreshes `Public-Directory/`, updates the public repo from its tracked
+`origin/main`, syncs the snapshot, commits any changes, and pushes them.
+
 ### 3) Commit the public snapshot
 
 Inside the public repo:
@@ -151,4 +162,3 @@ the Source Vault as well.
 
 The Publishing Portal should feel complete enough to use, but not reveal the
 unfinished development process behind it.
-

@@ -2,10 +2,15 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Sequence, Tuple, TypedDict
 
 import requests
 
+from guardian.context.memory_preselector import (
+    MemoryCandidateHeader,
+    MemoryPreselectorRequest,
+    select_memory_candidates,
+)
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_CONVERSATION,
     SOURCE_MODE_OBSIDIAN_ONLY,
@@ -634,6 +639,223 @@ def build_assistant_response_payload(assistant_text: str) -> Dict[str, Any]:
     return response
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value or "").strip().lower()
+    return normalized in {"1", "true", "yes", "y", "on"}
+
+
+def _coerce_tags(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        return tuple(
+            token
+            for token in (piece.strip() for piece in raw.split(","))
+            if token
+        )
+    if isinstance(raw, (list, tuple, set)):
+        values = []
+        for item in raw:
+            text = str(item or "").strip()
+            if text:
+                values.append(text)
+        return tuple(values)
+    text = str(raw).strip()
+    return (text,) if text else ()
+
+
+def _normalize_memory_candidate_header_dict(
+    raw: dict[str, Any], *, fallback_candidate_id: str
+) -> MemoryCandidateHeader:
+    candidate_id = str(
+        raw.get("candidate_id") or raw.get("id") or fallback_candidate_id
+    ).strip() or fallback_candidate_id
+    user_id = str(
+        raw.get("user_id") or raw.get("owner_user_id") or ""
+    ).strip()
+    kind = str(
+        raw.get("kind") or raw.get("source_type") or "semantic"
+    ).strip() or "semantic"
+    title = str(raw.get("title") or "").strip() or None
+    summary = str(raw.get("summary") or "").strip() or None
+    silo = str(raw.get("silo") or "").strip() or None
+    project_id = str(raw.get("project_id") or "").strip() or None
+    thread_id = str(raw.get("thread_id") or "").strip() or None
+    persona_id = str(raw.get("persona_id") or "").strip() or None
+    identity_depth = str(raw.get("identity_depth") or "").strip()
+    if not identity_depth:
+        # Keep missing depth fail-closed in preselector normalization.
+        identity_depth = ""
+
+    return MemoryCandidateHeader(
+        candidate_id=candidate_id,
+        user_id=user_id,
+        kind=kind,
+        title=title,
+        summary=summary,
+        tags=_coerce_tags(raw.get("tags")),
+        silo=silo,
+        project_id=project_id,
+        thread_id=thread_id,
+        persona_id=persona_id,
+        identity_depth=identity_depth,
+        diary_excluded=_coerce_bool(raw.get("diary_excluded")),
+        created_at=str(raw.get("created_at") or "").strip() or None,
+        updated_at=str(raw.get("updated_at") or "").strip() or None,
+    )
+
+
+def _memory_preselection_headers_from_memory_items(
+    memory_items: Sequence[Any],
+) -> list[MemoryCandidateHeader]:
+    headers: list[MemoryCandidateHeader] = []
+    for index, item in enumerate(memory_items):
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        raw: dict[str, Any] = {
+            "candidate_id": item.get("id")
+            or metadata.get("id")
+            or metadata.get("source_message_id"),
+            "user_id": item.get("user_id")
+            or item.get("owner_user_id")
+            or metadata.get("user_id")
+            or metadata.get("owner_user_id"),
+            "kind": item.get("kind")
+            or metadata.get("kind")
+            or item.get("source_type")
+            or metadata.get("source_type"),
+            "title": item.get("title")
+            or metadata.get("title")
+            or metadata.get("filename")
+            or metadata.get("name"),
+            "summary": item.get("summary")
+            or metadata.get("summary")
+            or metadata.get("description"),
+            "tags": item.get("tags") or metadata.get("tags"),
+            "silo": item.get("silo") or metadata.get("silo"),
+            "project_id": item.get("project_id") or metadata.get("project_id"),
+            "thread_id": item.get("thread_id")
+            or metadata.get("thread_id")
+            or metadata.get("source_thread_id"),
+            "persona_id": item.get("persona_id")
+            or metadata.get("persona_id"),
+            "identity_depth": item.get("identity_depth")
+            or metadata.get("identity_depth"),
+            "diary_excluded": item.get("diary_excluded")
+            if "diary_excluded" in item
+            else metadata.get("diary_excluded"),
+            "created_at": item.get("created_at")
+            or metadata.get("created_at")
+            or metadata.get("source_created_at"),
+            "updated_at": item.get("updated_at")
+            or metadata.get("updated_at"),
+        }
+        headers.append(
+            _normalize_memory_candidate_header_dict(
+                raw,
+                fallback_candidate_id=f"memory-candidate-{index}",
+            )
+        )
+    return headers
+
+
+def _coerce_memory_preselection_headers(
+    candidate_headers: Sequence[MemoryCandidateHeader | dict[str, Any]] | None,
+) -> list[MemoryCandidateHeader]:
+    if not candidate_headers:
+        return []
+    normalized: list[MemoryCandidateHeader] = []
+    for index, item in enumerate(candidate_headers):
+        if isinstance(item, MemoryCandidateHeader):
+            normalized.append(item)
+            continue
+        if isinstance(item, dict):
+            normalized.append(
+                _normalize_memory_candidate_header_dict(
+                    item,
+                    fallback_candidate_id=f"memory-candidate-{index}",
+                )
+            )
+    return normalized
+
+
+def _build_memory_preselection_trace(
+    *,
+    enabled: bool,
+    query: str,
+    user_id: str,
+    project_id: int | None,
+    thread_id: int,
+    persona_id: str | None,
+    identity_depth: str | None,
+    include_diary_excluded: bool,
+    memory_items: Sequence[Any],
+    candidate_headers: Sequence[MemoryCandidateHeader | dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    if not enabled:
+        return None
+
+    normalized_headers = _coerce_memory_preselection_headers(candidate_headers)
+    if not normalized_headers:
+        normalized_headers = _memory_preselection_headers_from_memory_items(
+            memory_items
+        )
+
+    request = MemoryPreselectorRequest(
+        query=str(query or ""),
+        user_id=str(user_id or "").strip(),
+        project_id=str(project_id) if project_id is not None else None,
+        thread_id=str(thread_id),
+        persona_id=(str(persona_id).strip() if persona_id is not None else None)
+        or None,
+        identity_depth=(
+            str(identity_depth).strip() if identity_depth is not None else ""
+        ),
+        include_diary_excluded=bool(include_diary_excluded),
+        limit=max(1, min(50, len(normalized_headers) or 20)),
+        min_score=1,
+    )
+    result = select_memory_candidates(normalized_headers, request)
+
+    selected_entries = [
+        {
+            "candidate_id": selected.candidate_id,
+            "score": selected.score,
+            "matched_terms": list(selected.matched_terms),
+            "boost_hints": list(selected.boost_hints),
+        }
+        for selected in result.selected
+    ]
+    suppressed_entries = [
+        {
+            "candidate_id": suppressed.candidate_id,
+            "reason": str(suppressed.reason),
+        }
+        for suppressed in result.suppressed
+    ]
+
+    return {
+        "enabled": True,
+        "selected_count": len(selected_entries),
+        "suppressed_count": len(suppressed_entries),
+        "selected_candidate_ids": [
+            entry["candidate_id"] for entry in selected_entries
+        ],
+        "selected": selected_entries,
+        "suppressed": suppressed_entries,
+        "affected_retrieval": False,
+        "affected_prompt_injection": False,
+    }
+
+
 class ContextBroker:
     """Assembles context bundles for chat completions at different depth levels.
 
@@ -702,6 +924,13 @@ class ContextBroker:
         source_mode: str = SOURCE_MODE_PROJECT,
         retrieval_override: Optional[dict[str, Any]] = None,
         retrieval_policy: Optional[dict[str, Any]] = None,
+        enable_memory_preselection_trace: bool = False,
+        memory_preselection_candidate_headers: Optional[
+            Sequence[MemoryCandidateHeader | dict[str, Any]]
+        ] = None,
+        memory_preselection_persona_id: Optional[str] = None,
+        memory_preselection_identity_depth: Optional[str] = None,
+        memory_preselection_include_diary_excluded: bool = False,
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Assemble a context bundle for the given thread and query.
 
@@ -741,6 +970,10 @@ class ContextBroker:
         resolved_user_id = str(user_id or "").strip()
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
+        memory_preselection_active = bool(enable_memory_preselection_active)
+        memory_preselection_enabled = bool(
+            enable_memory_preselection_trace or memory_preselection_active
+        )
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
         requested_source_mode = normalize_source_mode(source_mode)
         base_policy = derive_default_retrieval_policy(source_mode)
@@ -916,6 +1149,20 @@ class ContextBroker:
                 "retrieval_status": context["retrieval_status"],
                 "obsidian_count": len(obsidian_docs),
             }
+            memory_preselection_trace = _build_memory_preselection_trace(
+                enabled=enable_memory_preselection_trace,
+                query=query,
+                user_id=resolved_user_id,
+                project_id=resolved_project_id,
+                thread_id=thread_id,
+                persona_id=memory_preselection_persona_id,
+                identity_depth=memory_preselection_identity_depth,
+                include_diary_excluded=memory_preselection_include_diary_excluded,
+                memory_items=(),
+                candidate_headers=memory_preselection_candidate_headers,
+            )
+            if memory_preselection_trace is not None:
+                rag_trace["memory_preselection"] = memory_preselection_trace
             logger.info(
                 "[ContextBroker] thread=%s depth=%s messages=%s semantic=%s obsidian=%s docs(project/thread)=%s/%s memory=%s(%s) graph=%s(%s)",
                 thread_id,
@@ -929,6 +1176,9 @@ class ContextBroker:
                 "skipped",
                 0,
                 "skipped",
+            )
+            context["obsidian"] = self._filter_codex_entries(
+                context.get("obsidian", [])
             )
             return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
@@ -1151,6 +1401,7 @@ class ContextBroker:
 
         # Include memory search for deep and diagnostic modes
         memory_widen_reason = WIDEN_REASON_NONE
+        memory_preselection_trace: dict[str, Any] | None = None
         memory_trace: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
@@ -1219,6 +1470,50 @@ class ContextBroker:
                     "boundary": source_mode_boundary,
                     "source_mode": normalized_source_mode,
                 }
+
+        memory_preselection_trace = _build_memory_preselection_trace(
+            enabled=memory_preselection_enabled,
+            active=memory_preselection_active,
+            query=query,
+            user_id=resolved_user_id,
+            project_id=resolved_project_id,
+            thread_id=thread_id,
+            persona_id=memory_preselection_persona_id,
+            identity_depth=memory_preselection_identity_depth,
+            include_diary_excluded=memory_preselection_include_diary_excluded,
+            memory_items=context.get("memory", []),
+            candidate_headers=memory_preselection_candidate_headers,
+        )
+        if (
+            memory_preselection_active
+            and memory_preselection_trace is not None
+            and isinstance(context.get("memory"), list)
+        ):
+            selected_candidate_ids = [
+                str(candidate_id).strip()
+                for candidate_id in memory_preselection_trace.get(
+                    "selected_candidate_ids", []
+                )
+                if str(candidate_id).strip()
+            ]
+            scoped_candidate_ids = selected_candidate_ids + [
+                str(entry.get("candidate_id") or "").strip()
+                for entry in memory_preselection_trace.get("suppressed", [])
+                if isinstance(entry, dict)
+                and str(entry.get("candidate_id") or "").strip()
+            ]
+            filtered_memory_items, active_influence, applied = (
+                _apply_memory_preselection_active_influence(
+                    context.get("memory", []),
+                    selected_candidate_ids=selected_candidate_ids,
+                    scoped_candidate_ids=scoped_candidate_ids,
+                )
+            )
+            if applied:
+                context["memory"] = filtered_memory_items
+            memory_preselection_trace["active_influence"] = active_influence
+            memory_preselection_trace["affected_retrieval"] = applied
+            memory_preselection_trace["affected_prompt_injection"] = applied
 
         # Include sensor snapshot for diagnostic mode only
         if normalized_depth == "diagnostic":
@@ -1414,6 +1709,20 @@ class ContextBroker:
             "personal_facts_context": personal_facts_trace,
             "verified_personal_facts_context": personal_facts_trace,
         }
+        memory_preselection_trace = _build_memory_preselection_trace(
+            enabled=enable_memory_preselection_trace,
+            query=query,
+            user_id=resolved_user_id,
+            project_id=resolved_project_id,
+            thread_id=thread_id,
+            persona_id=memory_preselection_persona_id,
+            identity_depth=memory_preselection_identity_depth,
+            include_diary_excluded=memory_preselection_include_diary_excluded,
+            memory_items=context.get("memory", []),
+            candidate_headers=memory_preselection_candidate_headers,
+        )
+        if memory_preselection_trace is not None:
+            rag_trace["memory_preselection"] = memory_preselection_trace
 
         try:
             logger.info(
@@ -1432,6 +1741,20 @@ class ContextBroker:
             )
         except Exception:
             pass
+
+        # Apply codex entry retrieval exclusion before returning
+        context["semantic"] = self._filter_codex_entries(
+            context.get("semantic", [])
+        )
+        context["obsidian"] = self._filter_codex_entries(
+            context.get("obsidian", [])
+        )
+        if isinstance(context.get("docs"), dict):
+            context["docs"] = self._filter_codex_from_doc_buckets(context["docs"])
+        if "memory" in context:
+            context["memory"] = self._filter_codex_entries(
+                context.get("memory", [])
+            )
 
         return context, rag_trace
 
@@ -2110,6 +2433,52 @@ class ContextBroker:
         }:
             return 0
         return 1
+
+    @staticmethod
+    def _filter_codex_entries(
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter out codex entries with retrieval disabled.
+
+        Codex entries are excluded from retrieval by default unless
+        explicitly opted in via ``retrieval_enabled: true`` in their
+        frontmatter. This filter checks both top-level and nested
+        metadata fields.
+        """
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                filtered.append(item)
+                continue
+
+            source_type = str(item.get("source_type") or "").strip().lower()
+            if source_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                metadata = item.get("metadata")
+                if isinstance(metadata, dict):
+                    if retrieval_enabled is None:
+                        retrieval_enabled = metadata.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            doc_type = str(item.get("type") or "").strip().lower()
+            if doc_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            filtered.append(item)
+        return filtered
+
+    @staticmethod
+    def _filter_codex_from_doc_buckets(
+        docs: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Apply codex entry filtering across all doc buckets."""
+        return {
+            key: ContextBroker._filter_codex_entries(value)
+            for key, value in docs.items()
+        }
 
     @classmethod
     def _sort_retrieval_items(

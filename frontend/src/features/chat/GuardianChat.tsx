@@ -59,6 +59,12 @@ import {
   getMobileTouchTargetStyle,
 } from "@/components/persona/layout/mobileMotionContract";
 import { useMobileGestureState } from "@/hooks/useMobileGestureState";
+import {
+  generateCodexDraft,
+  saveCodexEntry,
+  downloadCodexDraftAsMarkdown,
+  type CodexDraft,
+} from "@/api/codex";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
 import RAGTracePanel from "./panels/RAGTracePanel";
@@ -948,6 +954,7 @@ export function GuardianChat({
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
+  const [codexDraft, setCodexDraft] = useState<CodexDraft | null>(null);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
@@ -1833,6 +1840,11 @@ export function GuardianChat({
 
   useEffect(() => {
     effectiveThreadIdRef.current = effectiveThreadId;
+  }, [effectiveThreadId]);
+
+  // Clear codex draft on thread change
+  useEffect(() => {
+    setCodexDraft(null);
   }, [effectiveThreadId]);
 
   useEffect(() => {
@@ -3013,6 +3025,50 @@ export function GuardianChat({
     []
   );
 
+  // Codex Entry draft flow — bound to the active thread.
+  const handleCodexDraftRequest = useCallback(
+    async (threadId: number, triggerMessageId?: number | null) => {
+      setCodexDraft(null); // clear any prior draft
+      try {
+        const response = await generateCodexDraft(threadId, triggerMessageId);
+        if (response.ok && response.draft) {
+          setCodexDraft(response.draft);
+        }
+      } catch (err) {
+        console.warn("[codex] draft generation failed", err);
+      }
+    },
+    [],
+  );
+
+  const handleCodexDraftSave = useCallback(
+    async (draft: CodexDraft) => {
+      await saveCodexEntry({
+        title: draft.title,
+        body: draft.body,
+        thread_id: draft.lineage.thread_id,
+        source_thread_id: draft.lineage.thread_id,
+        source_message_id: draft.lineage.last_source_message_id,
+        trigger_message_id: draft.lineage.trigger_message_id,
+        message_ids: draft.lineage.source_message_ids,
+        created_from: "slash_command",
+        retrieval_enabled: false,
+      });
+    },
+    [],
+  );
+
+  const handleCodexDraftDownload = useCallback(
+    (draft: CodexDraft) => {
+      downloadCodexDraftAsMarkdown(draft);
+    },
+    [],
+  );
+
+  const handleCodexDraftDismiss = useCallback(() => {
+    setCodexDraft(null);
+  }, []);
+
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
     text: string,
@@ -3151,6 +3207,12 @@ export function GuardianChat({
 
         // Complete the thread and refresh.
         startInferenceForThread(createdThreadId);
+
+        // Detect codex_entry command and request a draft
+        if (options?.slashIntent?.commandId === "codex_entry") {
+          void handleCodexDraftRequest(createdThreadId);
+        }
+
         const completionOutcome = await completeThread(createdThreadId, options);
         if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
           setTurnLockForThread(createdThreadId, false);
@@ -3198,6 +3260,12 @@ export function GuardianChat({
 
         // Fire-and-forget completion a beat later so the just-sent message is persisted
         startInferenceForThread(targetThreadId);
+
+        // Detect codex_entry command and request a draft
+        if (options?.slashIntent?.commandId === "codex_entry") {
+          void handleCodexDraftRequest(targetThreadId);
+        }
+
         setTimeout(() => {
           if (targetThreadId == null) return;
           void (async () => {
@@ -3870,6 +3938,10 @@ export function GuardianChat({
               streamingDraft={streamingDraft}
               onCancelInference={handleCancelInference}
               onSwitchToFast={handleSwitchToNoThink}
+              codexDraft={codexDraft}
+              onCodexDraftSave={handleCodexDraftSave}
+              onCodexDraftDownload={handleCodexDraftDownload}
+              onCodexDraftDismiss={handleCodexDraftDismiss}
             />
           </div>
         ) : (

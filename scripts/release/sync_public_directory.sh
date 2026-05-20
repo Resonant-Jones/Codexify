@@ -15,6 +15,13 @@ if [[ ! -d "${SOURCE_DIR}" ]]; then
   exit 1
 fi
 
+if [[ ! -d "${TARGET_DIR}/.git" ]]; then
+  echo "Target directory is not a git repository: ${TARGET_DIR}"
+  exit 1
+fi
+
 mkdir -p "${TARGET_DIR}"
-cp -R "${SOURCE_DIR}/." "${TARGET_DIR}/"
+
+# Mirror the curated snapshot into the public repo without touching git history.
+rsync -a --delete --exclude='.git/' "${SOURCE_DIR}/" "${TARGET_DIR}/"
 echo "Synced public portal tree to: ${TARGET_DIR}"

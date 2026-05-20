@@ -20,6 +20,10 @@
 
 {supporting_evidence_bullets}
 
+## Supporting Evidence Anchors
+
+{supporting_evidence_bullets}
+
 ## Governance
 
 - approval_state: `draft`

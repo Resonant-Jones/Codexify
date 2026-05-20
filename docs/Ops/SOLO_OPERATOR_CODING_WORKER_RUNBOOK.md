@@ -254,6 +254,75 @@ not execution success.
 - Dirty source checkouts can still be processed in isolation mode because the
   disposable worktree is created from `HEAD`.
 
+### Patch Artifact Capture for Isolated Runs
+
+Purpose:
+- Preserve reviewable evidence of isolated coding-worker output before
+  worktree cleanup/retention finalizes.
+- Keep operator truth visible without auto-apply, auto-commit, merge, or
+  promotion into the active checkout.
+
+Environment flags:
+- `CODING_WORKER_CAPTURE_PATCH_ARTIFACTS`
+  - Default: enabled when `CODING_WORKER_WORKTREE_ISOLATION=true`
+  - False values: `0`, `false`, `no`, `off`
+- `CODING_WORKER_PATCH_ARTIFACT_ROOT`
+  - Default: `<repo_root>/.codexify/coding-artifacts`
+- `CODING_WORKER_PATCH_MAX_BYTES`
+  - Default: `2000000`
+  - Clamp range: `1024..20000000`
+
+Artifact layout:
+- `<artifact_root>/<run_id>/<coding_task_id>/<attempt_id>/changes.patch`
+- `<artifact_root>/<run_id>/<coding_task_id>/<attempt_id>/manifest.json`
+
+Manifest fields (summary):
+- `schema_version`, `created_at`
+- lineage: `run_id`, `deployment_id`, `coding_task_id`, `attempt_id`,
+  `attempt_number`, `request_id`, `thread_id`, `source_message_id`,
+  `adapter_kind`
+- execution context: `repo_root`, `worktree_path`, `base_head`
+- validation/mutation context: `validation_status`,
+  `validation_fail_signature`, `mutation_guard_status`
+- changed path summary: `changed_paths` (bounded to 50),
+  `changed_paths_total`, `changed_paths_truncated`
+- patch metadata: `patch_status`, `patch_path`, `patch_sha256`,
+  `patch_size_bytes`, `patch_total_bytes`
+
+Behavior by terminal outcome:
+- Isolated success with changes:
+  - Captures bounded `git diff --binary HEAD --` evidence
+  - Emits `task.patch_artifact_created`
+  - Includes compact `coding_patch` metadata in terminal payload and stored
+    coding result artifacts
+- Final validation failure with changes:
+  - Captures the same bounded patch/manifest evidence before failure terminal
+    emission
+  - Preserves existing failure semantics
+- Mutation scope violation:
+  - Does not produce an apply-ready patch file
+  - Writes manifest evidence with `patch_status=blocked_scope_violation`
+    and bounded changed-path summary
+- Oversized patch:
+  - Writes manifest evidence with `patch_status=too_large`
+  - Does not write partial patch content as if complete
+
+Cleanup/retention interaction:
+- Patch artifacts are written before isolated worktree cleanup/retention
+  decisions finalize.
+- Worktree cleanup can succeed or fail independently of patch artifact
+  availability.
+- Retained worktrees remain optional and policy-driven; artifacts are separate
+  operator evidence.
+
+Explicit non-goals:
+- no auto-apply
+- no auto-commit
+- no auto-merge
+- no promotion back to active checkout
+- no branch push
+- no release-proof claim by artifact presence alone
+
 ### Commit-After-Green Gate (Phase 4)
 
 - Commit behavior is opt-in via `commit_after_validation=true`.

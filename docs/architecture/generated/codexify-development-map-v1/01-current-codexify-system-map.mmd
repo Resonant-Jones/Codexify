@@ -1,0 +1,75 @@
+
+flowchart LR
+    subgraph users["User / clients"]
+        U["User"]
+        B["Browser<br/>client/UI surface<br/>supported/proven"]
+        T["Tauri desktop shell<br/>optional client shell<br/>not current release promise as supported install replacement"]
+        FE["React frontend<br/>client/UI surface<br/>supported/proven"]
+        CLS["Frontend local/session storage<br/>operational/ephemeral client state"]
+    end
+
+    subgraph runtime["FastAPI runtime boundary (supported local Docker Compose path)"]
+        API["FastAPI backend<br/>supported/proven"]
+        CHAT["Chat/thread API<br/>supported/proven"]
+        COMP["Completion service<br/>supported/proven"]
+        CTX["Context broker<br/>supported/proven"]
+        ROUTER["Provider router<br/>model/provider boundary<br/>supported/proven (local-only posture)"]
+        WORK["Worker layer<br/>chat/chat-embed/document-embed/warmup/cron<br/>supported/proven"]
+        CMD["Command bus / tool lane<br/>internal/control-plane<br/>not current release promise"]
+        CRON["Cron / automation lane<br/>internal/control-plane<br/>not current release promise"]
+        ING["Media/document ingestion<br/>supported/proven"]
+        EV["Event surfaces<br/>/api/events + /api/tasks/*/events<br/>operational/ephemeral transport"]
+        TRACE["Trace/eval diagnostic surfaces<br/>proof/diagnostic surfaces<br/>not release proof by themselves"]
+    end
+
+    subgraph data["Data and transport boundaries"]
+        PG["Postgres<br/>durable state<br/>system of record"]
+        R["Redis<br/>operational/ephemeral<br/>queues/locks/events/heartbeat"]
+        V["Vector store<br/>durable semantic retrieval corpus"]
+        FS["File/object storage<br/>durable media/document bytes"]
+        NEO["Neo4j graph lane<br/>optional/feature-flagged<br/>not current release promise"]
+    end
+
+    subgraph providers["Local/cloud provider boundary"]
+        LP["Local provider path<br/>supported/proven beta posture"]
+        CP["Cloud provider lanes<br/>not current release promise"]
+    end
+
+    U --> B
+    U --> T
+    B --> FE
+    T --> FE
+    FE <--> CLS
+
+    FE --> API
+    FE --> EV
+    API --> CHAT
+    CHAT --> R
+    CHAT --> PG
+
+    R --> WORK
+    WORK --> COMP
+    COMP --> CTX
+    COMP --> ROUTER
+    COMP --> PG
+    COMP --> EV
+    COMP --> TRACE
+
+    CTX <--> PG
+    CTX <--> V
+    CTX -. optional/flagged .-> NEO
+
+    WORK --> ING
+    ING --> FS
+    ING --> PG
+    ING --> R
+
+    API --> CMD
+    API --> CRON
+    CMD --> PG
+    CRON --> R
+    CRON --> PG
+
+    EV --> FE
+    ROUTER --> LP
+    ROUTER -. governed inventory lane, not supported posture default .-> CP
