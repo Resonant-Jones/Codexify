@@ -1,0 +1,16 @@
+{
+  "approval_state": "draft",
+  "audience": "local-first-builders",
+  "campaign_id": "TEST_MARKETING_PUBLIC_RENDERING",
+  "channels": [
+    "community",
+    "social",
+    "website"
+  ],
+  "claim_count": 24,
+  "generated_at": "2026-05-19T23:35:56.667908+00:00",
+  "marketable_claim_count": 12,
+  "mode": "draft",
+  "non_marketable_claim_count": 12,
+  "output_dir": "docs/Marketing/generated/TEST_MARKETING_PUBLIC_RENDERING"
+}
