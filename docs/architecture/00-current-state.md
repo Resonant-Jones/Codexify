@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-19
+2026-05-20
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work tightened the supported profile wiring, repaired a personal-facts settings route, surfaced runtime state in the chat shell, and added an internal/manual local-model draft adapter. The release promise still stays narrow and proof-driven.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent `main` work focused on release-adjacent surfaces: public snapshot and portal publish flows, Codex Entry draft/save flow changes, execution-ledger evidence plumbing, and UI/status clarity in the shell.
 
 ## What changed recently
-- Supported-profile wiring was fixed on `main`.
-- Personal-facts settings routing was repaired on `main`.
-- GuardianChat now surfaces runtime visual state in the shell.
-- An internal/manual local-model draft adapter landed.
+- Public snapshot/readme and portal publish flow work landed on `main`.
+- Codex Entry draft/save endpoints and retrieval filtering landed on `main`.
+- Execution-ledger gate metadata storage and release-candidate evidence indexing landed on `main`.
+- Flow Builder activity-proof and conditional-container work landed on `main`.
 - Daily audit artifacts were refreshed around the current `main` tip.
 
 ## Current supported reality
@@ -40,7 +40,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
+- Do not assume Codex Entry draft/save work is a general release promise beyond the surfaced endpoints and filters on `main`.
+- Do not assume public portal publishing means the broader release story is complete.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
