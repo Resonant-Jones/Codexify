@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from guardian.queue import task_events
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
+from tests.utils import get_test_api_key, get_test_auth_headers
 
 os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
@@ -54,8 +55,10 @@ def test_client(mock_db, monkeypatch, tmp_path):
 
                         app.dependency_overrides[
                             require_api_key
-                        ] = lambda: "test-api-key"
-                        client = TestClient(app)
+                        ] = lambda: get_test_api_key()
+                        client = TestClient(
+                            app, headers=get_test_auth_headers()
+                        )
                         try:
                             yield client
                         finally:
