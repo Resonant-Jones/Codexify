@@ -1,42 +1,40 @@
-# 06 Runtime Honesty and Proof Surfaces
+# Runtime Honesty and Proof Surfaces
 
-## Core runtime honesty rules
+## Runtime honesty doctrine
 
-`Current`:
-- Runtime truth should be surfaced, not hidden.
-- Acceptance is not completion.
-- Events are evidence, not magic.
-- Health, catalog, and support surfaces must be read together.
+- `Current`: Runtime truth should be surfaced, not hidden.
+- `Current`: Acceptance is not completion.
+- `Current`: Task-event publication is not the same as UI receipt.
+- `Current`: Health, catalog, and supported-profile surfaces must be read together.
 
-## Why this matters publicly
+## Evidence posture
 
-Codexify.Space should present Codexify as a system willing to show its state honestly:
-- provider/runtime state
-- request/attempt state
-- retrieval posture
-- health and support boundaries
+- `Current`: Proof artifacts matter.
+- `Current`: Risk registers and current-state docs are part of truth, not embarrassment to be hidden.
+- `Current`: Public claims should point to proof surfaces when possible.
 
-## Proof surfaces
+## Proof surfaces worth referencing
 
-`Current`:
-- Current truth docs
-- supported-path release evidence
-- health endpoints and runtime diagnostics as internal proof anchors
-- proof harnesses and beta smoke procedures
-- Founder Log and related development records as living evidence trails when used carefully
+- current-state docs
+- supported-path proof artifacts
+- health and catalog surfaces
+- beta evidence and proof notes
+- architecture contracts and current risk docs
+- Founder Log or dev-log style records when they function as dated development evidence
 
-## Founder Log rule
+## Founder Log guidance
 
-`Current`:
-- Founder Log should be treated as a living development and proof record, not as a substitute for supported-path validation.
+- `Current use`: Treat Founder Log style material as a living development and proof record, not as substitute truth.
+- `Rule`: Narrative logs are strongest when they point back to proof artifacts, audits, or current-state updates.
 
-## Public-site guidance
+## Public-site behavior
 
-Safe:
-- point from claims toward proof surfaces when available
-- say when a capability is current versus in development
-- emphasize inspectability and operational honesty
+- Good public posture shows what is proven, what is bounded, and what is still being hardened.
+- Bad public posture hides uncertainty behind "it just works" mythology.
 
-Unsafe:
-- presenting internal debug routes as consumer-facing product features
-- implying that task publication or route acceptance guarantees end-user completion
+## Public phrasing examples
+
+- Safe: "The supported path is evidence-backed and intentionally narrow."
+- Safe: "Codexify distinguishes accepted work from completed work."
+- Unsafe: "Every event you see means the work definitely finished."
+- Unsafe: "Operational truth is automatic and invisible."

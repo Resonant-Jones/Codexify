@@ -1,28 +1,35 @@
 # Agent Instructions for Codexify.Space Source KB
 
-Read `README.md` and `00-current-codexify-truth.md` first.
+## Start here
 
-Core rules:
+- Read [`README.md`](./README.md) first.
+- Read [`00-current-codexify-truth.md`](./00-current-codexify-truth.md) next.
+- Check [`13-source-map.md`](./13-source-map.md) before relying on a capability claim, risk statement, or visual transfer rule.
+
+## Core rules
+
 - Do not turn infrastructure internals into public promises.
-- Do not claim roadmap or exploratory work as shipped.
-- Do not update public copy without checking `08-public-claim-discipline.md`.
-- Do not update visual or worldbuilding direction without checking `07-ui-visual-doctrine-transfer.md` and `10-image-and-worldbuilding-implications.md`.
-- Do not treat Codexify backend architecture as Codexify.Space implementation architecture unless the Space repo explicitly implements it.
-- Keep work atomic, source-backed, and validation-backed.
+- Do not claim roadmap work as shipped.
+- Do not upgrade route presence, catalog presence, or architecture notes into release proof.
+- Do not use Codexify backend architecture as Codexify.Space implementation architecture unless the Space repo explicitly implements it.
+- Do not change public copy without checking [`08-public-claim-discipline.md`](./08-public-claim-discipline.md).
+- Do not change visual or worldbuilding direction without checking [`07-ui-visual-doctrine-transfer.md`](./07-ui-visual-doctrine-transfer.md) and [`10-image-and-worldbuilding-implications.md`](./10-image-and-worldbuilding-implications.md).
 
-Working posture:
-- Prefer the narrowest truthful claim.
-- Separate `Current`, `In development`, `Exploration`, `Roadmap`, and `Philosophy`.
-- Use `13-source-map.md` before relying on a capability statement.
-- If a statement depends on live proof, say so.
-- If a statement is only architecture context, do not market it as release truth.
+## Claim discipline
 
-Boundaries:
-- No private credentials, local machine paths, unreleased secrets, or internal-only operational detail.
-- No mythology presented as factual capability.
-- No “black box magic” phrasing where inspectable system behavior is the stronger framing.
+- Label public-facing capability statements as `Current`, `In development`, `Exploration`, `Roadmap`, or `Philosophy`.
+- Prefer the narrowest truthful label.
+- If evidence is mixed, downgrade the claim instead of polishing it.
 
-Execution rule:
-- Make one coherent change at a time.
-- Validate the exact surface changed.
-- If a claim cannot be sourced cleanly from this KB, narrow it or leave it out.
+## Boundary discipline
+
+- Keep Codexify product truth distinct from Codexify.Space site truth.
+- Keep mythic framing distinct from factual claims.
+- Keep internal-only surfaces, experimental seams, and unsupported install modes out of default public promise.
+
+## Working style
+
+- Keep work atomic.
+- Validate against current truth before changing words.
+- Preserve proof-backed language.
+- When uncertain, state the uncertainty directly instead of smoothing it over.

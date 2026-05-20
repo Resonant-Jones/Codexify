@@ -1,0 +1,19 @@
+flowchart TD
+    APP["AppShell token injection"] --> ROOT["Root tokens"]
+    ROOT --> LAYOUT["Layout tokens"]
+    ROOT --> ALIAS["Legacy semantic aliases"]
+    LAYOUT --> COMP["Component tokens"]
+    ALIAS --> COMP
+
+    COMP --> SURF["Visible surfaces<br/>glass/panel/chip/input/modal categories"]
+    COMP --> FRAME["Structural layout frames<br/>primary card hierarchy + sanctioned regions"]
+
+    FRAME --> WORKSPACE["Workspace surface<br/>(drawer/supporting region where blueprint permits)"]
+    FRAME --> GUARD["Guardian/chat surface"]
+    FRAME --> DOCVIEW["Documents surface"]
+    FRAME --> DASH["Dashboard surface"]
+    FRAME --> SETTINGS["Settings surface"]
+    FRAME --> GALLERY["Gallery surface"]
+
+    SURF --> DIAG["Diagnostics / cognitive surfaces<br/>opt-in visibility"]
+    DIAG --> STACK["Evidence / context / trace / insight layers<br/>conceptual UI stack"]

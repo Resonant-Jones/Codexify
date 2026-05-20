@@ -1,58 +1,54 @@
-# 02 Runtime Architecture for Public Explanation
+# Runtime Architecture for Public Explanation
 
 ## Public-safe component map
 
-`Current`:
-- Frontend: the user-facing workspace shell
-- FastAPI backend: request handling, routing, policy, persistence coordination
-- Postgres: durable system of record
-- Redis: queueing, locks, task events, worker coordination
-- Workers: background completion, embedding, and related job execution
-- Retrieval/vector layer: semantic indexing and retrieval
-- Media/document ingestion: upload, parsing, indexing, artifact handling
-- Local/cloud provider boundary: current supported posture is local-only; cloud-capable lanes exist in architecture but are not the supported beta promise
-- Optional graph concepts: graph-related ideas and adapters exist, but graph writes remain default-off on the supported Compose path
+- `Current`: React frontend
+- `Current`: FastAPI backend
+- `Current`: Postgres as the primary system of record
+- `Current`: Redis for queues, locks, heartbeats, and task-event transport
+- `Current`: Worker processes for chat, embeddings, and related background tasks
+- `Current`: Retrieval and vector layer for semantic context
+- `Current`: Media and document ingestion pipeline
+- `Current`: Local versus cloud provider boundary, with current support anchored to local-only posture
+- `Exploration`: Optional graph concepts exist in the repo, but graph writes remain default-off on the supported Compose path
 
-## Simplified topology
+## Simplified explanation
+
+Codexify is not a single model call with a pretty shell around it.
+The product is a multi-part local runtime: UI, backend, database, queue, workers, and retrieval surfaces working together to preserve thread continuity and artifact lineage.
+
+## Simplified diagram
 
 ```mermaid
 flowchart LR
-    U["User"] --> F["Frontend"]
-    F --> B["FastAPI Backend"]
-    B --> P["Postgres"]
-    B --> R["Redis"]
-    B --> V["Retrieval and Vector Layer"]
-    B --> M["Media and Document Ingestion"]
-    R --> W["Workers"]
-    W --> P
-    W --> V
-    B --> L["Local Provider Boundary"]
+    UI["Frontend UI"] --> API["FastAPI backend"]
+    API --> PG["Postgres"]
+    API --> R["Redis"]
+    API --> VS["Retrieval and vector layer"]
+    API --> ST["Media and document storage"]
+    R --> W["Background workers"]
+    W --> PG
+    W --> VS
+    API --> LP["Local provider lane"]
+    API -. optional and policy-bound .-> CP["Cloud provider lane"]
+    API -. default-off concepts .-> G["Graph lane"]
 ```
 
 ## What this proves
 
-`Current`:
-- Codexify is not only a thin chat client; it has explicit backend, persistence, queue, and retrieval layers.
-- The product is designed around durable state plus asynchronous execution.
-- Observability and system-state distinctions matter to the architecture.
+- `Current`: Codexify has a real runtime architecture beyond a browser prompt box.
+- `Current`: Background work, persistence, and retrieval are part of the product story.
+- `Current`: Local-first posture is enforced at the runtime and config layer, not just in brand language.
 
 ## What this does not prove
 
-`Current`:
-- It does not prove Codexify.Space uses this topology.
-- It does not prove every architectural lane is part of the public beta promise.
-- It does not prove cloud support, autonomous orchestration, federation durability, or public graph-write support.
-- It does not prove desktop packaging supersedes the Compose path.
+- It does not prove public cloud support is part of the current release promise.
+- It does not prove the site repo uses this same architecture.
+- It does not prove every optional seam is release-ready.
+- It does not prove acceptance of a task means successful completion.
 
 ## Public explanation guidance
 
-Use this level of explanation when the website needs to say how Codexify works:
-- browser or app shell in front
-- backend and data layers coordinating work
-- workers handling asynchronous tasks
-- retrieval and document handling grounding the assistant in user materials
-
-Avoid:
-- exposing internal route lists
-- surfacing private operator-only diagnostics
-- presenting optional or default-off subsystems as release commitments
+- Explain the runtime as a bounded local system with explicit storage, queue, worker, and retrieval layers.
+- Do not expose unnecessary internal topology, private routes, or operator-only details.
+- Keep the emphasis on inspectability, ownership, and continuity rather than novelty theater.

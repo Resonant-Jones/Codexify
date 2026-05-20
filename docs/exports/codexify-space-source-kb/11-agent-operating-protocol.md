@@ -1,36 +1,35 @@
-# 11 Agent Operating Protocol
+# Agent Operating Protocol
 
-## Start state
+## Start order
 
-1. Read `00-current-codexify-truth.md`.
-2. Check `13-source-map.md` before relying on a claim.
-3. Keep Codexify product truth distinct from Codexify.Space implementation truth.
+1. Read [`00-current-codexify-truth.md`](./00-current-codexify-truth.md).
+2. Check [`08-public-claim-discipline.md`](./08-public-claim-discipline.md).
+3. Check [`13-source-map.md`](./13-source-map.md) before relying on a claim or image doctrine.
 
-## Writing and planning rules
+## Operating rules
 
+- Keep Codexify product truth and Codexify.Space implementation truth distinct.
 - Do not overstate.
 - Do not import private or internal-only claims into public copy.
-- Prefer precise architecture-derived language over hype abstractions.
-- If a claim is not clearly `Current`, label it as `In development`, `Exploration`, `Roadmap`, or `Philosophy`.
+- Prefer precise architecture-derived language over hype.
+- If a claim is not clearly supported, downgrade it or omit it.
 
-## Visual-task rule
+## For visual tasks
 
-For visual or brand work:
-- preserve spatial gravitas
-- preserve clarity
-- avoid generic templates
-- keep worldbuilding downstream from product truth
+- Preserve spatial gravitas.
+- Preserve restraint.
+- Avoid generic templates.
+- Use atmosphere in service of continuity, provenance, and inspectability.
 
-## Implementation-task rule
+## For implementation tasks
 
-For implementation work in Codexify.Space:
-- validate the exact changed surface
-- commit atomically
-- do not let this KB stand in for the Space repo's own runtime architecture
+- Validate against current truth before editing.
+- Keep the change atomic.
+- Preserve label discipline on capability statements.
+- Commit only after the public claim surface is internally coherent.
 
-## Escalation rule
+## When in doubt
 
-If source docs appear to disagree:
-- prefer `00-current-codexify-truth.md` inside this export
-- then check `13-source-map.md`
-- then narrow the claim instead of widening it
+- current truth beats older narrative
+- supported path beats broader architecture presence
+- proof beats aspiration
