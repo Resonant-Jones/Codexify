@@ -1,0 +1,80 @@
+{
+  "job_profile_id": "jp_fixture_plumbing_three_handle_drip_001",
+  "version": 1,
+  "status": "needs_review",
+  "source": {
+    "interaction_type": "service_call_transcript",
+    "transcript_available": true,
+    "raw_description": "Customer reports that the tub spout drips when the fixture is off. The fixture has hot, diverter, and cold knobs, the middle knob sends water up or down, the brand is unknown, there is an access panel behind the shower, the customer asked about diagnostic fee and general pricing, and around 1:00 PM is preferred."
+  },
+  "customer": {
+    "name": "synthetic_customer_placeholder",
+    "phone": "synthetic_phone_placeholder",
+    "email": "synthetic_email_placeholder"
+  },
+  "site": {
+    "address": "synthetic_address_placeholder",
+    "access_notes": "Customer reports an access panel behind the shower; technician usability still needs human verification."
+  },
+  "request": {
+    "summary": "Reported drip from tub spout while three-handle tub/shower fixture is off.",
+    "symptoms": [
+      "tub spout drips while fixture is off"
+    ],
+    "known_equipment": [
+      "three-handle tub/shower fixture",
+      "hot handle",
+      "diverter handle",
+      "cold handle",
+      "unknown brand"
+    ]
+  },
+  "classification": {
+    "service_type": "plumbing",
+    "category": "tub_shower_three_handle_valve_or_diverter_issue",
+    "confidence": "medium",
+    "confidence_note": "Planning-only review aid; not canonical runtime truth."
+  },
+  "scheduling": {
+    "preference": "around_1300",
+    "constraints": [
+      "Customer prefers an appointment around 1:00 PM."
+    ],
+    "commitment_status": "not_committed"
+  },
+  "policy_questions": {
+    "items": [
+      "diagnostic_fee",
+      "general_pricing_expectation"
+    ],
+    "notes": "Customer asked about diagnostic fee and general pricing expectations. No pricing commitment is implied."
+  },
+  "risk_and_safety": {
+    "flags": [],
+    "notes": "No explicit safety risk reported in the synthetic source interaction."
+  },
+  "events": [
+    {
+      "event_type": "follow_up_required",
+      "details": "Human review should confirm pricing questions, scheduling preference, and access-panel usability.",
+      "recorded_at": "2026-05-20T14:00:00Z"
+    }
+  ],
+  "review": {
+    "required": true,
+    "reviewed_by": null,
+    "reviewed_at": null,
+    "corrections": []
+  },
+  "lineage": {
+    "source_interaction_id": "synthetic_interaction_plumbing_three_handle_drip_001",
+    "source_artifact_id": "fixture_plumbing_three_handle_drip_v1",
+    "source_message_id": "synthetic_message_placeholder_001"
+  },
+  "metadata": {
+    "created_at": "2026-05-20T14:00:00Z",
+    "updated_at": "2026-05-20T14:00:00Z",
+    "planning_contract_version": "draft_v1",
+    "synthetic_only": true
+  }
+}
