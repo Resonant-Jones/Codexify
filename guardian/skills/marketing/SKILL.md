@@ -14,7 +14,6 @@ Transform canonical Codexify progress artifacts into draft marketing assets for 
 - Presentation-role pass before any channel/ad rendering
 - No blocker/failure/task-log lines in channel copy
 - No raw implementation breadcrumbs in channel/ad/infographic copy
-- Public render context must come from filtered `public_copy_claims`, not raw `marketable_claims`
 
 ## Canonical Inputs (in precedence order)
 
@@ -46,7 +45,6 @@ Presentation inspection rule:
 - `marketable` means the item may support external-facing artifacts.
 - `public-copy-ready` means the item may appear verbatim in visible public prose.
 - Treat non-copy-ready items as evidence anchors, not public language.
-- Public-facing templates must not consume raw evidence lists, even when the ledger is valid.
 
 ## Validation Gates
 

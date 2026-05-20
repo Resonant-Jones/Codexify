@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -10,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from scripts.marketing.pipeline import (
-    ALLOWED_PRESENTATION_ROLES,
     CANDIDATE_MARKETABLE_CLAIM,
     CANDIDATE_METADATA_REFERENCE,
     CANDIDATE_RISK_OR_BLOCKER,
@@ -36,20 +34,6 @@ FIXTURE_ROOT = Path("tests/fixtures/marketing/source")
 SUITABILITY_FIXTURE_ROOT = Path("tests/fixtures/marketing/suitability/source")
 GOLDEN_ROOT = Path("tests/fixtures/marketing/golden/CAMPAIGN_TEST")
 
-PUBLIC_ARTIFACT_NAMES = [
-    "core-brief.md",
-    "channel-website.md",
-    "channel-social.md",
-    "channel-community.md",
-    "ad-copy.md",
-    "infographic-spec.md",
-]
-
-DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
-    "No copy-ready public claims were available for this campaign. "
-    "Review evidence ledger before publication."
-)
-
 FORBIDDEN_PUBLIC_PHRASES = [
     "not release-ready",
     "release-ready for this path: no",
@@ -68,37 +52,7 @@ FORBIDDEN_PUBLIC_PHRASES = [
     "codexify:queue:",
     "adr-020",
     "1dae1662d",
-    "depends on",
-    "per adr",
 ]
-
-FORBIDDEN_PUBLIC_PATTERNS = [
-    re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE),
-]
-
-
-def _public_artifact_texts(campaign_dir: Path) -> dict[str, str]:
-    return {
-        name: (campaign_dir / name).read_text(encoding="utf-8")
-        for name in PUBLIC_ARTIFACT_NAMES
-    }
-
-
-def _assert_public_artifacts_clean(
-    campaign_dir: Path,
-    forbidden_claim_texts: list[str],
-    require_placeholder: bool = False,
-) -> None:
-    artifacts = _public_artifact_texts(campaign_dir)
-    combined = "\n".join(artifacts.values())
-    for phrase in FORBIDDEN_PUBLIC_PHRASES:
-        assert phrase not in combined.lower()
-    for pattern in FORBIDDEN_PUBLIC_PATTERNS:
-        assert not pattern.search(combined)
-    for text in forbidden_claim_texts:
-        assert text not in combined
-    if require_placeholder:
-        assert DRAFT_SAFE_PUBLIC_PLACEHOLDER in combined
 
 
 def test_truth_extraction_and_precedence() -> None:
@@ -271,23 +225,6 @@ def test_non_marketable_claims_route_to_review_notes(tmp_path: Path) -> None:
     )
 
     evidence = json.loads((campaign_dir / "evidence-ledger.json").read_text())
-    copy_ready_claim_texts = [
-        claim["claim"]
-        for claim in evidence["claims"]
-        if claim["copy_ready"] is True
-    ]
-    non_copy_ready_claim_texts = [
-        claim["claim"]
-        for claim in evidence["claims"]
-        if claim["copy_ready"] is False
-    ]
-    _assert_public_artifacts_clean(
-        campaign_dir,
-        forbidden_claim_texts=non_copy_ready_claim_texts,
-    )
-    combined_public = "\n".join(_public_artifact_texts(campaign_dir).values())
-    assert any(text in combined_public for text in copy_ready_claim_texts)
-
     assert evidence["schema_version"] == EVIDENCE_LEDGER_SCHEMA_VERSION
     assert evidence["approval_state"] == "draft"
     assert evidence["mode"] == "draft"

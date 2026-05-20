@@ -19,9 +19,14 @@ class CodexEntry:
     thread_id: str | None = None
     source_thread_id: str | None = None
     source_message_id: str | None = None
+    trigger_message_id: str | None = None
     message_ids: list[str] = field(default_factory=list)
     lineage_missing: bool = False
     author_id: str | None = None
     heat_score: float | None = None
     body: str | None = None
     frontmatter: dict = field(default_factory=dict)
+    created_from: str | None = None
+    retrieval_enabled: bool = False
+    project_id: str | None = None
+    persona_id: str | None = None

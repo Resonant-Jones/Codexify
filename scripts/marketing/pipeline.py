@@ -43,11 +43,6 @@ ALLOWED_CANDIDATE_CLASSES = [
 
 EVIDENCE_LEDGER_SCHEMA_VERSION = "marketing_evidence_ledger.v2"
 
-DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
-    "No copy-ready public claims were available for this campaign. "
-    "Review evidence ledger before publication."
-)
-
 LIVE_PROVEN_MARKERS = [
     "live proof",
     "live-proven",
@@ -214,7 +209,6 @@ class Claim:
     candidate_class: str = CANDIDATE_MARKETABLE_CLAIM
     presentation_role: str = PRESENTATION_PUBLIC_COPY_SEED
     copy_ready: bool = True
-    public_message: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -637,10 +631,6 @@ def _supporting_evidence_claims(claims: list[Claim]) -> list[Claim]:
         if claim.presentation_role
         in {PRESENTATION_SUPPORTING_EVIDENCE, PRESENTATION_INTERNAL_ANCHOR}
     ]
-
-
-def _supporting_evidence_bullets(claims: list[Claim]) -> str:
-    supporting = _supporting_evidence_claims(claims)
     if not supporting:
         return "- none"
     counts = {
@@ -654,27 +644,6 @@ def _supporting_evidence_bullets(claims: list[Claim]) -> str:
         for role, count in counts.items()
         if count
     )
-
-
-def _public_copy_bullets(claims: list[Claim]) -> str:
-    if not claims:
-        return f"- {DRAFT_SAFE_PUBLIC_PLACEHOLDER}"
-    lines = []
-    for claim in claims:
-        lines.append(f"- [{claim.proof_tier}] {_public_copy_text(claim)}")
-    return "\n".join(lines)
-
-
-def _public_copy_sentence(claims: list[Claim]) -> str:
-    if not claims:
-        return DRAFT_SAFE_PUBLIC_PLACEHOLDER
-    return _public_copy_text(claims[0])
-
-
-def _draft_warning(public_copy_claims: list[Claim]) -> str:
-    if public_copy_claims:
-        return "- none"
-    return f"- {DRAFT_SAFE_PUBLIC_PLACEHOLDER}"
 
 
 def _claims_bullets_for_review(claims: list[Claim]) -> str:
@@ -953,25 +922,24 @@ def generate_marketing_artifacts(
     supporting_evidence_bullets = _supporting_evidence_bullets(
         marketable_claims
     )
-    public_copy_claims = _public_copy_claims(marketable_claims)
-    supporting_evidence_claims = _supporting_evidence_claims(marketable_claims)
-    public_copy_claims_bullets = _public_copy_bullets(public_copy_claims)
-    supporting_evidence_bullets = _supporting_evidence_bullets(
-        supporting_evidence_claims
+    draft_warning = (
+        "- approval_state: `draft`\n"
+        "- publish_gate: `manual`\n"
+        "- auto_publish: `disabled`"
     )
-    draft_warning = _draft_warning(public_copy_claims)
 
     assembled_channel_text: list[str] = []
     rendered_channels: dict[str, str] = {}
     channel_template = _load_template(source_root, "channel-variant.md")
     for channel in sorted(set(channel_list)):
         channel_claims = copy_ready_claims[:4]
-        channel_claims = public_copy_claims[:4]
         rendered = channel_template.format(
             channel=channel,
             hook=_channel_hook(channel),
             message=_channel_message(channel, channel_claims),
-            public_copy_claims_bullets=_public_copy_bullets(channel_claims),
+            public_copy_claims_bullets=_claims_bullets(
+                channel_claims, with_evidence=False
+            ),
             draft_warning=draft_warning,
         )
         enforce_banned_phrasing(rendered, contract.banned_phrases)
@@ -980,25 +948,18 @@ def generate_marketing_artifacts(
 
     ad_template = _load_template(source_root, "ad-copy.md")
     ad_claims = copy_ready_claims[:3]
-    ad_claims = public_copy_claims[:3]
     ad_rendered = ad_template.format(
         campaign_id=campaign_id,
         ad_headline_1="Build AI operations on evidence, not assumptions",
-        ad_body_1=_public_copy_sentence(ad_claims[:1])
-        if ad_claims
-        else DRAFT_SAFE_PUBLIC_PLACEHOLDER,
+        ad_body_1=f"Codexify tracks { _status_to_phrase(ad_claims[0].status) if ad_claims else 'implemented' } seams with source-linked claims.",
         ad_tier_1=ad_claims[0].proof_tier if ad_claims else STATUS_IMPLEMENTED,
         ad_headline_2="Local-first control with explicit policy surfaces",
-        ad_body_2=_public_copy_sentence(ad_claims[1:2])
-        if len(ad_claims) > 1
-        else DRAFT_SAFE_PUBLIC_PLACEHOLDER,
+        ad_body_2="Boundaries, failure visibility, and operator truth are treated as first-class engineering outcomes.",
         ad_tier_2=ad_claims[1].proof_tier
         if len(ad_claims) > 1
         else STATUS_IMPLEMENTED,
         ad_headline_3="Marketing copy that can be audited",
-        ad_body_3=_public_copy_sentence(ad_claims[2:3])
-        if len(ad_claims) > 2
-        else DRAFT_SAFE_PUBLIC_PLACEHOLDER,
+        ad_body_3="Every draft claim points to concrete artifacts in the repository.",
         ad_tier_3=ad_claims[2].proof_tier
         if len(ad_claims) > 2
         else STATUS_IMPLEMENTED,
@@ -1011,8 +972,6 @@ def generate_marketing_artifacts(
     data_points_bullets = "\n".join(
         f"- [{claim.proof_tier}] {claim.claim}" for claim in data_points
     )
-    data_points = public_copy_claims[:6]
-    data_points_bullets = _public_copy_bullets(data_points)
     infographic_rendered = infographic_template.format(
         campaign_id=campaign_id,
         infographic_purpose=(
@@ -1039,7 +998,6 @@ def generate_marketing_artifacts(
         positioning=positioning,
         core_narrative=core_narrative,
         claims_bullets=claims_bullets,
-        public_copy_claims_bullets=public_copy_claims_bullets,
         supporting_evidence_bullets=supporting_evidence_bullets,
         risk_flags_bullets="- pending-evaluation",
     )
@@ -1062,7 +1020,6 @@ def generate_marketing_artifacts(
         positioning=positioning,
         core_narrative=core_narrative,
         claims_bullets=claims_bullets,
-        public_copy_claims_bullets=public_copy_claims_bullets,
         supporting_evidence_bullets=supporting_evidence_bullets,
         risk_flags_bullets=_risk_flags_bullets(filtered_flags),
     )

@@ -1,4 +1,5 @@
-import { buildAuthenticatedFetchInit, resolveApiUrl } from "@/lib/api";
+import { buildAuthenticatedFetchInit } from "@/lib/api";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 
 export type HeartbeatStatusResponse = {
   latest_date: string | null;

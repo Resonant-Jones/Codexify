@@ -970,6 +970,10 @@ class ContextBroker:
         resolved_user_id = str(user_id or "").strip()
         if not resolved_user_id:
             raise ValueError("ContextBroker requires user_id")
+        memory_preselection_active = bool(enable_memory_preselection_active)
+        memory_preselection_enabled = bool(
+            enable_memory_preselection_trace or memory_preselection_active
+        )
         normalized_depth = str(depth_mode or depth or "normal").strip().lower()
         requested_source_mode = normalize_source_mode(source_mode)
         base_policy = derive_default_retrieval_policy(source_mode)
@@ -1172,6 +1176,9 @@ class ContextBroker:
                 "skipped",
                 0,
                 "skipped",
+            )
+            context["obsidian"] = self._filter_codex_entries(
+                context.get("obsidian", [])
             )
             return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
@@ -1394,6 +1401,7 @@ class ContextBroker:
 
         # Include memory search for deep and diagnostic modes
         memory_widen_reason = WIDEN_REASON_NONE
+        memory_preselection_trace: dict[str, Any] | None = None
         memory_trace: Dict[str, Any] = {
             "attempted": False,
             "status": "skipped",
@@ -1462,6 +1470,50 @@ class ContextBroker:
                     "boundary": source_mode_boundary,
                     "source_mode": normalized_source_mode,
                 }
+
+        memory_preselection_trace = _build_memory_preselection_trace(
+            enabled=memory_preselection_enabled,
+            active=memory_preselection_active,
+            query=query,
+            user_id=resolved_user_id,
+            project_id=resolved_project_id,
+            thread_id=thread_id,
+            persona_id=memory_preselection_persona_id,
+            identity_depth=memory_preselection_identity_depth,
+            include_diary_excluded=memory_preselection_include_diary_excluded,
+            memory_items=context.get("memory", []),
+            candidate_headers=memory_preselection_candidate_headers,
+        )
+        if (
+            memory_preselection_active
+            and memory_preselection_trace is not None
+            and isinstance(context.get("memory"), list)
+        ):
+            selected_candidate_ids = [
+                str(candidate_id).strip()
+                for candidate_id in memory_preselection_trace.get(
+                    "selected_candidate_ids", []
+                )
+                if str(candidate_id).strip()
+            ]
+            scoped_candidate_ids = selected_candidate_ids + [
+                str(entry.get("candidate_id") or "").strip()
+                for entry in memory_preselection_trace.get("suppressed", [])
+                if isinstance(entry, dict)
+                and str(entry.get("candidate_id") or "").strip()
+            ]
+            filtered_memory_items, active_influence, applied = (
+                _apply_memory_preselection_active_influence(
+                    context.get("memory", []),
+                    selected_candidate_ids=selected_candidate_ids,
+                    scoped_candidate_ids=scoped_candidate_ids,
+                )
+            )
+            if applied:
+                context["memory"] = filtered_memory_items
+            memory_preselection_trace["active_influence"] = active_influence
+            memory_preselection_trace["affected_retrieval"] = applied
+            memory_preselection_trace["affected_prompt_injection"] = applied
 
         # Include sensor snapshot for diagnostic mode only
         if normalized_depth == "diagnostic":
@@ -1689,6 +1741,20 @@ class ContextBroker:
             )
         except Exception:
             pass
+
+        # Apply codex entry retrieval exclusion before returning
+        context["semantic"] = self._filter_codex_entries(
+            context.get("semantic", [])
+        )
+        context["obsidian"] = self._filter_codex_entries(
+            context.get("obsidian", [])
+        )
+        if isinstance(context.get("docs"), dict):
+            context["docs"] = self._filter_codex_from_doc_buckets(context["docs"])
+        if "memory" in context:
+            context["memory"] = self._filter_codex_entries(
+                context.get("memory", [])
+            )
 
         return context, rag_trace
 
@@ -2367,6 +2433,52 @@ class ContextBroker:
         }:
             return 0
         return 1
+
+    @staticmethod
+    def _filter_codex_entries(
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Filter out codex entries with retrieval disabled.
+
+        Codex entries are excluded from retrieval by default unless
+        explicitly opted in via ``retrieval_enabled: true`` in their
+        frontmatter. This filter checks both top-level and nested
+        metadata fields.
+        """
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                filtered.append(item)
+                continue
+
+            source_type = str(item.get("source_type") or "").strip().lower()
+            if source_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                metadata = item.get("metadata")
+                if isinstance(metadata, dict):
+                    if retrieval_enabled is None:
+                        retrieval_enabled = metadata.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            doc_type = str(item.get("type") or "").strip().lower()
+            if doc_type == "codex_entry":
+                retrieval_enabled = item.get("retrieval_enabled")
+                if retrieval_enabled is not True:
+                    continue
+
+            filtered.append(item)
+        return filtered
+
+    @staticmethod
+    def _filter_codex_from_doc_buckets(
+        docs: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Apply codex entry filtering across all doc buckets."""
+        return {
+            key: ContextBroker._filter_codex_entries(value)
+            for key, value in docs.items()
+        }
 
     @classmethod
     def _sort_retrieval_items(
