@@ -78,6 +78,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [Codex Knowledge Compiler Contract](./codex-knowledge-compiler-contract.md): docs-only architecture contract for the reusable scoped knowledge-compilation pattern behind Codex Wiki / LLM Wiki / compiled project memory. It does not claim runtime implementation or release support and does not override `00-current-state.md`.
 - [Codexify Development Map v1](./codexify-development-map-v1.md): visual current-state orientation map for subsystem boundaries, dependency edges, data spine, UI/runtime separation, and development maturity posture. It is not a release promise and does not override `00-current-state.md`.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
