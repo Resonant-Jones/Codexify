@@ -1,6 +1,17 @@
 from pathlib import Path
 
 
+def _service_block(text: str, service: str) -> str:
+    marker = f"  {service}:\n"
+    start = text.index(marker) + len(marker)
+    block_lines: list[str] = []
+    for line in text[start:].splitlines(keepends=True):
+        if line.startswith("  ") and not line.startswith("    "):
+            break
+        block_lines.append(line)
+    return "".join(block_lines)
+
+
 def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> (
     None
 ):
@@ -24,7 +35,6 @@ def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> (
     ]
 
     assert compose_path.is_file()
-    assert "build:" not in text
     assert "\n      - ./" not in text
     assert "frontend:" not in text
     assert (
@@ -46,5 +56,45 @@ def test_packaged_registry_compose_contract_exists_and_avoids_bind_mounts() -> (
     assert 'command: ["worker-chat-embed"]' in text
     assert 'command: ["worker-warmup"]' in text
 
+    runtime_services = [
+        "migrator",
+        "model-prep",
+        "backend",
+        "worker-chat",
+        "worker-document-embed",
+        "worker-chat-embed",
+        "worker-warmup",
+    ]
+
+    for service in runtime_services:
+        block = _service_block(text, service)
+        assert "build:" not in block
+
     for marker in required_services:
         assert marker in text
+
+
+def test_packaged_registry_compose_dispatcher_services_require_runtime_entrypoint(
+) -> None:
+    compose_path = (
+        Path(__file__).resolve().parents[2] / "docker-compose.runtime.yml"
+    )
+    text = compose_path.read_text(encoding="utf-8")
+
+    dispatcher_services = [
+        "migrator",
+        "model-prep",
+        "backend",
+        "worker-chat",
+        "worker-document-embed",
+        "worker-chat-embed",
+        "worker-warmup",
+    ]
+
+    for service in dispatcher_services:
+        block = _service_block(text, service)
+        assert 'entrypoint: ["/app/runtime/codexify-runtime"]' in block
+
+    worker_coding_block = _service_block(text, "worker-coding")
+    assert 'entrypoint: ["/app/runtime/codexify-runtime"]' not in worker_coding_block
+    assert 'command: ["python", "-m", "guardian.workers.coding_worker"]' in worker_coding_block
