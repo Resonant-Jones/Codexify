@@ -39,7 +39,9 @@ class CodexEntrySuggestion:
 
 
 def _message_id(message: dict[str, Any]) -> str | int | None:
-    value = message.get("id") or message.get("message_id")
+    value = message.get("id")
+    if value is None:
+        value = message.get("message_id")
     if value in (None, ""):
         return None
     return value
