@@ -1,6 +1,11 @@
-Grounding note: this spec maps to the current queue-backed runtime and operator-truth doctrine. Critical Flows states that route acceptance means the turn lock was acquired and the task was enqueued, but it does not prove dequeue, eventual success, or UI receipt. Config/Ops also warns that catalog, health, supported profile, and provider registry must be read together because no single green endpoint proves the whole supported posture. Agent operations doctrine likewise says not to treat task acceptance as completion or route/catalog presence as proof of live support.
-
 # Synchronization and Operating Rhythm
+
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
+Grounding note: this spec maps to the current queue-backed runtime and operator-truth doctrine. In current architecture docs, Critical Flows says route acceptance means the turn lock was acquired and the task was enqueued, but not that dequeue, eventual success, or UI receipt has happened. Config/Ops also warns that catalog, health, supported profile, and provider registry must be read together because no single green endpoint proves the whole supported posture. Agent operations doctrine likewise treats task acceptance and route/catalog presence as insufficient proof of live support.
 
 ## Purpose
 
