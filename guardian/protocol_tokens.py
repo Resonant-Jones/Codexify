@@ -18,6 +18,15 @@ class ContextRequestStatus(str, Enum):
     FAILED = "failed"
 
 
+class CodexEntryCreatedFrom(str, Enum):
+    SLASH_COMMAND = "slash_command"
+    SEMANTIC_SUGGESTION = "semantic_suggestion"
+
+
+class CodexEntrySuggestionReason(str, Enum):
+    CAPTURE_LANGUAGE = "capture_language"
+
+
 class TaskEventType(str, Enum):
     TASK_CREATED = "task.created"
     TASK_COMPLETED = "task.completed"
@@ -277,6 +286,12 @@ ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
 CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
     {status.value for status in ContextRequestStatus}
 )
+CODEX_ENTRY_CREATED_FROM_VALUES: frozenset[str] = frozenset(
+    {source.value for source in CodexEntryCreatedFrom}
+)
+CODEX_ENTRY_SUGGESTION_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in CodexEntrySuggestionReason}
+)
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
@@ -373,6 +388,8 @@ IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
 __all__ = [
     "AcceptanceStatus",
     "ContextRequestStatus",
+    "CodexEntryCreatedFrom",
+    "CodexEntrySuggestionReason",
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
@@ -401,6 +418,8 @@ __all__ = [
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
+    "CODEX_ENTRY_CREATED_FROM_VALUES",
+    "CODEX_ENTRY_SUGGESTION_REASONS",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",

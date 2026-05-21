@@ -23,6 +23,8 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    CODEX_ENTRY_CREATED_FROM_VALUES,
+    CODEX_ENTRY_SUGGESTION_REASONS,
     CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
@@ -53,6 +55,8 @@ from guardian.protocol_tokens import (
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
     CampaignStatus,
+    CodexEntryCreatedFrom,
+    CodexEntrySuggestionReason,
     ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -98,6 +102,24 @@ def test_context_request_status_tokens() -> None:
         "no_results",
         "failed",
     }
+
+
+def test_codex_entry_created_from_tokens() -> None:
+    assert CodexEntryCreatedFrom.SLASH_COMMAND.value == "slash_command"
+    assert (
+        CodexEntryCreatedFrom.SEMANTIC_SUGGESTION.value == "semantic_suggestion"
+    )
+    assert CODEX_ENTRY_CREATED_FROM_VALUES == {
+        "slash_command",
+        "semantic_suggestion",
+    }
+
+
+def test_codex_entry_suggestion_reason_tokens() -> None:
+    assert (
+        CodexEntrySuggestionReason.CAPTURE_LANGUAGE.value == "capture_language"
+    )
+    assert CODEX_ENTRY_SUGGESTION_REASONS == {"capture_language"}
 
 
 def test_worktree_lease_contract_tokens() -> None:

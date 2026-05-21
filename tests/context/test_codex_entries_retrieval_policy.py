@@ -14,6 +14,13 @@ def test_codex_entries_with_retrieval_disabled_are_excluded():
             "text": "Drafted Codex Entry",
         },
         {
+            "id": "semantic-suggestion-disabled",
+            "source_type": "codex_entry",
+            "retrieval_enabled": False,
+            "created_from": "semantic_suggestion",
+            "text": "Saved semantic suggestion",
+        },
+        {
             "id": "codex-missing-flag",
             "source_type": "codex_entry",
             "metadata": {},

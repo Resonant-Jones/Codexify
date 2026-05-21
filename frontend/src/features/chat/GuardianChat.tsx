@@ -61,9 +61,11 @@ import {
 import { useMobileGestureState } from "@/hooks/useMobileGestureState";
 import {
   generateCodexDraft,
+  suggestCodexEntry,
   saveCodexEntry,
   downloadCodexDraftAsMarkdown,
   type CodexDraft,
+  type CodexSuggestion,
 } from "@/api/codex";
 import { setTrace } from "@/state/contextTrace";
 import PromptCostIndicator from "./components/PromptCostIndicator";
@@ -955,6 +957,10 @@ export function GuardianChat({
   const [composerShellReserve, setComposerShellReserve] = useState(160);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const [codexDraft, setCodexDraft] = useState<CodexDraft | null>(null);
+  const [codexSuggestion, setCodexSuggestion] =
+    useState<CodexSuggestion | null>(null);
+  const codexSuggestionSuppressionRef = useRef<Set<string>>(new Set());
+  const codexSuggestionPendingRef = useRef<string | null>(null);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const [voiceUploading, setVoiceUploading] = useState(false);
@@ -1845,6 +1851,8 @@ export function GuardianChat({
   // Clear codex draft on thread change
   useEffect(() => {
     setCodexDraft(null);
+    setCodexSuggestion(null);
+    codexSuggestionPendingRef.current = null;
   }, [effectiveThreadId]);
 
   useEffect(() => {
@@ -3029,6 +3037,7 @@ export function GuardianChat({
   const handleCodexDraftRequest = useCallback(
     async (threadId: number, triggerMessageId?: number | null) => {
       setCodexDraft(null); // clear any prior draft
+      setCodexSuggestion(null);
       try {
         const response = await generateCodexDraft(threadId, triggerMessageId);
         if (response.ok && response.draft) {
@@ -3051,8 +3060,10 @@ export function GuardianChat({
         source_message_id: draft.lineage.last_source_message_id,
         trigger_message_id: draft.lineage.trigger_message_id,
         message_ids: draft.lineage.source_message_ids,
-        created_from: "slash_command",
+        created_from: draft.created_from || "slash_command",
         retrieval_enabled: false,
+        project_id: draft.project_id ?? null,
+        persona_id: draft.persona_id ?? null,
       });
     },
     [],
@@ -3068,6 +3079,43 @@ export function GuardianChat({
   const handleCodexDraftDismiss = useCallback(() => {
     setCodexDraft(null);
   }, []);
+
+  const handleCodexSuggestionDismiss = useCallback(
+    (suggestion: CodexSuggestion) => {
+      codexSuggestionSuppressionRef.current.add(suggestion.suppressionKey);
+      setCodexSuggestion(null);
+    },
+    []
+  );
+
+  const handleCodexSuggestionDraft = useCallback(
+    async (suggestion: CodexSuggestion) => {
+      codexSuggestionSuppressionRef.current.add(suggestion.suppressionKey);
+      setCodexSuggestion(null);
+      const threadId = Number(suggestion.threadId);
+      if (!Number.isFinite(threadId)) return;
+      try {
+        const response = await generateCodexDraft(threadId, null, {
+          sourceMessageIds: suggestion.sourceMessageIds,
+          createdFrom: suggestion.createdFrom,
+          projectId:
+            suggestion.projectId != null ? Number(suggestion.projectId) : null,
+          personaId: suggestion.personaId,
+          semanticSuggestion: {
+            confidence: suggestion.confidence,
+            reason: suggestion.reason,
+            suppressionKey: suggestion.suppressionKey,
+          },
+        });
+        if (response.ok && response.draft) {
+          setCodexDraft(response.draft);
+        }
+      } catch (err) {
+        console.warn("[codex] semantic draft generation failed", err);
+      }
+    },
+    []
+  );
 
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
@@ -3329,6 +3377,59 @@ export function GuardianChat({
     inferenceRequest.state.threadId === numericThreadId
       ? inferenceRequest.state
       : createIdleInferenceRequestState();
+  useEffect(() => {
+    if (effectiveThreadId == null) return;
+    if (codexDraft || codexSuggestion) return;
+    if (completionState.isCompleting) return;
+    if (isActiveInferencePhase(composerInferenceState.phase)) return;
+    if (messages.length === 0) return;
+
+    const latestMessage = messages[messages.length - 1];
+    if (!latestMessage || latestMessage.role !== "assistant") return;
+    const signature = `${effectiveThreadId}:${latestMessage.id}:${messages.length}`;
+    if (codexSuggestionPendingRef.current === signature) return;
+    codexSuggestionPendingRef.current = signature;
+
+    const recentMessages = messages.slice(-8).map((message) => ({
+      id: message.id,
+      thread_id: message.thread_id,
+      role: message.role,
+      content: message.content,
+      created_at: message.created_at,
+    }));
+    const seenSuppressionKeys = Array.from(codexSuggestionSuppressionRef.current);
+
+    void (async () => {
+      try {
+        const response = await suggestCodexEntry({
+          threadId: effectiveThreadId,
+          recentMessages,
+          projectId: workspaceProjectId ?? null,
+          personaId: persistedThreadConfig?.personaId ?? null,
+          seenSuppressionKeys,
+        });
+        if (!response.suggested) return;
+        if (
+          codexSuggestionSuppressionRef.current.has(response.suppressionKey)
+        ) {
+          return;
+        }
+        codexSuggestionSuppressionRef.current.add(response.suppressionKey);
+        setCodexSuggestion(response);
+      } catch (err) {
+        console.warn("[codex] semantic suggestion check failed", err);
+      }
+    })();
+  }, [
+    codexDraft,
+    codexSuggestion,
+    completionState.isCompleting,
+    composerInferenceState.phase,
+    effectiveThreadId,
+    messages,
+    persistedThreadConfig?.personaId,
+    workspaceProjectId,
+  ]);
   const composerInferenceSnapshot = useMemo(
     () => describeInferenceRequestState(composerInferenceState),
     [composerInferenceState]
@@ -3942,6 +4043,9 @@ export function GuardianChat({
               onCodexDraftSave={handleCodexDraftSave}
               onCodexDraftDownload={handleCodexDraftDownload}
               onCodexDraftDismiss={handleCodexDraftDismiss}
+              codexSuggestion={codexSuggestion}
+              onCodexSuggestionDraft={handleCodexSuggestionDraft}
+              onCodexSuggestionDismiss={handleCodexSuggestionDismiss}
             />
           </div>
         ) : (

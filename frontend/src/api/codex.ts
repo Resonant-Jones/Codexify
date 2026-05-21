@@ -37,6 +37,11 @@ export type CodexDraft = {
   body: string;
   lineage: CodexDraftLineage;
   source_summary: string;
+  created_from?: "slash_command" | "semantic_suggestion" | string;
+  retrieval_enabled?: boolean;
+  project_id?: number | null;
+  persona_id?: string | null;
+  semantic_suggestion?: Record<string, unknown> | null;
 };
 
 export type CodexDraftResponse = {
@@ -76,6 +81,33 @@ export type CodexSaveResponse = {
   };
 };
 
+export type CodexSuggestRecentMessage = {
+  id?: number | string | null;
+  thread_id?: number | string | null;
+  role?: string | null;
+  content?: string | null;
+  created_at?: string | null;
+};
+
+export type CodexSuggestion = {
+  suggested: true;
+  confidence: number;
+  reason: string | null;
+  label: string;
+  sourceSummary: string;
+  sourceMessageIds: string[];
+  threadId: string;
+  projectId: string | null;
+  personaId: string | null;
+  createdFrom: "semantic_suggestion";
+  retrievalEnabled: false;
+  suppressionKey: string;
+};
+
+export type CodexSuggestionResponse =
+  | { suggested: false }
+  | CodexSuggestion;
+
 export async function listCodexEntries(): Promise<CodexEntrySummary[]> {
   try {
     const res = await api.get<CodexEntrySummary[]>("/codex/entries");
@@ -103,10 +135,39 @@ export async function getCodexEntry(id: string): Promise<CodexEntry> {
 export async function generateCodexDraft(
   threadId: number,
   triggerMessageId?: number | null,
+  options?: {
+    sourceMessageIds?: Array<number | string>;
+    createdFrom?: string | null;
+    projectId?: number | null;
+    personaId?: string | null;
+    semanticSuggestion?: Record<string, unknown> | null;
+  },
 ): Promise<CodexDraftResponse> {
   const res = await api.post<CodexDraftResponse>("/codex/entries/draft", {
     thread_id: threadId,
     trigger_message_id: triggerMessageId ?? null,
+    source_message_ids: options?.sourceMessageIds?.map((id) => Number(id)) ?? null,
+    created_from: options?.createdFrom ?? null,
+    project_id: options?.projectId ?? null,
+    persona_id: options?.personaId ?? null,
+    semantic_suggestion: options?.semanticSuggestion ?? null,
+  });
+  return res.data;
+}
+
+export async function suggestCodexEntry(payload: {
+  threadId: number;
+  recentMessages?: CodexSuggestRecentMessage[];
+  projectId?: number | null;
+  personaId?: string | null;
+  seenSuppressionKeys?: string[];
+}): Promise<CodexSuggestionResponse> {
+  const res = await api.post<CodexSuggestionResponse>("/codex/entries/suggest", {
+    threadId: payload.threadId,
+    recentMessages: payload.recentMessages ?? [],
+    projectId: payload.projectId ?? null,
+    personaId: payload.personaId ?? null,
+    seenSuppressionKeys: payload.seenSuppressionKeys ?? [],
   });
   return res.data;
 }
@@ -127,11 +188,12 @@ export function getCodexExportUrl(id: string): string {
 }
 
 export function downloadCodexDraftAsMarkdown(draft: CodexDraft): void {
+  const createdFrom = draft.created_from || "slash_command";
   const frontmatter = [
     "---",
     `title: ${draft.title}`,
     `thread_id: ${draft.lineage.thread_id}`,
-    `created_from: slash_command`,
+    `created_from: ${createdFrom}`,
     `retrieval_enabled: false`,
     "---",
     "",

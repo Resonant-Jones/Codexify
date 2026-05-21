@@ -61,6 +61,8 @@ export function CodexDraftCard({
     onDownload(draft);
   }, [draft, onDownload]);
 
+  const isSemanticSuggestion = draft.created_from === "semantic_suggestion";
+
   return (
     <div
       data-testid="codex-draft-card"
@@ -95,6 +97,19 @@ export function CodexDraftCard({
           >
             Draft
           </span>
+          {isSemanticSuggestion ? (
+            <span
+              data-testid="codex-draft-origin"
+              className="text-xs px-2 py-0.5 rounded-full"
+              style={{
+                background:
+                  "color-mix(in oklab, rgb(14 165 233) 16%, transparent)",
+                color: "rgb(14 165 233)",
+              }}
+            >
+              Suggested
+            </span>
+          ) : null}
           {saved ? (
             <span
               className="text-xs px-2 py-0.5 rounded-full ml-auto"

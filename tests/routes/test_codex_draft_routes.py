@@ -262,6 +262,56 @@ def test_draft_empty_thread_returns_no_context(monkeypatch, tmp_path):
     assert payload["reason"] == "no_context"
 
 
+def test_draft_accepts_semantic_suggestion_lineage(monkeypatch, tmp_path):
+    """Semantic suggestions can draft from an explicit bounded source range."""
+    codex_root = tmp_path / "codex"
+    codex_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
+
+    _seed_chatlog(
+        monkeypatch,
+        tmp_path,
+        thread_id=50,
+        messages=[
+            {
+                "id": 70,
+                "role": "assistant",
+                "content": "Use capability envelopes instead of ambient permissions.",
+            },
+            {"id": 71, "role": "user", "content": "Capture this."},
+        ],
+    )
+
+    client = TestClient(_make_app())
+    response = client.post(
+        "/api/codex/entries/draft",
+        json={
+            "thread_id": 50,
+            "source_message_ids": [70],
+            "created_from": "semantic_suggestion",
+            "project_id": 9,
+            "persona_id": "operator",
+            "semantic_suggestion": {"reason": "capture_language"},
+        },
+        headers=API_HEADERS,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    draft = payload["draft"]
+    assert draft is not None
+    assert "capability envelopes" in draft["body"]
+    assert "Capture this" not in draft["body"]
+    assert draft["created_from"] == "semantic_suggestion"
+    assert draft["retrieval_enabled"] is False
+    assert draft["project_id"] == 9
+    assert draft["persona_id"] == "operator"
+    assert draft["semantic_suggestion"] == {"reason": "capture_language"}
+    assert draft["lineage"]["trigger_message_id"] is None
+    assert draft["lineage"]["source_message_ids"] == [70]
+
+
 # ---------------------------------------------------------------------------
 # Save endpoint tests
 # ---------------------------------------------------------------------------
@@ -389,3 +439,38 @@ def test_save_trigger_separate_from_source(monkeypatch, tmp_path):
     content = cdx_files[0].read_text(encoding="utf-8")
     assert "source_message_id" in content
     assert "trigger_message_id" in content
+
+
+def test_save_persists_semantic_suggestion_created_from(monkeypatch, tmp_path):
+    """Semantic-suggestion drafts save through the existing Codex save seam."""
+    codex_root = tmp_path / "codex"
+    codex_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(codex_service, "CODEX_ROOT", codex_root)
+
+    client = TestClient(_make_app())
+    response = client.post(
+        "/api/codex/entries",
+        json={
+            "title": "Semantic Suggestion",
+            "body": "Reusable pattern body",
+            "thread_id": 60,
+            "source_thread_id": 60,
+            "source_message_id": 80,
+            "message_ids": [80],
+            "created_from": "semantic_suggestion",
+            "retrieval_enabled": False,
+        },
+        headers=API_HEADERS,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entry"]["created_from"] == "semantic_suggestion"
+    assert payload["entry"]["retrieval_enabled"] is False
+    assert payload["entry"]["source_message_id"] == "80"
+
+    cdx_files = list(codex_root.glob("**/*.cdx"))
+    assert len(cdx_files) == 1
+    content = cdx_files[0].read_text(encoding="utf-8")
+    assert "created_from: semantic_suggestion" in content
+    assert "retrieval_enabled: false" in content

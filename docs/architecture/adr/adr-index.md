@@ -65,6 +65,7 @@ Use this note as the local map for all ADRs.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
+28. [[030-codex-entry-semantic-suggestion-flow|ADR-030 Codex Entry Semantic Suggestion Flow]] — advisory chat-local semantic suggestions for Codex Entry drafts, with user-confirmed save, bounded suppression, lineage preservation, and default retrieval exclusion.
 
 ---
 
@@ -370,6 +371,15 @@ Primary companion notes:
   * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[00-current-state]]
+
+* [[030-codex-entry-semantic-suggestion-flow|ADR-030 Codex Entry Semantic Suggestion Flow]] links to:
+
+  * [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
   * [[00-current-state]]
 ---
 

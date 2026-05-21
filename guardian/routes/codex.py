@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from guardian.codex.lineage import ensure_lineage_exists, parse_lineage
+from guardian.codex.semantic_suggestions import evaluate_codex_entry_suggestion
 from guardian.codex.service import (
     list_codex_entries,
     load_codex_entry,
@@ -14,6 +15,7 @@ from guardian.codex.service import (
     read_raw_entry,
     save_codex_entry,
 )
+from guardian.protocol_tokens import CodexEntryCreatedFrom
 
 try:
     from guardian.core.dependencies import (
@@ -219,6 +221,7 @@ async def export_codex_entry(
 # Save and Draft endpoints
 # ---------------------------------------------------------------------------
 
+
 class CodexEntrySaveRequest(BaseModel):
     title: str
     body: str
@@ -237,6 +240,24 @@ class CodexEntrySaveRequest(BaseModel):
 class CodexDraftRequest(BaseModel):
     thread_id: int
     trigger_message_id: int | None = None
+    source_message_ids: list[int] | None = None
+    created_from: str | None = None
+    project_id: int | None = None
+    persona_id: str | None = None
+    semantic_suggestion: dict[str, Any] | None = None
+
+
+class CodexSuggestionRequest(BaseModel):
+    thread_id: int | None = None
+    threadId: int | None = None
+    recent_messages: list[dict[str, Any]] | None = None
+    recentMessages: list[dict[str, Any]] | None = None
+    project_id: int | None = None
+    projectId: int | None = None
+    persona_id: str | None = None
+    personaId: str | None = None
+    seen_suppression_keys: list[str] | None = None
+    seenSuppressionKeys: list[str] | None = None
 
 
 @router.post("/api/codex/entries", tags=["codex"])
@@ -251,12 +272,21 @@ async def save_codex_entry_route(
             title=body.title,
             body=body.body,
             thread_id=str(body.thread_id) if body.thread_id else None,
-            source_thread_id=str(body.source_thread_id) if body.source_thread_id else None,
-            source_message_id=str(body.source_message_id) if body.source_message_id else None,
-            trigger_message_id=str(body.trigger_message_id) if body.trigger_message_id else None,
-            message_ids=[str(m) for m in body.message_ids] if body.message_ids else None,
+            source_thread_id=str(body.source_thread_id)
+            if body.source_thread_id
+            else None,
+            source_message_id=str(body.source_message_id)
+            if body.source_message_id
+            else None,
+            trigger_message_id=str(body.trigger_message_id)
+            if body.trigger_message_id
+            else None,
+            message_ids=[str(m) for m in body.message_ids]
+            if body.message_ids
+            else None,
             author_id=body.author_id,
-            created_from=body.created_from or "slash_command",
+            created_from=body.created_from
+            or CodexEntryCreatedFrom.SLASH_COMMAND.value,
             retrieval_enabled=body.retrieval_enabled,
             project_id=str(body.project_id) if body.project_id else None,
             persona_id=body.persona_id,
@@ -295,15 +325,23 @@ async def generate_codex_draft(
     _ = api_key
     thread_id = body.thread_id
     trigger_message_id = body.trigger_message_id
+    source_message_ids = body.source_message_ids or []
+    created_from = (
+        body.created_from or CodexEntryCreatedFrom.SLASH_COMMAND.value
+    )
 
     if chatlog_db is None:
-        raise HTTPException(status_code=503, detail="Chat log backend unavailable")
+        raise HTTPException(
+            status_code=503, detail="Chat log backend unavailable"
+        )
 
     # Fetch recent messages from the thread
     try:
         items = chatlog_db.list_messages(thread_id, limit=50, offset=0)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch thread messages: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch thread messages: {e}"
+        )
 
     if not items:
         return {
@@ -319,9 +357,33 @@ async def generate_codex_draft(
     except Exception:
         pass
 
+    # Semantic suggestions pass a bounded source range directly. Command-first
+    # drafts keep using the trigger message as the source boundary.
+    explicit_source_ids = {
+        mid
+        for mid in (_coerce_thread_id(value) for value in source_message_ids)
+        if mid is not None
+    }
+    if explicit_source_ids:
+        prior_items = [
+            item
+            for item in items
+            if _coerce_thread_id(item.get("id")) in explicit_source_ids
+        ]
+        trigger_mid = (
+            _coerce_thread_id(trigger_message_id)
+            if trigger_message_id is not None
+            else None
+        )
+    else:
+        prior_items = []
+        trigger_mid = None
+
     # Find the trigger message
     trigger_idx: int | None = None
-    if trigger_message_id is not None:
+    if explicit_source_ids:
+        trigger_idx = None
+    elif trigger_message_id is not None:
         for idx, item in enumerate(items):
             mid = _coerce_thread_id(item.get("id"))
             if mid == trigger_message_id:
@@ -331,7 +393,7 @@ async def generate_codex_draft(
         # If no trigger specified, the last message is the trigger
         trigger_idx = len(items) - 1
 
-    if trigger_idx is None:
+    if not explicit_source_ids and trigger_idx is None:
         return {
             "ok": True,
             "draft": None,
@@ -340,18 +402,20 @@ async def generate_codex_draft(
         }
 
     # Source context: messages *before* the trigger, excluding the trigger
-    prior_items = items[:trigger_idx]
+    if not explicit_source_ids:
+        prior_items = items[:trigger_idx]
     if not prior_items:
         return {
             "ok": True,
             "draft": None,
             "reason": "empty_source",
             "detail": "No prior messages available to generate a draft from. "
-                       "Send at least one message before invoking /codex_entry.",
+            "Send at least one message before invoking /codex_entry.",
         }
 
-    trigger_item = items[trigger_idx]
-    trigger_mid = _coerce_thread_id(trigger_item.get("id"))
+    if not explicit_source_ids:
+        trigger_item = items[trigger_idx]
+        trigger_mid = _coerce_thread_id(trigger_item.get("id"))
 
     # Collect source message IDs
     source_message_ids: list[int] = []
@@ -381,7 +445,9 @@ async def generate_codex_draft(
     draft_body = _assemble_draft_body(source_bodies)
 
     # Derive first and last source message IDs for the range
-    first_source_mid = source_message_ids[0] if source_message_ids else last_source_mid
+    first_source_mid = (
+        source_message_ids[0] if source_message_ids else last_source_mid
+    )
 
     return {
         "ok": True,
@@ -396,7 +462,79 @@ async def generate_codex_draft(
                 "last_source_message_id": last_source_mid,
             },
             "source_summary": _derive_source_summary(prior_items),
+            "created_from": created_from,
+            "retrieval_enabled": False,
+            "project_id": body.project_id,
+            "persona_id": body.persona_id,
+            "semantic_suggestion": body.semantic_suggestion,
         },
+    }
+
+
+@router.post("/api/codex/entries/suggest", tags=["codex"])
+async def suggest_codex_entry(
+    body: CodexSuggestionRequest,
+    api_key: str = Depends(require_api_key),
+) -> dict:
+    """Return an advisory Codex Entry suggestion without persistence."""
+    _ = api_key
+    thread_id = body.thread_id if body.thread_id is not None else body.threadId
+    if thread_id is None:
+        raise HTTPException(status_code=422, detail="threadId is required")
+
+    recent_messages = (
+        body.recent_messages
+        if body.recent_messages is not None
+        else body.recentMessages
+    )
+    if recent_messages is None:
+        if chatlog_db is None:
+            raise HTTPException(
+                status_code=503, detail="Chat log backend unavailable"
+            )
+        try:
+            recent_messages = chatlog_db.list_messages(
+                thread_id, limit=12, offset=0
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to fetch thread messages: {e}"
+            )
+
+    project_id = (
+        body.project_id if body.project_id is not None else body.projectId
+    )
+    persona_id = (
+        body.persona_id if body.persona_id is not None else body.personaId
+    )
+    suggestion = evaluate_codex_entry_suggestion(
+        thread_id=thread_id,
+        recent_messages=recent_messages,
+        project_id=project_id,
+        persona_id=persona_id,
+    )
+    if not suggestion.should_suggest:
+        return {"suggested": False}
+
+    seen_keys = set(
+        body.seen_suppression_keys or body.seenSuppressionKeys or []
+    )
+    if suggestion.suppression_key in seen_keys:
+        return {"suggested": False}
+
+    return {
+        "suggested": True,
+        "confidence": suggestion.confidence,
+        "reason": suggestion.reason,
+        "label": "Codex Entry",
+        "sourceSummary": suggestion.source_summary,
+        "sourceMessageIds": [str(mid) for mid in suggestion.source_message_ids],
+        "threadId": str(thread_id),
+        "projectId": str(project_id) if project_id is not None else None,
+        "personaId": persona_id,
+        "createdFrom": CodexEntryCreatedFrom.SEMANTIC_SUGGESTION.value,
+        "retrievalEnabled": False,
+        "suppressionKey": suggestion.suppression_key,
     }
 
 
