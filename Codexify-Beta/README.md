@@ -1,10 +1,10 @@
 # Codexify Beta Handoff Bundle
 
-This folder is the small public-pull beta handoff for the browser UI.
+This folder is the small public handoff bundle for the browser UI.
 
 If you received the bundle as a zip, unzip it first and work from the extracted `Codexify-Beta/` folder.
 
-It uses the same local backend runtime as the macOS desktop path, but it opens in a browser instead of the Tauri shell.
+It uses the same local backend runtime as the desktop path, but this bundle opens in a browser instead of the Tauri shell.
 
 It is local Docker only.
 It is not cloud hosting.

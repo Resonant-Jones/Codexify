@@ -81,7 +81,6 @@ Only `marketable_claim` candidates with `presentation_role: "public_copy_seed"` 
 
 Evidence-backed blocker/failure/task-log lines must be preserved for audit, but must not appear in public-facing channel copy.
 Evidence-backed implementation breadcrumbs such as commit hashes, task IDs, file paths, queue names, and ADR dependency fragments may remain in the ledger as evidence, but must not appear verbatim in public-facing channel copy.
-Public rendered artifacts must consume filtered `public_copy_claims`, not raw `marketable_claims`.
 
 ## Risk Flags
 

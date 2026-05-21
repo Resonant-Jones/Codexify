@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -46,24 +46,6 @@ def existing_path(candidates: tuple[str, ...] | list[str]) -> Path | None:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
-
-
-def run_git(args: list[str]) -> str:
-    import subprocess
-
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip() or "unknown git error"
-        raise RuntimeError(f"git {' '.join(args)} failed: {stderr}")
-    return completed.stdout
 
 
 def contains_patterns(
@@ -813,14 +795,19 @@ def report_to_dict(report: DomainReport) -> dict[str, object]:
     return {
         "name": report.name,
         "suggested_score": report.suggested_score,
-        "counts": {
-            "pass": report.count("PASS"),
-            "warn": report.count("WARN"),
-            "fail": report.count("FAIL"),
-        },
         "summary": report.summary,
         "manual_prompts": report.manual_prompts,
-        "checks": [asdict(check) for check in report.checks],
+        "checks": [
+            {
+                "status": check.status,
+                "label": check.label,
+                "evidence": check.evidence,
+            }
+            for check in report.checks
+        ],
+        "pass_count": report.count("PASS"),
+        "warn_count": report.count("WARN"),
+        "fail_count": report.count("FAIL"),
     }
 
 
@@ -847,7 +834,6 @@ def collect_repo_metadata() -> dict[str, object]:
     except RuntimeError as exc:
         if not status_error:
             status_error = str(exc)
-
     return {
         "branch": branch,
         "head": head,
@@ -858,7 +844,6 @@ def collect_repo_metadata() -> dict[str, object]:
 
 
 def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
-    summary = build_summary(reports)
     warnings = [
         {
             "domain": report.name,
@@ -882,14 +867,9 @@ def build_json_payload(reports: list[DomainReport]) -> dict[str, object]:
 
     return {
         "mode": "json",
-        "repo": collect_repo_metadata(),
         "repo_root_relative": ".",
-        "summary": {
-            **summary,
-            "strongest_domains": strongest_domains(reports),
-            "weakest_domains": weakest_domains(reports),
-            "overall_status": "pass" if summary["fail"] == 0 else "fail",
-        },
+        "repo": collect_repo_metadata(),
+        "summary": build_summary(reports),
         "strongest_domains": strongest_domains(reports),
         "weakest_domains": weakest_domains(reports),
         "domains": [report_to_dict(report) for report in reports],
@@ -944,7 +924,7 @@ def render_json_report(reports: list[DomainReport]) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Audit Codexify platform readiness from repo-local evidence."
+        description="Run the Codexify platform readiness audit."
     )
     parser.add_argument(
         "--json",

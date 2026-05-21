@@ -13,13 +13,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.utils import get_test_user_id
+from tests.utils import get_test_auth_headers, get_test_user_id
 
 # Set environment variables early to avoid /app/media creation and startup issues
 os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("ENABLE_BLIP_MODEL", "false")
 os.environ.setdefault("GUARDIAN_ENABLE_MONDREAM", "0")
 os.environ.setdefault("ENABLE_CONNECTOR_WORKER", "0")
+os.environ["GUARDIAN_API_KEY"] = "test-api-key"
+os.environ["GUARDIAN_AUTH_MODE"] = "local"
+os.environ["GUARDIAN_EXPOSURE_MODE"] = "local_safe"
+os.environ["CODEXIFY_MULTI_USER_ENABLED"] = "false"
+os.environ["CODEXIFY_BETA_CORE_ONLY"] = "0"
 
 
 @pytest.fixture
@@ -162,7 +167,7 @@ def mock_db():
 @pytest.fixture
 def mock_auth():
     """Mock authentication dependency."""
-    return "test-api-key"
+    return get_test_auth_headers()["X-API-Key"]
 
 
 @pytest.fixture
@@ -242,7 +247,10 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
                                     get_request_user_id
                                 ] = get_test_user_id
 
-                                client = TestClient(app)
+                                mock_auth_headers = get_test_auth_headers()
+                                client = TestClient(
+                                    app, headers=mock_auth_headers
+                                )
                                 yield client
 
                                 # Clean up dependency override
@@ -260,4 +268,4 @@ def mock_event_bus():
 @pytest.fixture
 def api_headers():
     """Return headers with API key for authenticated requests."""
-    return {"X-API-Key": "test-api-key"}
+    return get_test_auth_headers()

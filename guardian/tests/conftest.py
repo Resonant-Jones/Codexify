@@ -12,8 +12,12 @@ def _internet():
         return False
 
 
-# Ensure auth-dependent tests have a configured API key.
-os.environ.setdefault("GUARDIAN_API_KEY", "test-key")
+# Ensure auth-dependent tests have a configured local auth posture.
+os.environ["GUARDIAN_API_KEY"] = "test-api-key"
+os.environ["GUARDIAN_AUTH_MODE"] = "local"
+os.environ["GUARDIAN_EXPOSURE_MODE"] = "local_safe"
+os.environ["CODEXIFY_MULTI_USER_ENABLED"] = "false"
+os.environ["CODEXIFY_BETA_CORE_ONLY"] = "0"
 
 pytestmark = pytest.mark.skipif(
     not _internet() or not os.getenv("ALLOW_NET_TESTS"),
