@@ -361,7 +361,7 @@ services:
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
     restart: unless-stopped
-    command: ["python", "-m", "guardian.workers.coding_worker"]
+    command: ["-m", "guardian.workers.coding_worker"]
 
   worker-document-embed:
     image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
