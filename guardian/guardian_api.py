@@ -502,7 +502,6 @@ from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
-from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import (
     delegations,
     devtools,
@@ -510,9 +509,9 @@ from guardian.routes import (
     embeddings,
     federation,
     health,
-    memory,
-    migration,
 )
+from guardian.routes import heartbeat as heartbeat_routes
+from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
 from guardian.routes import obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
@@ -955,6 +954,11 @@ media_storage_path = ensure_storage_base_path().resolve()
 logger.info("[media] Signed media delivery enabled from %s", media_storage_path)
 
 
+def _include_personal_facts_router() -> None:
+    app.include_router(personal_facts_router)
+    app.include_router(personal_facts_router, prefix="/api")
+
+
 # =========================
 # Router Inclusion
 # =========================
@@ -1066,7 +1070,7 @@ _include_router(
 _include_router(
     label="personal_facts",
     flag_name="CODEXIFY_ENABLE_PERSONAL_FACTS_ROUTES",
-    include_fn=lambda: app.include_router(personal_facts_router),
+    include_fn=_include_personal_facts_router,
 )
 _include_router(
     label="persona_profiles",

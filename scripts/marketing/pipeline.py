@@ -43,11 +43,6 @@ ALLOWED_CANDIDATE_CLASSES = [
 
 EVIDENCE_LEDGER_SCHEMA_VERSION = "marketing_evidence_ledger.v2"
 
-DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
-    "No copy-ready public claims were available for this campaign. "
-    "Review evidence ledger before publication."
-)
-
 LIVE_PROVEN_MARKERS = [
     "live proof",
     "live-proven",
@@ -101,6 +96,11 @@ DEFAULT_CHANNELS = ["website", "social", "community"]
 AUDIENCE_LABELS = {
     "local-first-builders": "Local-First AI Builders",
 }
+
+DRAFT_SAFE_PUBLIC_PLACEHOLDER = (
+    "No copy-ready public claims were available for this campaign. "
+    "Review evidence ledger before publication."
+)
 
 STATUS_RANK = {
     STATUS_IMPLEMENTED: 0,
@@ -214,7 +214,6 @@ class Claim:
     candidate_class: str = CANDIDATE_MARKETABLE_CLAIM
     presentation_role: str = PRESENTATION_PUBLIC_COPY_SEED
     copy_ready: bool = True
-    public_message: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -367,7 +366,6 @@ def classify_claim_candidate(text: str) -> str:
 
 
 def _looks_like_implementation_breadcrumb(text: str) -> bool:
-    return any(pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS)
     return any(
         pattern.search(text) for pattern in IMPLEMENTATION_BREADCRUMB_PATTERNS
     )
@@ -609,6 +607,9 @@ def _claims_bullets(claims: list[Claim], with_evidence: bool = True) -> str:
 
 
 def _copy_ready_claims(claims: list[Claim]) -> list[Claim]:
+    return [claim for claim in claims if claim.copy_ready]
+
+
 def _public_copy_text(claim: Claim) -> str:
     public_message = getattr(claim, "public_message", None)
     if isinstance(public_message, str) and public_message.strip():
@@ -625,8 +626,7 @@ def _public_copy_claims(claims: list[Claim]) -> list[Claim]:
     ]
 
 
-def _supporting_evidence_bullets(claims: list[Claim]) -> str:
-    supporting = [
+
 def _supporting_evidence_claims(claims: list[Claim]) -> list[Claim]:
     return [
         claim
@@ -942,15 +942,12 @@ def generate_marketing_artifacts(
 
     core_template = _load_template(source_root, "core-brief.md")
     copy_ready_claims = _copy_ready_claims(marketable_claims)
-    if not copy_ready_claims:
-        raise ValueError(
-            "No copy-ready public claims remained after presentation-role classification"
-        )
-    claims_bullets = _claims_bullets(copy_ready_claims)
-    supporting_evidence_bullets = _supporting_evidence_bullets(
-        marketable_claims
-    )
     public_copy_claims = _public_copy_claims(marketable_claims)
+    claims_bullets = (
+        _claims_bullets(copy_ready_claims)
+        if copy_ready_claims
+        else f"- {DRAFT_SAFE_PUBLIC_PLACEHOLDER}"
+    )
     supporting_evidence_claims = _supporting_evidence_claims(marketable_claims)
     public_copy_claims_bullets = _public_copy_bullets(public_copy_claims)
     supporting_evidence_bullets = _supporting_evidence_bullets(
@@ -962,7 +959,6 @@ def generate_marketing_artifacts(
     rendered_channels: dict[str, str] = {}
     channel_template = _load_template(source_root, "channel-variant.md")
     for channel in sorted(set(channel_list)):
-        channel_claims = copy_ready_claims[:4]
         channel_claims = public_copy_claims[:4]
         rendered = channel_template.format(
             channel=channel,
@@ -976,7 +972,6 @@ def generate_marketing_artifacts(
         assembled_channel_text.append(rendered)
 
     ad_template = _load_template(source_root, "ad-copy.md")
-    ad_claims = copy_ready_claims[:3]
     ad_claims = public_copy_claims[:3]
     ad_rendered = ad_template.format(
         campaign_id=campaign_id,
@@ -1004,10 +999,6 @@ def generate_marketing_artifacts(
     enforce_banned_phrasing(ad_rendered, contract.banned_phrases)
 
     infographic_template = _load_template(source_root, "infographic.md")
-    data_points = copy_ready_claims[:6]
-    data_points_bullets = "\n".join(
-        f"- [{claim.proof_tier}] {claim.claim}" for claim in data_points
-    )
     data_points = public_copy_claims[:6]
     data_points_bullets = _public_copy_bullets(data_points)
     infographic_rendered = infographic_template.format(

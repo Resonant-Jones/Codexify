@@ -2489,7 +2489,6 @@ class CodingWorker:
                 require_human_review_before_merge=(
                     require_human_review_before_merge
                 ),
-                worktree=normalized_worktree,
                 patch_artifact=patch_artifact_metadata,
             )
             return

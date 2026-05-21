@@ -1,0 +1,66 @@
+{
+  "review_packet_id": "review_packet_plumbing_three_handle_drip_001",
+  "job_profile_id": "jp_fixture_plumbing_three_handle_drip_001",
+  "requires_review": true,
+  "attention_fields": [
+    "request.known_equipment",
+    "classification.confidence",
+    "site.access_notes",
+    "policy_questions.items",
+    "scheduling.preference"
+  ],
+  "missing_information": [
+    "fixture brand confirmation",
+    "full service address placeholder",
+    "onsite contact method placeholder",
+    "access panel usability verification"
+  ],
+  "low_confidence_fields": [
+    "classification.category",
+    "classification.confidence",
+    "scheduling.preference"
+  ],
+  "policy_questions": [
+    {
+      "topic": "diagnostic_fee",
+      "review_note": "Customer asked about diagnostic fee. Pricing is not committed."
+    },
+    {
+      "topic": "general_pricing_expectation",
+      "review_note": "Customer asked about general pricing expectations. No price quote or pricing commitment should be inferred."
+    }
+  ],
+  "human_action_recommendation": "review_and_edit_before_confirmation",
+  "field_review_notes": [
+    {
+      "field_path": "request.known_equipment",
+      "note": "Brand remains unknown and should stay unknown until a human confirms it."
+    },
+    {
+      "field_path": "classification.confidence",
+      "note": "Service category confidence is planning-only and should remain reviewable before any operational use."
+    },
+    {
+      "field_path": "site.access_notes",
+      "note": "Confirm that the reported access panel is usable and note any technician constraints."
+    },
+    {
+      "field_path": "policy_questions.items",
+      "note": "Keep diagnostic fee and pricing questions separate from diagnosis and repair details; pricing is not committed."
+    },
+    {
+      "field_path": "scheduling.preference",
+      "note": "Treat the 1:00 PM request as a preference only; it is not dispatch confirmation."
+    }
+  ],
+  "lineage": {
+    "source_interaction_id": "synthetic_interaction_plumbing_three_handle_drip_001",
+    "source_artifact_id": "fixture_plumbing_three_handle_drip_v1",
+    "job_profile_id": "jp_fixture_plumbing_three_handle_drip_001"
+  },
+  "metadata": {
+    "created_at": "2026-05-20T14:00:00Z",
+    "planning_contract_version": "draft_v1",
+    "synthetic_only": true
+  }
+}
