@@ -1,5 +1,5 @@
 Purpose: define Guardian's future retrieval navigation doctrine as a planning-only layer that learns where relevant meaning tends to live before broader retrieval. This note does not describe current runtime support and does not widen the supported beta promise.
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 Source anchors:
 - docs/architecture/00-current-state.md
 - docs/architecture/router-decision-table.md
@@ -20,18 +20,27 @@ Source anchors:
 - It does not enable graph writes, adaptive mutation, runtime route priors, or retrieval-router execution changes.
 - No new ADR is required for this docs-only note.
 - Governing ADRs in the current index are:
-  - `ADR-004 Retrieval Policy as Control Plane`
-  - `ADR-005 Runtime Mode and Account Boundary Invariants`
-  - `ADR-005 Imprint UI Deprecation and Identity Ownership`
-  - `ADR-007 Memory Graph Derived Write Hook`
-  - `ADR-010 Self-Extending Agent Plugin System`
-  - `ADR-015 Continuity Engine Working Set and Decay Contract`
-  - `ADR-016 Continuity Governance Surface Contract`
-  - `ADR-017 Graph Write Idempotency and Receipt Semantics`
-  - `ADR-019 Graph Backend Adapter Contract`
-  - `ADR-024 Context Command and Active Connector Semantics`
-  - `ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default`
-  - `ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path`
+  - Retrieval policy:
+    - `ADR-004 Retrieval Policy as Control Plane`
+  - Continuity governance:
+    - `ADR-015 Continuity Engine Working Set and Decay Contract`
+    - `ADR-016 Continuity Governance Surface Contract`
+  - Identity boundaries:
+    - `ADR-005 Runtime Mode and Account Boundary Invariants`
+    - `ADR-005 Imprint UI Deprecation and Identity Ownership`
+  - Graph-write boundaries:
+    - `ADR-007 Memory Graph Derived Write Hook`
+    - `ADR-011 Graph Write Task Seam and Worker Scaffold`
+    - `ADR-017 Graph Write Idempotency and Receipt Semantics`
+    - `ADR-018 Graph Write Inspection Surface`
+    - `ADR-019 Graph Backend Adapter Contract`
+    - `ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default`
+    - `ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path`
+  - Connector/context command semantics:
+    - `ADR-024 Context Command and Active Connector Semantics`
+  - Self-extending and retrieval-plugin governance:
+    - `ADR-010 Self-Extending Agent Plugin System`
+    - `ADR-021 Web Agent Boundary and Retrieval Contract`
 - Brief reason:
   - This task does not change accepted runtime architecture.
   - It documents a future retrieval-navigation doctrine that must remain aligned with existing retrieval, continuity, graph-write, connector, identity, and sovereignty boundaries.
@@ -60,6 +69,7 @@ Current runtime seams already exist:
 - `ContextBroker` is the context and retrieval orchestration seam.
 - Semantic retrieval, document context, memory retrieval, and optional graph context are existing assembly lanes.
 - The retrieval-router doctrine is the correct policy seam that sits before `ContextBroker` assembly.
+- The retrieval-router decision table remains doctrine plus scaffold and does not itself claim live behavior changes.
 - Chat completion and workspace-local retrieval have proof surfaces, while debug traces remain diagnostic-only unless explicitly documented otherwise.
 - Graph writes remain default-off on the supported Compose path.
 
