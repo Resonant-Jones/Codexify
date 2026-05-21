@@ -187,6 +187,8 @@ Actual file paths must be chosen in the future implementation task.
 - required top-level fields exist
 - output includes extraction result, draft object, review packet, and lineage reference
 
+The first deterministic docs-local fixture validation harness now exists at `scripts/job_intelligence/validate_fixture.py`. It validates synthetic fixture shape and safety invariants only, does not call a model, does not create runtime behavior, does not validate extraction quality, does not prove production readiness, and keeps runtime, prompt, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch deferred.
+
 ### Safety validation
 
 - no subjective customer labels appear
