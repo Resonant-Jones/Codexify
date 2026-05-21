@@ -1,0 +1,94 @@
+{
+  "fixture_id": "fixture_plumbing_three_handle_drip_v1",
+  "fixture_kind": "synthetic_docs_local_job_intelligence_fixture",
+  "source_interaction_id": "synthetic_interaction_plumbing_three_handle_drip_001",
+  "interaction_type": "service_call_transcript",
+  "service_vertical": "plumbing",
+  "directly_stated_facts": {
+    "raw_customer_language": [
+      "The tub spout keeps dripping even when the fixture is off.",
+      "It has a hot knob, a middle knob, and a cold knob.",
+      "The middle knob sends the water up to the shower or back down to the tub.",
+      "I do not know the brand, but there is an access panel behind the shower.",
+      "Do you charge a diagnostic fee, and what does something like this usually cost?",
+      "Around 1:00 PM would be best."
+    ],
+    "reported_symptoms": [
+      "tub spout drips while fixture is off"
+    ],
+    "reported_fixture_details": [
+      "hot knob",
+      "middle diverter knob",
+      "cold knob",
+      "middle knob controls tub or shower flow"
+    ],
+    "reported_brand": "unknown",
+    "reported_access_detail": "Access panel behind the shower.",
+    "reported_scheduling_preference": "around 1:00 PM",
+    "reported_policy_questions": [
+      "diagnostic fee",
+      "general pricing expectations"
+    ]
+  },
+  "inferred_fields": {
+    "service_type": "plumbing",
+    "category": "tub_shower_three_handle_valve_or_diverter_issue",
+    "known_equipment_summary": "Three-handle tub/shower fixture with separate hot, diverter, and cold controls.",
+    "draft_scheduling_preference": "afternoon_around_1300",
+    "confidence_note": "Planning-only confidence labels are review aids and not canonical runtime values."
+  },
+  "ambiguities": [
+    {
+      "field": "inferred_fields.category",
+      "reason": "The exact internal failure mode is not confirmed from the synthetic interaction alone."
+    },
+    {
+      "field": "directly_stated_facts.reported_brand",
+      "reason": "Brand remains unknown until a human or site inspection confirms it."
+    },
+    {
+      "field": "directly_stated_facts.reported_access_detail",
+      "reason": "The access panel is reported, but technician usability is not yet verified."
+    }
+  ],
+  "missing_information": [
+    "full service address placeholder",
+    "onsite contact method placeholder",
+    "fixture brand confirmation",
+    "whether dripping is continuous or intermittent",
+    "whether any recent repair attempt has been made"
+  ],
+  "policy_questions": [
+    {
+      "topic": "diagnostic_fee",
+      "customer_language": "Do you charge a diagnostic fee?",
+      "commitment_status": "not_committed"
+    },
+    {
+      "topic": "general_pricing_expectation",
+      "customer_language": "What does something like this usually cost?",
+      "commitment_status": "not_committed"
+    }
+  ],
+  "risk_signals": [],
+  "review_recommendations": [
+    "Confirm that the inferred service category is appropriate before operational use.",
+    "Keep brand as unknown unless a human verifies it.",
+    "Verify that the access panel is usable and note any access constraints.",
+    "Keep diagnostic fee and pricing questions separate from job symptoms.",
+    "Treat the 1:00 PM request as a preference and not a scheduling commitment."
+  ],
+  "confidence": {
+    "service_type": "high",
+    "category": "medium",
+    "brand": "unknown",
+    "access_detail": "medium",
+    "scheduling_preference": "medium",
+    "labels_status": "planning_only"
+  },
+  "metadata": {
+    "created_at": "2026-05-20T14:00:00Z",
+    "planning_contract_version": "draft_v1",
+    "synthetic_only": true
+  }
+}
