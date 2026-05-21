@@ -1,0 +1,9 @@
+Operator: Thanks for calling. What can I help you with today?
+Customer: The tub spout keeps dripping even when the fixture is off.
+Operator: Can you describe the handles for me?
+Customer: It has a hot knob, a middle knob, and a cold knob. The middle knob sends the water up to the shower or back down to the tub.
+Operator: Do you know the brand, and is there any access behind the shower?
+Customer: I do not know the brand, but there is an access panel behind the shower.
+Customer: Also, do you charge a diagnostic fee, and what does something like this usually cost?
+Operator: We can note those questions for review. Do you have a preferred time?
+Customer: Around 1:00 PM would be best.
