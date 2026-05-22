@@ -1,6 +1,11 @@
-Grounding note: this spec maps to Codexify's identity and provenance posture. IDDB separates "what happened" from "who you are," keeps deep identity opt-in, and treats personas as masks that borrow identity rather than own it. Export/restore doctrine also requires provenance, project membership, thread/message structure, media linkage, and relationship structure to survive restore without silent degradation.
-
 # Key Person of Influence Role
+
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
+Grounding note: this spec maps to Codexify's identity and provenance posture. In current architecture and policy docs, IDDB separates "what happened" from "who you are," keeps deep identity opt-in, and treats personas as masks that borrow identity rather than own it. Export/restore doctrine likewise preserves provenance, project membership, thread/message structure, media linkage, and relationship structure rather than silently collapsing them.
 
 ## Purpose
 
@@ -38,7 +43,7 @@ The system's "influence" is not persuasion.
 
 It is coherence.
 
-A Codexify environment becomes trustworthy when:
+This framing is most useful when a Codexify environment preserves:
 
 - source messages remain traceable
 - generated artifacts retain lineage
