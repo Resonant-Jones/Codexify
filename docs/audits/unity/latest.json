@@ -1,0 +1,139 @@
+{
+  "audit": "unity",
+  "schema_version": 1,
+  "generated_at": "2026-05-22T14:28:20Z",
+  "repo": {
+    "branch": "codex/create-unity-audit-scaffold",
+    "head": "8f3338c4e87d2a28ae9b7fde599a6a4111489325",
+    "dirty": true
+  },
+  "summary": {
+    "pass": 0,
+    "warn": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "lenses": [
+    {
+      "name": "Runtime Truth",
+      "status": "WARN",
+      "summary": "Checks whether current-state release truth and repo-local audit artifacts exist, while preserving the rule that document presence is not live proof.",
+      "evidence": [
+        "docs/architecture/00-current-state.md: current-state release truth anchor present",
+        "docs/architecture/00-current-state.md: explicitly distinguishes live evidence and runtime proof from broader architecture docs",
+        "docs/audits/latest.json: repo-local latest audit JSON artifact present",
+        "docs/audits/latest.md: repo-local latest audit Markdown artifact present"
+      ],
+      "warnings": [
+        "docs/architecture/00-current-state.md warns that live runtime proof still requires refresh and that Unity Audit is a coherence lens only."
+      ],
+      "manual_review_prompts": [
+        "Which supported-path live proof artifact is the freshness anchor for the current main tip?",
+        "Do current health surfaces and worker proofs still match the claims in 00-current-state.md?",
+        "If runtime behavior drifted recently, has current-state been refreshed before using this audit for release confidence?"
+      ]
+    },
+    {
+      "name": "Contract Integrity",
+      "status": "WARN",
+      "summary": "Checks that the core contract corpus exists and that canonical runtime vocabulary is explicitly separated from implementation proof.",
+      "evidence": [
+        "docs/architecture/chat-runtime-contract.md: chat runtime contract present",
+        "docs/architecture/runtime-protocol-token-contract.md: runtime protocol token contract present",
+        "docs/architecture/account-export-restore-contract.md: account export and restore contract present",
+        "docs/architecture/canonical-token-philosophy.md: canonical token philosophy present"
+      ],
+      "warnings": [
+        "docs/architecture/runtime-protocol-token-contract.md says canonical tokens are shared vocabulary, not proof that every state is emitted end-to-end."
+      ],
+      "manual_review_prompts": [
+        "Do provider state, request state, and message-versus-attempt identity still match the live runtime and shared frontend surfaces?",
+        "Are export and restore lineage guarantees enforced in code for the currently supported artifact families?",
+        "Have any newer docs or routes started using ad hoc runtime literals outside the canonical token lane?"
+      ]
+    },
+    {
+      "name": "Surface Coherence",
+      "status": "WARN",
+      "summary": "Checks that the major overview, diagram, and workspace-surface documents exist, while surfacing that diagram freshness and validity are governed separately.",
+      "evidence": [
+        "docs/architecture/system-overview.md: system overview present",
+        "docs/architecture/runtime-diagrams-v1.md: runtime diagrams present",
+        "docs/architecture/ui-diagrams-v1.md: UI diagrams present",
+        "docs/architecture/codexify_workspace_surface_spec_v_1.md: workspace surface spec present",
+        "docs/architecture/diagram-governance.md: diagram governance and freshness workflow present"
+      ],
+      "warnings": [
+        "docs/architecture/diagram-governance.md defines separate review-marker freshness checks; this scaffold does not run those freshness validations.",
+        "docs/architecture/kb-validity-matrix.md warns that some supporting docs are supplementary or quarantined, so cross-surface alignment still requires human judgment."
+      ],
+      "manual_review_prompts": [
+        "Do the runtime and UI diagram packs still match the supported path after recent shell and runtime-state changes?",
+        "Does the workspace surface spec stay clearly separated from runtime/operator truth in surrounding docs?",
+        "If a contributor started from the README, would they reach the right authoritative surface before reading diagrams?"
+      ]
+    },
+    {
+      "name": "Governance Integrity",
+      "status": "WARN",
+      "summary": "Checks whether the main governance, validity, and risk surfaces exist, while preserving that governance text is not the same thing as enforced coverage.",
+      "evidence": [
+        "docs/architecture/agent-protocol-operations.md: agent protocol operations index present",
+        "docs/architecture/kb-validity-matrix.md: KB validity matrix present",
+        "docs/architecture/tech-debt-and-risks.md: tech debt and risks register present",
+        "docs/iddb_policy_v1.md: IDDB policy present at canonical repo path"
+      ],
+      "warnings": [
+        "Governance docs describe boundaries and rituals, but repo-local presence alone does not prove enforcement coverage across every route, worker, or extension seam."
+      ],
+      "manual_review_prompts": [
+        "Which identity, sovereignty, and permission boundaries are enforced in code today versus documented as doctrine only?",
+        "Does current release language still stay narrower than the governance corpus, especially around delegation, plugins, and autonomy?",
+        "Are known tech-debt items tracked in the places an operator will actually read before signoff?"
+      ]
+    },
+    {
+      "name": "Extension Discipline",
+      "status": "WARN",
+      "summary": "Checks that extension doctrine, bounded tool-loop contract, Pi boundary contract, and canonical command-bus source paths are present without promoting deferred execution surfaces into shipped authority.",
+      "evidence": [
+        "docs/architecture/self-extending-agent-plugin-system.md: self-extending agent plugin system doc present",
+        "docs/architecture/agent-tool-loop-contract.md: agent tool-loop contract present",
+        "guardian/routes/command_bus.py: command bus route source present",
+        "guardian/command_bus/contracts.py: command bus contract source present",
+        "guardian/command_bus/invoke.py: command bus invoke path present",
+        "docs/architecture/pi-invocation-boundary-contract.md: Pi invocation boundary contract present"
+      ],
+      "warnings": [
+        "docs/architecture/self-extending-agent-plugin-system.md explicitly says several extension surfaces remain bounded, deferred, or non-runtime.",
+        "docs/architecture/00-current-state.md keeps command bus and adjacent extension surfaces outside the present release promise."
+      ],
+      "manual_review_prompts": [
+        "Are any UI, docs, or operator surfaces implying autonomous extension execution that the bounded command-bus lane does not actually provide?",
+        "Does Pi-like invocation remain clearly separated from provider ownership, transcript ownership, and command-bus authority?",
+        "If an extension feature is described as available, can the repo prove whether it is manual, bounded, internal-only, or release-supported?"
+      ]
+    },
+    {
+      "name": "Narrative Readiness",
+      "status": "WARN",
+      "summary": "Checks that the architecture entrypoint, atlas, doctrine, and current-state release framing exist and that the public-facing narrative still defers to fresh live proof.",
+      "evidence": [
+        "docs/architecture/README.md: architecture KB entrypoint present",
+        "docs/architecture/architecture-atlas.md: architecture atlas present",
+        "docs/architecture/00-current-state.md: current-state release definition anchor present",
+        "docs/architecture/unity-audit-doctrine.md: Unity Audit doctrine present",
+        "docs/architecture/README.md: README references the Unity Audit doctrine",
+        "docs/architecture/00-current-state.md: current-state includes an explicit release definition section"
+      ],
+      "warnings": [
+        "docs/architecture/00-current-state.md keeps release narrative dependent on fresh live proof rather than documentation presence alone."
+      ],
+      "manual_review_prompts": [
+        "Would a new reader understand that Unity Audit is a coherence scaffold, not a governance oracle or runtime proof engine?",
+        "Does the architecture README route release-confidence questions to current-state before broader narrative docs?",
+        "Are any outward-facing summaries claiming more readiness than the latest live supported-path proof actually demonstrates?"
+      ]
+    }
+  ]
+}
