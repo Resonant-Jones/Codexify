@@ -1,6 +1,11 @@
-Grounding note: this spec maps to Workspace, runtime state, and observability. Workspace is defined as a persistent, user-owned side surface with Shelf, Scratchpad, and Inspector roles, and it is explicitly not a diagnostics surface. Runtime state doctrine separates provider runtime state from per-message request state so slow local inference does not collapse into fake "offline" or haunted replies.
-
 # Delight and Continuity Role
+
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
+Grounding note: this spec maps to Workspace, runtime state, and observability. In the current doctrine, Workspace is a persistent, user-owned side surface with Shelf, Scratchpad, and Inspector roles, and it is explicitly not a diagnostics surface. Runtime state doctrine also separates provider runtime state from per-message request state so slow local inference is not mislabeled as fake "offline" or haunted replies.
 
 ## Purpose
 
@@ -36,7 +41,7 @@ This role answers:
 
 Delight is continuity under uncertainty.
 
-A local AI runtime will sometimes be slow, warming, degraded, or ambiguous. The interface must not turn those normal states into panic, false failure, or ghost behavior.
+A local AI runtime will sometimes be slow, warming, degraded, or ambiguous. In this conceptual mapping, the interface should avoid turning those normal states into panic, false failure, or ghost behavior.
 
 ## Related Existing Surfaces
 

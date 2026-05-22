@@ -1,5 +1,10 @@
 # Cognitive Role Topology
 
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
 ## Purpose
 
 Define the four-role cognitive topology that maps AI-enabled team design onto Codexify's architecture.
@@ -40,7 +45,7 @@ In Codexify language, they become:
 
 ## Architectural Interpretation
 
-Codexify does not merely answer prompts. It coordinates:
+As a conceptual framing layer, Codexify can be read as coordinating:
 
 - user-authored intent
 - thread/project context
@@ -52,7 +57,7 @@ Codexify does not merely answer prompts. It coordinates:
 - durable memory
 - human approval
 
-That coordination is organizational cognition in software form.
+Under this framing, that coordination can be treated as organizational cognition in software form.
 
 ## Invariants
 
