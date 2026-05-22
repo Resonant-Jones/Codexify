@@ -1,6 +1,11 @@
-Grounding note: this spec maps to Codexify's bounded orchestration and extension boundaries. The bounded tool-augmented completion contract allows exactly one model-chosen command-bus invocation, reinjects the result, then hard-stops after the final answer, explicitly avoiding recursive autonomous loops. The self-extending plugin system similarly allows proposals, review, registration, and scoped bindings, but forbids silent mutation of identity, provenance, runtime law, and queue/worker semantics. Pi-like invocation is also constrained so Guardian keeps policy, lineage, command authority, and result return.
-
 # High Agency Generalist Role
+
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
+Grounding note: this spec maps to Codexify's bounded orchestration and extension boundaries. In current architecture docs, the bounded tool-augmented completion contract is described as allowing one model-chosen command-bus invocation, reinjecting the result, and then stopping after the final answer to avoid recursive autonomous loops. The self-extending plugin system likewise frames proposals, review, registration, and scoped bindings without allowing silent mutation of identity, provenance, runtime law, or queue/worker semantics. Pi-like invocation is similarly scoped so Guardian remains the policy, lineage, command-authority, and result-return boundary.
 
 ## Purpose
 
@@ -38,7 +43,7 @@ This role answers:
 
 High agency does not mean unlimited autonomy.
 
-In Codexify, high agency means:
+In this conceptual mapping, high agency means:
 
 - bounded delegation
 - explicit permission

@@ -167,6 +167,7 @@ const defaultProps = {
     { key: "row-1", raw: '{"type":"test"}', receivedAt: Date.now(), summary: "Test event" },
   ],
   healthItems: mockedHealthItems,
+  heartbeatEnabled: true,
   lastCheckedAt: Date.now(),
   lastEventAt: Date.now(),
   loading: false,
@@ -197,9 +198,14 @@ const defaultProps = {
 };
 
 // Mock the hooks used by CodingWorkOrdersPanel
-const { mockFetchLatestRetrievalPosture, mockFetchRetrievalPostureHistory } = vi.hoisted(() => ({
+const {
+  mockFetchLatestRetrievalPosture,
+  mockFetchRetrievalPostureHistory,
+  mockHeartbeatStatusFn,
+} = vi.hoisted(() => ({
   mockFetchLatestRetrievalPosture: vi.fn(),
   mockFetchRetrievalPostureHistory: vi.fn(),
+  mockHeartbeatStatusFn: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -210,6 +216,33 @@ vi.mock("@/lib/api", () => ({
   fetchLatestRetrievalPosture: mockFetchLatestRetrievalPosture,
   fetchRetrievalPostureHistory: mockFetchRetrievalPostureHistory,
 }));
+
+// Mock the heartbeat status hook so the heartbeat lens doesn't make real API calls
+vi.mock("@/features/commandCenter/hooks/useHeartbeatStatus", () => ({
+  default: () => mockHeartbeatStatusFn(),
+}));
+
+function makeHeartbeatStatus() {
+  return {
+    status: {
+      latest_date: "2026-05-14",
+      heartbeat_report_path: "docs/Heartbeat/generated/2026-05-14-heartbeat.md",
+      staged_outbox_path: null,
+      review_status: "passed",
+      outbox_status: "passed",
+      publication_enabled: false,
+      publication_targets: [],
+      generated_files: [],
+      warnings: [],
+      failures: [],
+      manual_commands: ["make heartbeat-full FORCE=1"],
+    },
+    loading: false,
+    error: null,
+    lastCheckedAt: Date.now(),
+    refresh: vi.fn(),
+  };
+}
 
 import api from "@/lib/api";
 const apiGetMock = vi.mocked(api.get);
@@ -246,6 +279,7 @@ function configureApiMocks() {
   apiPostMock.mockResolvedValue({ data: { ok: true } });
   mockFetchLatestRetrievalPosture.mockResolvedValue(null);
   mockFetchRetrievalPostureHistory.mockResolvedValue({ items: [], status: "empty" });
+  mockHeartbeatStatusFn.mockReturnValue(makeHeartbeatStatus());
 }
 
 describe("CommandCenterShell", () => {
@@ -377,6 +411,21 @@ describe("CommandCenterShell", () => {
     fireEvent.click(screen.getByTestId("command-center-drawer-close"));
     const drawer = screen.getByTestId("command-center-bottom-drawer");
     expect(drawer.style.height).toBe("0px");
+  });
+
+  it("heartbeat lens is enabled when heartbeatEnabled is true", () => {
+    render(<CommandCenterShell {...defaultProps} heartbeatEnabled />);
+    fireEvent.click(screen.getByTestId("command-center-rail-item-heartbeat"));
+    expect(screen.getByText("Heartbeat Status")).toBeInTheDocument();
+    // When enabled, the disabled message should NOT appear
+    expect(screen.queryByText("Heartbeat status not enabled.")).not.toBeInTheDocument();
+  });
+
+  it("heartbeat lens respects heartbeatEnabled=false gate", () => {
+    render(<CommandCenterShell {...defaultProps} heartbeatEnabled={false} />);
+    fireEvent.click(screen.getByTestId("command-center-rail-item-heartbeat"));
+    expect(screen.getByText("Heartbeat Status")).toBeInTheDocument();
+    expect(screen.getByText("Heartbeat status not enabled.")).toBeInTheDocument();
   });
 
   it("Terminal tab in drawer is non-executable", () => {

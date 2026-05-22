@@ -131,6 +131,7 @@ services:
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
     restart: "no"
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["migrator"]
 
   model-prep:
@@ -152,6 +153,7 @@ services:
       EMBED_MODEL_REVISION: "${EMBED_MODEL_REVISION:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
     restart: "no"
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["model-prep"]
 
   backend:
@@ -229,6 +231,7 @@ services:
         condition: service_completed_successfully
       graph-init:
         condition: service_completed_successfully
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["backend"]
 
   worker-warmup:
@@ -276,6 +279,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["worker-warmup"]
 
   worker-chat:
@@ -325,6 +329,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["worker-chat"]
 
   worker-coding:
@@ -404,6 +409,7 @@ services:
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["worker-document-embed"]
 
   worker-chat-embed:
@@ -452,6 +458,7 @@ services:
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       NEO4J_BOLT_URL: bolt://neo4j:7687
     restart: unless-stopped
+    entrypoint: ["/app/runtime/codexify-runtime"]
     command: ["worker-chat-embed"]
 
   # ─────────────────────────────────────────────────────────────────
