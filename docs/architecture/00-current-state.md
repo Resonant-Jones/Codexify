@@ -33,6 +33,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Image-turn containment remains proven on the supported profile.
 - Coding results return through Guardian into the source thread on the supported path.
 - Command Center exposes non-dispatch worker-control visibility and recommendation-only next-task inspection.
+- A local `Publishing_Portal/Core/` source mirror may exist for public-facing packaging and review. This mirror is generated output only; it is not the source of truth and does not replace supported-path live proof.
 - Heartbeat status is readable in Agent Command Center; execution, scheduling, and publishing remain off this path.
 - Graph writes remain default-off on the supported Compose path.
 - The local-model draft adapter is an internal/manual artifact lane only.
@@ -43,6 +44,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features. The new retrieval navigation note is planning doctrine only, does not expand the supported release surface, and does not change the current graph-writes-default-off boundary.
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
+- Do not treat the `Publishing_Portal/Core/` source mirror as a release artifact or as evidence of release readiness.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
