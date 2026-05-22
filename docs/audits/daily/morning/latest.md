@@ -1,28 +1,22 @@
-# Daily Audit — 2026-05-20
+# Daily Audit — 2026-05-22
 
 ## Repo Status
-- Date: 2026-05-20
+- Date: 2026-05-22
 - Phase: `morning`
 - Branch: `codex/daily-dev-log`
-- HEAD: `b46782d657129052248e2a141d0127aee107acee`
+- HEAD: `05512c4e77d05428b4d5afcf349105ea978ac2d9`
 - Worktree: dirty
 - Status lines:
   - ` M docs/Marketing/generated/history/run-history.jsonl`
-  - ` M docs/audits/daily/evening/latest.json`
-  - ` M docs/audits/daily/evening/latest.md`
-  - ` M docs/audits/latest.json`
-  - ` M docs/audits/latest.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_20_MARKETING_V1/run-metadata.json`
-  - `?? docs/audits/daily/evening/2026-05-19-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-19-audit.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_22_MARKETING_V1/run-metadata.json`
 
 ## Audit CLI Summary
 - Selected mode: `json`
@@ -46,26 +40,18 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 5
-- Unique files changed: 25
-- Files changed: `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh`, `Makefile`, `docs/release/public-portal-snapshot-workflow.md`, `scripts/release/publish_public_portal.sh`, `scripts/release/sync_public_directory.sh`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `scripts/marketing/pipeline.py`, `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
+- Commit count: 1
+- Unique files changed: 6
+- Files changed: `docs/audits/daily/evening/2026-05-21-audit.json`, `docs/audits/daily/evening/2026-05-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `b46782d65712` | clarify public snapshot readme | `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh` |
-| `d8561f5e6c8f` | add public portal publish workflow | `Makefile`, `docs/release/public-portal-snapshot-workflow.md`, `scripts/release/publish_public_portal.sh`, `scripts/release/sync_public_directory.sh` |
-| `036971c0d573` | Fix marketing draft template rendering | `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `scripts/marketing/pipeline.py` |
-| `22d3a17d26ab` | Refresh daily audit artifacts | `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `7fc55d4ba684` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `05512c4e77d0` | daily evening audit reports | `docs/audits/daily/evening/2026-05-21-audit.json`, `docs/audits/daily/evening/2026-05-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 13 | `docs/release/public-portal-snapshot-workflow.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_19_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
-| `audit` | 6 | `docs/audits/daily/morning/2026-05-19-audit.json`, `docs/audits/daily/morning/2026-05-19-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `config` | 1 | `Makefile` |
-| `sync` | 1 | `scripts/release/sync_public_directory.sh` |
-| `unknown` | 4 | `Codexify-Beta/README.md`, `scripts/release/export_public_directory.sh`, `scripts/release/publish_public_portal.sh`, `scripts/marketing/pipeline.py` |
+| `audit` | 6 | `docs/audits/daily/evening/2026-05-21-audit.json`, `docs/audits/daily/evening/2026-05-21-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
