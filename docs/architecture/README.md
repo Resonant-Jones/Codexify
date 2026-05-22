@@ -125,6 +125,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Unity Audit Doctrine](./unity-audit-doctrine.md): doctrine-first coherence and synthesis layer across runtime truth, contracts, operator reality, governance, extension boundaries, and community-facing narrative. It does not replace live proof, release truth, or ADR authority.
+- [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
