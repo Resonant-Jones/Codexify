@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -124,6 +124,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Module Diagram Coverage Matrix](./module-diagram-coverage-matrix.md): high-coupling module coverage decisions, required diagram types, and review-marker tracking.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
+- [Unity Audit Doctrine](./unity-audit-doctrine.md): doctrine-first coherence and synthesis layer across runtime truth, contracts, operator reality, governance, extension boundaries, and community-facing narrative. It does not replace live proof, release truth, or ADR authority.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
