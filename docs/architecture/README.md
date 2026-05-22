@@ -22,10 +22,10 @@ Source anchors:
 
 # Codexify Architecture KB
 
-Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
 It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
-Start here note: begin with [`00-current-state.md`](./00-current-state.md) whenever you need the current operational interpretation instead of the structural KB.
+Start here note: begin with [`00-current-state.md`](./00-current-state.md) whenever you need current-state interpretation rather than the structural KB.
 
 If you need the live operational truth layer, read `00-current-state.md` first and treat the rest of the KB as supporting context.
 
