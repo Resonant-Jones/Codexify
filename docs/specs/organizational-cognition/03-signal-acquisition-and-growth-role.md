@@ -1,6 +1,11 @@
-Grounding note: this spec maps to retrieval policy. Codexify's retrieval router doctrine says retrieval decisions belong in the orchestration layer before ContextBroker assembly, not in prompt text or UI controls. The Signal Digest inspection already frames scheduled/manual trigger, source fetch, normalization, relevance scoring, ranking, digest composition, and delivery as a candidate workflow loop, while clearly separating supported, thin-helper, and unproven surfaces.
-
 # Signal Acquisition and Growth Role
+
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
+Grounding note: this spec maps to retrieval policy. In current doctrine, retrieval decisions belong in the orchestration layer before ContextBroker assembly, not in prompt text or UI controls. The Signal Digest inspection also provides a candidate workflow loop for scheduled/manual trigger, source fetch, normalization, relevance scoring, ranking, digest composition, and delivery while separating supported, thin-helper, and unproven surfaces.
 
 ## Purpose
 
@@ -38,7 +43,7 @@ This role answers:
 
 In an AI-native system, growth becomes signal routing.
 
-The system does not simply "get more attention." It improves the quality of context entering the decision loop.
+The system does not simply "get more attention." In this framing, it improves the quality of context entering the decision loop.
 
 ## Core Loop
 

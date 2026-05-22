@@ -48,7 +48,7 @@ def _repo_rel(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _discover_latest_report() -> Optional[Path]:
+def _discover_latest_report() -> Path | None:
     """Find the most recent heartbeat report."""
     if not _HEARTBEAT_GENERATED.is_dir():
         return None
@@ -60,13 +60,16 @@ def _discover_latest_report() -> Optional[Path]:
     return reports[0] if reports else None
 
 
-def _discover_latest_staged() -> Optional[Path]:
+def _discover_latest_staged() -> Path | None:
     """Find the most recent staged outbox directory that has a manifest."""
     if not _STAGED_ROOT.is_dir():
         return None
     dirs = sorted(
-        [d for d in _STAGED_ROOT.iterdir()
-         if d.is_dir() and (d / "manifest.json").is_file()],
+        [
+            d
+            for d in _STAGED_ROOT.iterdir()
+            if d.is_dir() and (d / "manifest.json").is_file()
+        ],
         key=lambda d: d.name,
         reverse=True,
     )
@@ -135,6 +138,16 @@ def _read_report_status(report_path: Path) -> dict[str, Any]:
             if stripped and stripped != "*(none)*":
                 result["warnings"].append(stripped)
 
+    # Extract failures from Failures section
+    fail_section = re.search(
+        r"## Failures\n\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    if fail_section:
+        for line in fail_section.group(1).strip().splitlines():
+            stripped = line.strip("- ").strip()
+            if stripped and stripped != "*(none)*":
+                result["failures"].append(stripped)
+
     return result
 
 
@@ -174,7 +187,9 @@ def _read_outbox_status(staged_dir: Path) -> dict[str, Any]:
 
     # Generated files
     result["generated_files"] = manifest.get("generated_files", [])
-    result["total_files"] = manifest.get("total_files", len(result["generated_files"]))
+    result["total_files"] = manifest.get(
+        "total_files", len(result["generated_files"])
+    )
 
     # Review skipped
     result["review_skipped"] = manifest.get("review_skipped", False)
@@ -204,9 +219,9 @@ def _read_outbox_status(staged_dir: Path) -> dict[str, Any]:
 
 
 class HeartbeatStatusResponse(BaseModel):
-    latest_date: Optional[str] = None
-    heartbeat_report_path: Optional[str] = None
-    staged_outbox_path: Optional[str] = None
+    latest_date: str | None = None
+    heartbeat_report_path: str | None = None
+    staged_outbox_path: str | None = None
     review_status: str = "missing"
     outbox_status: str = "missing"
     publication_enabled: bool = False
@@ -252,8 +267,7 @@ async def heartbeat_status() -> HeartbeatStatusResponse:
         report_status = _read_report_status(report_path)
         response_data["review_status"] = report_status["review_status"]
         response_data["warnings"] = report_status.get("warnings", [])
-        if report_status["review_status"] == "failed":
-            response_data["failures"] = report_status.get("warnings", [])
+        response_data["failures"] = report_status.get("failures", [])
 
     # Discover latest staged outbox
     staged_dir = _discover_latest_staged()

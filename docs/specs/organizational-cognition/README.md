@@ -1,5 +1,10 @@
 # Organizational Cognition Specs
 
+> Classification: conceptual product/architecture doctrine<br>
+> Runtime impact: none<br>
+> Release promise: none<br>
+> Interpretation rule: if this conflicts with `docs/architecture/00-current-state.md`, current-state wins.
+
 ## Purpose
 
 This folder captures the "deeper than hiring" extraction from AI-enabled team design and maps it onto Codexify as a governed cognitive runtime.
@@ -62,7 +67,7 @@ Read first:
 
 ## Organizing Thesis
 
-Codexify is best understood as a governed cognitive runtime:
+Codexify can be used as a governed cognitive runtime framing lens:
 
 - identity provides continuity
 - retrieval provides situational awareness
