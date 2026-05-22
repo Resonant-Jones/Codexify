@@ -1,11 +1,11 @@
 {
   "audit": "unity",
   "schema_version": 1,
-  "generated_at": "2026-05-22T14:44:34Z",
+  "generated_at": "2026-05-22T14:49:50Z",
   "repo": {
     "branch": "codex/create-unity-audit-scaffold",
-    "head": "c9e7304e1b8664ca14471253eef551815e3613dc",
-    "dirty": true
+    "head": "82733af6bcc313a43d6a835dfe0d15a8c572e08d",
+    "dirty": false
   },
   "summary": {
     "pass": 0,
