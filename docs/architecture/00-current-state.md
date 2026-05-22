@@ -54,6 +54,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for the supported path when runtime behavior changes.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
+4. Begin doctrine-first unification work through the Unity Audit architecture layer so runtime truth, governance, operator reality, and outward narrative can be checked for coherence without claiming a new runtime audit engine yet.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
