@@ -101,7 +101,7 @@ All IDs, metadata, and relationships in the following families must be explicit 
 | Media assets / aliases | Canonical asset IDs, alias IDs, storage locator or blob reference, content hash, MIME type, dedupe keys when present, timestamps, and provenance. |
 | Thread-document links | Stable link IDs, thread ID, document ID, link role or type, timestamps, and provenance. |
 | Project-document links | Stable link IDs, project ID, document ID, link role or type, timestamps, and provenance. |
-| Codex/artifact entries | Stable artifact IDs, artifact type, payload reference, source thread or message links, generation metadata, version, timestamps, tags/flags, and provenance. |
+| Codex/artifact entries | Stable artifact IDs, artifact type, payload reference, source thread or message links, `created_from` (slash_command or semantic_suggestion), `retrieval_enabled` flag, `project_id`, `persona_id`, `trigger_message_id`, generation metadata, version, timestamps, tags/flags, and provenance. |
 | Thread-linked artifacts and related metadata | Stable artifact IDs, thread ID, relationship metadata, timestamps, tags/flags, and provenance. |
 | User-authored tags / flags / timestamps relevant to restore | Stable target IDs, tag or flag namespace, value, actor or owner where relevant, timestamps, and provenance if imported. |
 

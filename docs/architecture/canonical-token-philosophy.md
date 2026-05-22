@@ -314,7 +314,18 @@ Codexify already has enough coupling in its primary chat loop and config surface
 
 ---
 
-## 11. Practical heuristics for agents
+## 11. Applied example: Codex Entry tokens
+
+The Codex entry policy hardening (ADR-029, ADR-030) is a concrete application of this philosophy:
+
+- **Promote immediately**: `CodexEntryCreatedFrom` (`slash_command`, `semantic_suggestion`) is API-visible, stored in frontmatter, and branched on by the draft route and save service. `CodexEntrySuggestionReason` (`capture_language`) is API-visible and tested.
+- **One canonical source**: Both enums live in `guardian/protocol_tokens.py` with corresponding frozenset exports (`CODEX_ENTRY_CREATED_FROM_VALUES`, `CODEX_ENTRY_SUGGESTION_REASONS`).
+- **Tests protect the registry**: `tests/contracts/test_protocol_tokens.py` locks in exact values.
+- **Consumers import tokens**: Routes, services, and frontend API code import `CodexEntryCreatedFrom` and `CodexEntrySuggestionReason` rather than writing inline `"semantic_suggestion"` or `"capture_language"` strings.
+
+This is the pattern for any future domain where a repeated literal carries contract meaning across layers.
+
+## 12. Practical heuristics for agents
 
 When an agent touches Codexify, it should ask:
 

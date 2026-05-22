@@ -101,11 +101,22 @@ introduces live retrieval behavior changes in this task.
 | `relationship_trace` | yes | `local` | `none` | `prefer_enrichment` | `deep` | `thread_messages -> thread_semantic -> graph_enrichment -> project_docs -> adjacent_local` | stop once the relationship path is explainable |
 | `obsidian_only` | yes | `local` | `none` | `disallow` | `normal` | `thread_messages -> obsidian_documents` | stop once Obsidian-backed evidence is sufficient, or fail closed if no Obsidian hits exist |
 
+## Codex Entry Retrieval Exclusion
+
+Codex entries are excluded from all retrieval lanes by default.
+
+- Every Codex entry carries a `retrieval_enabled` flag in its frontmatter.
+- `retrieval_enabled` defaults to `false` for newly saved entries.
+- `ContextBroker._filter_codex_entries` enforces this at assembly time: items with `source_type == "codex_entry"` or `type == "codex_entry"` are dropped from `semantic`, `obsidian`, `docs`, and `memory` buckets unless `retrieval_enabled` is exactly `true`.
+- A user must explicitly opt in via `retrieval_enabled: true` before a Codex entry becomes eligible for context injection.
+- This exclusion applies regardless of creation source (`slash_command` or `semantic_suggestion`).
+
 ## Retrieval Boundary Rules
 
 - Every retrieval operation must be scoped by `user_id`.
 - Any widening beyond thread scope must set an explicit `widen_reason` in the trace payload.
 - `source_mode` and `widen_reason` must remain truthful and stable after assembly; the trace cannot silently widen later.
+- Codex entries are excluded from retrieval unless explicitly opted in via `retrieval_enabled: true`.
 
 ## External Web Search Relation
 
