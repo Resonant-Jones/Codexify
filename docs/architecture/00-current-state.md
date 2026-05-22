@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-21
+2026-05-22
 
 ## Interpretation rule
 This file is authoritative for:
@@ -21,6 +21,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - GuardianChat now surfaces runtime visual state in the shell.
 - An internal/manual local-model draft adapter landed.
 - Daily audit artifacts were refreshed around the current `main` tip.
+- Doctrine-first Unity Audit framing is being added to the architecture layer as a coherence lens only; it does not claim new runtime implementation.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -54,6 +55,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for the supported path when runtime behavior changes.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
+4. Begin doctrine-first unification work through the Unity Audit architecture layer without overstating implementation beyond docs and governance framing.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
