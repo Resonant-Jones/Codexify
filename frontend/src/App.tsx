@@ -86,6 +86,12 @@ const COMMAND_CENTER_ENABLED =
     String((import.meta as any)?.env?.VITE_ENABLE_COMMAND_CENTER ?? "")
   );
 
+const HEARTBEAT_STATUS_ENABLED =
+  (import.meta as any)?.env?.DEV ||
+  /^(1|true)$/i.test(
+    String((import.meta as any)?.env?.VITE_ENABLE_HEARTBEAT_STATUS ?? "")
+  );
+
 const DOC_GEN_EXT_MAP: Record<string, string> = {
   markdown: "md",
   plain: "txt",
@@ -1413,7 +1419,7 @@ export default function App() {
       <div className="flex h-screen min-h-0 flex-col overflow-hidden">
         <TopBar />
         <main className="min-h-0 flex-1 overflow-hidden">
-          <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} />
+          <CommandCenterPage enabled={COMMAND_CENTER_ENABLED || commandCenterRoute} heartbeatEnabled={HEARTBEAT_STATUS_ENABLED} />
         </main>
       </div>
     );

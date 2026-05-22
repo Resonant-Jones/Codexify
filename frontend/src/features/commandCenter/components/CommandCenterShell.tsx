@@ -41,6 +41,7 @@ export interface CommandCenterShellProps {
   connectionState: string;
   consoleRows: Array<{ key: string; raw: string; receivedAt: number; summary: string }>;
   healthItems: CommandCenterHealthItem[];
+  heartbeatEnabled: boolean;
   lastCheckedAt: number | null;
   lastEventAt: number | null;
   loading: boolean;
@@ -221,6 +222,7 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
     connectionState,
     consoleRows,
     healthItems,
+    heartbeatEnabled,
     lastCheckedAt,
     lastEventAt,
     loading,
@@ -306,7 +308,7 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
         );
 
       case "heartbeat":
-        return <HeartbeatStatusPanel enabled />;
+        return <HeartbeatStatusPanel enabled={heartbeatEnabled} />;
 
       case "runtime-health":
         return (

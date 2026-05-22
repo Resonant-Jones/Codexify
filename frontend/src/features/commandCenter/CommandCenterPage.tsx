@@ -23,6 +23,7 @@ import {
 
 type CommandCenterPageProps = {
   enabled: boolean;
+  heartbeatEnabled: boolean;
 };
 
 const filtersDefault: CommandCenterTraceFilters = {
@@ -39,7 +40,7 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString();
 }
 
-export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
+export default function CommandCenterPage({ enabled, heartbeatEnabled }: CommandCenterPageProps) {
   const {
     connectionDetail,
     connectionState,
@@ -145,6 +146,7 @@ export default function CommandCenterPage({ enabled }: CommandCenterPageProps) {
       connectionState={connectionState}
       consoleRows={consoleRows}
       healthItems={healthItems}
+      heartbeatEnabled={heartbeatEnabled}
       lastCheckedAt={lastCheckedAt}
       lastEventAt={lastEventAt}
       loading={loading}

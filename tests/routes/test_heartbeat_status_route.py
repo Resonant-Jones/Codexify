@@ -14,7 +14,6 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -34,19 +33,26 @@ def _repo_rel(root: Path, path: Path) -> str:
 
 
 # discovery
-def _discover_latest_report(heartbeat_dir: Path) -> Optional[Path]:
+def _discover_latest_report(heartbeat_dir: Path) -> Path | None:
     if not heartbeat_dir.is_dir():
         return None
-    reports = sorted(heartbeat_dir.glob("*-heartbeat.md"), key=lambda p: p.name, reverse=True)
+    reports = sorted(
+        heartbeat_dir.glob("*-heartbeat.md"), key=lambda p: p.name, reverse=True
+    )
     return reports[0] if reports else None
 
 
-def _discover_latest_staged(staged_root: Path) -> Optional[Path]:
+def _discover_latest_staged(staged_root: Path) -> Path | None:
     if not staged_root.is_dir():
         return None
     dirs = sorted(
-        [d for d in staged_root.iterdir() if d.is_dir() and (d / "manifest.json").is_file()],
-        key=lambda d: d.name, reverse=True,
+        [
+            d
+            for d in staged_root.iterdir()
+            if d.is_dir() and (d / "manifest.json").is_file()
+        ],
+        key=lambda d: d.name,
+        reverse=True,
     )
     return dirs[0] if dirs else None
 
@@ -57,7 +63,12 @@ def _extract_date_from_report_name(name: str) -> str:
 
 # status assembly
 def _read_report_status(report_path: Path) -> dict[str, Any]:
-    result: dict[str, Any] = {"review_status": "unknown", "warnings": [], "failures": [], "artifact_count": 0}
+    result: dict[str, Any] = {
+        "review_status": "unknown",
+        "warnings": [],
+        "failures": [],
+        "artifact_count": 0,
+    }
     try:
         text = report_path.read_text(encoding="utf-8")
     except Exception:
@@ -71,18 +82,41 @@ def _read_report_status(report_path: Path) -> dict[str, Any]:
         result["review_status"] = "warning"
     elif has_passed:
         result["review_status"] = "passed"
-    art_section = re.search(r"## Generated Artifacts\n\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
+    art_section = re.search(
+        r"## Generated Artifacts\n\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
     if art_section:
         for line in art_section.group(1).strip().splitlines():
             if re.search(r"`(.+?)`", line):
                 result["artifact_count"] += 1
+    # Extract warnings from Warnings section
+    warn_section = re.search(
+        r"## Warnings\n\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    if warn_section:
+        for line in warn_section.group(1).strip().splitlines():
+            stripped = line.strip("- ").strip()
+            if stripped and stripped != "*(none)*":
+                result["warnings"].append(stripped)
+    # Extract failures from Failures section
+    fail_section = re.search(
+        r"## Failures\n\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    if fail_section:
+        for line in fail_section.group(1).strip().splitlines():
+            stripped = line.strip("- ").strip()
+            if stripped and stripped != "*(none)*":
+                result["failures"].append(stripped)
     return result
 
 
 def _read_outbox_status(staged_dir: Path) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "outbox_status": "unknown", "publication_enabled": False,
-        "publication_targets": [], "generated_files": [], "total_files": 0,
+        "outbox_status": "unknown",
+        "publication_enabled": False,
+        "publication_targets": [],
+        "generated_files": [],
+        "total_files": 0,
         "review_skipped": False,
     }
     manifest_path = staged_dir / "manifest.json"
@@ -99,10 +133,14 @@ def _read_outbox_status(staged_dir: Path) -> dict[str, Any]:
     result["publication_enabled"] = pub.get("enabled", False)
     result["publication_targets"] = pub.get("targets", [])
     result["generated_files"] = manifest.get("generated_files", [])
-    result["total_files"] = manifest.get("total_files", len(result["generated_files"]))
+    result["total_files"] = manifest.get(
+        "total_files", len(result["generated_files"])
+    )
     result["review_skipped"] = manifest.get("review_skipped", False)
     if (staged_dir / "_SKIP_REVIEW_WARNING.txt").is_file():
-        result.setdefault("warnings", []).append("Review gate was skipped during staging")
+        result.setdefault("warnings", []).append(
+            "Review gate was skipped during staging"
+        )
     if manifest.get("review_passed") is True and not result["review_skipped"]:
         result["outbox_status"] = "passed"
     elif manifest.get("review_passed") is True and result["review_skipped"]:
@@ -113,11 +151,21 @@ def _read_outbox_status(staged_dir: Path) -> dict[str, Any]:
 
 
 # Test fixture setup
-def _make_report(tmp_path: Path, date_str: str, *, status: str = "passed") -> Path:
+def _make_report(
+    tmp_path: Path,
+    date_str: str,
+    *,
+    status: str = "passed",
+    failures: str | None = None,
+    warnings: str | None = None,
+) -> Path:
     report_dir = tmp_path / "docs" / "Heartbeat" / "generated"
     report_dir.mkdir(parents=True, exist_ok=True)
     report = report_dir / f"{date_str}-heartbeat.md"
-    report.write_text(f"""# Heartbeat Orchestrator — {date_str}
+    failures_entry = f"- {failures}" if failures else "- *(none)*"
+    warnings_entry = f"- {warnings}" if warnings else "- *(none)*"
+    report.write_text(
+        f"""# Heartbeat Orchestrator — {date_str}
 
 **Date:** {date_str}
 **Generated:** {date_str}T12:00:00Z
@@ -138,12 +186,14 @@ def _make_report(tmp_path: Path, date_str: str, *, status: str = "passed") -> Pa
 
 ## Warnings
 
-- *(none)*
+{warnings_entry}
 
 ## Failures
 
-- *(none)*
-""", encoding="utf-8")
+{failures_entry}
+""",
+        encoding="utf-8",
+    )
     return report
 
 
@@ -152,20 +202,29 @@ def _make_staged(tmp_path: Path, date_str: str) -> Path:
     staged_dir.mkdir(parents=True)
     manifest = {
         "schema_version": "heartbeat.outbox.v1",
-        "date": date_str, "generated_at": f"{date_str}T12:00:00Z",
-        "review_required": True, "review_passed": True, "review_status": "passed",
+        "date": date_str,
+        "generated_at": f"{date_str}T12:00:00Z",
+        "review_required": True,
+        "review_passed": True,
+        "review_status": "passed",
         "review_skipped": False,
         "source_heartbeat_report": f"docs/Heartbeat/generated/{date_str}-heartbeat.md",
-        "source_artifacts": ["/tmp/a.md"], "generated_files": ["a.md"], "total_files": 1,
-        "publication": {"enabled": False, "targets": []}, "warnings": [],
+        "source_artifacts": ["/tmp/a.md"],
+        "generated_files": ["a.md"],
+        "total_files": 1,
+        "publication": {"enabled": False, "targets": []},
+        "warnings": [],
     }
-    (staged_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (staged_dir / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
     return staged_dir
 
 
 # ---------------------------------------------------------------------------
 # tests
 # ---------------------------------------------------------------------------
+
 
 def test_no_artifacts_returns_missing() -> None:
     tmp = Path(tempfile.mkdtemp())
@@ -223,7 +282,9 @@ def test_malformed_manifest_yields_warning() -> None:
     tmp = Path(tempfile.mkdtemp())
     staged_dir = tmp / "2026-05-14"
     staged_dir.mkdir(parents=True)
-    (staged_dir / "manifest.json").write_text("not valid json {{{{{", encoding="utf-8")
+    (staged_dir / "manifest.json").write_text(
+        "not valid json {{{{{", encoding="utf-8"
+    )
     status = _read_outbox_status(staged_dir)
     assert status["outbox_status"] == "warning"
 
@@ -233,7 +294,8 @@ def test_outbox_wrong_schema_version() -> None:
     staged_dir = tmp / "2026-05-14"
     staged_dir.mkdir(parents=True)
     (staged_dir / "manifest.json").write_text(
-        json.dumps({"schema_version": "wrong", "review_passed": True}), encoding="utf-8"
+        json.dumps({"schema_version": "wrong", "review_passed": True}),
+        encoding="utf-8",
     )
     status = _read_outbox_status(staged_dir)
     assert status["outbox_status"] == "warning"
@@ -245,6 +307,34 @@ def test_repo_relative_path() -> None:
     rel = _repo_rel(root, p)
     assert rel == "docs/Heartbeat/generated/2026-05-14-heartbeat.md"
     assert not rel.startswith("/")
+
+
+def test_failures_extracted_from_report_section() -> None:
+    """Failures must come from the ## Failures section, not recycled from warnings."""
+    tmp = Path(tempfile.mkdtemp())
+    r = _make_report(
+        tmp,
+        "2026-05-14",
+        status="failed",
+        warnings="Review gate was skipped during staging",
+        failures="Step failed: Beta Release Sentinel",
+    )
+    status = _read_report_status(r)
+    assert status["review_status"] == "failed"
+    assert status["warnings"] == ["Review gate was skipped during staging"]
+    assert status["failures"] == ["Step failed: Beta Release Sentinel"]
+
+
+def test_failures_empty_when_section_is_none() -> None:
+    """When the report has no failure entries, failures list stays empty."""
+    tmp = Path(tempfile.mkdtemp())
+    r = _make_report(
+        tmp, "2026-05-14", status="failed", warnings="Something minor"
+    )
+    status = _read_report_status(r)
+    assert status["review_status"] == "failed"
+    assert status["warnings"] == ["Something minor"]
+    assert status["failures"] == []
 
 
 def test_no_command_execution() -> None:
@@ -263,4 +353,6 @@ def test_no_command_execution() -> None:
         _discover_latest_report(hb_dir)
         _discover_latest_staged(staged_root)
         _read_report_status(r)
-        _read_outbox_status(tmp / "docs" / "Heartbeat" / "staged" / "2026-05-14")
+        _read_outbox_status(
+            tmp / "docs" / "Heartbeat" / "staged" / "2026-05-14"
+        )
