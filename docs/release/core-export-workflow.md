@@ -89,7 +89,7 @@ parent Codexify repo:
 
 | Category | Paths |
 |---|---|
-| Source directories | `guardian/`, `frontend/`, `src-tauri/`, `config/`, `scripts/`, `tests/` |
+| Source directories | `backend/`, `guardian/`, `frontend/`, `src-tauri/`, `config/`, `scripts/`, `tests/` |
 | Root config files | `docker-compose.yml`, `Dockerfile`, `Makefile`, `package.json`, `pnpm-lock.yaml`, `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `alembic.ini` |
 | Env templates | `.env.example`, `.env.template` |
 | Top-level docs | `README.md`, `AUTHORIZATION.md` |
