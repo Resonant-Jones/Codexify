@@ -1,89 +1,110 @@
 # Codex Entry Policy Hardening
 
-> Classification: architecture note
-> Status: normative
-> Last updated: 2026-05-21
+Purpose: Record the implementation and post-implementation hardening proof for
+the Codex Entry command-first and advisory semantic suggestion flows.
 
-Records the implementation and hardening chain for Codex Entry policy, from
-save/draft endpoints through retrieval exclusion, command-first draft flow,
-advisory semantic suggestions, and the follow-up hardening fix.
+Last updated: 2026-05-21
 
-## Policy Arc
+## Scope
 
-The Codex Entry policy now consists of six linked layers:
+This document records the Codex Entry policy arc and edge-case hardening only.
+It does not assert new architectural decisions, widen product behavior, or
+introduce changes to identity, memory, persona, or retrieval-setting behavior.
+All policy rules recorded here are implementations of ADR-029 and ADR-030.
+It is not a new ADR and does not change accepted architecture.
 
-### 1. Save and Draft Endpoints
+## Related ADRs and Contracts
 
-`POST /api/codex/entries` persists a Codex Entry artifact with frontmatter
-lineage fields. `POST /api/codex/entries/draft` generates a transient draft
-from thread context without persisting. Both live in `guardian/routes/codex.py`
-and delegate save semantics to `guardian/codex/service.py`.
+- ADR-029: Codex Entry Command-First Draft Flow
+- ADR-030: Codex Entry Semantic Suggestion Flow
+- Account Export + Restore Contract
+- Retrieval Router Decision Table
+- Runtime Protocol Token Contract
+- Canonical Token Philosophy
 
-### 2. Command-First Draft Flow (ADR-029)
+## Commit Chain
 
-The `/codex_entry` slash command triggers draft generation from prior thread
-context. The draft card renders inline in the chat conversation lane with
-Save/Download/Dismiss actions. Save reuses the existing `POST /api/codex/entries`
-seam. Lineage is explicit: `trigger_message_id` records the command invocation;
-`source_message_ids` records the prior messages that fed the draft.
+Branch: `codex/codex_entry_policy`
 
-ADR: `docs/architecture/adr/029-codex-entry-command-first-draft-flow.md`
+| Commit | Layer |
+|--------|-------|
+| `a7b9d9bbd` | Add Codex entry save and draft endpoints |
+| `9eb04ee19` | Add Codex Entry draft flow and retrieval filtering |
+| `8519c646b` | Seal Codex Entry command-flow proof |
+| `312c3111d` | Add advisory Codex Entry semantic suggestions |
+| `be7235fe6` | Fix `_message_id` falsy-0 bug in semantic suggestions classifier |
 
-### 3. Retrieval Filtering and Default Exclusion
+`be7235fe6` is a narrow hardening commit on top of ADR-030. It fixes an
+edge-case bug in the deterministic classifier's `_message_id` helper where
+message id `0` was treated as falsy and silently dropped from source ranges.
+The fix is a single `is None` check replacement with no behavioral widening.
 
-Codex entries are excluded from context assembly unless explicitly opted in.
-`ContextBroker._filter_codex_entries` drops items with `source_type == "codex_entry"`
-or `type == "codex_entry"` from all retrieval lanes (`semantic`, `obsidian`,
-`docs`, `memory`) unless `retrieval_enabled` is exactly `true`. The default for
-all newly saved entries is `retrieval_enabled: false`.
+## Implemented Behavior
 
-### 4. Command-Flow Proof
+1. **Command-first draft flow**: `/codex_entry` triggers draft generation from
+   prior thread context; draft card renders with Save/Download/Dismiss;
+   `trigger_message_id` records the command; `source_message_ids` records
+   the prior messages that fed the draft.
 
-Focused tests in `tests/routes/test_codex_draft_routes.py` lock in:
-draft-from-prior-context derivation, no-persist-on-draft guarantee,
-empty-source and no-context edge cases, semantic-suggestion source lineage
-acceptance, and save-persists-created-from/retrieval-enabled behaviors.
-Retrieval exclusion tests in `tests/context/test_codex_entries_retrieval_policy.py`
-verify the `_filter_codex_entries` and `_filter_codex_from_doc_buckets` methods.
+2. **Retrieval exclusion**: `ContextBroker._filter_codex_entries` drops
+   codex_entry items from all retrieval lanes (`semantic`, `obsidian`,
+   `docs`, `memory`) unless `retrieval_enabled` is exactly `true`.
+   Default is `retrieval_enabled: false`.
 
-### 5. Advisory Semantic Suggestion Flow (ADR-030)
+3. **Advisory semantic suggestions**: `POST /api/codex/entries/suggest`
+   returns a transient suggestion contract from a deterministic capture-language
+   classifier. Suggestions render a `CodexSuggestionCard` in the chat lane
+   with Draft/Dismiss actions. No auto-save. User-confirmed save reuses the
+   existing draft→save seam with `created_from: semantic_suggestion`.
+   Repeated suggestions are suppressed via stable `suppressionKey`.
 
-A deterministic classifier (`guardian/codex/semantic_suggestions.py`) recognizes
-explicit capture-language phrases and returns a transient suggestion contract
-via `POST /api/codex/entries/suggest`. The suggestion renders a `CodexSuggestionCard`
-in the chat lane with Draft/Dismiss actions. Drafting transitions to the existing
-draft→save seam with bounded source message IDs. Saved entries carry
-`created_from: semantic_suggestion` and `retrieval_enabled: false`. Repeated
-suggestions within an active session are suppressed via stable `suppressionKey`.
+4. **Save lineage**: All saved entries carry `created_from` (`slash_command`
+   or `semantic_suggestion`), `retrieval_enabled`, and optional lineage fields
+   (`project_id`, `persona_id`, `source_thread_id`, `source_message_id`,
+   `trigger_message_id`) persisted to frontmatter.
 
-ADR: `docs/architecture/adr/030-codex-entry-semantic-suggestion-flow.md`
+5. **Protocol tokens**: `CodexEntryCreatedFrom` and `CodexEntrySuggestionReason`
+   are canonical tokens in `guardian/protocol_tokens.py` with frozenset exports
+   and contract tests.
 
-### 6. Follow-Up Hardening Fix
-
-`_message_id` in `semantic_suggestions.py` used `or` which treated message id `0`
-as falsy, silently dropping valid source messages. Fixed to use explicit `is None`
-check. This was an edge-case bug fix only — it did not widen product behavior,
-introduce new semantics, or alter any policy boundary. Validated via direct
-Python module tests and 8/8 frontend component tests.
+## Hardening Fix: `_message_id` id=0
 
 Commit: `be7235fe6`
 
-## Protocol Tokens
+**Bug**: `_message_id` in `guardian/codex/semantic_suggestions.py` used `or`
+which treated message id `0` as falsy, cascading to the `message_id` fallback
+(usually `None`) and silently dropping valid source messages from the
+suggestion range.
 
-| Token Domain | Values |
-|-------------|--------|
-| `CodexEntryCreatedFrom` | `slash_command`, `semantic_suggestion` |
-| `CodexEntrySuggestionReason` | `capture_language` |
+```python
+# Before (broken): `or` treats 0 as falsy
+value = message.get("id") or message.get("message_id")
 
-Defined in `guardian/protocol_tokens.py`. Frozenset exports and contract tests
-in `tests/contracts/test_protocol_tokens.py`.
+# After (fixed): explicit None check preserves id=0
+value = message.get("id")
+if value is None:
+    value = message.get("message_id")
+```
 
-## Cross-References
+**Validation**: Direct Python module tests confirmed capture-language matching,
+suppression key stability, chronological source ordering, id=0 handling, and
+non-dict filtering. 8/8 frontend component tests passed (`CodexSuggestionCard`,
+`CodexDraftCard`).
 
-- ADR-029: `docs/architecture/adr/029-codex-entry-command-first-draft-flow.md`
-- ADR-030: `docs/architecture/adr/030-codex-entry-semantic-suggestion-flow.md`
-- Export/restore contract: `docs/architecture/account-export-restore-contract.md`
-- Retrieval router: `docs/architecture/router-decision-table.md`
-- Protocol token contract: `docs/architecture/runtime-protocol-token-contract.md`
-- Canonical token philosophy: `docs/architecture/canonical-token-philosophy.md`
-- Implementation: `guardian/routes/codex.py`, `guardian/codex/service.py`, `guardian/codex/semantic_suggestions.py`, `guardian/context/broker.py`
+**Scope**: Edge-case correctness fix only. No product behavior, semantics, or
+policy boundary was widened.
+
+## Invariants
+
+Non-negotiable rules that must remain true for any Codex Entry change:
+
+1. Command-first behavior remains distinct from semantic suggestion behavior.
+2. `/codex_entry` is trigger lineage, not source body.
+3. Semantic suggestions are advisory-only.
+4. User confirmation is required before persistence.
+5. Saved entries preserve lineage.
+6. Saved entries default to `retrievalEnabled: false`.
+7. Retrieval exclusion is policy/broker enforced, not UI-only.
+8. The `_message_id` id=0 fix is an edge-case correctness fix, not a feature expansion.
+9. No identity, memory, persona, or retrieval-setting behavior was widened.
+10. No new ADR is required for the hardening note.

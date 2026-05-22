@@ -1,25 +1,43 @@
 # Implementation Readiness Plan
 
 This is a planning document.
-It is not an implementation plan for production.
-It is not executable.
-It does not create prompt files, schema files, tests, fixtures, routes, UI, persistence, workers, or runtime behavior.
-It defines the readiness boundary for a future first executable proof.
+It is not implemented.
+It does not create runtime prompt execution, API behavior, worker behavior, persistence behavior, UI behavior, model behavior, or canonical schema behavior.
+It does not widen the current Codexify release promise.
 
 ## Purpose
 
-This document defines what must be true before Job Intelligence Layer moves from docs-only incubation to a first executable proof.
+This document defines the smallest proof sequence that would justify moving the Job Intelligence Layer from docs-only incubation toward implementation planning.
 
-It defines:
+The aim is to preserve a strict boundary between:
 
-- the smallest useful proof
-- the implementation surfaces that should remain out of scope
-- the safety and architecture boundaries that must be preserved
-- the proof evidence future implementation must produce
+- synthetic experimentation
+- planning contracts
+- future proof work
+- any later runtime integration
 
-## First Executable Proof Thesis
+## Current Readiness
 
-The first executable proof should validate only:
+What is true now:
+
+- the Job Intelligence Layer remains a docs-first incubation lane
+- the planning contracts for extraction, review, lineage, and pipeline decomposition exist
+- the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
+- that prompt remains manual-only, synthetic-only, and non-runtime
+
+What remains not true:
+
+- no runtime prompt registry exists for this lane
+- no model call exists
+- no automated prompt execution exists
+- no canonical Job Intelligence schema exists
+- no persistence model exists
+- no review UI exists
+- no real customer data is in scope
+
+## First Proof Thesis
+
+The first implementation-oriented proof should remain narrow:
 
 ```text
 synthetic source text
@@ -28,215 +46,82 @@ synthetic source text
 -> review packet
 ```
 
-Constraints for that first proof:
+That proof should demonstrate semantics, traceability, and human-review posture before any runtime wiring is proposed.
 
-- no real customer data
-- no voice or transcription
-- no production API
-- no durable persistence
-- no dispatcher UI
-- no pricing or dispatch automation
-- no customer-facing messaging
+## Prompt and Provider Boundary
 
-## Candidate Proof Interfaces
+The first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`.
 
-### CLI proof
+Boundary rules for the current lane:
 
-- accepts a synthetic transcript text file
-- emits Job Profile draft JSON and review packet JSON
-- easiest to validate
-- lowest UI and API blast radius
+- it remains manual-only and non-runtime
+- automated prompt execution remains deferred
+- provider and model selection remain deferred
+- real customer data remains out of scope
+- output remains illustrative until a separate proof task defines validation expectations
 
-### Backend helper proof
+The current prompt file is a planning aid, not a runtime contract.
 
-- pure Python helper invoked by tests or dev script
-- no route
-- no persistence
-- suitable for contract tests later
+## Recommended Proof Sequence
 
-### Dev-only route proof
+### Phase 0: Docs-local prompt and contract alignment
 
-- accepts synthetic text through a protected dev endpoint
-- higher blast radius
-- should not be first unless there is a strong reason
+- keep the prompt template docs-local
+- keep the fixture lane synthetic-only
+- confirm the prompt preserves raw source text versus interpreted fields
+- confirm human review remains required
 
-Recommendation:
+### Phase 1: Deterministic proof harness
 
-- prefer CLI proof or pure backend helper first
-- defer dev-only route until the contract is stable
+- prefer a CLI proof or pure backend helper before any dev-only route
+- use synthetic inputs only
+- fail closed on missing or contradictory input
+- keep prompt output, normalization, draft assembly, and review packet boundaries inspectable
 
-## Recommended First Proof Path
+### Phase 2: Evaluation and reviewability proof
 
-Recommended sequence for future tasks:
+- compare synthetic outputs against explicit expectations
+- prove ambiguity, missing information, and policy questions remain visible
+- prove no pricing, scheduling, or dispatch commitments are invented
+- prove subjective customer labels and sensitive-trait inference remain excluded
 
-1. synthetic fixture document
-2. pure extraction helper or CLI wrapper
-3. deterministic validation of output shape
-4. no persistence
-5. no production route
-6. no UI
-7. no real transcription
-8. review packet emitted as JSON or Markdown artifact
+### Phase 3: Runtime consideration gate
 
-This is a recommendation for future tasks, not implementation in this task.
-A docs-local synthetic fixture set now exists at `fixtures/plumbing-three-handle-drip/`. It is not executable, it is not under `tests/`, and it is intended to become source material for a future proof task.
+- only after prior proof exists should runtime integration even be considered
+- any runtime step must separately justify prompt registration, schema work, persistence, UI, and operator truth surfaces
 
-## Minimal Inputs
+## Readiness Gates
 
-Future proof inputs:
+Implementation planning is not ready until all of the following are true:
 
-- synthetic transcript or message text
-- optional operator notes
-- optional known context:
-  - business vertical
-  - interaction type
-  - source channel
-  - existing customer id placeholder
-  - existing site id placeholder
-
-All values must be fake or synthetic.
-No real names, phone numbers, addresses, or business names.
-
-## Minimal Outputs
-
-Future proof outputs:
-
-- extraction result
-- Job Profile draft
-- review packet
-- lineage reference
-- validation report
-
-Future proof outputs should show:
-
-- raw description preserved
-- stated facts separated from inferred fields
-- unknowns preserved
-- policy questions separated
-- risk and safety flags factual
-- review required
-- no subjective customer labels
-
-## Readiness Checklist Before Code
-
-- baseline and scaffold docs exist
-- draft Job Profile contract exists
-- extraction-pass contract exists
-- human-review gate contract exists
-- lineage and revision contract exists
-- MVP validation scenario exists
-- prompt and pipeline planning contract exists
-- first proof interface is selected
-- synthetic-only fixture policy is accepted
-- no persistence requirement is introduced
-- no UI requirement is introduced
-- no route requirement is introduced
-- provider and model boundary remains explicit
-- validation expectations are documented
-
-## Proof Evidence Required Later
-
-Future implementation proof must include:
-
-- command used to run the proof
-- synthetic input path
-- generated output path
-- validation result
-- confirmation that no real customer data was used
-- confirmation that raw source text was preserved or referenced
-- confirmation that review packet was generated
-- confirmation that no persistence occurred unless explicitly introduced by a later task
-- confirmation that no production route or UI was added unless explicitly introduced by a later task
-
-## Architecture Boundaries for First Code Task
-
-The first future code task should avoid:
-
-- migrations
-- database models
-- production routes
-- customer-facing UI
-- transcription and audio
-- external messaging
-- pricing automation
-- dispatch automation
-- export and restore changes
-- runtime token registry changes
-
-The first future code task may consider one of:
-
-- a pure helper module
-- a local CLI script
-- docs-local synthetic fixture
-- contract test for deterministic assembly behavior
-
-Actual file paths must be chosen in the future implementation task.
-
-## Provider and Prompt Boundary
-
-- no provider or model is chosen yet
-- no actual prompt file exists yet
-- first proof may begin with deterministic assembly before model extraction
-- if an LLM is used later, prompt files and model-bound behavior must be introduced in a separate atomic task
-- local-first supported posture must remain respected unless a separate architecture-impact task changes that posture
-
-## Validation Strategy for Future Proof
-
-### Shape validation
-
-- required top-level fields exist
-- output includes extraction result, draft object, review packet, and lineage reference
-
-### Safety validation
-
-- no subjective customer labels appear
-- risk and safety notes remain factual and non-stigmatizing
-
-### Reviewability validation
-
-- low-confidence or unknown fields appear in the review packet
-- generated versus inferred distinctions remain visible
-
-### Lineage validation
-
-- source interaction id or source reference exists
-- draft output references extraction source
-
-### Non-goal validation
-
-- no persistence side effect occurs
-- no production route or UI side effect occurs
+- the synthetic fixture set is sufficient to stress extraction ambiguity
+- a dedicated proof path exists for structured output validation
+- draft assembly semantics are stable enough to compare across runs
+- human-review requirements are explicit
+- provider and model boundaries are justified against Codexify's local-first posture
+- real-customer-data handling remains deferred until a separate policy task exists
 
 ## Non-Goals
 
-- no code implementation
-- no prompt files
-- no JSON schema files
-- no tests
-- no fixtures
-- no CLI script
+- no runtime prompt registry
+- no provider integration
+- no automated prompt execution
 - no API route
 - no worker
-- no database migration
 - no persistence model
+- no database migration
 - no UI
 - no transcription pipeline
-- no consent policy
-- no retention policy
+- no consent or retention policy
 - no pricing automation
 - no dispatch automation
-- no export and restore update
-- no runtime token registry update
-- no ADR update
+- no canonical JSON Schema
+- no canonical runtime tokens
 
 ## Open Questions
 
-- Should the first executable proof be a CLI or pure backend helper?
-- Should deterministic assembly come before model extraction?
-- Should synthetic fixtures live under docs first or tests first?
-- Should review packet output be JSON, Markdown, or both?
-- Which fields are required for the first proof?
-- What level of lineage proof is enough without persistence?
-- What provider and model constraints are acceptable for a local-first proof?
-- What future task should introduce actual prompt files?
-- What proof justifies moving from docs-only planning to code?
+- Should the first executable proof normalize prompt output before draft assembly?
+- Should a future validator check prompt output directly or only check normalized artifacts?
+- What synthetic fixture breadth is enough before considering anonymized real-world examples?
+- Which provider or model boundary, if any, is acceptable for local-first experimentation?
+- What proof threshold justifies automated prompt execution?
