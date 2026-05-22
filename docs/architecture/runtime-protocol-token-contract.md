@@ -61,6 +61,12 @@ inline literals.
   `local_model_substitution_selected_nonvision_model`,
   `retrieval_not_executed`, `retrieval_no_candidates`
 
+- Codex entry created-from values:
+  `slash_command`, `semantic_suggestion`
+
+- Codex entry suggestion reasons:
+  `capture_language`
+
 - Image routing paths:
   `native_multimodal_vision`, `interpreter`
 
