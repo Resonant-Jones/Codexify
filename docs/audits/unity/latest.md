@@ -1,8 +1,8 @@
 # Unity Audit
 
-- Generated: `2026-05-22T14:28:20Z`
+- Generated: `2026-05-22T14:44:34Z`
 - Repo branch: `codex/create-unity-audit-scaffold`
-- Repo head: `8f3338c4e87d2a28ae9b7fde599a6a4111489325`
+- Repo head: `c9e7304e1b8664ca14471253eef551815e3613dc`
 - Repo dirty: `True`
 
 ## Summary
