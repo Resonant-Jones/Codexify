@@ -121,6 +121,7 @@ fi
 # Source roots and files to include (when present)
 # ---------------------------------------------------------------------------
 INCLUDE_ROOTS=(
+  "backend"
   "guardian"
   "frontend"
   "src-tauri"
