@@ -2,7 +2,7 @@
 
 This is a planning contract.
 It is not implemented.
-It does not create prompt files.
+It does not create runtime prompt files.
 It does not define model behavior, API behavior, worker behavior, UI behavior, persistence behavior, or canonical token behavior.
 It defines the intended decomposition of a future Job Intelligence Layer processing pipeline.
 
@@ -190,6 +190,12 @@ This is not a schema.
 This is illustrative only.
 This is not canonical.
 This is not implemented.
+
+## Docs-Local Prompt Template Note
+
+A docs-local extraction prompt template now exists at `prompts/extraction-v0.md`.
+It is manual-only, synthetic-only, and not registered in runtime.
+It does not call a model and does not define canonical schema or runtime behavior.
 
 ## Prompt Design Rules
 
