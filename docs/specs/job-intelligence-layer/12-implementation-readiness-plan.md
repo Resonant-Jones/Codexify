@@ -24,7 +24,8 @@ What is true now:
 - the planning contracts for extraction, review, lineage, and pipeline decomposition exist
 - the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 - that prompt remains manual-only, synthetic-only, and non-runtime
-- the current checkout should not assume previously referenced proof-helper scripts or tests are present unless the branch actually contains them
+- the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
+- the current checkout should not assume previously referenced proof runner or deterministic assembly helper files are present unless the branch actually contains them
 
 What remains not true:
 
@@ -39,9 +40,13 @@ What remains not true:
 ## Reconciliation Note
 
 - the current checkout has the docs-local extraction prompt template
-- previously referenced proof-helper scripts and tests are not assumed present unless the branch actually contains them
-- proof-helper restoration or recreation is deferred to a future atomic task
-- implementation readiness remains incomplete until the proof lane is reconciled
+- the deterministic fixture validator validates synthetic fixture shape and safety invariants only
+- it does not call a model
+- it does not create runtime behavior
+- it does not validate extraction quality
+- it does not prove production readiness
+- proof runner and deterministic assembly helper restoration or recreation remain deferred to future atomic tasks
+- runtime, prompt execution, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch remain deferred
 
 ## First Proof Thesis
 
