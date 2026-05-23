@@ -21,6 +21,7 @@ Baseline orientation document:
 - [`10-mvp-validation-scenario.md`](./10-mvp-validation-scenario.md): Captures the first synthetic validation scenario and the proof boundaries it must preserve.
 - [`11-prompt-and-pipeline-contract.md`](./11-prompt-and-pipeline-contract.md): Defines the planning-only pipeline decomposition and prompt guardrails for future extraction work.
 - [`12-implementation-readiness-plan.md`](./12-implementation-readiness-plan.md): Defines the smallest proof sequence that could justify moving this lane beyond docs-only incubation.
+- [`13-proof-lane-reconciliation.md`](./13-proof-lane-reconciliation.md): Records the current branch-state discrepancy between present docs-local prompt artifacts and missing proof-helper paths.
 
 ## Prompt Templates
 
