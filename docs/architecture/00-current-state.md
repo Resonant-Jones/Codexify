@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-22
+2026-05-23
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,16 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work tightened the supported profile wiring, repaired a personal-facts settings route, surfaced runtime state in the chat shell, and added an internal/manual local-model draft adapter. The release promise still stays narrow and proof-driven.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work stayed focused on release-truth maintenance, architecture consolidation, and export workflow plumbing rather than widening the supported runtime surface.
 
 ## What changed recently
-- Supported-profile wiring was fixed on `main`.
-- Personal-facts settings routing was repaired on `main`.
-- GuardianChat now surfaces runtime visual state in the shell.
-- An internal/manual local-model draft adapter landed.
-- Daily audit artifacts were refreshed around the current `main` tip.
-- Doctrine-first Unity Audit framing is being added to the architecture layer as a coherence lens only; it does not claim new runtime implementation.
-- Overlapping build, delegation, coding-worker, runner, and Pi-style doctrine is being consolidated under Guardian Build Loop framing; this is architecture consolidation only and does not add autonomous runtime behavior, weaken human review, or widen release scope.
+- `main` picked up a core export sync workflow refactor in the frontend lockfile.
+- The core export sync script now includes `backend/` in the export set.
+- Guardian Build Loop doctrine was consolidated into the architecture KB as architecture consolidation only; it does not add autonomous runtime behavior, weaken human review, or widen release scope.
+- The current-state override and README doc map were refreshed on `main`.
+- A Unity Audit scaffold and coherence doctrine landed in the architecture layer as governance framing only; it does not claim new runtime implementation.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -33,21 +31,17 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Workspace-local Obsidian retrieval is supported on the current tip.
 - Image-turn containment remains proven on the supported profile.
 - Coding results return through Guardian into the source thread on the supported path.
-- Command Center exposes non-dispatch worker-control visibility and recommendation-only next-task inspection.
-- A local `Publishing_Portal/Core/` source mirror may exist for public-facing packaging and review. This mirror is generated output only; it is not the source of truth and does not replace supported-path live proof.
-- Heartbeat status is readable in Agent Command Center; execution, scheduling, and publishing remain off this path.
 - Graph writes remain default-off on the supported Compose path.
-- The local-model draft adapter is an internal/manual artifact lane only.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features. The new retrieval navigation note is planning doctrine only, does not expand the supported release surface, and does not change the current graph-writes-default-off boundary.
-- Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
-- Do not treat the `Publishing_Portal/Core/` source mirror as a release artifact or as evidence of release readiness.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
-- Do not treat Guardian Build Loop consolidation docs as proof of autonomous self-build, auto-merge, push, release readiness, or broader coding-worker support than current supported-path evidence proves.
+- Do not treat architecture-only doctrine additions, including Guardian Build Loop consolidation docs, as proof of autonomous self-build, auto-merge, push, release readiness, or broader coding-worker support than current supported-path evidence proves.
+- Do not assume the core export sync workflow changes, `Publishing_Portal/Core/` source mirrors, or generated source bundles broaden runtime support or provide release readiness evidence.
+- Do not assume draft or local-only artifacts, including the local-model draft adapter, are shipped behavior or connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
@@ -59,8 +53,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for the supported path when runtime behavior changes.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
-4. Begin doctrine-first unification work through the Unity Audit architecture layer without overstating implementation beyond docs and governance framing.
-5. Consolidate overlapping build, delegation, coding-worker, runner, and Pi-style doctrine under Guardian Build Loop language without changing runtime behavior or release-scope truth.
+4. Maintain release-truth docs as the weekly override layer.
+5. Keep Unity Audit and Guardian Build Loop consolidation explicitly docs/governance-only, without changing runtime behavior or release-scope truth.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
