@@ -21,7 +21,7 @@ Baseline orientation document:
 - [`10-mvp-validation-scenario.md`](./10-mvp-validation-scenario.md): Defines the first synthetic MVP scenario and proof expectations before any implementation work begins.
 - [`11-prompt-and-pipeline-contract.md`](./11-prompt-and-pipeline-contract.md): Defines the planning decomposition for future pass-based prompt and processing pipeline behavior before runtime implementation.
 - [`12-implementation-readiness-plan.md`](./12-implementation-readiness-plan.md): Defines the implementation-readiness boundary and first executable proof constraints before any runtime work begins.
-- [`13-proof-lane-reconciliation.md`](./13-proof-lane-reconciliation.md): Records the current branch-state discrepancy between present docs-local prompt artifacts and missing proof-helper paths.
+- [`13-proof-lane-reconciliation.md`](./13-proof-lane-reconciliation.md): Records the branch-state reconciliation for docs-local proof-helper availability.
 
 ## Synthetic Fixtures
 
