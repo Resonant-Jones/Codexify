@@ -24,6 +24,7 @@ What is true now:
 - the planning contracts for extraction, review, lineage, and pipeline decomposition exist
 - the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 - that prompt remains manual-only, synthetic-only, and non-runtime
+- the current checkout should not assume previously referenced proof-helper scripts or tests are present unless the branch actually contains them
 
 What remains not true:
 
@@ -34,6 +35,13 @@ What remains not true:
 - no persistence model exists
 - no review UI exists
 - no real customer data is in scope
+
+## Reconciliation Note
+
+- the current checkout has the docs-local extraction prompt template
+- previously referenced proof-helper scripts and tests are not assumed present unless the branch actually contains them
+- proof-helper restoration or recreation is deferred to a future atomic task
+- implementation readiness remains incomplete until the proof lane is reconciled
 
 ## First Proof Thesis
 
