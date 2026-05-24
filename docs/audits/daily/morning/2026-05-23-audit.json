@@ -63,15 +63,98 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 0,
-    "commits": [],
-    "files_changed": [],
-    "window_end": "2026-05-24T07:26:33.125572-04:00",
+    "commit_count": 7,
+    "commits": [
+      {
+        "files": [
+          "frontend/pnpm-lock.yaml"
+        ],
+        "sha": "4243cce8c7e24f9a6126390116e2a8a49da37685",
+        "subject": "Refactor core export sync workflow"
+      },
+      {
+        "files": [
+          "docs/release/core-export-workflow.md",
+          "scripts/release/sync_core_export.sh"
+        ],
+        "sha": "65936fae1702170c697502dc776d0773d4ff52bc",
+        "subject": "Add backend/ to core export sync include list"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md",
+          "docs/architecture/guardian-build-loop-doctrine.md"
+        ],
+        "sha": "330ae835b5c32c5ba217fa20199898628072a1d1",
+        "subject": "consolidate guardian build loop doctrine"
+      },
+      {
+        "files": [
+          ".gitignore",
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md",
+          "docs/release/core-export-workflow.md",
+          "scripts/release/sync_core_export.sh"
+        ],
+        "sha": "ced407853427f8d78861038bf568b5d1516ee715",
+        "subject": "Add local core source mirror workflow"
+      },
+      {
+        "files": [
+          "docs/architecture/README.md",
+          "docs/audits/unity/latest.json",
+          "docs/audits/unity/latest.md",
+          "scripts/audit_unity.py"
+        ],
+        "sha": "c9e7304e1b8664ca14471253eef551815e3613dc",
+        "subject": "add unity audit executable scaffold"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md",
+          "docs/architecture/unity-audit-doctrine.md"
+        ],
+        "sha": "8f3338c4e87d2a28ae9b7fde599a6a4111489325",
+        "subject": "add unity audit coherence doctrine"
+      },
+      {
+        "files": [
+          "docs/architecture/account-export-restore-contract.md",
+          "docs/architecture/canonical-token-philosophy.md",
+          "docs/architecture/codex-entry-policy-hardening.md",
+          "docs/architecture/router-decision-table.md",
+          "docs/architecture/runtime-protocol-token-contract.md"
+        ],
+        "sha": "d60937e38746f889c080703f882a166f91588549",
+        "subject": "Document Codex Entry policy implementation and hardening chain"
+      }
+    ],
+    "files_changed": [
+      "frontend/pnpm-lock.yaml",
+      "docs/release/core-export-workflow.md",
+      "scripts/release/sync_core_export.sh",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/README.md",
+      "docs/architecture/guardian-build-loop-doctrine.md",
+      ".gitignore",
+      "docs/audits/unity/latest.json",
+      "docs/audits/unity/latest.md",
+      "scripts/audit_unity.py",
+      "docs/architecture/unity-audit-doctrine.md",
+      "docs/architecture/account-export-restore-contract.md",
+      "docs/architecture/canonical-token-philosophy.md",
+      "docs/architecture/codex-entry-policy-hardening.md",
+      "docs/architecture/router-decision-table.md",
+      "docs/architecture/runtime-protocol-token-contract.md"
+    ],
+    "window_end": "2026-05-23T05:02:10.757147-04:00",
     "window_hours": 24,
-    "window_start": "2026-05-23T07:26:33.125572-04:00"
+    "window_start": "2026-05-22T05:02:10.757147-04:00"
   },
-  "date": "2026-05-24",
-  "generated_at": "2026-05-24T07:26:33.125572-04:00",
+  "date": "2026-05-23",
+  "generated_at": "2026-05-23T05:02:10.757147-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -80,16 +163,14 @@
   "phase": "morning",
   "repo": {
     "branch": "main",
-    "date": "2026-05-24",
+    "date": "2026-05-23",
     "dirty": true,
-    "head": "45a9279345a98df6faaee176e1aa9a178606dd2c",
+    "head": "4243cce8c7e24f9a6126390116e2a8a49da37685",
     "status_error": "",
     "status_lines": [
       " M docs/Marketing/generated/history/run-history.jsonl",
       " M docs/audits/daily/evening/latest.json",
       " M docs/audits/daily/evening/latest.md",
-      " M docs/audits/daily/morning/latest.json",
-      " M docs/audits/daily/morning/latest.md",
       " M docs/audits/latest.json",
       " M docs/audits/latest.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md",
@@ -102,11 +183,7 @@
       "?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json",
       "?? docs/audits/daily/evening/2026-05-22-audit.json",
-      "?? docs/audits/daily/evening/2026-05-22-audit.md",
-      "?? docs/audits/daily/evening/2026-05-23-audit.json",
-      "?? docs/audits/daily/evening/2026-05-23-audit.md",
-      "?? docs/audits/daily/morning/2026-05-23-audit.json",
-      "?? docs/audits/daily/morning/2026-05-23-audit.md"
+      "?? docs/audits/daily/evening/2026-05-22-audit.md"
     ]
   },
   "risk_flags": [
@@ -162,5 +239,47 @@
       "severity": "high"
     }
   ],
-  "subsystems_touched": {}
+  "subsystems_touched": {
+    "audit": {
+      "count": 3,
+      "files": [
+        "docs/audits/unity/latest.json",
+        "docs/audits/unity/latest.md",
+        "scripts/audit_unity.py"
+      ]
+    },
+    "docs": {
+      "count": 10,
+      "files": [
+        "docs/release/core-export-workflow.md",
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/README.md",
+        "docs/architecture/guardian-build-loop-doctrine.md",
+        "docs/architecture/unity-audit-doctrine.md",
+        "docs/architecture/account-export-restore-contract.md",
+        "docs/architecture/canonical-token-philosophy.md",
+        "docs/architecture/codex-entry-policy-hardening.md",
+        "docs/architecture/router-decision-table.md",
+        "docs/architecture/runtime-protocol-token-contract.md"
+      ]
+    },
+    "frontend": {
+      "count": 1,
+      "files": [
+        "frontend/pnpm-lock.yaml"
+      ]
+    },
+    "sync": {
+      "count": 1,
+      "files": [
+        "scripts/release/sync_core_export.sh"
+      ]
+    },
+    "unknown": {
+      "count": 1,
+      "files": [
+        ".gitignore"
+      ]
+    }
+  }
 }
