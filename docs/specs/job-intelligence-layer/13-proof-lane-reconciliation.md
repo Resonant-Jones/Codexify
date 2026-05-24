@@ -17,10 +17,10 @@ This document reconciles the Job Intelligence Layer proof lane after discovering
 | --- | --- | --- |
 | `docs/specs/job-intelligence-layer/prompts/extraction-v0.md` | `present` | The docs-local extraction prompt template exists in this checkout. |
 | `scripts/job_intelligence/validate_fixture.py` | `present` | The deterministic fixture validator is available in this checkout. |
-| `scripts/job_intelligence/run_fixture_proof.py` | `missing` | The previously referenced proof runner is not available in this checkout. |
+| `scripts/job_intelligence/run_fixture_proof.py` | `present` | The deterministic proof-report runner is available in this checkout. |
 | `scripts/job_intelligence/assemble_fixture_draft.py` | `missing` | The previously referenced deterministic assembly helper is not available in this checkout. |
 | `tests/job_intelligence/test_validate_fixture.py` | `present` | The focused validator test is available in this checkout. |
-| `tests/job_intelligence/test_run_fixture_proof.py` | `missing` | The previously referenced proof-runner test is not available in this checkout. |
+| `tests/job_intelligence/test_run_fixture_proof.py` | `present` | The focused proof-runner test is available in this checkout. |
 | `tests/job_intelligence/test_assemble_fixture_draft.py` | `missing` | The previously referenced deterministic-assembly test is not available in this checkout. |
 | `docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/` | `present` | The docs-local synthetic fixture directory exists in this checkout. |
 
@@ -37,12 +37,10 @@ This document reconciles the Job Intelligence Layer proof lane after discovering
 
 ### Scripts
 
-- `scripts/job_intelligence/run_fixture_proof.py`
 - `scripts/job_intelligence/assemble_fixture_draft.py`
 
 ### Tests
 
-- `tests/job_intelligence/test_run_fixture_proof.py`
 - `tests/job_intelligence/test_assemble_fixture_draft.py`
 
 ## Restoration Decision Boundary
@@ -74,9 +72,9 @@ Requirements for a future recreation task:
 
 ## Recommended Next Task
 
-- inspect git history and available branches for the remaining missing proof-helper files
+- inspect git history and available branches for the remaining deterministic assembly helper files
 - if found, restore the smallest coherent remaining proof-helper slice
-- if not found, recreate the proof runner or deterministic assembly helper one slice at a time
+- if not found, recreate the deterministic assembly helper as its own next slice
 
 Restoration or recreation is deferred.
 No files are restored by this reconciliation note.

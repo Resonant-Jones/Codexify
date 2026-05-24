@@ -25,7 +25,8 @@ What is true now:
 - the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 - that prompt remains manual-only, synthetic-only, and non-runtime
 - the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
-- the current checkout should not assume previously referenced proof runner or deterministic assembly helper files are present unless the branch actually contains them
+- the deterministic proof-report runner now exists at `scripts/job_intelligence/run_fixture_proof.py`
+- the current checkout should not assume the deterministic assembly helper is present unless the branch actually contains it
 
 What remains not true:
 
@@ -41,11 +42,13 @@ What remains not true:
 
 - the current checkout has the docs-local extraction prompt template
 - the deterministic fixture validator validates synthetic fixture shape and safety invariants only
+- the deterministic proof-report runner calls the fixture validator first
+- it validates cross-artifact fixture consistency and emits a machine-readable proof report
 - it does not call a model
 - it does not create runtime behavior
 - it does not validate extraction quality
 - it does not prove production readiness
-- proof runner and deterministic assembly helper restoration or recreation remain deferred to future atomic tasks
+- deterministic assembly helper restoration or recreation remains deferred to a future atomic task
 - runtime, prompt execution, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch remain deferred
 
 ## First Proof Thesis
