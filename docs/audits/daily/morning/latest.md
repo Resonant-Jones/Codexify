@@ -1,34 +1,50 @@
-# Daily Audit — 2026-05-21
+# Daily Audit — 2026-05-24
 
 ## Repo Status
-- Date: 2026-05-21
+- Date: 2026-05-24
 - Phase: `morning`
-- Branch: `codex/fix-broker-syntax`
-- HEAD: `f2dc2d93e2a67dbf974f198143584783e05d3688`
+- Branch: `main`
+- HEAD: `45a9279345a98df6faaee176e1aa9a178606dd2c`
 - Worktree: dirty
 - Status lines:
+  - ` M docs/Marketing/generated/history/run-history.jsonl`
   - ` M docs/audits/daily/evening/latest.json`
   - ` M docs/audits/daily/evening/latest.md`
+  - ` M docs/audits/daily/morning/latest.json`
+  - ` M docs/audits/daily/morning/latest.md`
   - ` M docs/audits/latest.json`
   - ` M docs/audits/latest.md`
-  - `?? docs/audits/daily/evening/2026-05-20-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-20-audit.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json`
+  - `?? docs/audits/daily/evening/2026-05-22-audit.json`
+  - `?? docs/audits/daily/evening/2026-05-22-audit.md`
+  - `?? docs/audits/daily/evening/2026-05-23-audit.json`
+  - `?? docs/audits/daily/evening/2026-05-23-audit.md`
+  - `?? docs/audits/daily/morning/2026-05-23-audit.json`
+  - `?? docs/audits/daily/morning/2026-05-23-audit.md`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
   - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py --json` -> exit 1 (json probe)
-  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py` -> exit 1 (plain)
-- Summary counts: PASS 38, WARN 12, FAIL 1
-- Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Observability`
-- Weakest signals: `Extension Boundary`, `Federation Readiness`, `Governance Readiness`
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+- Summary counts: PASS 43, WARN 11, FAIL 0
+- Strongest evidence: `Extension Boundary`, `Core Loop Integrity`, `Primitive Stability`
+- Weakest signals: `Federation Readiness`, `Alternate Surface Readiness`, `Governance Readiness`
 
 ### Current Suggested Score Bands
 | Domain | Band |
 | --- | --- |
 | `Core Loop Integrity` | 1-2 likely |
 | `Primitive Stability` | 1-2 likely |
-| `Extension Boundary` | 0-1 likely |
+| `Extension Boundary` | 1-2 likely |
 | `Observability` | 1-2 likely |
 | `Durability & Recovery` | 1-2 likely |
 | `Alternate Surface Readiness` | manual review required |
