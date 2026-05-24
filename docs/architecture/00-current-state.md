@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-23
+2026-05-24
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work stayed focused on release-truth maintenance, architecture consolidation, and export workflow plumbing rather than widening the supported runtime surface.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This week’s audit did not surface a new merged runtime capability on `main`; the visible movement is still concentrated in release-truth maintenance, architecture consolidation, and export workflow plumbing.
 
 ## What changed recently
-- `main` picked up a core export sync workflow refactor in the frontend lockfile.
-- The core export sync script now includes `backend/` in the export set.
-- Guardian Build Loop doctrine was consolidated into the architecture KB as architecture consolidation only; it does not add autonomous runtime behavior, weaken human review, or widen release scope.
-- The current-state override and README doc map were refreshed on `main`.
-- A Unity Audit scaffold and coherence doctrine landed in the architecture layer as governance framing only; it does not claim new runtime implementation.
+- No new merged runtime capability landed on `main` during this audit window.
+- The current-state override and README doc map remain the weekly release-truth entrypoint.
+- Existing export workflow and architecture consolidation work still define the recent direction.
+- Guardian Build Loop doctrine and Unity Audit coherence framing remain architecture/governance consolidation only; they do not add autonomous runtime behavior, weaken human review, widen release scope, or claim new runtime implementation.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -32,6 +31,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Image-turn containment remains proven on the supported profile.
 - Coding results return through Guardian into the source thread on the supported path.
 - Graph writes remain default-off on the supported Compose path.
+- The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
