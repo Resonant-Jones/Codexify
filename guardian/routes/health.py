@@ -615,6 +615,19 @@ def health_llm():
     if provider == "local" and model:
         payload["runtime"] = describe_local_runtime(model, settings=settings)
 
+    # ── models_available: true when ANY usable model path exists ──
+    # Local path: endpoint reachable AND a model was resolved successfully.
+    # Cloud path: any cloud provider has API credentials configured.
+    # False only when both paths are dead — the exact condition for a
+    # "no AI models available" banner.
+    _local_ok = (
+        provider == "local"
+        and local_model_resolution is not None
+        and local_model_resolution.ok
+    )
+    _cloud_configured = cloud_capable_configuration_present(settings)
+    payload["models_available"] = _local_ok or _cloud_configured
+
     def _wrap(status: str, *, http_status: int | None = None):
         envelope = build_health_response(
             "llm", normalize_health_status(status), payload

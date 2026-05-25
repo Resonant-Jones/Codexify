@@ -182,6 +182,7 @@ type LlmHealthSnapshot = {
   model: string | null;
   error: string | null;
   rawError: string | null;
+  modelsAvailable: boolean | null;
   checkedAt: number | null;
 };
 
@@ -992,6 +993,7 @@ export function GuardianChat({
     model: null,
     error: null,
     rawError: null,
+    modelsAvailable: null,
     checkedAt: null,
   });
   const [availableProfiles, setAvailableProfiles] = useState<SystemProfileOption[]>(PROFILE_FALLBACK_OPTIONS);
@@ -1319,6 +1321,8 @@ export function GuardianChat({
         model: typeof data?.model === "string" ? data.model : null,
         error: toUserFacingLlmHealthError(rawError, status),
         rawError,
+        modelsAvailable:
+          typeof data?.models_available === "boolean" ? data.models_available : null,
         checkedAt: Date.now(),
       });
     } catch (err: any) {
@@ -1330,6 +1334,7 @@ export function GuardianChat({
         model: null,
         error: toUserFacingLlmHealthError(rawError, "unknown"),
         rawError,
+        modelsAvailable: null,
         checkedAt: Date.now(),
       });
       logOnce("poll:health-llm", 10_000, () => {
@@ -1350,13 +1355,24 @@ export function GuardianChat({
     };
   }, [refreshLlmHealth]);
   const llmBackendUnavailable =
-    llmHealth.status === "offline" || llmHealth.status === "misconfigured";
+    llmHealth.status === "offline"
+    || llmHealth.status === "misconfigured"
+    || llmHealth.modelsAvailable === false;
   const cloudProvidersDisabled = /ALLOW_CLOUD_PROVIDERS\s*=\s*false/i.test(
     llmHealth.rawError || ""
   );
-  const llmStatusMessage =
-    llmHealth.error
-    || "Guardian cannot reach the model endpoint. Check connectivity and model service availability.";
+  const llmStatusMessage = (() => {
+    if (llmHealth.modelsAvailable === false) {
+      return (
+        "No AI models are available. Pull a model into Ollama "
+        + "(e.g. `ollama pull qwen3`) or connect a cloud provider."
+      );
+    }
+    return (
+      llmHealth.error
+      || "Guardian cannot reach the model endpoint. Check connectivity and model service availability."
+    );
+  })();
   const runtimeHealthDiagnosticLines = useMemo(
     () =>
       runtimeHealth?.status === "degraded"
@@ -3109,9 +3125,11 @@ export function GuardianChat({
       targetThreadId != null && Boolean(requestedProfileId);
     if (llmBackendUnavailable && !isProfileCommand) {
       const title =
-        llmHealth.status === "misconfigured"
-          ? "LLM backend misconfigured."
-          : "LLM backend offline.";
+        llmHealth.modelsAvailable === false
+          ? "No AI models available."
+          : llmHealth.status === "misconfigured"
+            ? "LLM backend misconfigured."
+            : "LLM backend offline.";
       showToast(`${title} ${llmStatusMessage}`);
       void refreshLlmHealth();
       return;
@@ -3831,7 +3849,11 @@ export function GuardianChat({
           }}
         >
           <div className="font-semibold">
-            {llmHealth.status === "misconfigured" ? "LLM backend misconfigured" : "LLM backend offline"}
+            {llmHealth.modelsAvailable === false
+              ? "No AI models available"
+              : llmHealth.status === "misconfigured"
+                ? "LLM backend misconfigured"
+                : "LLM backend offline"}
           </div>
           <div className="mt-1 opacity-90">{llmStatusMessage}</div>
           <div className="mt-1 flex items-center gap-2 opacity-80">
