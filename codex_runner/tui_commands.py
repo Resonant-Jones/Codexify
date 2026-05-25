@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tui_state import RunnerSettings
+from tui_state import (
+    RunnerSettings,
+    SUPPORTED_PROVIDER,
+    UNSUPPORTED_DIRECT_PROVIDER_MESSAGE,
+)
 
 BOOLEAN_KEYS = {
     "verify": "verify",
@@ -24,16 +28,12 @@ VALUE_KEYS = {
     "compiler_prompt_file",
     "campaign_set_schema_file",
     "task_result_schema_file",
-    "codex_model",
-    "codex_model_audit",
-    "codex_model_compiler",
-    "codex_model_task",
-    "codex_config",
-    "claude_model",
-    "claude_model_audit",
-    "claude_model_compiler",
-    "claude_model_task",
-    "claude_settings",
+    "pi_provider",
+    "pi_model",
+    "pi_model_audit",
+    "pi_model_compiler",
+    "pi_model_task",
+    "pi_thinking",
 }
 
 
@@ -76,15 +76,16 @@ def suggestion_pool(
     staged: dict[str, object],
     preset_names: list[str],
 ) -> list[str]:
-    _ = settings
-    _ = staged
+    del settings
+    del staged
     rows: list[str] = [
-        "/set provider codex",
-        "/set provider claude",
+        "/set provider pi",
         "/set passes 1",
         "/set execute_mode dry-run",
         "/set execute_mode execute",
         "/set base_ref HEAD",
+        "/set pi_provider anthropic",
+        "/set pi_thinking medium",
         "/toggle verify",
         "/toggle branch",
         "/toggle fallback",
@@ -129,8 +130,10 @@ def coerce_value(key: str, raw: str) -> object:
     value = raw.strip()
     if key == "provider":
         lowered = value.lower()
-        if lowered not in {"codex", "claude"}:
-            raise ValueError("provider must be codex or claude")
+        if lowered in {"codex", "claude"}:
+            raise ValueError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+        if lowered != SUPPORTED_PROVIDER:
+            raise ValueError("provider must be pi")
         return lowered
     if key == "passes":
         try:
@@ -145,8 +148,6 @@ def coerce_value(key: str, raw: str) -> object:
         if lowered not in {"dry-run", "execute"}:
             raise ValueError("execute_mode must be dry-run or execute")
         return lowered
-    if key in {"codex_config", "claude_settings"}:
-        return [part.strip() for part in value.split(",") if part.strip()]
     return value
 
 
@@ -164,5 +165,7 @@ def snapshot_summary(settings: RunnerSettings) -> dict[str, object]:
         "verify": settings.verify,
         "branch_per_campaign": settings.branch_per_campaign,
         "allow_discovery_fallback": settings.allow_discovery_fallback,
+        "pi_provider": settings.pi_provider or "(default)",
+        "pi_thinking": settings.pi_thinking or "(default)",
         "debug": settings.debug,
     }

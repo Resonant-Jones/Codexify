@@ -24,6 +24,7 @@ STATE_PATH = STATE_DIR / "state.json"
 STATE_TRANSITIONS_PATH = STATE_DIR / "state_transitions.jsonl"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PI_WRAPPER_PATH = SCRIPT_DIR / "src" / "agent-wrapper.js"
 DEFAULT_MEGA_AUDIT_SCHEMA_PATH = (
     SCRIPT_DIR / "schemas" / "mega_audit_output.schema.json"
 )
@@ -48,6 +49,12 @@ TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 
 MAPPING_START = "<!-- RUNNER_TASK_MAP -->"
 MAPPING_END = "<!-- /RUNNER_TASK_MAP -->"
+SUPPORTED_PROVIDER = "pi"
+LEGACY_UNSUPPORTED_PROVIDERS = {"codex", "claude"}
+UNSUPPORTED_DIRECT_PROVIDER_MESSAGE = (
+    "Direct Codex/Claude execution is unsupported for Campaign Runner. "
+    "Use the Pi broker adapter."
+)
 
 
 class RunnerError(RuntimeError):
@@ -323,16 +330,19 @@ def ensure_repo_root(repo_root: Path, debug: bool) -> None:
 
 
 def ensure_provider_available(provider: str) -> None:
-    binaries = {
-        "codex": "codex",
-        "claude": "claude",
-    }
-    binary = binaries.get(provider)
-    if not binary:
+    normalized = provider.strip().lower()
+    if normalized in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+    if normalized != SUPPORTED_PROVIDER:
         raise RunnerError(f"Unsupported provider: {provider}")
-    if not shutil_which(binary):
+    if not PI_WRAPPER_PATH.exists():
         raise RunnerError(
-            f"{provider} executable ('{binary}') not found on PATH"
+            f"Pi wrapper not found: {PI_WRAPPER_PATH}. "
+            "The Pi broker adapter requires codex_runner/src/agent-wrapper.js."
+        )
+    if not shutil_which("node"):
+        raise RunnerError(
+            "Pi broker adapter requires Node.js ('node') on PATH"
         )
 
 
@@ -1026,46 +1036,25 @@ def _select_payload(
     return chosen
 
 
-def run_codex_exec(
+def _pi_env_from_settings(settings: list[str]) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for entry in settings:
+        key, sep, value = entry.partition("=")
+        normalized_key = key.strip().lower()
+        normalized_value = value.strip()
+        if not sep or not normalized_value:
+            continue
+        if normalized_key == "pi_provider":
+            env["PI_PROVIDER"] = normalized_value
+        elif normalized_key == "pi_thinking":
+            env["PI_THINKING"] = normalized_value
+    return env
+
+
+def run_pi_exec(
     repo_root: Path,
     *,
-    prompt_text: str,
-    output_schema: Path,
-    output_path: Path,
-    model: str | None,
-    configs: list[str],
-    debug: bool,
-) -> None:
-    cmd: list[str] = ["codex"]
-    if model:
-        cmd.extend(["--model", model])
-    for config in configs:
-        cmd.extend(["--config", config])
-
-    cmd.extend(
-        [
-            "exec",
-            "--output-schema",
-            str(output_schema),
-            "-o",
-            str(output_path),
-            prompt_text,
-        ]
-    )
-    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        stdout = (result.stdout or "").strip()
-        raise RunnerError(
-            "codex exec failed"
-            + (f"\nSTDERR:\n{stderr}" if stderr else "")
-            + (f"\nSTDOUT:\n{stdout}" if stdout else "")
-        )
-
-
-def run_claude_exec(
-    repo_root: Path,
-    *,
+    stage: str,
     prompt_text: str,
     output_schema: Path,
     output_path: Path,
@@ -1075,33 +1064,45 @@ def run_claude_exec(
 ) -> None:
     schema_payload = json_read(output_schema)
     required_keys = _schema_required_keys(schema_payload)
-    schema_json = canonical_json(schema_payload)
-
-    cmd: list[str] = [
-        "claude",
-        "-p",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-    ]
+    env = os.environ.copy()
+    env.update(_pi_env_from_settings(settings))
     if model:
-        cmd.extend(["--model", model])
-    for setting in settings:
-        cmd.extend(["--settings", setting])
-    cmd.append(prompt_text)
+        env["PI_MODEL"] = model
 
-    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    cmd = ["node", str(PI_WRAPPER_PATH), stage, prompt_text]
+    if debug:
+        log(f"[debug] cwd={repo_root} cmd={' '.join(cmd)}")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RunnerError(
+            "Pi broker adapter requires Node.js ('node') on PATH"
+        ) from exc
+
+    if debug:
+        if result.stdout:
+            log(f"[debug] stdout:\n{result.stdout}")
+        if result.stderr:
+            log(f"[debug] stderr:\n{result.stderr}")
+
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
         raise RunnerError(
-            "claude exec failed"
+            "Pi broker execution failed"
             + (f"\nSTDERR:\n{stderr}" if stderr else "")
             + (f"\nSTDOUT:\n{stdout}" if stdout else "")
         )
 
-    parsed = _parse_json_with_fallback(result.stdout or "", "claude")
+    parsed = _parse_json_with_fallback(result.stdout or "", "pi")
     payload = _select_payload(_candidate_payload_dicts(parsed), required_keys)
     json_write(output_path, payload)
 
@@ -1110,6 +1111,7 @@ def run_provider_exec(
     repo_root: Path,
     *,
     provider: str,
+    stage: str,
     prompt_text: str,
     output_schema: Path,
     output_path: Path,
@@ -1117,29 +1119,21 @@ def run_provider_exec(
     settings: list[str],
     debug: bool,
 ) -> None:
-    if provider == "codex":
-        run_codex_exec(
-            repo_root,
-            prompt_text=prompt_text,
-            output_schema=output_schema,
-            output_path=output_path,
-            model=model,
-            configs=settings,
-            debug=debug,
-        )
-        return
-    if provider == "claude":
-        run_claude_exec(
-            repo_root,
-            prompt_text=prompt_text,
-            output_schema=output_schema,
-            output_path=output_path,
-            model=model,
-            settings=settings,
-            debug=debug,
-        )
-        return
-    raise RunnerError(f"Unsupported provider: {provider}")
+    normalized = provider.strip().lower()
+    if normalized in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+    if normalized != SUPPORTED_PROVIDER:
+        raise RunnerError(f"Unsupported provider: {provider}")
+    run_pi_exec(
+        repo_root,
+        stage=stage,
+        prompt_text=prompt_text,
+        output_schema=output_schema,
+        output_path=output_path,
+        model=model,
+        settings=settings,
+        debug=debug,
+    )
 
 
 def append_implementation_receipt(
@@ -1185,39 +1179,37 @@ def default_verify(ci_env: str | None) -> bool:
 
 
 def provider_settings(args: argparse.Namespace) -> list[str]:
-    if args.provider == "codex":
-        return list(args.codex_config)
-    if args.provider == "claude":
-        return list(args.claude_settings)
-    raise RunnerError(f"Unsupported provider: {args.provider}")
+    if args.provider != SUPPORTED_PROVIDER:
+        if args.provider in LEGACY_UNSUPPORTED_PROVIDERS:
+            raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+        raise RunnerError(f"Unsupported provider: {args.provider}")
+    settings: list[str] = []
+    if args.pi_provider:
+        settings.append(f"pi_provider={args.pi_provider}")
+    if args.pi_thinking:
+        settings.append(f"pi_thinking={args.pi_thinking}")
+    return settings
 
 
 def provider_model_for_stage(
     args: argparse.Namespace, stage: str
 ) -> str | None:
-    if args.provider == "codex":
+    if args.provider == SUPPORTED_PROVIDER:
         if stage == "audit":
-            return args.codex_model_audit or args.codex_model
+            return args.pi_model_audit or args.pi_model
         if stage == "compiler":
-            return args.codex_model_compiler or args.codex_model
+            return args.pi_model_compiler or args.pi_model
         if stage == "task":
-            return args.codex_model_task or args.codex_model
-    if args.provider == "claude":
-        if stage == "audit":
-            return args.claude_model_audit or args.claude_model
-        if stage == "compiler":
-            return args.claude_model_compiler or args.claude_model
-        if stage == "task":
-            return args.claude_model_task or args.claude_model
+            return args.pi_model_task or args.pi_model
+    if args.provider in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
     raise RunnerError(
         f"Unsupported provider/stage combination: {args.provider}/{stage}"
     )
 
 
 def provider_model_map(args: argparse.Namespace) -> dict[str, str | None]:
-    default_model = (
-        args.codex_model if args.provider == "codex" else args.claude_model
-    )
+    default_model = args.pi_model if args.provider == SUPPORTED_PROVIDER else None
     return {
         "default": default_model,
         "audit": provider_model_for_stage(args, "audit"),
@@ -1333,6 +1325,7 @@ def run_task_agent(
         run_provider_exec(
             repo_root,
             provider=provider,
+            stage="task",
             prompt_text=str(task["activation_prompt"]),
             output_schema=task_result_schema_file,
             output_path=output,
@@ -1432,6 +1425,7 @@ def run_pass(
         run_provider_exec(
             repo_root,
             provider=args.provider,
+            stage="audit",
             prompt_text=audit_prompt_text,
             output_schema=args.audit_schema_file,
             output_path=stage_a_output_path,
@@ -1456,6 +1450,7 @@ def run_pass(
         run_provider_exec(
             repo_root,
             provider=args.provider,
+            stage="compile",
             prompt_text=compiler_prompt_text,
             output_schema=args.campaign_set_schema_file,
             output_path=stage_b_output_path,
@@ -1834,8 +1829,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        choices=["codex", "claude"],
-        default="codex",
+        default=SUPPORTED_PROVIDER,
     )
 
     parser.add_argument(
@@ -1890,17 +1884,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.set_defaults(verify=None)
 
-    parser.add_argument("--codex-model", default=None)
-    parser.add_argument("--codex-model-audit", default=None)
-    parser.add_argument("--codex-model-compiler", default=None)
-    parser.add_argument("--codex-model-task", default=None)
-    parser.add_argument("--codex-config", action="append", default=[])
-
-    parser.add_argument("--claude-model", default=None)
-    parser.add_argument("--claude-model-audit", default=None)
-    parser.add_argument("--claude-model-compiler", default=None)
-    parser.add_argument("--claude-model-task", default=None)
-    parser.add_argument("--claude-settings", action="append", default=[])
+    parser.add_argument("--pi-provider", default=None)
+    parser.add_argument("--pi-model", default=None)
+    parser.add_argument("--pi-model-audit", default=None)
+    parser.add_argument("--pi-model-compiler", default=None)
+    parser.add_argument("--pi-model-task", default=None)
+    parser.add_argument("--pi-thinking", default=None)
 
     parser.add_argument("--debug", action="store_true")
 
@@ -1924,6 +1913,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.passes < 1:
         raise RunnerError("--passes must be >= 1")
+
+    args.provider = str(args.provider or "").strip().lower()
+    if args.provider in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+    if args.provider != SUPPORTED_PROVIDER:
+        raise RunnerError(f"Unsupported provider: {args.provider}")
 
     if args.verify is None:
         args.verify = default_verify(os.environ.get("CI"))

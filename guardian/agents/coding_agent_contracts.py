@@ -8,11 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+# `pi_codex_runner` remains the canonical worker target for now because it is
+# already persisted in runtime state. The name is legacy-compatible only and
+# does not imply direct Codex CLI execution; it is the Pi broker lane.
 CodingAgentAdapterKind = Literal[
+    "pi",
     "pi_sdk",
     "pi_codex_runner",
-    "codex",
-    "claudecode",
 ]
 CodingAgentTaskStatus = Literal[
     "queued",

@@ -62,7 +62,7 @@ def test_coding_agent_task_envelope_can_include_validation_metadata() -> None:
         attempt_id="attempt-321",
         user_id="local",
         project_id=7,
-        adapter_kind="mock",
+        adapter_kind="pi",
         instructions="Run the parser validation loop.",
         repo_root="/workspace/repo",
         context_summary="Validation metadata should be optional.",
@@ -113,7 +113,10 @@ def test_permission_policy_keeps_allowed_paths_as_immutable_tuple() -> None:
 
 
 def test_adapter_kind_and_status_literals_include_expected_values() -> None:
+    assert "pi" in get_args(CodingAgentAdapterKind)
     assert "pi_sdk" in get_args(CodingAgentAdapterKind)
+    assert "codex" not in get_args(CodingAgentAdapterKind)
+    assert "claudecode" not in get_args(CodingAgentAdapterKind)
     assert "completed" in get_args(CodingAgentTaskStatus)
     assert "failed_retryable" in get_args(CodingAgentTaskStatus)
 
@@ -136,7 +139,7 @@ def test_source_message_and_attempt_ids_are_separate_required_fields() -> None:
             attempt_id="attempt-789",
             user_id="local",
             project_id=None,
-            adapter_kind="mock",
+            adapter_kind="pi",
             instructions="Do the thing.",
             repo_root=None,
             context_summary=None,
@@ -156,7 +159,7 @@ def test_source_message_and_attempt_ids_are_separate_required_fields() -> None:
             source_message_id="message-456",
             user_id="local",
             project_id=None,
-            adapter_kind="mock",
+            adapter_kind="pi",
             instructions="Do the thing.",
             repo_root=None,
             context_summary=None,

@@ -28,9 +28,13 @@ try:
         suggestion_pool,
     )
     from .tui_state import (
+        LEGACY_UNSUPPORTED_PROVIDERS,
         PRESET_ALLOWED_KEYS,
         ProfileData,
         RunnerSettings,
+        SUPPORTED_PROVIDER,
+        UNSUPPORTED_DIRECT_PROVIDER_MESSAGE,
+        UNSUPPORTED_PROVIDER,
         list_to_csv,
         load_profile_data,
         parse_csv_list,
@@ -53,9 +57,13 @@ except ImportError:
         suggestion_pool,
     )
     from tui_state import (  # type: ignore
+        LEGACY_UNSUPPORTED_PROVIDERS,
         PRESET_ALLOWED_KEYS,
         ProfileData,
         RunnerSettings,
+        SUPPORTED_PROVIDER,
+        UNSUPPORTED_DIRECT_PROVIDER_MESSAGE,
+        UNSUPPORTED_PROVIDER,
         list_to_csv,
         load_profile_data,
         parse_csv_list,
@@ -299,7 +307,7 @@ class CampaignRunnerTUI(App[list[str] | None]):
 
         with Container(id="command-bar"):
             yield Input(
-                placeholder="Type command (e.g., /set provider claude)",
+                placeholder="Type command (e.g., /set provider pi)",
                 id="command-input",
             )
             yield Static(id="suggestions")
@@ -401,8 +409,12 @@ class CampaignRunnerTUI(App[list[str] | None]):
     def _validate_settings(self, settings: RunnerSettings) -> list[str]:
         errors: list[str] = []
 
-        if settings.provider not in {"codex", "claude"}:
-            errors.append("Provider must be either 'codex' or 'claude'.")
+        if settings.provider in LEGACY_UNSUPPORTED_PROVIDERS:
+            errors.append(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
+        elif settings.provider == UNSUPPORTED_PROVIDER:
+            errors.append("Provider must be reconfigured to 'pi' before running.")
+        elif settings.provider != SUPPORTED_PROVIDER:
+            errors.append("Provider must be 'pi'.")
         if settings.passes < 1:
             errors.append("passes must be >= 1")
 
@@ -754,49 +766,35 @@ class CampaignRunnerTUI(App[list[str] | None]):
                 updated.debug = True
                 i += 1
                 continue
-            if part == "--codex-model" and next_value:
-                updated.codex_model = next_value
+            if part == "--pi-provider" and next_value:
+                updated.pi_provider = next_value
                 i += 2
                 continue
-            if part == "--codex-model-audit" and next_value:
-                updated.codex_model_audit = next_value
+            if part == "--pi-model" and next_value:
+                updated.pi_model = next_value
                 i += 2
                 continue
-            if part == "--codex-model-compiler" and next_value:
-                updated.codex_model_compiler = next_value
+            if part == "--pi-model-audit" and next_value:
+                updated.pi_model_audit = next_value
                 i += 2
                 continue
-            if part == "--codex-model-task" and next_value:
-                updated.codex_model_task = next_value
+            if part == "--pi-model-compiler" and next_value:
+                updated.pi_model_compiler = next_value
                 i += 2
                 continue
-            if part == "--claude-model" and next_value:
-                updated.claude_model = next_value
+            if part == "--pi-model-task" and next_value:
+                updated.pi_model_task = next_value
                 i += 2
                 continue
-            if part == "--claude-model-audit" and next_value:
-                updated.claude_model_audit = next_value
-                i += 2
-                continue
-            if part == "--claude-model-compiler" and next_value:
-                updated.claude_model_compiler = next_value
-                i += 2
-                continue
-            if part == "--claude-model-task" and next_value:
-                updated.claude_model_task = next_value
-                i += 2
-                continue
-            if part == "--codex-config" and next_value:
-                updated.codex_config = [*updated.codex_config, next_value]
-                i += 2
-                continue
-            if part == "--claude-settings" and next_value:
-                updated.claude_settings = [*updated.claude_settings, next_value]
+            if part == "--pi-thinking" and next_value:
+                updated.pi_thinking = next_value
                 i += 2
                 continue
             i += 1
-        if updated.provider not in {"codex", "claude"}:
-            updated.provider = "codex"
+        if updated.provider in LEGACY_UNSUPPORTED_PROVIDERS:
+            updated.provider = UNSUPPORTED_PROVIDER
+        elif updated.provider != SUPPORTED_PROVIDER:
+            updated.provider = UNSUPPORTED_PROVIDER
         return updated
 
 
