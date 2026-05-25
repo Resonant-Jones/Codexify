@@ -83,6 +83,10 @@ __DISABLE_SQLITE__
 # Embedded repos; do not track
 /groq-code-cli/
 
+# Publishing Portal — independent local/public-facing repo; must not be tracked
+# by the parent Codexify repo. The portal owns its own .git history.
+/Publishing_Portal/
+
 # Codemap snapshots
 /guardian/codemap/*.json
 

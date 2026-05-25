@@ -4,43 +4,43 @@
       {
         "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py --json",
         "exit_code": 1,
-        "stderr": "",
+        "stderr": "Traceback (most recent call last):\n  File \"/Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py\", line 956, in <module>\n    sys.exit(main())\n             ~~~~^^\n  File \"/Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py\", line 941, in main\n    render_json_report(reports)\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py\", line 922, in render_json_report\n    print(json.dumps(build_json_payload(reports), indent=2, sort_keys=True))\n                     ~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py\", line 871, in build_json_payload\n    \"repo\": collect_repo_metadata(),\n            ~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py\", line 821, in collect_repo_metadata\n    branch = run_git([\"branch\", \"--show-current\"]).strip()\n             ^^^^^^^\nNameError: name 'run_git' is not defined",
         "stdout_is_json": false
       },
       {
         "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py",
-        "exit_code": 1,
+        "exit_code": 0,
         "stderr": ""
       }
     ],
     "parsed_text": {
       "strongest_domains": [
+        "Extension Boundary",
         "Core Loop Integrity",
-        "Primitive Stability",
-        "Observability"
+        "Primitive Stability"
       ],
       "suggested_score_bands": {
         "Alternate Surface Readiness": "manual review required",
         "Core Loop Integrity": "1-2 likely",
         "Durability & Recovery": "1-2 likely",
-        "Extension Boundary": "0-1 likely",
+        "Extension Boundary": "1-2 likely",
         "Federation Readiness": "0-1 likely",
         "Governance Readiness": "manual review required",
         "Observability": "1-2 likely",
         "Primitive Stability": "1-2 likely"
       },
       "summary_counts": {
-        "fail": 1,
-        "pass": 38,
-        "warn": 12
+        "fail": 0,
+        "pass": 43,
+        "warn": 11
       },
       "weakest_domains": [
-        "Extension Boundary",
         "Federation Readiness",
+        "Alternate Surface Readiness",
         "Governance Readiness"
       ]
     },
-    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/roadmap-signals.md contains 'tool execution unification'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [FAIL] Tools route present: missing expected path(s): guardian/routes/tools.py\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [WARN] Architecture docs describe command-bus and cron execution seams: docs/architecture/system-overview.md did not match expected text: 'legacy `/tools` compatibility shim', 'Cron and job execution'\n  [PASS] Config docs expose provider selection as configuration: docs/architecture/config-and-ops.md matches 'LLM_PROVIDER', 'ALLOW_CLOUD_PROVIDERS'\n  [WARN] Legacy tools shim still carries process-local behavior: docs/architecture/flows.md contains 'still keeps some process-local job state'\nEvidence summary:\n  Tools, cron, provider configuration, and command-bus documentation give Codexify clear extension seams. The repo also documents that the legacy tools shim still carries process-local behavior, which weakens confidence that every new workflow can stay outside kernel edits.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths prefer durable command-bus or cron lanes over compatibility shims?\n  - Manual review required: is provider switching fully configuration-driven in real deployments, not just in local defaults?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [WARN] IDDB policy documentation present: missing expected path(s): docs/iddb_policy_v1.md, iddb_policy_v1.md\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 38\n  WARN: 12\n  FAIL: 1\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Core Loop Integrity, Primitive Stability, Observability\n  Clearest structural weakness signals: Extension Boundary, Federation Readiness, Governance Readiness\n",
+    "raw_output": "Codexify Platform Readiness Audit\nRepo-local evidence pass\nRepo root: /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify\n\n================================================================================\nCore Loop Integrity\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Chat completion route present: guardian/routes/chat.py exists\n  [PASS] Chat route exposes async completion enqueue path: guardian/routes/chat.py matches '/api/chat/{thread_id}/complete', 'enqueue('\n  [PASS] Chat worker present: guardian/workers/chat_worker.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Completion pipeline documentation present: docs/architecture/completion_pipeline.md exists\n  [WARN] Architecture docs still flag chat-loop dependency coupling: docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'\nEvidence summary:\n  Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.\nManual review prompts:\n  - Manual review required: does provider-output validation reliably reject malformed responses before persistence?\n  - Manual review required: can worker crashes or restarts leave threads locked or duplicate turns in edge cases?\n  - Manual review required: is degraded behavior for Redis outage explicit to operators and end users?\n\n================================================================================\nPrimitive Stability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Data and storage documentation present: docs/architecture/data-and-storage.md exists\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Data and storage docs enumerate entities and invariants: docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'\n  [PASS] Modules docs describe subsystem ownership seams: docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'\n  [WARN] Repo-local docs warn about contract drift in tool primitives: docs/architecture/roadmap-signals.md contains 'tool execution unification'\nEvidence summary:\n  The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.\nManual review prompts:\n  - Manual review required: are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?\n  - Manual review required: do schema changes preserve backward compatibility for existing API and worker flows?\n  - Manual review required: are ownership and identity constraints enforced consistently in code, not just described in docs?\n\n================================================================================\nExtension Boundary\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Command bus route present: guardian/routes/command_bus.py exists\n  [PASS] Command bus contracts present: guardian/command_bus/contracts.py exists\n  [PASS] Cron route present: guardian/routes/cron.py exists\n  [PASS] Cron worker present: guardian/workers/cron_worker.py exists\n  [PASS] Guardian intent spine route present: guardian/routes/agent_orchestration.py exists\n  [PASS] Agent orchestration persistence seams present: guardian/agents/store.py exists\n  [PASS] Guardian-mediated coding worker seam present: guardian/workers/coding_worker.py exists\n  [WARN] Architecture docs describe command bus, cron, and coding-agent seams: docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'\n  [WARN] Legacy /tools compatibility route status: docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced\nEvidence summary:\n  Command bus, cron execution, Guardian intent-orchestration seams, and the Guardian-mediated coding result path provide the current extension boundary evidence. This remains a cautionary domain because extension governance and cross-surface maturity still require manual review.\nManual review prompts:\n  - Manual review required: does the extension boundary allow new workflows without kernel edits?\n  - Manual review required: can new automation paths continue to prefer durable command-bus and cron lanes over ad hoc process-local behavior?\n  - Manual review required: do Guardian intent-spine and coding-agent return-path seams stay policy-governed across chat, automation, and future plugin entrypoints?\n  - Manual review required: is self-extending plugin governance explicit enough to prevent capability drift at install and runtime binding boundaries?\n\n================================================================================\nObservability\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Health route present: guardian/routes/health.py exists\n  [PASS] Config and ops documentation present: docs/architecture/config-and-ops.md exists\n  [PASS] Config and ops docs enumerate health and metrics surfaces: docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'\n  [PASS] Task event transport present: guardian/queue/task_events.py exists\n  [PASS] Sync API exposes a health endpoint: guardian/sync/api.py matches '/health/sync'\n  [WARN] Observability docs leave some logging guarantees unverified: docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'\nEvidence summary:\n  Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.\nManual review prompts:\n  - Manual review required: do logs include enough request, task, and identity context to debug failures without reproducing them locally?\n  - Manual review required: are queue depth, worker liveness, and dependency health observable enough for operational triage?\n  - Manual review required: do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?\n\n================================================================================\nDurability & Recovery\nSuggested score band: 1-2 likely\nAutomatic evidence checks:\n  [PASS] Primary data models present: guardian/db/models.py exists\n  [PASS] Redis queue adapter present: guardian/queue/redis_queue.py exists\n  [PASS] Data docs define Postgres as source of truth and queue-backed execution: docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'\n  [PASS] Models include durable run and idempotency anchors: guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'\n  [PASS] Sync API acknowledges idempotent event ingestion: guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'\n  [WARN] Roadmap docs warn that sync delivery is not yet durable: docs/architecture/roadmap-signals.md contains 'Durable sync path:'\n  [WARN] Risk register warns about Redis persistence or replay gaps: docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'\nEvidence summary:\n  The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.\nManual review prompts:\n  - Manual review required: are degraded modes explicit for Redis outage?\n  - Manual review required: can failed chat, ingestion, and cron work be replayed without duplicate side effects?\n  - Manual review required: are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?\n\n================================================================================\nAlternate Surface Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] System overview documentation present: docs/architecture/system-overview.md exists\n  [PASS] System overview documents multiple client surfaces: docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'\n  [PASS] System overview describes a frontend API/runtime layer: docs/architecture/system-overview.md matches 'Frontend API/runtime layer'\n  [PASS] Config and ops docs record desktop/runtime overrides: docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'\n  [PASS] Chat API route present: guardian/routes/chat.py exists\n  [WARN] Repo-local docs still describe shell-level coupling: docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'\nEvidence summary:\n  Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.\nManual review prompts:\n  - Manual review required: do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?\n  - Manual review required: can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?\n  - Manual review required: are surface-specific UX choices cleanly separated from core service behavior?\n\n================================================================================\nFederation Readiness\nSuggested score band: 0-1 likely\nAutomatic evidence checks:\n  [PASS] Federation route present: guardian/routes/federation.py exists\n  [PASS] Sync API present: guardian/sync/api.py exists\n  [PASS] Federation route includes trust-policy and version anchors: guardian/routes/federation.py matches 'trust policy', 'base_version'\n  [PASS] Architecture docs describe federation and sync flow: docs/architecture/system-overview.md matches 'federation', 'sync'\n  [WARN] Roadmap docs warn that sync subscriptions are process-local: docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'\n  [WARN] Risk register warns that federation remains security- and config-sensitive: docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'\nEvidence summary:\n  Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.\nManual review prompts:\n  - Manual review required: can peers verify identity, rotation, revocation, and trust-policy changes safely over time?\n  - Manual review required: are conflict resolution and replay semantics strong enough under partitions or restart gaps?\n  - Manual review required: are degraded federation modes explicit when relays, trust policy, or egress checks fail?\n\n================================================================================\nGovernance Readiness\nSuggested score band: manual review required\nAutomatic evidence checks:\n  [PASS] Modules and ownership documentation present: docs/architecture/modules-and-ownership.md exists\n  [PASS] Roadmap signals documentation present: docs/architecture/roadmap-signals.md exists\n  [PASS] Tech debt and risks documentation present: docs/architecture/tech-debt-and-risks.md exists\n  [PASS] IDDB policy documentation present: docs/iddb_policy_v1.md exists\n  [PASS] Data docs describe hard invariants and explicit access boundaries: docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'\n  [PASS] System overview states that enforcement lives in code and policy layers: docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'\n  [WARN] Ownership authority is still informal in the scanned docs: docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'\nEvidence summary:\n  The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.\nManual review prompts:\n  - Manual review required: are governance invariants documented and enforced?\n  - Manual review required: is extension authority explicit enough to prevent accidental policy or boundary regressions?\n  - Manual review required: are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?\n\n================================================================================\nFinal Summary\n  PASS: 43\n  WARN: 11\n  FAIL: 0\n  Domains needing manual review: Alternate Surface Readiness and Governance Readiness remain fully manual; all other domains still include targeted review prompts.\n  Strongest objective evidence: Extension Boundary, Core Loop Integrity, Primitive Stability\n  Clearest structural weakness signals: Federation Readiness, Alternate Surface Readiness, Governance Readiness\n",
     "selected_mode": "text_fallback"
   },
   "baseline": {
@@ -63,15 +63,99 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 0,
-    "commits": [],
-    "files_changed": [],
-    "window_end": "2026-05-21T05:00:29.923485-04:00",
+    "commit_count": 2,
+    "commits": [
+      {
+        "files": [
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json",
+          "docs/Marketing/generated/history/run-history.jsonl",
+          "docs/audits/daily/evening/2026-05-22-audit.json",
+          "docs/audits/daily/evening/2026-05-22-audit.md",
+          "docs/audits/daily/evening/2026-05-23-audit.json",
+          "docs/audits/daily/evening/2026-05-23-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/daily/morning/2026-05-23-audit.json",
+          "docs/audits/daily/morning/2026-05-23-audit.md",
+          "docs/audits/daily/morning/2026-05-24-audit.json",
+          "docs/audits/daily/morning/2026-05-24-audit.md",
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "9242cb9138d6722ed9ae54e3269843765a9a4049",
+        "subject": "Update daily audit and marketing run history"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md"
+        ],
+        "sha": "9e25a3c67cf0d1edcf869429a9b24bd33102c65c",
+        "subject": "docs: refresh weekly current-state override"
+      }
+    ],
+    "files_changed": [
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json",
+      "docs/Marketing/generated/history/run-history.jsonl",
+      "docs/audits/daily/evening/2026-05-22-audit.json",
+      "docs/audits/daily/evening/2026-05-22-audit.md",
+      "docs/audits/daily/evening/2026-05-23-audit.json",
+      "docs/audits/daily/evening/2026-05-23-audit.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/evening/latest.md",
+      "docs/audits/daily/morning/2026-05-23-audit.json",
+      "docs/audits/daily/morning/2026-05-23-audit.md",
+      "docs/audits/daily/morning/2026-05-24-audit.json",
+      "docs/audits/daily/morning/2026-05-24-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/audits/latest.json",
+      "docs/audits/latest.md",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/README.md"
+    ],
+    "window_end": "2026-05-25T05:00:53.605368-04:00",
     "window_hours": 24,
-    "window_start": "2026-05-20T05:00:29.923485-04:00"
+    "window_start": "2026-05-24T05:00:53.605368-04:00"
   },
-  "date": "2026-05-21",
-  "generated_at": "2026-05-21T05:00:29.923485-04:00",
+  "date": "2026-05-25",
+  "generated_at": "2026-05-25T05:00:53.605368-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -79,18 +163,18 @@
   },
   "phase": "morning",
   "repo": {
-    "branch": "codex/fix-broker-syntax",
-    "date": "2026-05-21",
+    "branch": "main",
+    "date": "2026-05-25",
     "dirty": true,
-    "head": "f2dc2d93e2a67dbf974f198143584783e05d3688",
+    "head": "9242cb9138d6722ed9ae54e3269843765a9a4049",
     "status_error": "",
     "status_lines": [
       " M docs/audits/daily/evening/latest.json",
       " M docs/audits/daily/evening/latest.md",
       " M docs/audits/latest.json",
       " M docs/audits/latest.md",
-      "?? docs/audits/daily/evening/2026-05-20-audit.json",
-      "?? docs/audits/daily/evening/2026-05-20-audit.md"
+      "?? docs/audits/daily/evening/2026-05-24-audit.json",
+      "?? docs/audits/daily/evening/2026-05-24-audit.md"
     ]
   },
   "risk_flags": [
@@ -146,5 +230,51 @@
       "severity": "high"
     }
   ],
-  "subsystems_touched": {}
+  "subsystems_touched": {
+    "audit": {
+      "count": 14,
+      "files": [
+        "docs/audits/daily/evening/2026-05-22-audit.json",
+        "docs/audits/daily/evening/2026-05-22-audit.md",
+        "docs/audits/daily/evening/2026-05-23-audit.json",
+        "docs/audits/daily/evening/2026-05-23-audit.md",
+        "docs/audits/daily/evening/latest.json",
+        "docs/audits/daily/evening/latest.md",
+        "docs/audits/daily/morning/2026-05-23-audit.json",
+        "docs/audits/daily/morning/2026-05-23-audit.md",
+        "docs/audits/daily/morning/2026-05-24-audit.json",
+        "docs/audits/daily/morning/2026-05-24-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md",
+        "docs/audits/latest.json",
+        "docs/audits/latest.md"
+      ]
+    },
+    "docs": {
+      "count": 21,
+      "files": [
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json",
+        "docs/Marketing/generated/history/run-history.jsonl",
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/README.md"
+      ]
+    }
+  }
 }

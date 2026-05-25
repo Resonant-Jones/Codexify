@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-22
+2026-05-25
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,7 +13,7 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work tightened the supported profile wiring, repaired a personal-facts settings route, surfaced runtime state in the chat shell, and added an internal/manual local-model draft adapter. The release promise still stays narrow and proof-driven.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This audit window did not surface a new merged runtime capability on `main`; the visible movement remains in release-truth maintenance and docs-level consolidation.
 
 ## What changed recently
 - Supported-profile wiring was fixed on `main`.
@@ -33,10 +33,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Workspace-local Obsidian retrieval is supported on the current tip.
 - Image-turn containment remains proven on the supported profile.
 - Coding results return through Guardian into the source thread on the supported path.
-- Command Center exposes non-dispatch worker-control visibility and recommendation-only next-task inspection.
-- Heartbeat status is readable in Agent Command Center; execution, scheduling, and publishing remain off this path.
 - Graph writes remain default-off on the supported Compose path.
-- The local-model draft adapter is an internal/manual artifact lane only.
+- The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -49,13 +47,16 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
-- No current supported-path blocker is proven on `main`.
-- Chat completion still depends on Redis and worker health, so runtime stalls remain a release risk.
-- Legacy config paths still coexist, so startup and operator state can drift if the supported profile is not kept aligned.
+- No single merged-code blocker is proven on `main`.
+- Chat completion is queue-coupled and still depends on Redis plus worker health.
+- Canonical and legacy config paths still coexist, so startup and operator state can drift.
+- Legacy `/tools` behavior still overlaps with the command bus.
+- Sync subscriptions are still process-local rather than durable across restarts.
+- Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
 
 ## This week’s priorities
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
-2. Preserve fresh proof for the supported path when runtime behavior changes.
+2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
 4. Begin doctrine-first unification work through the Unity Audit architecture layer without overstating implementation beyond docs and governance framing.
 5. Consolidate overlapping coding-worker, delegation, runner, and Pi doctrine under Guardian Build Loop language without widening supported beta claims.
@@ -66,7 +67,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are proven on the supported stack.
 - [x] Coding results return through Guardian into the source thread.
 - [x] No internal-only or quarantined surface is part of the release claim.
-- [ ] Runtime proof must be refreshed whenever the supported path drifts.
+- [ ] Queue/worker, config, sync, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
