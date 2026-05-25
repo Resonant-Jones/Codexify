@@ -138,9 +138,9 @@ Source anchors:
 - It does not mean adapter success is equivalent to repository test success.
 - It does not mean retry policy should read raw terminal output directly once
   this seam is wired into the worker path.
-- MiniMax may run behind the `codex` adapter, but Guardian still owns the loop
-  boundary and stops at the bounded validation attempts.
-  boundary and stops after the bounded attempts are exhausted.
+- MiniMax or other downstream providers may run behind the Pi broker adapter,
+  but Guardian still owns the loop boundary and stops after the bounded
+  attempts are exhausted.
 
 ## Follow-Through Rule
 
@@ -158,8 +158,6 @@ Source anchors:
 - `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
 - `guardian/agents/adapters/__init__.py` - adapter registry
 - `guardian/agents/adapters/pi_codex_runner.py` - PiCodexRunnerAdapter
-- `guardian/agents/adapters/codex.py` - CodexAdapter
-- `guardian/agents/adapters/claudecode.py` - ClaudeCodeAdapter
 - `guardian/workers/coding_worker.py` - CodingWorker
 - `guardian/queue/redis_queue.py` - `enqueue_coding_execution`, `dequeue_coding_execution`
 - `guardian/tasks/types.py` - `CodingExecutionTask`
@@ -203,19 +201,21 @@ default of `pi_codex_runner`.
 
 Supported values:
 
-- `codex` -> `codex`
-- `claudecode` -> `claudecode`
+- `pi` -> `pi_codex_runner`
 - `pi_sdk` or `pi_codex_runner` -> `pi_codex_runner`
 
 Public coding-execution requests should use one of the explicit supported
-adapter kinds above. `mock` and `external_cli` are not part of the supported
-public route contract.
+adapter kinds above. Direct `codex` and `claudecode` values are rejected; they
+are retained only as legacy unsupported values so persisted jobs fail closed
+instead of silently switching providers. `mock` and `external_cli` are not part
+of the supported public route contract.
 
 The supported local Compose worker also needs the `codex_runner` tree available
 at `/app/codex_runner` so the Pi runner path stays runnable when selected.
 
 Unknown adapter names fail closed with `ADAPTER_NOT_FOUND`; route acceptance is
-not execution success.
+not execution success. Direct Codex/Claude execution is unsupported for this
+module and must be replaced with the Pi broker adapter.
 
 ### Lease-Bound Execution
 
@@ -616,18 +616,19 @@ worker-coding:
 | `GUARDIAN_DB_URL` | For thread injection | None | Alternative DB URL |
 | `CODING_WORKER_POLL_INTERVAL_SECONDS` | No | `0.5` | Poll frequency |
 | `CODEXIFY_SINGLE_USER_ID` | For local dev | `local` | User context |
-| `CODEX_ADAPTER_COMMAND` | For `codex` adapter customization | `codex exec` | Command prefix used by the Codex adapter |
+| `CAMPAIGN_RUNNER_PROVIDER_ADAPTER` | No | `pi` | Declares the preferred Campaign Runner adapter seam |
+| `CAMPAIGN_RUNNER_PI_ROUTE` | No | `default` | Declares the requested Pi route label |
+| `CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT` | No | `true` | Documents that brokered execution should preserve backend receipts |
 
-## MiniMax / Codex Operational Note
+## Pi Broker Operational Note
 
-MiniMax-backed coding execution should be configured through the Codex CLI
-profile/config outside Guardian. Guardian should receive coding requests with
-`adapter_kind="codex"` so the worker routes execution through the registered
-Codex adapter. In the supported local Compose proof path, `CODEX_ADAPTER_COMMAND`
-points at a locally available tool-capable Ollama tag. Check the worker
-container's `/api/tags` inventory before a live proof if your model set differs,
-and repoint the Codex adapter command to another local tool-capable tag if
-needed.
+Downstream providers such as MiniMax should be selected behind the Pi broker
+adapter rather than through direct Guardian-owned Codex/Claude binaries.
+Guardian should receive coding requests with `adapter_kind="pi"` or
+`adapter_kind="pi_sdk"`/`"pi_codex_runner"` and preserve the explicit backend
+receipt metadata that Pi returns when that runtime path is implemented. The
+supported local Compose proof path should not depend on `CODEX_ADAPTER_COMMAND`
+or direct Codex/Claude CLI availability.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
 current coding worker executes a single adapter attempt, returns the result

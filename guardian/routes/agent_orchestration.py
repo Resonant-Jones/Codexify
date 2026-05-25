@@ -43,6 +43,10 @@ _store: AgentStore = store
 _event_publisher: AgentEventPublisher = publisher
 
 ALLOWED_RUNTIME_TARGETS = {"container", "terminal"}
+DEFAULT_CODING_ADAPTER_KIND = "pi_codex_runner"
+# `pi_codex_runner` is the legacy-compatible Pi broker runner name. It must
+# not be interpreted as direct Codex CLI execution, and direct Codex/Claude
+# adapter targets are unsupported for this module.
 
 
 def configure_db(db: Any | None) -> None:
@@ -98,7 +102,7 @@ class CodingExecutionRequest(BaseModel):
     attempt_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     project_id: int | None = None
-    adapter_kind: str = Field(default="pi_codex_runner", min_length=1)
+    adapter_kind: str = Field(default=DEFAULT_CODING_ADAPTER_KIND, min_length=1)
     instructions: str = Field(min_length=1)
     repo_root: str | None = None
     context_summary: str | None = None
