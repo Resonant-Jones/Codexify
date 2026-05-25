@@ -10,6 +10,7 @@ Pi wrapper note:
 - It ships with a vendored Pi SDK tree under `codex_runner/vendor/pi-coding-agent`, so the normal path does not require a separate Pi install.
 - It reuses the shared Pi auth store at `~/.pi/agent/auth.json`, so an existing Pi login or API-key setup on the same user account is visible automatically.
 - If the vendored tree is missing or incomplete, the wrapper fails closed with repair guidance rather than resolving a machine-specific absolute path.
+- Direct Codex/Claude execution is unsupported for Campaign Runner; downstream provider/model identity is brokered through Pi and should be read from explicit receipts when available.
 
 ## Interactive TUI (command-first)
 
@@ -100,7 +101,7 @@ Presets are supported via TOML blocks:
 passes = 2
 verify = false
 branch_per_campaign = true
-provider = "codex"
+provider = "pi"
 ```
 
 Unknown preset keys are ignored with warnings.
@@ -146,7 +147,7 @@ python codex_runner/runner.py \
 ```
 
 General flags:
-- `--provider {codex,claude}`
+- `--provider pi`
 - `--passes N` (default: `1`)
 - `--base-ref <git-ref>` (default: `HEAD`)
 - `--execute` or `--dry-run`
@@ -156,19 +157,13 @@ General flags:
 - `--verify` / `--no-verify`
 - `--debug`
 
-Codex provider flags:
-- `--codex-model`
-- `--codex-model-audit`
-- `--codex-model-compiler`
-- `--codex-model-task`
-- `--codex-config` (repeatable)
-
-Claude provider flags:
-- `--claude-model`
-- `--claude-model-audit`
-- `--claude-model-compiler`
-- `--claude-model-task`
-- `--claude-settings` (repeatable)
+Pi broker flags:
+- `--pi-provider`
+- `--pi-model`
+- `--pi-model-audit`
+- `--pi-model-compiler`
+- `--pi-model-task`
+- `--pi-thinking`
 
 Verify default policy:
 - local/dev default: `--no-verify`
@@ -177,8 +172,8 @@ Verify default policy:
 
 ## Provider requirements
 
-- `codex` provider: `codex` executable on PATH
-- `claude` provider: `claude` executable on PATH
+- `pi` provider: `node` executable on PATH plus `codex_runner/src/agent-wrapper.js`
+- Downstream provider/model identity is brokered by Pi rather than selected as a direct Campaign Runner provider choice.
 
 ## Safety defaults
 
