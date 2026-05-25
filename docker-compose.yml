@@ -232,7 +232,6 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       target: runtime
-    image: codexify-backend
     working_dir: /app
     entrypoint: ["python"]
     volumes:
