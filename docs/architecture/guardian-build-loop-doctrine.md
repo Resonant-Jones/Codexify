@@ -113,7 +113,7 @@ Implemented or partially implemented seams already exist for:
 - Redis-backed coding execution queue
 - `CodingWorker`
 - deployment-spec-driven `adapter_kind` selection with alias normalization
-- registered `codex`, `claudecode`, and `pi_codex_runner` adapter paths when present
+- Pi broker adapter routing through the legacy-compatible `pi_codex_runner` path
 - Guardian-owned coding-result persistence through `AgentStore.store_coding_result()`
 - normalized validation result contracts in `guardian/agents/test_results.py`
 - mutation scope guard
@@ -151,7 +151,7 @@ The repo already contains a concrete coding-worker execution substrate.
 - Coding execution is enqueued onto a Redis-backed queue and processed asynchronously.
 - `guardian/workers/coding_worker.py` is the execution control point.
 - `adapter_kind` is persisted in Guardian-owned deployment spec state and resolved by the worker.
-- The adapter registry includes `codex`, `claudecode`, and `pi_codex_runner`.
+- The adapter registry serves the Pi broker lane and rejects direct Codex/Claude adapter kinds.
 - `AgentStore.store_coding_result()` persists bounded coding result evidence and returns it through Guardian into the source thread when lineage is present.
 - Validation evidence is normalized through `guardian/agents/test_results.py`.
 - The worker enforces a Git-backed mutation scope guard when it can prove repository boundaries.
@@ -166,6 +166,7 @@ The repo already contains a concrete coding-worker execution substrate.
 - This is a real execution substrate.
 - It is not the same thing as a shipped autonomous build loop.
 - It is a bounded worker-and-adapter rail that the Build Loop doctrine should consolidate around instead of redefining.
+- For this module, Pi is the preferred broker seam. Direct Codex/Claude binary execution is not part of the supported runtime truth.
 
 ## Canonical Phases
 

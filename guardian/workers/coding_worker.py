@@ -67,9 +67,12 @@ _ADAPTER_KIND_ALIASES = {
     "pi": "pi_codex_runner",
     "pi_sdk": "pi_codex_runner",
     "pi_codex_runner": "pi_codex_runner",
-    "codex": "codex",
-    "claudecode": "claudecode",
 }
+_LEGACY_UNSUPPORTED_ADAPTER_KINDS = {"codex", "claudecode"}
+_UNSUPPORTED_DIRECT_ADAPTER_MESSAGE = (
+    "Direct Codex/Claude execution is unsupported for Campaign Runner. "
+    "Use the Pi broker adapter."
+)
 
 _VALIDATION_TIMEOUT_CAP_SECONDS = 120
 _VALIDATION_ATTEMPTS_DEFAULT = 1
@@ -386,6 +389,11 @@ def _default_commit_message(task: CodingExecutionTask) -> str:
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
     value = str(raw_adapter_kind or "").strip().lower()
     return _ADAPTER_KIND_ALIASES.get(value, value)
+
+
+def _is_unsupported_direct_adapter_kind(raw_adapter_kind: Any) -> bool:
+    value = str(raw_adapter_kind or "").strip().lower()
+    return value in _LEGACY_UNSUPPORTED_ADAPTER_KINDS
 
 
 def _normalize_coding_result_status(status: Any) -> str:
@@ -2005,9 +2013,8 @@ class CodingWorker:
 
         deployment = self.store.get_deployment(task.deployment_id) or {}
         deployment_spec = dict(deployment.get("spec_json") or {})
-        adapter_kind = _resolve_adapter_kind(
-            deployment_spec.get("adapter_kind")
-        )
+        requested_adapter_kind = deployment_spec.get("adapter_kind")
+        adapter_kind = _resolve_adapter_kind(requested_adapter_kind)
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
         allowed_paths = _normalize_allowed_paths(
@@ -2025,6 +2032,15 @@ class CodingWorker:
         require_human_review_before_merge = _resolve_human_review_requirement(
             task, deployment_spec
         )
+
+        if _is_unsupported_direct_adapter_kind(requested_adapter_kind):
+            self._emit_failure(
+                task,
+                adapter_kind=str(requested_adapter_kind).strip().lower(),
+                error_message=_UNSUPPORTED_DIRECT_ADAPTER_MESSAGE,
+                error_code="ADAPTER_NOT_FOUND",
+            )
+            return
 
         (
             lease_ctx,
@@ -2167,6 +2183,7 @@ class CodingWorker:
                 lease_ctx=lease_ctx,
                 worktree=normalized_worktree,
             )
+            return
 
         validation_attempts: list[dict[str, Any]] = []
         best_validation_result: NormalizedTestResult | None = None
