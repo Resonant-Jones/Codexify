@@ -16,9 +16,13 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This audit window did not surface a new merged runtime capability on `main`; the visible movement remains in release-truth maintenance and docs-level consolidation.
 
 ## What changed recently
-- No new merged runtime capability landed on `main` in this audit window.
-- The current-state override stayed the weekly release-truth entrypoint.
-- Repo-local audit output still shows queue/worker coupling, config split-brain risk, and federation as low-readiness areas.
+- Supported-profile wiring was fixed on `main`.
+- Personal-facts settings routing was repaired on `main`.
+- GuardianChat now surfaces runtime visual state in the shell.
+- An internal/manual local-model draft adapter landed.
+- Daily audit artifacts were refreshed around the current `main` tip.
+- Doctrine-first Unity Audit framing is being added to the architecture layer as a coherence lens only; it does not claim new runtime implementation.
+- Overlapping build, delegation, runner, and Pi-style doctrine is being consolidated under Guardian Build Loop framing; this is architecture cleanup only and does not claim new autonomous runtime behavior or release-scope expansion.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -36,9 +40,10 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not treat architecture-only doctrine additions as runtime proof.
-- Do not assume the core export sync workflow changes broaden runtime support.
-- Do not assume draft or local-only artifacts are shipped behavior.
+- Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features. The new retrieval navigation note is planning doctrine only, does not expand the supported release surface, and does not change the current graph-writes-default-off boundary.
+- Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
+- Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
+- Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
@@ -53,7 +58,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
-4. Reduce config drift and queue/worker operational ambiguity.
+4. Begin doctrine-first unification work through the Unity Audit architecture layer without overstating implementation beyond docs and governance framing.
+5. Consolidate overlapping coding-worker, delegation, runner, and Pi doctrine under Guardian Build Loop language without widening supported beta claims.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
