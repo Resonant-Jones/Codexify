@@ -23,6 +23,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Daily audit artifacts were refreshed around the current `main` tip.
 - Doctrine-first Unity Audit framing is being added to the architecture layer as a coherence lens only; it does not claim new runtime implementation.
 - Overlapping build, delegation, runner, and Pi-style doctrine is being consolidated under Guardian Build Loop framing; this is architecture cleanup only and does not claim new autonomous runtime behavior or release-scope expansion.
+- Build Proposal artifacts are being added as a doctrine and scaffold layer between diagnosis and execution; proposal generation does not imply approval, execution, release support, or autonomous self-modification.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -46,6 +47,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
+- Do not assume Build Proposal generation means approval, coding-worker execution, runtime proof, or wider release support.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
