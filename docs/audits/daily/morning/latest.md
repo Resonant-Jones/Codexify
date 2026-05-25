@@ -1,34 +1,34 @@
-# Daily Audit — 2026-05-21
+# Daily Audit — 2026-05-25
 
 ## Repo Status
-- Date: 2026-05-21
+- Date: 2026-05-25
 - Phase: `morning`
-- Branch: `codex/fix-broker-syntax`
-- HEAD: `f2dc2d93e2a67dbf974f198143584783e05d3688`
+- Branch: `main`
+- HEAD: `9242cb9138d6722ed9ae54e3269843765a9a4049`
 - Worktree: dirty
 - Status lines:
   - ` M docs/audits/daily/evening/latest.json`
   - ` M docs/audits/daily/evening/latest.md`
   - ` M docs/audits/latest.json`
   - ` M docs/audits/latest.md`
-  - `?? docs/audits/daily/evening/2026-05-20-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-20-audit.md`
+  - `?? docs/audits/daily/evening/2026-05-24-audit.json`
+  - `?? docs/audits/daily/evening/2026-05-24-audit.md`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
 - Attempted commands:
   - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py --json` -> exit 1 (json probe)
-  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py` -> exit 1 (plain)
-- Summary counts: PASS 38, WARN 12, FAIL 1
-- Strongest evidence: `Core Loop Integrity`, `Primitive Stability`, `Observability`
-- Weakest signals: `Extension Boundary`, `Federation Readiness`, `Governance Readiness`
+  - `/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify/scripts/audit_platform_readiness.py` -> exit 0 (plain)
+- Summary counts: PASS 43, WARN 11, FAIL 0
+- Strongest evidence: `Extension Boundary`, `Core Loop Integrity`, `Primitive Stability`
+- Weakest signals: `Federation Readiness`, `Alternate Surface Readiness`, `Governance Readiness`
 
 ### Current Suggested Score Bands
 | Domain | Band |
 | --- | --- |
 | `Core Loop Integrity` | 1-2 likely |
 | `Primitive Stability` | 1-2 likely |
-| `Extension Boundary` | 0-1 likely |
+| `Extension Boundary` | 1-2 likely |
 | `Observability` | 1-2 likely |
 | `Durability & Recovery` | 1-2 likely |
 | `Alternate Surface Readiness` | manual review required |
@@ -52,12 +52,20 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 0
-- Unique files changed: 0
-- No commits landed in the last 24 hours.
+- Commit count: 2
+- Unique files changed: 35
+- Files changed: `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-22-audit.json`, `docs/audits/daily/evening/2026-05-22-audit.md`, `docs/audits/daily/evening/2026-05-23-audit.json`, `docs/audits/daily/evening/2026-05-23-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-23-audit.json`, `docs/audits/daily/morning/2026-05-23-audit.md`, `docs/audits/daily/morning/2026-05-24-audit.json`, `docs/audits/daily/morning/2026-05-24-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
+
+| SHA | Subject | Files |
+| --- | --- | --- |
+| `9242cb9138d6` | Update daily audit and marketing run history | `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-22-audit.json`, `docs/audits/daily/evening/2026-05-22-audit.md`, `docs/audits/daily/evening/2026-05-23-audit.json`, `docs/audits/daily/evening/2026-05-23-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-23-audit.json`, `docs/audits/daily/morning/2026-05-23-audit.md`, `docs/audits/daily/morning/2026-05-24-audit.json`, `docs/audits/daily/morning/2026-05-24-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `9e25a3c67cf0` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
 
 ## Subsystems Touched
-- No touched subsystems detected in the last 24 hours.
+| Bucket | Count | Files |
+| --- | --- | --- |
+| `docs` | 21 | `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `audit` | 14 | `docs/audits/daily/evening/2026-05-22-audit.json`, `docs/audits/daily/evening/2026-05-22-audit.md`, `docs/audits/daily/evening/2026-05-23-audit.json`, `docs/audits/daily/evening/2026-05-23-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-23-audit.json`, `docs/audits/daily/morning/2026-05-23-audit.md`, `docs/audits/daily/morning/2026-05-24-audit.json`, `docs/audits/daily/morning/2026-05-24-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`

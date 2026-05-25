@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-05-22
+Last updated: 2026-05-25
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -22,8 +22,8 @@ Source anchors:
 
 # Codexify Architecture KB
 
-Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
+Use it first for live release/readiness interpretation, supported install path, active blockers, and short-horizon priorities.
 
 If you need the live operational truth layer, read `00-current-state.md` first and treat the rest of the KB as supporting context.
 
@@ -126,6 +126,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Module Diagram Coverage Matrix](./module-diagram-coverage-matrix.md): high-coupling module coverage decisions, required diagram types, and review-marker tracking.
 - [Roadmap Signals](./roadmap-signals.md): planning guidance derived from the current codebase; not a first-pass runtime diagram source.
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
+- [Core Export Workflow](../release/core-export-workflow.md): local-only `Publishing_Portal/Core/` source-mirror workflow for public-facing packaging and review. This is generated output, not the source of truth, and does not replace supported-path live proof.
 - [Unity Audit Doctrine](./unity-audit-doctrine.md): doctrine-first coherence and synthesis layer across runtime truth, contracts, operator reality, governance, extension boundaries, and community-facing narrative. It does not replace live proof, release truth, or ADR authority.
 - [Guardian Build Loop Doctrine](./guardian-build-loop-doctrine.md): canonical umbrella doctrine for self-build governance, Guardian delegation overlap, coding-worker execution substrate, Codex Runner naming, Pi-style harness boundaries, human review gate, patch artifacts, and commit-after-green posture. It does not claim autonomous build behavior or wider release support beyond `00-current-state.md`.
 - [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
@@ -144,6 +145,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): canonical boundary for future Guardian-mediated invocation of Pi-like external coding-agent harnesses, including command authority, result return, lineage, and provider-lane separation.
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): Codexify-native boundary contract for future Pi-like harness invocation, Guardian ownership, provider-lane separation, and bounded result return.
+- [Solo Operator Coding Worker Runbook](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md): operational truth for the current coding-worker route, queue, adapter registry, validation behavior, mutation-scope guard, optional worktree isolation, patch artifact capture, and opt-in commit-after-green seam. It is an ops surface, not a release promise.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.
