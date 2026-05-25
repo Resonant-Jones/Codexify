@@ -70,8 +70,9 @@ provider_contract:
   CODEXIFY_EGRESS_ALLOWLIST: ""
   LOCAL_BASE_URL: http://host.docker.internal:11434/v1
   LOCAL_API_KEY: local
-  LOCAL_LLM_MODEL: library2/ministral-3:8b
-  LOCAL_CHAT_MODEL: library2/ministral-3:8b
+  # Model names are NOT enforced here — the system discovers available models
+  # at runtime. If no local models exist AND no cloud provider is configured,
+  # the /health/llm endpoint will report models_available: false.
 criticality:
   tier0:
     services:
