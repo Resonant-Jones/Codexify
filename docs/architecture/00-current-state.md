@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-25
+2026-05-26
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,11 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This audit window did not surface a new merged runtime capability on `main`; the visible movement remains in release-truth maintenance and docs-level consolidation.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Since the last audit, `main` added health-check visibility for LLM model availability; the broader release posture is otherwise unchanged.
 
 ## What changed recently
-- No new merged runtime capability landed on `main` in this audit window.
-- The current-state override stayed the weekly release-truth entrypoint.
+- `main` now surfaces LLM model availability in health checks.
+- Supported-profile wiring remains aligned with the local-only beta contract.
+- Personal-facts settings routing remains repaired on `main`.
+- GuardianChat still surfaces runtime visual state in the shell.
+- Internal/manual local-model draft adapter work remains present, but not a release promise.
 - Repo-local audit output still shows queue/worker coupling, config split-brain risk, and federation as low-readiness areas.
 - Guardian Build Loop doctrine and Unity Audit coherence framing remain architecture/governance consolidation only; they do not add autonomous runtime behavior, weaken human review, widen release scope, or claim new runtime implementation.
 
@@ -25,6 +28,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
 - Supported-profile, health, and catalog surfaces are aligned on `main`.
+- Health checks now report LLM model availability.
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path.
 - Workspace-local Obsidian retrieval is supported on the current tip.
@@ -57,7 +61,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
 4. Reduce config drift and queue/worker operational ambiguity.
-5. Keep Unity Audit and Guardian Build Loop consolidation explicitly docs/governance-only, without changing runtime behavior or release-scope truth.
+5. Keep release-truth docs in sync with the live `main` posture and avoid widening supported beta claims until a new merged capability is proven end to end.
+6. Keep Unity Audit and Guardian Build Loop consolidation explicitly docs/governance-only, without changing runtime behavior or release-scope truth.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
