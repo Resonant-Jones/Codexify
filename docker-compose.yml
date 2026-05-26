@@ -25,7 +25,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U \"$${POSTGRES_USER:-codexify}\" -d \"$${POSTGRES_DB:-Codexify}\"",
+          "pg_isready -h localhost -U \"$${POSTGRES_USER:-codexify}\" -d \"$${POSTGRES_DB:-Codexify}\"",
         ]
       interval: 5s
       timeout: 5s
