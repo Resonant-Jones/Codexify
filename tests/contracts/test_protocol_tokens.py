@@ -39,6 +39,13 @@ from guardian.protocol_tokens import (
     EXECUTOR_EVENT_TYPES,
     EXECUTOR_IDS,
     EXECUTOR_RELEASE_POSTURES,
+    GUARDIAN_DELEGATION_APPROVAL_MODES,
+    GUARDIAN_DELEGATION_APPROVAL_SOURCES,
+    GUARDIAN_DELEGATION_APPROVAL_STATES,
+    GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES,
+    GUARDIAN_DELEGATION_INTERACTION_MODES,
+    GUARDIAN_DELEGATION_INTENT_STATUSES,
+    GUARDIAN_DELEGATION_RUN_STATUSES,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     ORCHESTRATOR_DECISION_TOKENS,
@@ -66,6 +73,13 @@ from guardian.protocol_tokens import (
     ExecutorEventType,
     ExecutorId,
     ExecutorReleasePosture,
+    GuardianDelegationApprovalMode,
+    GuardianDelegationApprovalSource,
+    GuardianDelegationApprovalState,
+    GuardianDelegationContextSourceType,
+    GuardianDelegationInteractionMode,
+    GuardianDelegationIntentStatus,
+    GuardianDelegationRunStatus,
     ImageRoutingPath,
     LoopStopReason,
     OrchestratorDecisionToken,
@@ -83,6 +97,74 @@ def test_acceptance_status_tokens() -> None:
     assert AcceptanceStatus.ACCEPTED.value == "accepted"
     assert AcceptanceStatus.ACCEPTED_DEGRADED.value == "accepted_degraded"
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
+
+
+def test_guardian_delegation_protocol_tokens() -> None:
+    assert (
+        GuardianDelegationInteractionMode.NON_BLOCKING.value == "non_blocking"
+    )
+    assert GUARDIAN_DELEGATION_INTERACTION_MODES == {"non_blocking"}
+    assert GuardianDelegationApprovalMode.SCOPED_AUTO.value == "scoped_auto"
+    assert GUARDIAN_DELEGATION_APPROVAL_MODES == {"scoped_auto"}
+    assert GuardianDelegationApprovalState.PENDING.value == "pending"
+    assert GuardianDelegationApprovalState.APPROVED.value == "approved"
+    assert GuardianDelegationApprovalState.BLOCKED.value == "blocked"
+    assert GUARDIAN_DELEGATION_APPROVAL_STATES == {
+        "pending",
+        "approved",
+        "blocked",
+    }
+    assert GuardianDelegationApprovalSource.NONE.value == "none"
+    assert GuardianDelegationApprovalSource.AUTO.value == "auto"
+    assert GuardianDelegationApprovalSource.HUMAN.value == "human"
+    assert GUARDIAN_DELEGATION_APPROVAL_SOURCES == {
+        "none",
+        "auto",
+        "human",
+    }
+    assert GuardianDelegationIntentStatus.DRAFT.value == "draft"
+    assert GuardianDelegationIntentStatus.PLANNING.value == "planning"
+    assert (
+        GuardianDelegationIntentStatus.AWAITING_CLARIFICATION.value
+        == "awaiting_clarification"
+    )
+    assert (
+        GuardianDelegationIntentStatus.AWAITING_APPROVAL.value
+        == "awaiting_approval"
+    )
+    assert GuardianDelegationIntentStatus.ACCEPTED.value == "accepted"
+    assert GuardianDelegationIntentStatus.SUPERSEDED.value == "superseded"
+    assert GuardianDelegationIntentStatus.CANCELLED.value == "cancelled"
+    assert GuardianDelegationIntentStatus.FAILED.value == "failed"
+    assert GUARDIAN_DELEGATION_INTENT_STATUSES == {
+        "draft",
+        "planning",
+        "awaiting_clarification",
+        "awaiting_approval",
+        "accepted",
+        "superseded",
+        "cancelled",
+        "failed",
+    }
+    assert GuardianDelegationRunStatus.NOT_ENQUEUED.value == "not_enqueued"
+    assert GuardianDelegationRunStatus.QUEUED.value == "queued"
+    assert GuardianDelegationRunStatus.RUNNING.value == "running"
+    assert GuardianDelegationRunStatus.COMPLETED.value == "completed"
+    assert GuardianDelegationRunStatus.FAILED.value == "failed"
+    assert GuardianDelegationRunStatus.CANCELLED.value == "cancelled"
+    assert GUARDIAN_DELEGATION_RUN_STATUSES == {
+        "not_enqueued",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+    }
+    assert (
+        GuardianDelegationContextSourceType.SELECTED_TURN.value
+        == "selected_turn"
+    )
+    assert GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES == {"selected_turn"}
 
 
 def test_context_request_status_tokens() -> None:
