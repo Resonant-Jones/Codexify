@@ -508,6 +508,7 @@ from guardian.routes import (
     documents,
     embeddings,
     federation,
+    guardian_delegations,
     health,
 )
 from guardian.routes import heartbeat as heartbeat_routes
@@ -632,8 +633,9 @@ async def app_lifespan(app: FastAPI):
         coding_work_orders.configure_db(guardian_db)
         command_bus_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
+        guardian_delegations.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations/guardian_delegations routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
@@ -1238,6 +1240,15 @@ _include_router(
     label="delegations",
     flag_name="CODEXIFY_ENABLE_DELEGATION_ROUTES",
     include_fn=lambda: app.include_router(delegations.router),
+    core_surface=True,
+)
+_include_router(
+    label="guardian_delegations",
+    flag_name="CODEXIFY_ENABLE_GUARDIAN_DELEGATIONS_ROUTES",
+    # Keep the Phase 2A proof route explicitly gated so it does not widen the
+    # supported release surface before the hybrid delegation loop is proven.
+    include_fn=lambda: app.include_router(guardian_delegations.router),
+    default_enabled=False,
     core_surface=True,
 )
 
