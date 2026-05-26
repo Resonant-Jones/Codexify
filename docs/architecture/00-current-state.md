@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-25
+2026-05-26
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,21 +13,20 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This audit window did not surface a new merged runtime capability on `main`; the visible movement remains in release-truth maintenance and docs-level consolidation.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Since the last audit, `main` added health-check visibility for LLM model availability; the broader release posture is otherwise unchanged.
 
 ## What changed recently
-- Supported-profile wiring was fixed on `main`.
-- Personal-facts settings routing was repaired on `main`.
-- GuardianChat now surfaces runtime visual state in the shell.
-- An internal/manual local-model draft adapter landed.
-- Daily audit artifacts were refreshed around the current `main` tip.
-- Doctrine-first Unity Audit framing is being added to the architecture layer as a coherence lens only; it does not claim new runtime implementation.
-- Overlapping build, delegation, runner, and Pi-style doctrine is being consolidated under Guardian Build Loop framing; this is architecture cleanup only and does not claim new autonomous runtime behavior or release-scope expansion.
+- `main` now surfaces LLM model availability in health checks.
+- Supported-profile wiring remains aligned with the local-only beta contract.
+- Personal-facts settings routing remains repaired on `main`.
+- GuardianChat still surfaces runtime visual state in the shell.
+- Internal/manual local-model draft adapter work remains present, but not a release promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
 - Supported-profile, health, and catalog surfaces are aligned on `main`.
+- Health checks now report LLM model availability.
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path.
 - Workspace-local Obsidian retrieval is supported on the current tip.
@@ -40,7 +39,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features. The new retrieval navigation note is planning doctrine only, does not expand the supported release surface, and does not change the current graph-writes-default-off boundary.
+- Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
@@ -58,8 +57,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
-4. Begin doctrine-first unification work through the Unity Audit architecture layer without overstating implementation beyond docs and governance framing.
-5. Consolidate overlapping coding-worker, delegation, runner, and Pi doctrine under Guardian Build Loop language without widening supported beta claims.
+4. Keep the release-truth docs in sync with the live `main` posture.
+5. Avoid widening supported beta claims until a new merged capability is proven end to end.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
