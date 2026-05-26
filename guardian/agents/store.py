@@ -30,6 +30,11 @@ from guardian.db.models import (
 
 logger = logging.getLogger(__name__)
 
+_GUARDIAN_DELEGATION_OWNERSHIP = "guardian_delegation_intent"
+_GUARDIAN_DELEGATION_DELIVERY_DEFERRED_REASON = (
+    "guardian_delegation_source_thread_delivery_deferred"
+)
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -60,6 +65,24 @@ def _normalize_coding_result_status(status: Any) -> str:
     return value or "error"
 
 
+def _normalize_agent_run_status(status: Any) -> str:
+    value = str(status or "").strip().lower()
+    if value in {"success", "succeeded", "completed"}:
+        return "succeeded"
+    if value == "cancelled":
+        return "canceled"
+    return value or "failed"
+
+
+def _is_terminal_agent_run_status(status: Any) -> bool:
+    return _normalize_agent_run_status(status) in {
+        "succeeded",
+        "failed",
+        "canceled",
+        "escalated",
+    }
+
+
 def _should_persist_coding_result_message(status: str) -> bool:
     normalized = _normalize_coding_result_status(status)
     # Terminal coding outcomes should return bounded evidence to the source
@@ -72,6 +95,19 @@ def _should_persist_coding_result_message(status: str) -> bool:
         "in_progress",
         "processing",
     }
+
+
+def _guardian_delegation_delivery_deferred(
+    deployment_spec: dict[str, Any],
+) -> bool:
+    metadata = deployment_spec.get("guardian_delegation")
+    if not isinstance(metadata, dict):
+        return False
+    return (
+        str(metadata.get("ownership") or "").strip()
+        == _GUARDIAN_DELEGATION_OWNERSHIP
+        and bool(metadata.get("suppress_source_thread_delivery"))
+    )
 
 
 def _extract_patch_artifact_metadata(
@@ -1109,6 +1145,9 @@ class AgentStore:
             str(commit_reason_code).strip() if commit_reason_code else None
         )
         resolved_merge_ready = bool(merge_ready) if merge_ready else False
+        guardian_delegation_delivery_deferred = (
+            _guardian_delegation_delivery_deferred(deployment_spec)
+        )
 
         resolved_commit_hash = str(commit_hash).strip() if commit_hash else None
         validation_results = None
@@ -1294,7 +1333,12 @@ class AgentStore:
         delivery_reason_code = None
         delivery_ok = False
         delivery_status = "degraded"
-        if (
+        if guardian_delegation_delivery_deferred:
+            delivery_status = "not_requested"
+            delivery_reason_code = (
+                _GUARDIAN_DELEGATION_DELIVERY_DEFERRED_REASON
+            )
+        elif (
             persist_message
             and expected_thread_id is not None
             and self._has_db()
@@ -1371,7 +1415,11 @@ class AgentStore:
                 "partial-success",
             }
         ):
-            terminal_run_status = "succeeded" if delivery_ok else "failed"
+            terminal_run_status = (
+                "succeeded"
+                if delivery_ok or guardian_delegation_delivery_deferred
+                else "failed"
+            )
         else:
             terminal_run_status = "failed"
 
@@ -1390,6 +1438,9 @@ class AgentStore:
         artifact_payload["delivery_status"] = delivery_status
         artifact_payload["delivery_reason"] = delivery_reason_code
         artifact_payload["delivery_reason_code"] = delivery_reason_code
+        artifact_payload["source_thread_delivery_suppressed"] = (
+            guardian_delegation_delivery_deferred
+        )
         artifact_payload["terminal_run_status"] = terminal_run_status
         artifact_payload["terminal_run_status_updated"] = run_status_updated
         if self._has_db():
@@ -1470,6 +1521,9 @@ class AgentStore:
             "delivery_status": delivery_status,
             "delivery_reason": delivery_reason_code,
             "delivery_reason_code": delivery_reason_code,
+            "source_thread_delivery_suppressed": (
+                guardian_delegation_delivery_deferred
+            ),
             "thread_id": expected_thread_id,
             "source_message_id": expected_source_message_id,
             "terminal_run_status": terminal_run_status,
