@@ -296,8 +296,6 @@ services:
       PYTHONIOENCODING: utf-8
       PORT: "8888"
       HOME: /home/codexify
-      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
-      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       # Command bus loopback: required so command execution re-enters the API via HTTP with full authz/middleware.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       # Policy chokepoint mode for tool/command execution.
@@ -420,8 +418,6 @@ services:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       HOME: /home/codexify
-      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
-      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       LLM_PROVIDER: "${LLM_PROVIDER:-local}"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -487,8 +483,6 @@ services:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       HOME: /home/codexify
-      CODEXIFY_CODEX_BIN: "${CODEXIFY_CODEX_BIN:-codex}"
-      CODEXIFY_CLAUDE_BIN: "${CODEXIFY_CLAUDE_BIN:-claude}"
       LLM_PROVIDER: "local"
       EMBED_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
@@ -552,9 +546,9 @@ services:
       GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
       NEO4J_BOLT_URL: bolt://neo4j:7687
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
-      CODEX_ADAPTER_COMMAND: >-
-        codex exec --oss --local-provider ollama -m qwen3-coder:30b
-        --output-schema /app/backend/scripts/docker/codex-run-envelope.schema.json
+      CAMPAIGN_RUNNER_PROVIDER_ADAPTER: "pi"
+      CAMPAIGN_RUNNER_PI_ROUTE: "${CAMPAIGN_RUNNER_PI_ROUTE:-default}"
+      CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT: "${CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT:-true}"
       # --- Graph-write runtime boundary (default-off) ---
       CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
       CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"

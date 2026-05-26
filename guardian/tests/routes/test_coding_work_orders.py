@@ -547,7 +547,7 @@ def test_campaign_runner_detail_includes_latest_attempt_ledger(
         goal_id=goal_id,
         work_order_id=work_order_id,
         coding_task_id="coding-task-123",
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
         runtime_target="container",
         error_code="VALIDATION_FAILED",
         error_message="validation failed",

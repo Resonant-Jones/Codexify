@@ -1,71 +1,22 @@
-"""ClaudeCode CLI delegated adapter."""
+"""Deprecated direct Claude Code adapter stub for Campaign Runner compatibility."""
 
 from __future__ import annotations
 
-import json
-import os
-import shlex
-import subprocess
-
 from .base import AgentExecutionRequest, AgentRunEnvelope
 
-
-def _command_from_env() -> list[str]:
-    raw = os.getenv("CLAUDECODE_ADAPTER_COMMAND", "claude --print").strip()
-    return shlex.split(raw) if raw else ["claude", "--print"]
+UNSUPPORTED_DIRECT_CLAUDE_MESSAGE = (
+    "Direct Claude / Claude Code CLI execution is unsupported for Campaign "
+    "Runner. Use the Pi broker adapter instead. Claude may only appear as a "
+    "downstream resolved provider/model identity in Pi receipts."
+)
 
 
 class ClaudeCodeAdapter:
     name = "claudecode"
 
+    def __init__(self) -> None:
+        raise RuntimeError(UNSUPPORTED_DIRECT_CLAUDE_MESSAGE)
+
     def execute(self, request: AgentExecutionRequest) -> AgentRunEnvelope:
-        cmd = [*_command_from_env(), request.prompt]
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=request.cwd or None,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=request.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            return AgentRunEnvelope(
-                status="error",
-                summary="ClaudeCode adapter execution timed out",
-                artifacts=[],
-                next_actions=[],
-                errors=["timeout_expired"],
-                metrics={"timeout_seconds": request.timeout_seconds},
-                spec_alignment_ok=True,
-                schema_valid=False,
-            )
-        stdout = (proc.stdout or "").strip()
-        stderr = (proc.stderr or "").strip()
-
-        if proc.returncode != 0:
-            return AgentRunEnvelope(
-                status="error",
-                summary="ClaudeCode adapter execution failed",
-                artifacts=[],
-                next_actions=[],
-                errors=[stderr or f"exit={proc.returncode}"],
-                metrics={"returncode": proc.returncode},
-                spec_alignment_ok=True,
-                schema_valid=False,
-            )
-
-        try:
-            payload = json.loads(stdout)
-            return AgentRunEnvelope.model_validate(payload)
-        except Exception:
-            return AgentRunEnvelope(
-                status="error",
-                summary="ClaudeCode adapter returned non-JSON output",
-                artifacts=[],
-                next_actions=[],
-                errors=["invalid_json_envelope"],
-                metrics={"stdout_preview": stdout[:240]},
-                spec_alignment_ok=True,
-                schema_valid=False,
-            )
+        _ = request
+        raise RuntimeError(UNSUPPORTED_DIRECT_CLAUDE_MESSAGE)

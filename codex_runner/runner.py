@@ -49,6 +49,18 @@ TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 MAPPING_START = "<!-- RUNNER_TASK_MAP -->"
 MAPPING_END = "<!-- /RUNNER_TASK_MAP -->"
 
+UNSUPPORTED_DIRECT_PROVIDER_MESSAGE = (
+    "Direct Codex/Claude execution is unsupported for Campaign Runner. "
+    "Use the Pi broker adapter."
+)
+DEFAULT_PI_PROVIDER = os.getenv("PI_PROVIDER", "anthropic")
+DEFAULT_PI_MODEL = os.getenv("PI_MODEL", "claude-sonnet-4-20250514")
+DEFAULT_PI_ROUTE = os.getenv("CAMPAIGN_RUNNER_PI_ROUTE", "default")
+DEFAULT_PI_THINKING = os.getenv("PI_THINKING", "medium")
+DEFAULT_PI_REQUIRE_BACKEND_RECEIPT = os.getenv(
+    "CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
+
 
 class RunnerError(RuntimeError):
     """Raised when deterministic runner constraints are violated."""
@@ -129,6 +141,7 @@ def run_cmd(
     cwd: Path,
     capture_output: bool = False,
     debug: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if debug:
         log(f"[debug] cwd={cwd} cmd={' '.join(args)}")
@@ -139,6 +152,7 @@ def run_cmd(
             text=True,
             capture_output=capture_output,
             check=False,
+            env=env,
         )
     except FileNotFoundError as exc:
         raise RunnerError(f"Executable not found: {args[0]}") from exc
@@ -322,18 +336,45 @@ def ensure_repo_root(repo_root: Path, debug: bool) -> None:
         )
 
 
+def _direct_provider_error(provider: str) -> RunnerError:
+    return RunnerError(
+        f"{UNSUPPORTED_DIRECT_PROVIDER_MESSAGE} (requested provider: {provider})"
+    )
+
+
+def _normalize_provider(provider: str) -> str:
+    value = str(provider or "").strip().lower() or "pi"
+    if value == "pi":
+        return value
+    if value in {"codex", "claude"}:
+        raise _direct_provider_error(value)
+    raise RunnerError(f"Unsupported provider: {value}")
+
+
+def _pi_wrapper_path() -> Path:
+    return SCRIPT_DIR / "src" / "agent-wrapper.js"
+
+
+def _pi_backend_version() -> str:
+    package_path = SCRIPT_DIR / "package.json"
+    try:
+        package_payload = json_read(package_path)
+    except RunnerError:
+        return "unknown"
+    return str(package_payload.get("version") or "unknown")
+
+
 def ensure_provider_available(provider: str) -> None:
-    binaries = {
-        "codex": "codex",
-        "claude": "claude",
-    }
-    binary = binaries.get(provider)
-    if not binary:
-        raise RunnerError(f"Unsupported provider: {provider}")
-    if not shutil_which(binary):
+    normalized = _normalize_provider(provider)
+    if normalized != "pi":
+        raise RunnerError(f"Unsupported provider: {normalized}")
+    if not shutil_which("node"):
         raise RunnerError(
-            f"{provider} executable ('{binary}') not found on PATH"
+            "Pi broker requires Node.js ('node') on PATH for Campaign Runner."
         )
+    wrapper_path = _pi_wrapper_path()
+    if not wrapper_path.exists():
+        raise RunnerError(f"Pi broker wrapper not found: {wrapper_path}")
 
 
 def shutil_which(binary: str) -> str | None:
@@ -1026,120 +1067,108 @@ def _select_payload(
     return chosen
 
 
-def run_codex_exec(
+def run_pi_exec(
     repo_root: Path,
     *,
+    stage: str,
     prompt_text: str,
     output_schema: Path,
     output_path: Path,
     model: str | None,
-    configs: list[str],
+    pi_provider: str,
+    pi_route: str,
+    pi_thinking: str,
+    require_backend_receipt: bool,
     debug: bool,
-) -> None:
-    cmd: list[str] = ["codex"]
-    if model:
-        cmd.extend(["--model", model])
-    for config in configs:
-        cmd.extend(["--config", config])
-
-    cmd.extend(
-        [
-            "exec",
-            "--output-schema",
-            str(output_schema),
-            "-o",
-            str(output_path),
-            prompt_text,
-        ]
-    )
-    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        stdout = (result.stdout or "").strip()
-        raise RunnerError(
-            "codex exec failed"
-            + (f"\nSTDERR:\n{stderr}" if stderr else "")
-            + (f"\nSTDOUT:\n{stdout}" if stdout else "")
-        )
-
-
-def run_claude_exec(
-    repo_root: Path,
-    *,
-    prompt_text: str,
-    output_schema: Path,
-    output_path: Path,
-    model: str | None,
-    settings: list[str],
-    debug: bool,
-) -> None:
+) -> dict[str, Any]:
     schema_payload = json_read(output_schema)
     required_keys = _schema_required_keys(schema_payload)
-    schema_json = canonical_json(schema_payload)
+    resolved_provider = pi_provider or DEFAULT_PI_PROVIDER
+    resolved_model = model or DEFAULT_PI_MODEL
+    resolved_route = pi_route or DEFAULT_PI_ROUTE
+    resolved_thinking = pi_thinking or DEFAULT_PI_THINKING
 
-    cmd: list[str] = [
-        "claude",
-        "-p",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-    ]
-    if model:
-        cmd.extend(["--model", model])
-    for setting in settings:
-        cmd.extend(["--settings", setting])
-    cmd.append(prompt_text)
+    env = os.environ.copy()
+    env["CAMPAIGN_RUNNER_PROVIDER_ADAPTER"] = "pi"
+    env["CAMPAIGN_RUNNER_PI_ROUTE"] = resolved_route
+    env["CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT"] = (
+        "true" if require_backend_receipt else "false"
+    )
+    env["PI_PROVIDER"] = resolved_provider
+    env["PI_MODEL"] = resolved_model
+    env["PI_THINKING"] = resolved_thinking
+    env["PI_ROUTE"] = resolved_route
 
-    result = run_cmd(cmd, cwd=repo_root, capture_output=True, debug=debug)
+    cmd = ["node", str(_pi_wrapper_path()), stage, prompt_text]
+    result = run_cmd(
+        cmd,
+        cwd=repo_root,
+        capture_output=True,
+        debug=debug,
+        env=env,
+    )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         stdout = (result.stdout or "").strip()
         raise RunnerError(
-            "claude exec failed"
+            "Pi broker execution failed"
             + (f"\nSTDERR:\n{stderr}" if stderr else "")
             + (f"\nSTDOUT:\n{stdout}" if stdout else "")
         )
 
-    parsed = _parse_json_with_fallback(result.stdout or "", "claude")
+    parsed = _parse_json_with_fallback(result.stdout or "", "pi")
     payload = _select_payload(_candidate_payload_dicts(parsed), required_keys)
     json_write(output_path, payload)
+    backend_receipt = {
+        "backend_provider": "pi",
+        "backend_version": _pi_backend_version(),
+        "pi_route": resolved_route,
+        "resolved_provider": resolved_provider,
+        "resolved_model": resolved_model,
+        "schema_mode": "json_schema_required_keys",
+        "execution_mode": stage,
+        "dependency_mode": "brokered",
+        "passes": 1,
+        "fallback_chain": [],
+        "retry_count": 0,
+        "error_code": None,
+    }
+    if require_backend_receipt and not backend_receipt["backend_provider"]:
+        raise RunnerError("Pi broker backend receipt missing")
+    return backend_receipt
 
 
 def run_provider_exec(
     repo_root: Path,
     *,
+    stage: str,
     provider: str,
     prompt_text: str,
     output_schema: Path,
     output_path: Path,
     model: str | None,
-    settings: list[str],
+    pi_provider: str,
+    pi_route: str,
+    pi_thinking: str,
+    require_backend_receipt: bool,
     debug: bool,
-) -> None:
-    if provider == "codex":
-        run_codex_exec(
+) -> dict[str, Any]:
+    normalized = _normalize_provider(provider)
+    if normalized == "pi":
+        return run_pi_exec(
             repo_root,
+            stage=stage,
             prompt_text=prompt_text,
             output_schema=output_schema,
             output_path=output_path,
             model=model,
-            configs=settings,
+            pi_provider=pi_provider,
+            pi_route=pi_route,
+            pi_thinking=pi_thinking,
+            require_backend_receipt=require_backend_receipt,
             debug=debug,
         )
-        return
-    if provider == "claude":
-        run_claude_exec(
-            repo_root,
-            prompt_text=prompt_text,
-            output_schema=output_schema,
-            output_path=output_path,
-            model=model,
-            settings=settings,
-            debug=debug,
-        )
-        return
-    raise RunnerError(f"Unsupported provider: {provider}")
+    raise RunnerError(f"Unsupported provider: {normalized}")
 
 
 def append_implementation_receipt(
@@ -1164,8 +1193,18 @@ def append_completion_summary(
     receipt_commit_hash: str,
     summary: str,
     notes: str,
+    backend_receipt: dict[str, Any] | None = None,
 ) -> None:
     tests_line = ", ".join(tests_ran) if tests_ran else "(none)"
+    backend_receipt_block = ""
+    if backend_receipt:
+        backend_receipt_block = (
+            f"- backend_provider: {backend_receipt.get('backend_provider') or '(unknown)'}\n"
+            f"- resolved_provider: {backend_receipt.get('resolved_provider') or '(unknown)'}\n"
+            f"- resolved_model: {backend_receipt.get('resolved_model') or '(unknown)'}\n"
+            f"- pi_route: {backend_receipt.get('pi_route') or '(unknown)'}\n"
+            f"- dependency_mode: {backend_receipt.get('dependency_mode') or '(unknown)'}\n"
+        )
     block = (
         "\n\n## Completion Summary (Runner)\n\n"
         f"- status: {status}\n"
@@ -1174,6 +1213,7 @@ def append_completion_summary(
         f"- receipt_commit_hash: {receipt_commit_hash}\n"
         f"- summary: {summary or '(none)'}\n"
         f"- notes: {notes or '(none)'}\n"
+        f"{backend_receipt_block}"
     )
     text_append(task_artifact_abs, block)
 
@@ -1185,39 +1225,34 @@ def default_verify(ci_env: str | None) -> bool:
 
 
 def provider_settings(args: argparse.Namespace) -> list[str]:
-    if args.provider == "codex":
-        return list(args.codex_config)
-    if args.provider == "claude":
-        return list(args.claude_settings)
-    raise RunnerError(f"Unsupported provider: {args.provider}")
+    _normalize_provider(args.provider)
+    return [
+        f"broker_provider={args.pi_provider}",
+        f"route={args.pi_route}",
+        f"thinking={args.pi_thinking}",
+        "require_backend_receipt="
+        + str(bool(args.require_backend_receipt)).lower(),
+    ]
 
 
 def provider_model_for_stage(
     args: argparse.Namespace, stage: str
 ) -> str | None:
-    if args.provider == "codex":
-        if stage == "audit":
-            return args.codex_model_audit or args.codex_model
-        if stage == "compiler":
-            return args.codex_model_compiler or args.codex_model
-        if stage == "task":
-            return args.codex_model_task or args.codex_model
-    if args.provider == "claude":
-        if stage == "audit":
-            return args.claude_model_audit or args.claude_model
-        if stage == "compiler":
-            return args.claude_model_compiler or args.claude_model
-        if stage == "task":
-            return args.claude_model_task or args.claude_model
+    _normalize_provider(args.provider)
+    if stage == "audit":
+        return args.pi_model_audit or args.pi_model
+    if stage == "compiler":
+        return args.pi_model_compiler or args.pi_model
+    if stage == "task":
+        return args.pi_model_task or args.pi_model
     raise RunnerError(
         f"Unsupported provider/stage combination: {args.provider}/{stage}"
     )
 
 
 def provider_model_map(args: argparse.Namespace) -> dict[str, str | None]:
-    default_model = (
-        args.codex_model if args.provider == "codex" else args.claude_model
-    )
+    _normalize_provider(args.provider)
+    default_model = args.pi_model
     return {
         "default": default_model,
         "audit": provider_model_for_stage(args, "audit"),
@@ -1283,6 +1318,7 @@ def write_run_meta(
     provider: str,
     provider_models: dict[str, str | None],
     provider_settings_sanitized: list[str],
+    backend_receipts: dict[str, Any] | None = None,
 ) -> None:
     payload = {
         "run_id": run_id,
@@ -1312,6 +1348,7 @@ def write_run_meta(
             "models": provider_models,
             "settings": provider_settings_sanitized,
         },
+        "backend_receipts": dict(backend_receipts or {}),
         "termination_reason": termination_reason,
     }
     json_write(path, payload)
@@ -1324,20 +1361,27 @@ def run_task_agent(
     task_result_schema_file: Path,
     provider: str,
     model: str | None,
-    settings: list[str],
+    pi_provider: str,
+    pi_route: str,
+    pi_thinking: str,
+    require_backend_receipt: bool,
     debug: bool,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         output = tmp_root / "task_result.json"
-        run_provider_exec(
+        backend_receipt = run_provider_exec(
             repo_root,
+            stage="task",
             provider=provider,
             prompt_text=str(task["activation_prompt"]),
             output_schema=task_result_schema_file,
             output_path=output,
             model=model,
-            settings=settings,
+            pi_provider=pi_provider,
+            pi_route=pi_route,
+            pi_thinking=pi_thinking,
+            require_backend_receipt=require_backend_receipt,
             debug=debug,
         )
         payload = json_read(output)
@@ -1362,6 +1406,7 @@ def run_task_agent(
         "summary": summary,
         "tests_ran": [str(item) for item in tests_ran],
         "notes": notes,
+        "backend_receipt": backend_receipt,
     }
 
 
@@ -1429,20 +1474,27 @@ def run_pass(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         stage_a_output_path = tmp_root / "audit_output.json"
-        run_provider_exec(
+        audit_backend_receipt = run_provider_exec(
             repo_root,
+            stage="audit",
             provider=args.provider,
             prompt_text=audit_prompt_text,
             output_schema=args.audit_schema_file,
             output_path=stage_a_output_path,
             model=active_models["audit"],
-            settings=active_settings,
+            pi_provider=args.pi_provider,
+            pi_route=args.pi_route,
+            pi_thinking=args.pi_thinking,
+            require_backend_receipt=args.require_backend_receipt,
             debug=args.debug,
         )
         audit_payload = json_read(stage_a_output_path)
 
     ensure_audit_id(audit_payload, audit_id)
     json_write(audit_dir_abs / "audit_output.json", audit_payload)
+    json_write(
+        audit_dir_abs / "audit_backend_receipt.json", audit_backend_receipt
+    )
 
     compiler_template = args.compiler_prompt_file.read_text(encoding="utf-8")
     compiler_prompt_text = render_compiler_prompt(
@@ -1453,14 +1505,18 @@ def run_pass(
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_root = Path(tmpdir)
         stage_b_output_path = tmp_root / "campaign_set_output.json"
-        run_provider_exec(
+        compiler_backend_receipt = run_provider_exec(
             repo_root,
+            stage="compile",
             provider=args.provider,
             prompt_text=compiler_prompt_text,
             output_schema=args.campaign_set_schema_file,
             output_path=stage_b_output_path,
             model=active_models["compiler"],
-            settings=active_settings,
+            pi_provider=args.pi_provider,
+            pi_route=args.pi_route,
+            pi_thinking=args.pi_thinking,
+            require_backend_receipt=args.require_backend_receipt,
             debug=args.debug,
         )
         campaign_set_payload = json_read(stage_b_output_path)
@@ -1490,6 +1546,14 @@ def run_pass(
 
     json_write(run_dir_abs / "run_inputs.json", run_inputs)
     json_write(run_dir_abs / "campaign_set_output.json", campaign_set_payload)
+    json_write(
+        run_dir_abs / "audit_backend_receipt.json",
+        audit_backend_receipt,
+    )
+    json_write(
+        run_dir_abs / "campaign_set_backend_receipt.json",
+        compiler_backend_receipt,
+    )
 
     termination_reason = "in_progress"
     run_trace: dict[str, Any] = {
@@ -1525,6 +1589,10 @@ def run_pass(
         provider=args.provider,
         provider_models=active_models,
         provider_settings_sanitized=active_settings_sanitized,
+        backend_receipts={
+            "audit": audit_backend_receipt,
+            "compiler": compiler_backend_receipt,
+        },
     )
     write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
     write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
@@ -1693,7 +1761,10 @@ def run_pass(
                     task_result_schema_file=args.task_result_schema_file,
                     provider=args.provider,
                     model=provider_model_for_stage(args, "task"),
-                    settings=active_settings,
+                    pi_provider=args.pi_provider,
+                    pi_route=args.pi_route,
+                    pi_thinking=args.pi_thinking,
+                    require_backend_receipt=args.require_backend_receipt,
                     debug=args.debug,
                 )
 
@@ -1729,6 +1800,7 @@ def run_pass(
                     receipt_commit_hash="SELF",
                     summary=result["summary"],
                     notes=result["notes"],
+                    backend_receipt=result.get("backend_receipt"),
                 )
 
                 campaign_doc_rel = campaign["materialized"]["campaign_doc_path"]
@@ -1834,8 +1906,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        choices=["codex", "claude"],
-        default="codex",
+        default="pi",
+    )
+    parser.add_argument("--pi-provider", default=DEFAULT_PI_PROVIDER)
+    parser.add_argument("--pi-route", default=DEFAULT_PI_ROUTE)
+    parser.add_argument("--pi-model", default=DEFAULT_PI_MODEL)
+    parser.add_argument("--pi-model-audit", default=None)
+    parser.add_argument("--pi-model-compiler", default=None)
+    parser.add_argument("--pi-model-task", default=None)
+    parser.add_argument("--pi-thinking", default=DEFAULT_PI_THINKING)
+    parser.add_argument(
+        "--require-backend-receipt",
+        dest="require_backend_receipt",
+        action="store_true",
+        default=DEFAULT_PI_REQUIRE_BACKEND_RECEIPT,
+    )
+    parser.add_argument(
+        "--allow-missing-backend-receipt",
+        dest="require_backend_receipt",
+        action="store_false",
     )
 
     parser.add_argument(
@@ -1890,17 +1979,68 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.set_defaults(verify=None)
 
-    parser.add_argument("--codex-model", default=None)
-    parser.add_argument("--codex-model-audit", default=None)
-    parser.add_argument("--codex-model-compiler", default=None)
-    parser.add_argument("--codex-model-task", default=None)
-    parser.add_argument("--codex-config", action="append", default=[])
-
-    parser.add_argument("--claude-model", default=None)
-    parser.add_argument("--claude-model-audit", default=None)
-    parser.add_argument("--claude-model-compiler", default=None)
-    parser.add_argument("--claude-model-task", default=None)
-    parser.add_argument("--claude-settings", action="append", default=[])
+    parser.add_argument(
+        "--codex-model",
+        dest="_legacy_codex_model",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--codex-model-audit",
+        dest="_legacy_codex_model_audit",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--codex-model-compiler",
+        dest="_legacy_codex_model_compiler",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--codex-model-task",
+        dest="_legacy_codex_model_task",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--codex-config",
+        dest="_legacy_codex_config",
+        action="append",
+        default=[],
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--claude-model",
+        dest="_legacy_claude_model",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--claude-model-audit",
+        dest="_legacy_claude_model_audit",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--claude-model-compiler",
+        dest="_legacy_claude_model_compiler",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--claude-model-task",
+        dest="_legacy_claude_model_task",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--claude-settings",
+        dest="_legacy_claude_settings",
+        action="append",
+        default=[],
+        help=argparse.SUPPRESS,
+    )
 
     parser.add_argument("--debug", action="store_true")
 
@@ -1921,6 +2061,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.task_result_schema_file = (
         args.task_result_schema_file.expanduser().resolve()
     )
+    args.provider = _normalize_provider(args.provider)
+
+    legacy_direct_flags = [
+        value
+        for value in (
+            args._legacy_codex_model,
+            args._legacy_codex_model_audit,
+            args._legacy_codex_model_compiler,
+            args._legacy_codex_model_task,
+            args._legacy_claude_model,
+            args._legacy_claude_model_audit,
+            args._legacy_claude_model_compiler,
+            args._legacy_claude_model_task,
+        )
+        if value
+    ]
+    legacy_direct_flags.extend(list(args._legacy_codex_config))
+    legacy_direct_flags.extend(list(args._legacy_claude_settings))
+    if legacy_direct_flags:
+        raise RunnerError(UNSUPPORTED_DIRECT_PROVIDER_MESSAGE)
 
     if args.passes < 1:
         raise RunnerError("--passes must be >= 1")

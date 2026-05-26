@@ -386,7 +386,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
         attempt_id="attempt-7",
         user_id="local-user",
         project_id="17",
-        adapter_kind="pi_sdk",
+        adapter_kind="pi",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
         context_summary="source thread summary",
@@ -423,7 +423,7 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     deployment = local_store.get_deployment(result["deployment_id"])
     assert deployment is not None
     assert deployment["thread_id"] == 42
-    assert deployment["spec_json"]["adapter_kind"] == "pi_sdk"
+    assert deployment["spec_json"]["adapter_kind"] == "pi"
     assert deployment["spec_json"]["validation_command"] == "pytest -q"
     assert deployment["spec_json"]["max_validation_attempts"] == 3
     assert deployment["spec_json"]["source_thread_id"] == 42
@@ -462,7 +462,7 @@ async def test_execute_coding_task_propagates_worktree_lease_fields(
         attempt_id="attempt-1",
         user_id="local-user",
         project_id="17",
-        adapter_kind="pi_sdk",
+        adapter_kind="pi",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
         context_summary="source thread summary",
@@ -518,7 +518,7 @@ async def test_execute_coding_task_propagates_commit_gate_fields(
         attempt_id="attempt-1",
         user_id="local-user",
         project_id="17",
-        adapter_kind="pi_sdk",
+        adapter_kind="pi",
         instructions="Patch the failing seam.",
         repo_root="/workspace/repo",
         context_summary="source thread summary",
@@ -579,7 +579,7 @@ async def test_execute_coding_task_propagates_campaign_runner_ids(
         attempt_id="attempt-1",
         user_id="local-user",
         project_id="17",
-        adapter_kind="pi_sdk",
+        adapter_kind="pi",
         instructions="Patch campaign runner seams.",
         repo_root="/workspace/repo",
         context_summary="source thread summary",
@@ -609,7 +609,7 @@ async def test_execute_coding_task_propagates_campaign_runner_ids(
     assert deployment["spec_json"]["work_order_id"] == "wo_abc"
 
 
-def test_execute_coding_task_route_accepts_codex_adapter_kind(
+def test_execute_coding_task_route_rejects_direct_codex_adapter_kind(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
@@ -629,7 +629,7 @@ def test_execute_coding_task_route_accepts_codex_adapter_kind(
             attempt_id="attempt-route",
             user_id="local-user",
             project_id="17",
-            adapter_kind="codex",
+            adapter_kind="pi",
             instructions="Patch the failing seam.",
             repo_root="/workspace/repo",
             context_summary="source thread summary",
@@ -646,20 +646,14 @@ def test_execute_coding_task_route_accepts_codex_adapter_kind(
     )
 
     client = _build_client()
+    payload["adapter_kind"] = "codex"
     response = client.post(
         "/api/agents/coding/execute",
         json=payload,
         headers={"X-API-Key": "test-key"},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["coding_task_id"] == "coding-task-codex-route"
-
-    deployment = local_store.get_deployment(body["deployment_id"])
-    assert deployment is not None
-    assert deployment["spec_json"]["adapter_kind"] == "codex"
+    assert response.status_code == 422
 
 
 def test_execute_coding_task_route_rejects_unknown_adapter_kind(
@@ -682,7 +676,7 @@ def test_execute_coding_task_route_rejects_unknown_adapter_kind(
             attempt_id="attempt-reject",
             user_id="local-user",
             project_id="17",
-            adapter_kind="codex",
+            adapter_kind="pi",
             instructions="Patch the failing seam.",
             repo_root="/workspace/repo",
             context_summary="source thread summary",
@@ -831,7 +825,7 @@ def test_coding_execution_payload_round_trips_retry_field() -> None:
         source_message_id="message-456",
         attempt_id="attempt-456",
         user_id="local",
-        adapter_kind="codex",
+        adapter_kind="pi",
         instructions="Fix the failing test.",
         validation_command="pytest -q",
         max_validation_attempts=3,
@@ -871,7 +865,7 @@ def test_coding_execution_request_rejects_validation_attempts_over_cap() -> (
             source_message_id="message-789",
             attempt_id="attempt-789",
             user_id="local",
-            adapter_kind="codex",
+            adapter_kind="pi",
             instructions="Fix the failing test.",
             validation_command="pytest -q",
             max_validation_attempts=4,

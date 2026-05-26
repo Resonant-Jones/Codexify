@@ -65,6 +65,8 @@ Use this note as the local map for all ADRs.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
+28. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines Campaign Runner provider-adapter responsibilities, required backend receipts, and the prohibition on direct Codex/Claude dependency coupling in this module.
+29. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred Campaign Runner broker adapter seam when available, without making Pi global runtime truth for Codexify.
 
 ---
 

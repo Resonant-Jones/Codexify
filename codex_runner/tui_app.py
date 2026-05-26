@@ -299,7 +299,7 @@ class CampaignRunnerTUI(App[list[str] | None]):
 
         with Container(id="command-bar"):
             yield Input(
-                placeholder="Type command (e.g., /set provider claude)",
+                placeholder="Type command (e.g., /set provider pi)",
                 id="command-input",
             )
             yield Static(id="suggestions")
@@ -401,8 +401,14 @@ class CampaignRunnerTUI(App[list[str] | None]):
     def _validate_settings(self, settings: RunnerSettings) -> list[str]:
         errors: list[str] = []
 
-        if settings.provider not in {"codex", "claude"}:
-            errors.append("Provider must be either 'codex' or 'claude'.")
+        if settings.provider != "pi":
+            if settings.legacy_provider in {"codex", "claude"}:
+                errors.append(
+                    "Direct Codex/Claude execution is unsupported for Campaign "
+                    "Runner. Use the Pi broker adapter."
+                )
+            else:
+                errors.append("Provider must be 'pi'.")
         if settings.passes < 1:
             errors.append("passes must be >= 1")
 
@@ -684,7 +690,15 @@ class CampaignRunnerTUI(App[list[str] | None]):
             part = args[i]
             next_value = args[i + 1] if i + 1 < len(args) else None
             if part == "--provider" and next_value:
-                updated.provider = next_value.strip().lower()
+                requested_provider = next_value.strip().lower()
+                if requested_provider == "pi":
+                    updated.provider = "pi"
+                    updated.legacy_provider = None
+                elif requested_provider in {"codex", "claude"}:
+                    updated.provider = "unsupported"
+                    updated.legacy_provider = requested_provider
+                else:
+                    updated.provider = requested_provider
                 i += 2
                 continue
             if part == "--repo-root" and next_value:
@@ -754,49 +768,96 @@ class CampaignRunnerTUI(App[list[str] | None]):
                 updated.debug = True
                 i += 1
                 continue
+            if part == "--pi-provider" and next_value:
+                updated.pi_provider = next_value
+                i += 2
+                continue
+            if part == "--pi-route" and next_value:
+                updated.pi_route = next_value
+                i += 2
+                continue
+            if part == "--pi-model" and next_value:
+                updated.pi_model = next_value
+                i += 2
+                continue
+            if part == "--pi-model-audit" and next_value:
+                updated.pi_model_audit = next_value
+                i += 2
+                continue
+            if part == "--pi-model-compiler" and next_value:
+                updated.pi_model_compiler = next_value
+                i += 2
+                continue
+            if part == "--pi-model-task" and next_value:
+                updated.pi_model_task = next_value
+                i += 2
+                continue
+            if part == "--pi-thinking" and next_value:
+                updated.pi_thinking = next_value
+                i += 2
+                continue
+            if part == "--require-backend-receipt":
+                updated.require_backend_receipt = True
+                i += 1
+                continue
+            if part == "--allow-missing-backend-receipt":
+                updated.require_backend_receipt = False
+                i += 1
+                continue
             if part == "--codex-model" and next_value:
-                updated.codex_model = next_value
+                updated.provider = "unsupported"
+                updated.legacy_provider = "codex"
                 i += 2
                 continue
             if part == "--codex-model-audit" and next_value:
-                updated.codex_model_audit = next_value
+                updated.provider = "unsupported"
+                updated.legacy_provider = "codex"
                 i += 2
                 continue
             if part == "--codex-model-compiler" and next_value:
-                updated.codex_model_compiler = next_value
+                updated.provider = "unsupported"
+                updated.legacy_provider = "codex"
                 i += 2
                 continue
             if part == "--codex-model-task" and next_value:
-                updated.codex_model_task = next_value
-                i += 2
-                continue
-            if part == "--claude-model" and next_value:
-                updated.claude_model = next_value
-                i += 2
-                continue
-            if part == "--claude-model-audit" and next_value:
-                updated.claude_model_audit = next_value
-                i += 2
-                continue
-            if part == "--claude-model-compiler" and next_value:
-                updated.claude_model_compiler = next_value
-                i += 2
-                continue
-            if part == "--claude-model-task" and next_value:
-                updated.claude_model_task = next_value
+                updated.provider = "unsupported"
+                updated.legacy_provider = "codex"
                 i += 2
                 continue
             if part == "--codex-config" and next_value:
-                updated.codex_config = [*updated.codex_config, next_value]
+                updated.provider = "unsupported"
+                updated.legacy_provider = "codex"
+                i += 2
+                continue
+            if part == "--claude-model" and next_value:
+                updated.provider = "unsupported"
+                updated.legacy_provider = "claude"
+                i += 2
+                continue
+            if part == "--claude-model-audit" and next_value:
+                updated.provider = "unsupported"
+                updated.legacy_provider = "claude"
+                i += 2
+                continue
+            if part == "--claude-model-compiler" and next_value:
+                updated.provider = "unsupported"
+                updated.legacy_provider = "claude"
+                i += 2
+                continue
+            if part == "--claude-model-task" and next_value:
+                updated.provider = "unsupported"
+                updated.legacy_provider = "claude"
                 i += 2
                 continue
             if part == "--claude-settings" and next_value:
-                updated.claude_settings = [*updated.claude_settings, next_value]
+                updated.provider = "unsupported"
+                updated.legacy_provider = "claude"
                 i += 2
                 continue
             i += 1
-        if updated.provider not in {"codex", "claude"}:
-            updated.provider = "codex"
+        if updated.provider not in {"pi", "unsupported"}:
+            updated.provider = "pi"
+            updated.legacy_provider = None
         return updated
 
 

@@ -50,10 +50,11 @@ def examples() -> str:
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py
 
-        Example: strict CLI run
+        Example: strict CLI run through the Pi broker adapter
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
-            --provider codex \
+            --provider pi \
+            --pi-provider anthropic \
             --repo-root /Users/resonant_jones/Keep/Resonant_Constructs/Codexify \
             --audit-prompt-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md \
             --audit-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json \
@@ -61,11 +62,14 @@ def examples() -> str:
             --campaign-set-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json \
             --dry-run
 
-        Example: execute with Claude provider
+        Example: execute with Pi route + backend receipt enforcement
 
           python /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/runner.py \
-            --provider claude \
-            --claude-model sonnet \
+            --provider pi \
+            --pi-provider anthropic \
+            --pi-route default \
+            --pi-model claude-sonnet-4-20250514 \
+            --require-backend-receipt \
             --repo-root /Users/resonant_jones/Keep/Resonant_Constructs/Codexify \
             --audit-prompt-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/prompts/mega_audit.md \
             --audit-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/mega_audit_output.schema.json \
@@ -73,6 +77,10 @@ def examples() -> str:
             --campaign-set-schema-file /Users/resonant_jones/Keep/Resonant_Constructs/Codexify/codex_runner/schemas/campaign_set.schema.json \
             --base-ref HEAD \
             --execute
+
+        Direct Codex/Claude execution is unsupported for Campaign Runner.
+        Use the Pi broker adapter and inspect backend receipts for resolved
+        provider/model identity.
         """
     )
 

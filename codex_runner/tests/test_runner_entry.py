@@ -113,7 +113,7 @@ def test_main_uses_resolved_cli_args(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     args = SimpleNamespace(
-        provider="codex",
+        provider="pi",
         repo_root=Path("/tmp/repo"),
         debug=False,
         base_ref="HEAD",
@@ -160,7 +160,7 @@ def test_main_uses_resolved_cli_args(
     assert observed["cli_args"] == MINIMAL_ARGS
 
 
-def test_parse_args_legacy_codex_flags_still_work(tmp_path: Path) -> None:
+def test_parse_args_rejects_legacy_codex_flags(tmp_path: Path) -> None:
     audit_prompt = tmp_path / "audit.md"
     audit_schema = tmp_path / "audit.schema.json"
     compiler_prompt = tmp_path / "compiler.md"
@@ -175,30 +175,26 @@ def test_parse_args_legacy_codex_flags_still_work(tmp_path: Path) -> None:
     ):
         path.write_text("{}", encoding="utf-8")
 
-    args = runner.parse_args(
-        [
-            "--repo-root",
-            str(tmp_path),
-            "--audit-prompt-file",
-            str(audit_prompt),
-            "--audit-schema-file",
-            str(audit_schema),
-            "--compiler-prompt-file",
-            str(compiler_prompt),
-            "--campaign-set-schema-file",
-            str(campaign_schema),
-            "--task-result-schema-file",
-            str(task_schema),
-            "--codex-model",
-            "o3",
-            "--codex-config",
-            "approval_policy=never",
-            "--dry-run",
-        ]
-    )
-
-    assert args.provider == "codex"
-    assert args.codex_model == "o3"
-    assert args.codex_config == ["approval_policy=never"]
-    assert args.execute is False
-    assert args.dry_run is True
+    with pytest.raises(
+        runner.RunnerError,
+        match="Direct Codex/Claude execution is unsupported",
+    ):
+        runner.parse_args(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "--audit-prompt-file",
+                str(audit_prompt),
+                "--audit-schema-file",
+                str(audit_schema),
+                "--compiler-prompt-file",
+                str(compiler_prompt),
+                "--campaign-set-schema-file",
+                str(campaign_schema),
+                "--task-result-schema-file",
+                str(task_schema),
+                "--codex-model",
+                "o3",
+                "--dry-run",
+            ]
+        )

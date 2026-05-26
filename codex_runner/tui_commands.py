@@ -24,16 +24,14 @@ VALUE_KEYS = {
     "compiler_prompt_file",
     "campaign_set_schema_file",
     "task_result_schema_file",
-    "codex_model",
-    "codex_model_audit",
-    "codex_model_compiler",
-    "codex_model_task",
-    "codex_config",
-    "claude_model",
-    "claude_model_audit",
-    "claude_model_compiler",
-    "claude_model_task",
-    "claude_settings",
+    "pi_provider",
+    "pi_route",
+    "pi_model",
+    "pi_model_audit",
+    "pi_model_compiler",
+    "pi_model_task",
+    "pi_thinking",
+    "require_backend_receipt",
 }
 
 
@@ -79,8 +77,9 @@ def suggestion_pool(
     _ = settings
     _ = staged
     rows: list[str] = [
-        "/set provider codex",
-        "/set provider claude",
+        "/set provider pi",
+        "/set pi_route default",
+        "/set pi_provider anthropic",
         "/set passes 1",
         "/set execute_mode dry-run",
         "/set execute_mode execute",
@@ -129,8 +128,25 @@ def coerce_value(key: str, raw: str) -> object:
     value = raw.strip()
     if key == "provider":
         lowered = value.lower()
-        if lowered not in {"codex", "claude"}:
-            raise ValueError("provider must be codex or claude")
+        if lowered == "pi":
+            return lowered
+        if lowered in {"codex", "claude"}:
+            raise ValueError(
+                "Direct Codex/Claude execution is unsupported for Campaign "
+                "Runner. Use the Pi broker adapter."
+            )
+        raise ValueError("provider must be pi")
+    if key == "require_backend_receipt":
+        parsed = parse_bool(value)
+        if parsed is None:
+            raise ValueError("require_backend_receipt expects true/false")
+        return parsed
+    if key == "pi_thinking":
+        lowered = value.lower()
+        if lowered not in {"off", "minimal", "low", "medium", "high", "xhigh"}:
+            raise ValueError(
+                "pi_thinking must be off, minimal, low, medium, high, or xhigh"
+            )
         return lowered
     if key == "passes":
         try:
@@ -145,8 +161,6 @@ def coerce_value(key: str, raw: str) -> object:
         if lowered not in {"dry-run", "execute"}:
             raise ValueError("execute_mode must be dry-run or execute")
         return lowered
-    if key in {"codex_config", "claude_settings"}:
-        return [part.strip() for part in value.split(",") if part.strip()]
     return value
 
 

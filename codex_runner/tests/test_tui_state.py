@@ -10,12 +10,12 @@ def test_profile_round_trip(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(tui_state, "PROFILE_PATH", profile_path)
 
     settings = tui_state.default_settings(cwd=tmp_path)
-    settings.provider = "claude"
+    settings.provider = "pi"
     settings.passes = 3
     settings.verify = True
     settings.branch_per_campaign = False
-    settings.codex_config = ["approval_policy=never"]
-    settings.claude_settings = ["/tmp/claude-settings.json"]
+    settings.pi_provider = "openai"
+    settings.pi_route = "priority"
 
     profile = tui_state.ProfileData(
         settings=settings, presets={"fast": {"passes": 2}}, warnings=[]
@@ -23,12 +23,12 @@ def test_profile_round_trip(tmp_path: Path, monkeypatch) -> None:
     tui_state.save_profile_data(profile)
     loaded = tui_state.load_profile_data(cwd=tmp_path)
 
-    assert loaded.settings.provider == "claude"
+    assert loaded.settings.provider == "pi"
     assert loaded.settings.passes == 3
     assert loaded.settings.verify is True
     assert loaded.settings.branch_per_campaign is False
-    assert loaded.settings.codex_config == ["approval_policy=never"]
-    assert loaded.settings.claude_settings == ["/tmp/claude-settings.json"]
+    assert loaded.settings.pi_provider == "openai"
+    assert loaded.settings.pi_route == "priority"
     assert loaded.presets["fast"]["passes"] == 2
 
 
@@ -48,6 +48,8 @@ unknown = "value"
     )
 
     loaded = tui_state.load_profile_data(cwd=tmp_path)
+    assert loaded.settings.provider == "unsupported"
+    assert loaded.settings.legacy_provider == "codex"
     assert "unknown" not in loaded.presets["fast"]
     assert any("unknown preset key" in warning for warning in loaded.warnings)
 
@@ -57,12 +59,12 @@ def test_to_cli_args_includes_verify_and_branch_flags(tmp_path: Path) -> None:
     settings.verify = False
     settings.branch_per_campaign = False
     settings.execute_mode = "dry-run"
-    settings.provider = "claude"
+    settings.provider = "pi"
 
     args = tui_state.to_cli_args(settings)
 
     assert "--provider" in args
-    assert "claude" in args
+    assert "pi" in args
     assert "--no-verify" in args
     assert "--no-branch-per-campaign" in args
     assert "--dry-run" in args

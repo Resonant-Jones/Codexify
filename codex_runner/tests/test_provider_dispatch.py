@@ -7,102 +7,75 @@ import pytest
 import runner
 
 
-def test_run_provider_exec_dispatches_to_codex(
+def test_run_provider_exec_dispatches_to_pi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
 
-    def fake_codex(
+    def fake_pi(
         repo_root: Path,
         *,
+        stage: str,
         prompt_text: str,
         output_schema: Path,
         output_path: Path,
         model: str | None,
-        configs: list[str],
+        pi_provider: str,
+        pi_route: str,
+        pi_thinking: str,
+        require_backend_receipt: bool,
         debug: bool,
-    ) -> None:
+    ) -> dict[str, object]:
         observed["repo_root"] = repo_root
+        observed["stage"] = stage
         observed["prompt_text"] = prompt_text
         observed["output_schema"] = output_schema
         observed["output_path"] = output_path
         observed["model"] = model
-        observed["configs"] = list(configs)
+        observed["pi_provider"] = pi_provider
+        observed["pi_route"] = pi_route
+        observed["pi_thinking"] = pi_thinking
+        observed["require_backend_receipt"] = require_backend_receipt
         observed["debug"] = debug
+        return {"backend_provider": "pi"}
 
-    monkeypatch.setattr(runner, "run_codex_exec", fake_codex)
+    monkeypatch.setattr(runner, "run_pi_exec", fake_pi)
 
-    runner.run_provider_exec(
+    receipt = runner.run_provider_exec(
         Path("/repo"),
-        provider="codex",
-        prompt_text="prompt",
-        output_schema=Path("schema.json"),
-        output_path=Path("output.json"),
-        model="o3",
-        settings=["approval_policy=never"],
-        debug=True,
-    )
-
-    assert observed["repo_root"] == Path("/repo")
-    assert observed["prompt_text"] == "prompt"
-    assert observed["output_schema"] == Path("schema.json")
-    assert observed["output_path"] == Path("output.json")
-    assert observed["model"] == "o3"
-    assert observed["configs"] == ["approval_policy=never"]
-    assert observed["debug"] is True
-
-
-def test_run_provider_exec_dispatches_to_claude(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observed: dict[str, object] = {}
-
-    def fake_claude(
-        repo_root: Path,
-        *,
-        prompt_text: str,
-        output_schema: Path,
-        output_path: Path,
-        model: str | None,
-        settings: list[str],
-        debug: bool,
-    ) -> None:
-        observed["repo_root"] = repo_root
-        observed["prompt_text"] = prompt_text
-        observed["output_schema"] = output_schema
-        observed["output_path"] = output_path
-        observed["model"] = model
-        observed["settings"] = list(settings)
-        observed["debug"] = debug
-
-    monkeypatch.setattr(runner, "run_claude_exec", fake_claude)
-
-    runner.run_provider_exec(
-        Path("/repo"),
-        provider="claude",
+        stage="audit",
+        provider="pi",
         prompt_text="prompt",
         output_schema=Path("schema.json"),
         output_path=Path("output.json"),
         model="sonnet",
-        settings=["/tmp/claude-settings.json"],
-        debug=False,
+        pi_provider="anthropic",
+        pi_route="default",
+        pi_thinking="medium",
+        require_backend_receipt=True,
+        debug=True,
     )
 
+    assert receipt == {"backend_provider": "pi"}
     assert observed["repo_root"] == Path("/repo")
+    assert observed["stage"] == "audit"
     assert observed["prompt_text"] == "prompt"
     assert observed["output_schema"] == Path("schema.json")
     assert observed["output_path"] == Path("output.json")
     assert observed["model"] == "sonnet"
-    assert observed["settings"] == ["/tmp/claude-settings.json"]
-    assert observed["debug"] is False
+    assert observed["pi_provider"] == "anthropic"
+    assert observed["pi_route"] == "default"
+    assert observed["pi_thinking"] == "medium"
+    assert observed["require_backend_receipt"] is True
+    assert observed["debug"] is True
 
 
 def test_ensure_provider_available_missing_binary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "shutil_which", lambda _binary: None)
-    with pytest.raises(runner.RunnerError, match="not found on PATH"):
-        runner.ensure_provider_available("codex")
+    with pytest.raises(runner.RunnerError, match="Node.js"):
+        runner.ensure_provider_available("pi")
 
 
 def test_ensure_provider_available_unknown_provider() -> None:
@@ -112,21 +85,17 @@ def test_ensure_provider_available_unknown_provider() -> None:
 
 def test_provider_model_for_stage() -> None:
     class Args:
-        provider = "claude"
-        codex_model = ""
-        codex_model_audit = ""
-        codex_model_compiler = ""
-        codex_model_task = ""
-        claude_model = "sonnet"
-        claude_model_audit = ""
-        claude_model_compiler = "compiler-model"
-        claude_model_task = ""
+        provider = "pi"
+        pi_model = "sonnet"
+        pi_model_audit = ""
+        pi_model_compiler = "compiler-model"
+        pi_model_task = ""
 
     assert runner.provider_model_for_stage(Args, "audit") == "sonnet"
     assert runner.provider_model_for_stage(Args, "compiler") == "compiler-model"
 
 
-def test_run_claude_exec_builds_expected_command(
+def test_run_pi_exec_builds_expected_command(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     schema_path = tmp_path / "schema.json"
@@ -144,9 +113,11 @@ def test_run_claude_exec_builds_expected_command(
         cwd: Path,
         capture_output: bool = False,
         debug: bool = False,
+        env: dict[str, str] | None = None,
     ):
         observed["args"] = list(args)
         observed["cwd"] = cwd
+        observed["env"] = dict(env or {})
         return runner.subprocess.CompletedProcess(
             args=args,
             returncode=0,
@@ -155,42 +126,49 @@ def test_run_claude_exec_builds_expected_command(
         )
 
     monkeypatch.setattr(runner, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(
+        runner,
+        "_pi_backend_version",
+        lambda: "0.1.0",
+    )
 
-    runner.run_claude_exec(
+    receipt = runner.run_pi_exec(
         tmp_path,
+        stage="task",
         prompt_text="hello",
         output_schema=schema_path,
         output_path=output_path,
         model="sonnet",
-        settings=["/tmp/claude-settings.json"],
+        pi_provider="anthropic",
+        pi_route="default",
+        pi_thinking="medium",
+        require_backend_receipt=True,
         debug=False,
     )
 
     cmd = observed["args"]
     assert isinstance(cmd, list)
-    assert cmd[0] == "claude"
-    assert "-p" in cmd
-    assert "--output-format" in cmd
-    assert "json" in cmd
-    assert "--json-schema" in cmd
-    assert "--settings" in cmd
-    assert "/tmp/claude-settings.json" in cmd
-    assert "--model" in cmd
-    assert "sonnet" in cmd
+    assert cmd[0] == "node"
+    assert cmd[2] == "task"
+    assert cmd[3] == "hello"
+    assert observed["env"]["CAMPAIGN_RUNNER_PROVIDER_ADAPTER"] == "pi"
     assert output_path.exists()
+    assert receipt["backend_provider"] == "pi"
+    assert receipt["resolved_provider"] == "anthropic"
+    assert receipt["resolved_model"] == "sonnet"
 
 
 def test_sanitize_provider_settings_redacts_sensitive_values() -> None:
     settings = [
-        "approval_policy=never",
+        "route=default",
         "api_token=abc123",
-        "/tmp/regular-settings.json",
+        "provider=anthropic",
         "secret_path=/tmp/secret.json",
     ]
     sanitized = runner.sanitize_provider_settings(settings)
-    assert sanitized[0] == "approval_policy=never"
+    assert sanitized[0] == "route=default"
     assert sanitized[1] == "api_token=<redacted>"
-    assert sanitized[2] == "/tmp/regular-settings.json"
+    assert sanitized[2] == "provider=anthropic"
     assert sanitized[3] == "secret_path=<redacted>"
 
 
@@ -218,12 +196,12 @@ def test_write_run_meta_contains_provider_context(tmp_path: Path) -> None:
         audit_schema_file=schema,
         compiler_prompt_file=compiler,
         campaign_set_schema_file=campaign_schema,
-        cli_args=["--provider", "claude"],
+        cli_args=["--provider", "pi"],
         preflight_clean=True,
         selected_campaign="campaign-1",
         selection_rationale={"rule": "test"},
         termination_reason="dry_run_selected_campaign_materialized",
-        provider="claude",
+        provider="pi",
         provider_models={
             "default": "sonnet",
             "audit": "sonnet",
@@ -231,9 +209,11 @@ def test_write_run_meta_contains_provider_context(tmp_path: Path) -> None:
             "task": "sonnet",
         },
         provider_settings_sanitized=["api_token=<redacted>"],
+        backend_receipts={"audit": {"backend_provider": "pi"}},
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["provider"]["name"] == "claude"
+    assert payload["provider"]["name"] == "pi"
     assert payload["provider"]["models"]["audit"] == "sonnet"
     assert payload["provider"]["settings"] == ["api_token=<redacted>"]
+    assert payload["backend_receipts"]["audit"]["backend_provider"] == "pi"

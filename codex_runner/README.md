@@ -10,6 +10,8 @@ Pi wrapper note:
 - It ships with a vendored Pi SDK tree under `codex_runner/vendor/pi-coding-agent`, so the normal path does not require a separate Pi install.
 - It reuses the shared Pi auth store at `~/.pi/agent/auth.json`, so an existing Pi login or API-key setup on the same user account is visible automatically.
 - If the vendored tree is missing or incomplete, the wrapper fails closed with repair guidance rather than resolving a machine-specific absolute path.
+- Campaign Runner treats Pi as the direct provider-broker adapter seam for this module.
+- Direct Codex or Claude execution is unsupported for Campaign Runner. Those identities may appear only as downstream resolved provider/model fields in Pi backend receipts.
 
 ## Interactive TUI (command-first)
 
@@ -100,7 +102,10 @@ Presets are supported via TOML blocks:
 passes = 2
 verify = false
 branch_per_campaign = true
-provider = "codex"
+provider = "pi"
+pi_provider = "anthropic"
+pi_route = "default"
+require_backend_receipt = true
 ```
 
 Unknown preset keys are ignored with warnings.
@@ -128,9 +133,10 @@ The runner writes `run_meta.json` to:
 - `docs/_campaign_runs/YYYY-MM-DD/<campaign_slug>/<run_id>/run_meta.json`
 
 Additional provider traceability in `run_meta.json`:
-- provider name
+- adapter name
 - provider model map (`default`, `audit`, `compiler`, `task`)
-- sanitized provider settings list (redacts token/secret/password/key markers)
+- sanitized broker settings list (redacts token/secret/password/key markers)
+- backend receipt metadata (`backend_provider`, `resolved_provider`, `resolved_model`, `fallback_chain`, `retry_count`, `error_code`)
 
 ## CLI
 
@@ -146,7 +152,7 @@ python codex_runner/runner.py \
 ```
 
 General flags:
-- `--provider {codex,claude}`
+- `--provider pi`
 - `--passes N` (default: `1`)
 - `--base-ref <git-ref>` (default: `HEAD`)
 - `--execute` or `--dry-run`
@@ -156,19 +162,16 @@ General flags:
 - `--verify` / `--no-verify`
 - `--debug`
 
-Codex provider flags:
-- `--codex-model`
-- `--codex-model-audit`
-- `--codex-model-compiler`
-- `--codex-model-task`
-- `--codex-config` (repeatable)
-
-Claude provider flags:
-- `--claude-model`
-- `--claude-model-audit`
-- `--claude-model-compiler`
-- `--claude-model-task`
-- `--claude-settings` (repeatable)
+Pi broker flags:
+- `--pi-provider`
+- `--pi-route`
+- `--pi-model`
+- `--pi-model-audit`
+- `--pi-model-compiler`
+- `--pi-model-task`
+- `--pi-thinking`
+- `--require-backend-receipt`
+- `--allow-missing-backend-receipt`
 
 Verify default policy:
 - local/dev default: `--no-verify`
@@ -177,8 +180,9 @@ Verify default policy:
 
 ## Provider requirements
 
-- `codex` provider: `codex` executable on PATH
-- `claude` provider: `claude` executable on PATH
+- `pi` provider: `node` executable on PATH plus `codex_runner/src/agent-wrapper.js`
+- backend receipts are the proof surface for resolved provider/model identity
+- direct Codex/Claude binaries are not required and are not supported as Campaign Runner providers
 
 ## Safety defaults
 

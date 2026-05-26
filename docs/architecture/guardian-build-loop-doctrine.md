@@ -1,5 +1,5 @@
 Purpose: define the canonical Guardian Build Loop doctrine for Codexify so Unity Audit, delegation, coding-worker execution, Codex Runner, Pi-style harnesses, command-bus authority, human review, proof, and result return can be discussed as one governed pipeline without inventing a second competing loop.
-Last updated: 2026-05-23
+Last updated: 2026-05-26
 Source anchors:
 - docs/architecture/00-current-state.md
 - docs/architecture/unity-audit-doctrine.md
@@ -112,7 +112,7 @@ Implemented or partially implemented seams already exist for:
 - Redis-backed coding execution queue
 - `CodingWorker`
 - deployment-spec-driven `adapter_kind` selection with alias normalization
-- registered `codex`, `claudecode`, and `pi_codex_runner` adapter paths when present
+- registered `pi_codex_runner` adapter path plus deprecated fail-closed direct-adapter compatibility stubs
 - Guardian-owned coding-result persistence through `AgentStore.store_coding_result()`
 - normalized validation result contracts in `guardian/agents/test_results.py`
 - mutation scope guard
@@ -150,7 +150,7 @@ The repo already contains a concrete coding-worker execution substrate.
 - Coding execution is enqueued onto a Redis-backed queue and processed asynchronously.
 - `guardian/workers/coding_worker.py` is the execution control point.
 - `adapter_kind` is persisted in Guardian-owned deployment spec state and resolved by the worker.
-- The adapter registry includes `codex`, `claudecode`, and `pi_codex_runner`.
+- The adapter registry exposes the Pi broker adapter path, while deprecated direct Codex/Claude compatibility stubs remain unsupported for Campaign Runner.
 - `AgentStore.store_coding_result()` persists bounded coding result evidence and returns it through Guardian into the source thread when lineage is present.
 - Validation evidence is normalized through `guardian/agents/test_results.py`.
 - The worker enforces a Git-backed mutation scope guard when it can prove repository boundaries.

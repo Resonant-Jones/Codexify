@@ -83,7 +83,12 @@ The core Codexify workflow:
 
 ### 2. Agent Task Execution (Coding Worker)
 
-Codexify has a separate coding worker (`guardian/workers/coding_worker.py`) that runs agent adapters (Pi Codex Runner, Codex CLI, Claude Code). These agents call the model provider for inference during their execution.
+Codexify has a separate coding worker (`guardian/workers/coding_worker.py`)
+that runs agent adapters. For the Campaign Runner module, the direct adapter
+seam is the Pi broker path (`pi` / legacy-compatible `pi_codex_runner`).
+Direct Codex CLI and Claude Code execution are unsupported there. Downstream
+provider/model identities may still be resolved through Pi and surfaced in
+backend receipts.
 
 **Implication for Whoosh'd:** These agents will generate multiple sequential and potentially parallel inference calls to the provider. Whoosh'd should expect:
 - Bursts of requests from a single coding session

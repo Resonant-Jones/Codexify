@@ -98,6 +98,8 @@ class CodingExecutionRequest(BaseModel):
     attempt_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     project_id: int | None = None
+    # Legacy-compatible Pi broker target name. This is not direct Codex CLI
+    # execution and direct Codex/Claude adapter targets are unsupported.
     adapter_kind: str = Field(default="pi_codex_runner", min_length=1)
     instructions: str = Field(min_length=1)
     repo_root: str | None = None

@@ -23,7 +23,7 @@ Requested-source gaps found during recon:
 
 `Verified:` Codexify already has several seams that matter for a future delegation loop: a queue-coupled chat completion path, a direct tools compatibility layer, a cron scheduler/executor path, Postgres-backed thread/message/project storage, Redis-backed task events, and documented SSE/websocket/event-feed surfaces that sit alongside the core chat loop rather than replacing it. (`docs/architecture/system-overview.md`, `docs/architecture/completion_pipeline.md`, `docs/architecture/modules-and-ownership.md`, `docs/architecture/data-and-storage.md`, `README.md`)
 
-`Verified (code anchor):` The repo also contains adjacent delegation-specific scaffolding: codex lineage enforcement, agent deployment/run persistence, agent event fanout onto task-event streams, CLI adapters for Codex and Claude Code, confidence scoring helpers, and mutating-step worker primitives. (`guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/routes/agent_orchestration.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/confidence.py`, `guardian/workers/agent_worker.py`)
+`Verified (code anchor):` The repo also contains adjacent delegation-specific scaffolding: codex lineage enforcement, agent deployment/run persistence, agent event fanout onto task-event streams, historical direct-adapter stubs for Codex and Claude Code, confidence scoring helpers, and mutating-step worker primitives. Campaign Runner now treats those direct-adapter files as deprecated compatibility stubs and uses the Pi broker seam as the active direct adapter boundary for that module. (`guardian/routes/codex.py`, `guardian/codex/lineage.py`, `guardian/routes/agent_orchestration.py`, `guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/confidence.py`, `guardian/workers/agent_worker.py`)
 
 `Inference:` These seams are sufficient to plan a grounded delegation architecture, but they do not yet prove a complete Guardian-driven runtime loop that plans in-thread, delegates to an external coding agent, handles clarifications, enforces user escalation gates, and returns results as a finished shipped path.
 
@@ -66,7 +66,7 @@ Requested-source gaps found during recon:
 ## 3. Assumptions to Reject or Downgrade
 
 - `Inference:` "Codexify uses SSE and queued tasks" is too broad. The completion path is queue-coupled, but the backend also exposes a durable outbox SSE feed, Redis task-event SSE, sync SSE, websocket RPC, direct tool execution, cron job execution, and command-bus invocation as distinct mechanisms. (`docs/architecture/system-overview.md`, `docs/architecture/modules-and-ownership.md`, `README.md`, `guardian/guardian_api.py`, `guardian/routes/websocket.py`, `guardian/sync/api.py`)
-- `Unverified:` "Guardian can already delegate to Codex/Claude Code and receive results through the same mechanism" is not an established runtime fact. `Verified (code anchor):` the repo has agent deployment/run routes, CLI adapters, confidence helpers, event publishers, and worker primitives. `Inference:` that is scaffolding, not proof of a finished in-thread delegation loop. (`guardian/routes/agent_orchestration.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`, `docs/guardian/agent-orchestration.md`, `docs/guardian/agent-runtime-onboarding.md`, `docker-compose.yml`)
+- `Unverified:` "Guardian can already delegate to Codex/Claude Code and receive results through the same mechanism" is not an established runtime fact. `Verified (code anchor):` the repo has agent deployment/run routes, historical direct-adapter stubs, confidence helpers, event publishers, and worker primitives. `Inference:` that is scaffolding, not proof of a finished in-thread delegation loop, and it is superseded for Campaign Runner by the Pi broker adapter contract. (`guardian/routes/agent_orchestration.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`, `guardian/agents/events.py`, `guardian/workers/agent_worker.py`, `docs/guardian/agent-orchestration.md`, `docs/guardian/agent-runtime-onboarding.md`, `docker-compose.yml`)
  - `Verified (code anchor):` There is a delegated-agent confidence helper with `0.85`, `0.70`, and `0.55` cutoffs in `guardian/agents/confidence.py`. `Inference:` These values should be treated as implementation-local scaffolding defaults for delegated-agent handling, not as canonical project-wide user-escalation governance, because none of the requested docs establish a repo-wide threshold. (`guardian/agents/confidence.py`)
  - `Verified (code anchor):` Flow routes exist and currently keep flows and run indexes in process memory. `Inference:` That is not durable enough to serve as the canonical delegation backbone; at most it is an experimental orchestration surface unless persistence, approval state, and recovery semantics are added. `Unverified:` canonical production use of flow builder for Guardian delegation. (`guardian/routes/flows.py`)
 - `Inference:` Agent-orchestration APIs and CLI adapters should be treated as adjacent seams, not proof of a completed chat-driven delegation system, because current docs describe plans/deployments/runs and event streaming but also explicitly note that real delegated execution may still be scaffolded rather than fully wired. (`docs/guardian/agent-orchestration.md`, `docs/guardian/agent-runtime-onboarding.md`, `guardian/routes/agent_orchestration.py`)
@@ -78,7 +78,7 @@ Requested-source gaps found during recon:
 - User/UI node: thread view, approvals, continuation summaries, run status.
 - Guardian backend node: policy enforcement, context packing, thread mutations, result injection.
 - Redis/Postgres coordination node: transient transport in Redis, durable state and lineage in Postgres.
-- External coding agent process node: Codex or Claude Code CLI execution in an isolated cwd/worktree.
+- External coding agent process node: historically this could have meant direct Codex or Claude Code CLI execution in an isolated cwd/worktree; Campaign Runner now prefers Pi broker invocation for that module.
 - Repo filesystem node: mutable workspace or isolated worktree subject to approval and lineage rules.
 
 `Inference:` Threat model for the first safe version should assume an honest-but-buggy external agent, ambiguous user intent, stale context snapshots, and potentially over-scoped local process access. The design should also tolerate queue loss, retries, and partial worker failure without losing authoritative run state.
@@ -98,7 +98,7 @@ Requested-source gaps found during recon:
 
 - `Reuse current seams`
 - `Verified (code anchor):` Reuse Redis-style task/event transport and the existing agent deployment/run store so delegated work has durable run identity and event streams from day one. (`guardian/agents/store.py`, `guardian/agents/events.py`, `guardian/routes/agent_orchestration.py`)
-- `Verified (code anchor):` Reuse the existing CLI adapter envelope contract for Codex and Claude Code instead of inventing a new free-form result channel. (`guardian/agents/adapters/base.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`)
+- `Verified (code anchor):` Reuse the existing adapter envelope contract instead of inventing a new free-form result channel. Historical direct Codex/Claude stubs show the prior shape, but Campaign Runner now uses the Pi broker seam for direct adapter selection. (`guardian/agents/adapters/base.py`, `guardian/agents/adapters/codex.py`, `guardian/agents/adapters/claudecode.py`)
 - `Verified (code anchor):` Reuse deterministic worktree creation and preserved-worktree-on-escalation semantics already assumed by the mutating-step worker primitives. (`guardian/workers/agent_worker.py`)
 - `New backend work required`
 - `Inference:` Add a durable delegation-request queue/worker that turns a stored delegation snapshot into an external-agent invocation, instead of invoking CLIs inline from a request path.
@@ -170,7 +170,7 @@ DelegationRequest {
   imprint_scope: "light" | "deep"
   depth_mode: "shallow" | "normal" | "deep" | "diagnostic"
   delegation_mode: "read_only" | "mutating"
-  target_agent: "codex" | "claudecode" | string
+  target_agent: "pi" | string
   cwd_scope: string
   worktree_mode: "none" | "isolated_worktree"
   allowed_actions: string[]

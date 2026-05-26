@@ -136,9 +136,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app \
     PORT=8888 \
-    HOME=/home/codexify \
-    CODEXIFY_CODEX_BIN=codex \
-    CODEXIFY_CLAUDE_BIN=claude
+    HOME=/home/codexify
 
 WORKDIR /app
 
@@ -153,15 +151,12 @@ RUN apt-get update && \
         init-system-helpers \
         nodejs \
         npm && \
-    npm install -g @openai/codex @anthropic-ai/claude-code && \
     mkdir -p /home/codexify && \
     rm -rf /var/lib/apt/lists/*
 
 # qwen-tts pulls python-sox, which shells out through /bin/sh during import.
-# Install Codex CLI and Claude Code into the runtime image so backend and worker
-# containers can execute supervised delegation on the server host. Credentials
-# should be persisted via the runtime HOME volume instead of being baked into the image.
-# Keep a POSIX shell available in the runtime image for compatibility.
+# Keep Node.js/npm available for the Pi broker wrapper used by Campaign Runner.
+# Direct Codex/Claude CLI execution is unsupported for this module.
 
 # Copy Python site-packages from builder (minimal and secure)
 COPY --from=builder /opt/python/lib/python3.11/site-packages /opt/python/lib/python3.11/site-packages

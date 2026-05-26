@@ -13,17 +13,17 @@ from tui_state import RunnerSettings
 
 
 def test_parse_command() -> None:
-    parsed = parse_command("/set provider claude")
+    parsed = parse_command("/set provider pi")
     assert isinstance(parsed, ParsedCommand)
     assert parsed.name == "set"
-    assert parsed.args == ["provider", "claude"]
+    assert parsed.args == ["provider", "pi"]
 
 
 def test_coerce_value() -> None:
-    assert coerce_value("provider", "claude") == "claude"
+    assert coerce_value("provider", "pi") == "pi"
     assert coerce_value("passes", "3") == 3
     assert coerce_value("execute_mode", "execute") == "execute"
-    assert coerce_value("codex_config", "a,b") == ["a", "b"]
+    assert coerce_value("require_backend_receipt", "true") is True
 
 
 def test_parse_bool() -> None:
@@ -34,8 +34,8 @@ def test_parse_bool() -> None:
 
 def test_apply_change() -> None:
     settings = RunnerSettings()
-    apply_change(settings, "provider", "claude")
-    assert settings.provider == "claude"
+    apply_change(settings, "provider", "pi")
+    assert settings.provider == "pi"
 
 
 def test_filter_suggestions() -> None:

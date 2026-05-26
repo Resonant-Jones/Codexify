@@ -300,8 +300,7 @@ Key implementation areas:
 
 - Adapters:
   - `guardian/agents/adapters/base.py`
-  - `guardian/agents/adapters/codex.py`
-  - `guardian/agents/adapters/claudecode.py`
+  - `guardian/agents/adapters/pi_codex_runner.py`
 - Worker:
   - `guardian/workers/agent_worker.py`
 - Store/persistence service:

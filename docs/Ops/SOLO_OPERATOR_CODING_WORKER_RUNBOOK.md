@@ -4,7 +4,7 @@ Purpose: give a solo operator the current truth surface for Guardian-mediated
 coding-worker work without implying autonomous convergence, commit behavior,
 or unbounded retry loops.
 
-Last updated: 2026-05-10
+Last updated: 2026-05-26
 
 Source anchors:
 - `docs/architecture/00-current-state.md`
@@ -138,8 +138,9 @@ Source anchors:
 - It does not mean adapter success is equivalent to repository test success.
 - It does not mean retry policy should read raw terminal output directly once
   this seam is wired into the worker path.
-- MiniMax may run behind the `codex` adapter, but Guardian still owns the loop
-  boundary and stops at the bounded validation attempts.
+- Downstream provider/model identities may still resolve through the Pi broker
+  adapter, but Guardian still owns the loop boundary and stops at the bounded
+  validation attempts.
   boundary and stops after the bounded attempts are exhausted.
 
 ## Follow-Through Rule
@@ -158,8 +159,6 @@ Source anchors:
 - `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
 - `guardian/agents/adapters/__init__.py` - adapter registry
 - `guardian/agents/adapters/pi_codex_runner.py` - PiCodexRunnerAdapter
-- `guardian/agents/adapters/codex.py` - CodexAdapter
-- `guardian/agents/adapters/claudecode.py` - ClaudeCodeAdapter
 - `guardian/workers/coding_worker.py` - CodingWorker
 - `guardian/queue/redis_queue.py` - `enqueue_coding_execution`, `dequeue_coding_execution`
 - `guardian/tasks/types.py` - `CodingExecutionTask`
@@ -203,13 +202,13 @@ default of `pi_codex_runner`.
 
 Supported values:
 
-- `codex` -> `codex`
-- `claudecode` -> `claudecode`
-- `pi_sdk` or `pi_codex_runner` -> `pi_codex_runner`
+- `pi` -> `pi_codex_runner`
+- `pi_codex_runner` -> `pi_codex_runner`
 
 Public coding-execution requests should use one of the explicit supported
-adapter kinds above. `mock` and `external_cli` are not part of the supported
-public route contract.
+adapter kinds above. Direct Codex/Claude adapter kinds are unsupported for
+Campaign Runner and fail closed rather than remapping silently. `mock` and
+`external_cli` are not part of the supported public route contract.
 
 The supported local Compose worker also needs the `codex_runner` tree available
 at `/app/codex_runner` so the Pi runner path stays runnable when selected.
@@ -422,9 +421,10 @@ the previous attempt’s bounded failure evidence.
 `max_validation_attempts` is the bounded retry ceiling. Values clamp to the
 worker policy range, and retries only happen when the mutation scope guard
 remains clean or within the allowed path set.
-This is still not autonomous commit/merge behavior. MiniMax can run behind the
-`codex` adapter, but Guardian owns the retry boundary and future convergence
-work must consume the normalized validation results instead of raw logs.
+This is still not autonomous commit/merge behavior. Downstream provider/model
+identity can be resolved by the Pi broker adapter and recorded in backend
+receipts, but Guardian owns the retry boundary and future convergence work
+must consume the normalized validation results instead of raw logs.
 
 ### Explicit Non-Goals Still In Effect
 
@@ -450,7 +450,7 @@ curl -sS -X POST \
     "attempt_id": "attempt-1",
     "user_id": "local",
     "project_id": null,
-    "adapter_kind": "pi_sdk",
+    "adapter_kind": "pi",
     "instructions": "Create a test file at hello.txt",
     "repo_root": "/workspace/repo",
     "context_summary": null,
@@ -524,7 +524,7 @@ RESP="$(
       "attempt_id": "attempt-1",
       "user_id": "local",
       "project_id": null,
-      "adapter_kind": "pi_sdk",
+      "adapter_kind": "pi",
       "instructions": "echo health-check-ok",
       "repo_root": "/tmp",
       "context_summary": null,
@@ -616,18 +616,18 @@ worker-coding:
 | `GUARDIAN_DB_URL` | For thread injection | None | Alternative DB URL |
 | `CODING_WORKER_POLL_INTERVAL_SECONDS` | No | `0.5` | Poll frequency |
 | `CODEXIFY_SINGLE_USER_ID` | For local dev | `local` | User context |
-| `CODEX_ADAPTER_COMMAND` | For `codex` adapter customization | `codex exec` | Command prefix used by the Codex adapter |
+| `CAMPAIGN_RUNNER_PROVIDER_ADAPTER` | No | `pi` | Declares the preferred Campaign Runner broker adapter posture |
+| `CAMPAIGN_RUNNER_PI_ROUTE` | No | `default` | Selects the Pi broker route when the worker launches Campaign Runner |
+| `CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT` | No | `true` | Requires backend receipts before brokered execution is treated as successful |
 
-## MiniMax / Codex Operational Note
+## Pi Broker Operational Note
 
-MiniMax-backed coding execution should be configured through the Codex CLI
-profile/config outside Guardian. Guardian should receive coding requests with
-`adapter_kind="codex"` so the worker routes execution through the registered
-Codex adapter. In the supported local Compose proof path, `CODEX_ADAPTER_COMMAND`
-points at a locally available tool-capable Ollama tag. Check the worker
-container's `/api/tags` inventory before a live proof if your model set differs,
-and repoint the Codex adapter command to another local tool-capable tag if
-needed.
+Campaign Runner coding execution should be configured through the Pi broker
+adapter for this module. Guardian should receive coding requests with
+`adapter_kind="pi"` so the worker routes execution through the registered Pi
+broker seam. Direct Codex/Claude CLI execution is unsupported here. If Pi
+resolves work onto a downstream provider/model, that identity must be surfaced
+through the stored backend receipt rather than inferred from worker config.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
 current coding worker executes a single adapter attempt, returns the result

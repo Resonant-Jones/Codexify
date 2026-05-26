@@ -67,8 +67,10 @@ _ADAPTER_KIND_ALIASES = {
     "pi": "pi_codex_runner",
     "pi_sdk": "pi_codex_runner",
     "pi_codex_runner": "pi_codex_runner",
-    "codex": "codex",
-    "claudecode": "claudecode",
+}
+_UNSUPPORTED_DIRECT_ADAPTER_KINDS = {
+    "codex",
+    "claudecode",
 }
 
 _VALIDATION_TIMEOUT_CAP_SECONDS = 120
@@ -97,6 +99,15 @@ class LeaseExecutionContext:
     branch_name: str
     worktree_path: str
     lease_required: bool
+
+
+@dataclass(frozen=True)
+class AdapterResolution:
+    requested_kind: str
+    resolved_kind: str
+    supported: bool
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 def _token_value(enum_cls: Any, name: str, fallback: str) -> str:
@@ -386,6 +397,30 @@ def _default_commit_message(task: CodingExecutionTask) -> str:
 def _resolve_adapter_kind(raw_adapter_kind: Any) -> str:
     value = str(raw_adapter_kind or "").strip().lower()
     return _ADAPTER_KIND_ALIASES.get(value, value)
+
+
+def _resolve_adapter_dispatch(raw_adapter_kind: Any) -> AdapterResolution:
+    requested_kind = str(raw_adapter_kind or "").strip().lower()
+    resolved_kind = _resolve_adapter_kind(raw_adapter_kind)
+    if requested_kind in _UNSUPPORTED_DIRECT_ADAPTER_KINDS:
+        provider_name = (
+            "Codex" if requested_kind == "codex" else "Claude / Claude Code"
+        )
+        return AdapterResolution(
+            requested_kind=requested_kind,
+            resolved_kind=requested_kind,
+            supported=False,
+            error_code=_error_value("CODING_ADAPTER_UNSUPPORTED"),
+            error_message=(
+                f"Direct {provider_name} adapter execution is unsupported for "
+                "Campaign Runner. Use the Pi broker adapter."
+            ),
+        )
+    return AdapterResolution(
+        requested_kind=requested_kind or resolved_kind,
+        resolved_kind=resolved_kind,
+        supported=True,
+    )
 
 
 def _normalize_coding_result_status(status: Any) -> str:
@@ -2005,9 +2040,10 @@ class CodingWorker:
 
         deployment = self.store.get_deployment(task.deployment_id) or {}
         deployment_spec = dict(deployment.get("spec_json") or {})
-        adapter_kind = _resolve_adapter_kind(
+        adapter_resolution = _resolve_adapter_dispatch(
             deployment_spec.get("adapter_kind")
         )
+        adapter_kind = adapter_resolution.resolved_kind
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
         allowed_paths = _normalize_allowed_paths(
@@ -2148,6 +2184,27 @@ class CodingWorker:
             worktree=_current_worktree_metadata(),
         )
 
+        if not adapter_resolution.supported:
+            normalized_worktree = (
+                _finalize_isolated_worktree_metadata(
+                    worktree_metadata,
+                    success_like=False,
+                )
+                if bool(worktree_metadata.get("enabled"))
+                else None
+            )
+            self._emit_failure(
+                task,
+                adapter_kind=adapter_resolution.requested_kind,
+                error_message=adapter_resolution.error_message
+                or "unsupported coding adapter",
+                error_code=adapter_resolution.error_code
+                or _error_value("CODING_ADAPTER_UNSUPPORTED"),
+                lease_ctx=lease_ctx,
+                worktree=normalized_worktree,
+            )
+            return
+
         # Get adapter
         adapter = ADAPTERS.get(adapter_kind)
         if not adapter:
@@ -2167,6 +2224,7 @@ class CodingWorker:
                 lease_ctx=lease_ctx,
                 worktree=normalized_worktree,
             )
+            return
 
         validation_attempts: list[dict[str, Any]] = []
         best_validation_result: NormalizedTestResult | None = None

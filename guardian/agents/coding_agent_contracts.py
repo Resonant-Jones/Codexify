@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 CodingAgentAdapterKind = Literal[
-    "pi_sdk",
+    "pi",
+    # Legacy-compatible Pi broker target name. This remains a Pi adapter seam
+    # and must not be interpreted as direct Codex CLI execution.
     "pi_codex_runner",
-    "codex",
-    "claudecode",
 ]
 CodingAgentTaskStatus = Literal[
     "queued",

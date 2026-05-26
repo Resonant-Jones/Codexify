@@ -662,6 +662,10 @@ def test_error_code_tokens() -> None:
         ErrorCode.CODING_ADAPTER_NOT_FOUND.value == "CODING_ADAPTER_NOT_FOUND"
     )
     assert (
+        ErrorCode.CODING_ADAPTER_UNSUPPORTED.value
+        == "CODING_ADAPTER_UNSUPPORTED"
+    )
+    assert (
         ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
         == "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
     )
@@ -751,6 +755,7 @@ def test_error_code_tokens() -> None:
         "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED",
         "VALIDATION_FAILED",
         "CODING_ADAPTER_NOT_FOUND",
+        "CODING_ADAPTER_UNSUPPORTED",
         "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED",
         "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING",
         "DELEGATION_EXECUTOR_UNSUPPORTED",
