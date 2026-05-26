@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 from typing import Any
 
@@ -223,6 +224,19 @@ def _fetch_run(db: _TestDB, run_id: str) -> AgentRun | None:
         return session.query(AgentRun).filter_by(run_id=run_id).first()
 
 
+def _fetch_deployment_spec_json(
+    db: _TestDB, run_id: str
+) -> dict[str, Any] | None:
+    store = _make_store(db)
+    run = store.get_run(run_id)
+    if run is None:
+        return None
+    deployment = store.get_deployment(str(run["deployment_id"]))
+    if deployment is None:
+        return None
+    return dict(deployment.get("spec_json") or {})
+
+
 def _fetch_thread_messages(
     db: _TestDB,
     thread_id: int,
@@ -273,14 +287,18 @@ def test_context_basis_selected_turn_only(
     delegation_client: TestClient,
     auth_headers,
 ) -> None:
+    selected_content = "Refactor the route guard in guardian/agents/store.py."
     seeded = _seed_source_context(
         db,
-        selected_content="Refactor the route guard in guardian/agents/store.py.",
+        selected_content=selected_content,
         prior_messages=[
             ("assistant", "I know your full background and preferences."),
             ("user", "This unrelated prior conversation should stay excluded."),
         ],
     )
+    selected_hash = sha256(
+        selected_content.encode("utf-8")
+    ).hexdigest()
 
     response = delegation_client.post(
         "/api/guardian/delegations",
@@ -298,15 +316,19 @@ def test_context_basis_selected_turn_only(
             "source_type": "selected_turn",
             "source_id": str(seeded["source_message_id"]),
             "included_fields": [
-                "message.content",
                 "message.role",
                 "message.thread_id",
                 "message.id",
+                "message.content_hash",
+                "message.content_length",
             ],
             "reason": "selected authored turn is the explicit task source",
             "confidence": "high",
             "policy_allowed": True,
             "thread_id": seeded["thread_id"],
+            "message_role": "user",
+            "content_hash": selected_hash,
+            "content_length": len(selected_content),
         }
     ]
     serialized_plan = json.dumps(body["plan_summary"], sort_keys=True)
@@ -368,6 +390,130 @@ def test_dispatched_run_id_linked_to_intent(
     fetched = get_response.json()
     assert fetched["run_id"] == created["run_id"]
     assert fetched["run_status"] == "queued"
+
+
+def test_plan_summary_does_not_persist_raw_selected_turn(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    selected_content = (
+        "Please patch guardian/routes/guardian_delegations.py to keep the "
+        "validation response deterministic."
+    )
+    seeded = _seed_source_context(db, selected_content=selected_content)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    serialized_plan = json.dumps(body["plan_summary"], sort_keys=True)
+    assert selected_content not in serialized_plan
+    assert body["plan_summary"]["standardized_task_prompt"].find(
+        "selected_turn_content_hash:"
+    ) != -1
+    assert body["plan_summary"]["standardized_task_prompt"].find(
+        "selected_turn_content_length:"
+    ) != -1
+    spec_json = _fetch_deployment_spec_json(db, str(body["run_id"]))
+    assert spec_json is not None
+    serialized_spec = json.dumps(spec_json, sort_keys=True)
+    assert selected_content not in serialized_spec
+
+
+@pytest.mark.parametrize(
+    "selected_content",
+    [
+        "I am going through a divorce and need you to patch guardian/routes.py.",
+        "My boss is frustrating me, please fix guardian/agents/store.py.",
+        "My client is frustrating me, please fix guardian/core/delegation_service.py.",
+        "My relationship is falling apart, and I need you to update guardian/db/models.py.",
+    ],
+)
+def test_selected_turn_personal_context_fails_closed_or_is_excluded(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+    selected_content: str,
+) -> None:
+    seeded = _seed_source_context(db, selected_content=selected_content)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "selected_turn_requires_clarification"
+    with db.get_session() as session:
+        assert session.query(GuardianDelegationIntent).count() == 0
+        assert session.query(AgentDeployment).count() == 0
+        assert session.query(AgentRun).count() == 0
+
+
+def test_context_basis_does_not_store_raw_selected_turn_content(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    selected_content = "Refactor guardian/core/guardian_delegation_service.py."
+    seeded = _seed_source_context(db, selected_content=selected_content)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    serialized_basis = json.dumps(body["context_basis"], sort_keys=True)
+    assert selected_content not in serialized_basis
+    assert {entry["source_type"] for entry in body["context_basis"]} == {
+        "selected_turn"
+    }
+    assert "message.content" not in body["context_basis"][0]["included_fields"]
+
+
+def test_agent_run_metadata_does_not_receive_excluded_personal_context(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    selected_content = (
+        "I am going through a divorce and need you to patch "
+        "guardian/core/guardian_delegation_service.py."
+    )
+    seeded = _seed_source_context(db, selected_content=selected_content)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "selected_turn_requires_clarification"
+    with db.get_session() as session:
+        assert session.query(AgentDeployment).count() == 0
+        assert session.query(AgentRun).count() == 0
 
 
 def test_run_status_projection_all_known_agent_run_statuses() -> None:
