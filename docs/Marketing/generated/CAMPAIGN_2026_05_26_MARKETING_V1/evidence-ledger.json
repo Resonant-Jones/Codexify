@@ -1,0 +1,778 @@
+{
+  "approval_state": "draft",
+  "audience": "local-first-builders",
+  "campaign_id": "CAMPAIGN_2026_05_26_MARKETING_V1",
+  "claim_summary": {
+    "internal_evidence": 0,
+    "marketable_claim": 17,
+    "metadata_reference": 1,
+    "risk_or_blocker": 6,
+    "task_instruction": 0,
+    "total": 24
+  },
+  "claims": [
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "**Depends on**: ADR-020 (Guardian Mediated Coding Agent Execution Contract)",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1. Define the coding-task envelope schema",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "3. Wire into existing Guardian queue infrastructure",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "ADR-020 defines Guardian as identity/persistence owner",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Codex Runner provides campaign/audit infrastructure",
+      "copy_ready": true,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "public_copy_seed",
+      "proof_tier": "verified",
+      "risk_flags": [],
+      "status": "verified"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "docs/architecture/ - ADR for integration contract",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Existing queue: Redis-backed with task events via SSE",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "guardian/queue/ - Task definitions for delegation",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Implement the Guardian \u2192 Pi \u2192 Codex Runner delegation pipeline per ADR-020:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Integrating Pi SDK as Codexify's native coding agent per ADR-020 and the solo operator's vision for a three-layer system: Guardian (orchestration), Pi (execution), Codex Runner (campaign tool).",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1. **Queue**: codexify:queue:coding-execution",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1dae1662d TASK-2026-05-01-003: Connect delegation to queue/worker system",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "207c850ab TASK-2026-05-01-001_pi_adapter.md: Pi adapter skeleton (task file)",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "7fdb0c63d TASK-2026-05-01-002: Wire adapter into agent orchestration routes",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "9a280aead TASK-2026-05-01-004: Implement result ingestion and thread injection",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Additional runtime drift was observed on docker-compose.runtime.yml exact run --rm checks: migrator failed with missing revision 9d4e1c7b2a6f, which blocked direct execution of the exact packaging probe commands.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk",
+        "failed_proof_risk",
+        "missing_runtime_artifact_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Current outcome remains **not release-ready**:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Full 9-target live rerun was executed (artifact section appended in docs/architecture/2026-05-05-coding-result-return-path-live-proof.md).",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Idempotency remains blocked because no source-thread result was delivered.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "No. The live run failed before a returned coding_result reached the source thread, so the coding-result return path is not release-ready.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "failed_proof_risk",
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Overall result: Release-ready for this path: no",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Per ADR-020 contract:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "metadata_reference",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Proof artifact: docs/architecture/2026-05-05-coding-result-return-path-live-proof.md",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "metadata_reference",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Re-run the live Compose proof after that blocker is fixed.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk"
+      ],
+      "status": "implemented"
+    }
+  ],
+  "generated_at": "2026-05-26T09:02:05.222962+00:00",
+  "marketable_claims": [
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1. Define the coding-task envelope schema",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "3. Wire into existing Guardian queue infrastructure",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Codex Runner provides campaign/audit infrastructure",
+      "copy_ready": true,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "public_copy_seed",
+      "proof_tier": "verified",
+      "risk_flags": [],
+      "status": "verified"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "docs/architecture/ - ADR for integration contract",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Existing queue: Redis-backed with task events via SSE",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "guardian/queue/ - Task definitions for delegation",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1. **Queue**: codexify:queue:coding-execution",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "1dae1662d TASK-2026-05-01-003: Connect delegation to queue/worker system",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "207c850ab TASK-2026-05-01-001_pi_adapter.md: Pi adapter skeleton (task file)",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "7fdb0c63d TASK-2026-05-01-002: Wire adapter into agent orchestration routes",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "9a280aead TASK-2026-05-01-004: Implement result ingestion and thread injection",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": true,
+      "claim": "Full 9-target live rerun was executed (artifact section appended in docs/architecture/2026-05-05-coding-result-return-path-live-proof.md).",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "supporting_evidence",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    }
+  ],
+  "mode": "draft",
+  "non_marketable_claims": [
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "**Depends on**: ADR-020 (Guardian Mediated Coding Agent Execution Contract)",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "ADR-020 defines Guardian as identity/persistence owner",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Implement the Guardian \u2192 Pi \u2192 Codex Runner delegation pipeline per ADR-020:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Integrating Pi SDK as Codexify's native coding agent per ADR-020 and the solo operator's vision for a three-layer system: Guardian (orchestration), Pi (execution), Codex Runner (campaign tool).",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Additional runtime drift was observed on docker-compose.runtime.yml exact run --rm checks: migrator failed with missing revision 9d4e1c7b2a6f, which blocked direct execution of the exact packaging probe commands.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk",
+        "failed_proof_risk",
+        "missing_runtime_artifact_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Current outcome remains **not release-ready**:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Idempotency remains blocked because no source-thread result was delivered.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "No. The live run failed before a returned coding_result reached the source thread, so the coding-result return path is not release-ready.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "failed_proof_risk",
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Overall result: Release-ready for this path: no",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "unsupported_readiness_risk"
+      ],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "marketable_claim",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Per ADR-020 contract:",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "internal_anchor",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "metadata_reference",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Proof artifact: docs/architecture/2026-05-05-coding-result-return-path-live-proof.md",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "metadata_reference",
+      "proof_tier": "implemented",
+      "risk_flags": [],
+      "status": "implemented"
+    },
+    {
+      "approval_state": "draft",
+      "candidate_class": "risk_or_blocker",
+      "channel": "core",
+      "channel_eligible": false,
+      "claim": "Re-run the live Compose proof after that blocker is fixed.",
+      "copy_ready": false,
+      "evidence_paths": [
+        "docs/Campaign/CAMPAIGN_2026-05-01_001_PI_CODER_INTEGRATION_EXECUTION_LOG.md"
+      ],
+      "presentation_role": "risk_note",
+      "proof_tier": "implemented",
+      "risk_flags": [
+        "blocked_run_risk"
+      ],
+      "status": "implemented"
+    }
+  ],
+  "risk_flags": [
+    "blocked_run_risk",
+    "failed_proof_risk",
+    "missing_runtime_artifact_risk",
+    "unsupported_readiness_risk"
+  ],
+  "schema_version": "marketing_evidence_ledger.v2"
+}
