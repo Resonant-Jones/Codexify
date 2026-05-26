@@ -65,6 +65,12 @@ This ADR defines the contract only. It does not introduce live Pi SDK calls,
 runtime dispatch, autonomous execution, route behavior, or persistence schema
 changes.
 
+The Phase 1 [Guardian Delegation Loop Contract](../guardian-delegation-loop-contract.md)
+is a narrower docs-only follow-through for the future hybrid bridge from
+Guardian-owned chat intake through durable intent, the existing AgentRun
+backbone, source-thread continuation, and Command Center transcript mirroring.
+It does not add runtime behavior or widen this ADR into a release claim.
+
 ## Request Path
 
 User -> Guardian intake -> Guardian coding task envelope -> coding-agent adapter

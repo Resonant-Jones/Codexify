@@ -67,6 +67,10 @@ request into a single canonical intent envelope before anything dispatches.
 This ADR does not claim every listed surface is already wired in the live
 runtime; it defines the contract those surfaces should share.
 
+The narrower [Guardian Delegation Loop Contract](../guardian-delegation-loop-contract.md)
+applies only to Guardian-to-coding-agent delegation. It intentionally defers
+the broader cross-surface intent-spine unification defined here.
+
 First-class ingress surfaces include:
 
 - chat
