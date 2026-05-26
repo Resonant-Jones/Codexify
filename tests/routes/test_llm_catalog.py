@@ -44,6 +44,16 @@ def _mock_local_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
     return _MockResponse({"data": []}, status_code=404)
 
 
+def _mock_whooshd_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
+    if url == "http://host.docker.internal:8000/api/tags":
+        return _MockResponse({"data": []}, status_code=404)
+    if url == "http://host.docker.internal:8000/v1/models":
+        return _MockResponse(
+            {"data": [{"id": "mlx-community/Llama-3.2-3B-Instruct-4bit"}]}
+        )
+    return _MockResponse({"data": []}, status_code=404)
+
+
 def _mock_alibaba_model_index(url: str, *args, **kwargs) -> _MockResponse:
     assert url == "https://dashscope-us.aliyuncs.com/compatible-mode/v1/models"
     return _MockResponse({"data": [{"id": "qwen-plus"}]})
@@ -367,6 +377,69 @@ def test_llm_catalog_non_strict_mode_keeps_runnable_local_available(
         assert local["truth"]["selectable"] is True
         assert local["models"][0]["id"] == "llama3.2:3b"
         assert "disabled_reason" not in local
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_whooshd_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "CODEXIFY_LOCAL_ENDPOINT_CHAIN": settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_PROVIDER_DISPLAY_NAME": settings.LOCAL_PROVIDER_DISPLAY_NAME,
+        "LOCAL_PROVIDER_VENDOR": settings.LOCAL_PROVIDER_VENDOR,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+        settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN = (
+            "http://host.docker.internal:8000/v1"
+        )
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_PROVIDER_DISPLAY_NAME = "Whoosh'd"
+        settings.LOCAL_PROVIDER_VENDOR = "whooshd"
+        settings.LOCAL_LLM_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        settings.LOCAL_CHAT_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        settings.DEFAULT_LOCAL_MODEL = (
+            "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        )
+        settings.LLM_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        assert local["id"] == "local"
+        assert local["displayName"] == "Whoosh'd"
+        assert local["label"] == "Whoosh'd"
+        assert local["default_model"] == (
+            "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        )
+        assert local["source"]["baseUrl"] == (
+            "http://host.docker.internal:8000/v1"
+        )
+        assert local["source"]["vendor"] == "whooshd"
+        assert local["models"][0]["id"] == (
+            "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        )
+        assert local["endpoint_resolution"]["state"] == "available"
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)
