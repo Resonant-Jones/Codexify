@@ -1,4 +1,4 @@
-"""Guardian Delegation Loop v1 Phase 2A service helpers."""
+"""Guardian Delegation Loop v1 Phase 2 service helpers."""
 
 from __future__ import annotations
 
@@ -13,7 +13,10 @@ from guardian.agents.store import AgentStore
 from guardian.db.models import (
     ChatMessage,
     ChatThread,
+    GeneratedDocument,
     GuardianDelegationIntent,
+    ProjectDocumentLink,
+    UploadedDocument,
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
@@ -62,6 +65,45 @@ _EXCLUDED_PERSONAL_CONTEXT_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.IGNORECASE,
     ),
 )
+
+_EXCLUDED_KB_CONTEXT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    *_EXCLUDED_PERSONAL_CONTEXT_PATTERNS,
+    re.compile(r"\b(?:chat|conversation)\s+history\b", re.IGNORECASE),
+    re.compile(r"\b(?:prior|previous|unrelated)\s+conversation\b", re.IGNORECASE),
+    re.compile(r"\b(?:diary|journal|personal note|private note)\b", re.IGNORECASE),
+    re.compile(r"(?m)^\s*(?:user|assistant)\s*:", re.IGNORECASE),
+)
+
+_PROJECT_KB_STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "as",
+        "by",
+        "for",
+        "from",
+        "help",
+        "in",
+        "into",
+        "keep",
+        "me",
+        "need",
+        "of",
+        "on",
+        "or",
+        "please",
+        "the",
+        "this",
+        "to",
+        "update",
+        "with",
+    }
+)
+
+_MAX_PROJECT_KB_DOCS = 3
+_MAX_PROJECT_KB_LINK_SCAN = 12
+_MAX_SAFE_KB_EXCERPT_CHARS = 240
 
 
 class GuardianDelegationError(Exception):
@@ -139,26 +181,36 @@ class GuardianDelegationService:
                     "source_message_must_be_user_authored"
                 )
 
+            selected_turn_text = str(source_message.content or "").strip()
+            thread_owner_id = str(thread.user_id)
             selected_turn_reference = self._build_selected_turn_reference(
                 thread_id=thread.id,
                 source_message_id=source_message.id,
                 selected_turn_role=source_message.role,
-                selected_turn_content=source_message.content,
+                selected_turn_content=selected_turn_text,
             )
             resolved_project_id = self._resolve_project_id(
                 requested_project_id=project_id,
                 thread_project_id=thread.project_id,
             )
-            plan_summary = self._build_phase2a_plan(
+            project_kb_context = self._collect_project_kb_context(
+                session=session,
+                project_id=resolved_project_id,
+                user_id=thread_owner_id,
+                selected_turn_text=selected_turn_text,
+            )
+            plan_summary = self._build_phase2b_plan(
                 thread_id=thread.id,
                 source_message_id=source_message.id,
                 project_id=resolved_project_id,
                 selected_turn_reference=selected_turn_reference,
+                project_kb_context=project_kb_context,
             )
             context_basis = self._build_context_basis(
                 thread_id=thread.id,
                 source_message_id=source_message.id,
                 selected_turn_reference=selected_turn_reference,
+                project_kb_context=project_kb_context,
             )
             intent_id = _new_external_id("gdi")
             row = GuardianDelegationIntent(
@@ -177,9 +229,6 @@ class GuardianDelegationService:
             )
             session.add(row)
             session.commit()
-
-            # Detach the values we need before the store opens its own sessions.
-            thread_owner_id = str(thread.user_id)
 
         try:
             run = self._create_agent_run_link(
@@ -285,7 +334,7 @@ class GuardianDelegationService:
             "guardian_delegation": {
                 "ownership": "guardian_delegation_intent",
                 "intent_id": intent_id,
-                "phase": "phase2a",
+                "phase": "phase2b",
                 "suppress_source_thread_delivery": True,
             },
             "source_thread_id": thread_id,
@@ -305,9 +354,10 @@ class GuardianDelegationService:
             spec_hash=_stable_hash(deployment_spec),
             trust_state="supervised",
         )
-        # Phase 2A intentionally stops at durable AgentRun creation. Full queue
-        # dispatch remains deferred until the hybrid loop can prove execution
-        # without relying on source-thread result delivery.
+        # Guardian Delegation Loop v1 Phase 2B still uses a direct Guardian-owned
+        # route to prove delegation semantics with local Project KB context only.
+        # Intent-spine unification and source-thread result delivery remain
+        # deferred until the hybrid loop is proven under the contract.
         return self.agent_store.create_run(
             deployment_id=str(deployment["deployment_id"]),
             thread_id=thread_id,
@@ -316,49 +366,82 @@ class GuardianDelegationService:
             status="queued",
         )
 
-    def _build_phase2a_plan(
+    def _build_phase2b_plan(
         self,
         *,
         thread_id: int,
         source_message_id: int,
         project_id: int | None,
         selected_turn_reference: dict[str, Any],
+        project_kb_context: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        standardized_task_prompt = "\n".join(
+        standardized_task_prompt_lines = [
+            "Guardian Delegation Loop v1 Phase 2B task.",
+            f"thread_id: {thread_id}",
+            f"source_message_id: {source_message_id}",
+            f"project_id: {project_id if project_id is not None else 'none'}",
+            "Use only the selected source message as explicit task input by reference.",
+            "Use only policy-allowed local Project KB references included in plan_summary.kb_context when present.",
+            "Do not use broad chat history, personal facts, identity-derived facts, or unrelated conversation context.",
+            "Do not use GitHub, web, or external connector context in this phase.",
+            "Resolve the work request from the selected source turn by lineage reference only.",
+            "Do not persist or restate raw selected-turn text in downstream artifacts.",
+            f"selected_turn_role: {selected_turn_reference['role']}",
+            (
+                "selected_turn_content_hash: "
+                f"{selected_turn_reference['content_hash']}"
+            ),
+            (
+                "selected_turn_content_length: "
+                f"{selected_turn_reference['content_length']}"
+            ),
+        ]
+        if project_kb_context:
+            standardized_task_prompt_lines.append(
+                f"project_kb_context_count: {len(project_kb_context)}"
+            )
+            for entry in project_kb_context:
+                standardized_task_prompt_lines.append(
+                    "project_kb_reference: "
+                    f"source_type={entry['source_type']} "
+                    f"source_id={entry['source_id']} "
+                    f"title={entry['title']}"
+                )
+        else:
+            standardized_task_prompt_lines.append(
+                "project_kb_context_count: 0"
+            )
+        standardized_task_prompt_lines.extend(
             [
-                "Guardian Delegation Loop v1 Phase 2A task.",
-                f"thread_id: {thread_id}",
-                f"source_message_id: {source_message_id}",
-                f"project_id: {project_id if project_id is not None else 'none'}",
-                "Use only the selected source message as explicit task input by reference.",
-                "Do not use broad chat history, personal facts, identity-derived facts, or unrelated conversation context.",
-                "Resolve the work request from the selected source turn by lineage reference only.",
-                "Do not persist or restate raw selected-turn text in downstream artifacts.",
-                f"selected_turn_role: {selected_turn_reference['role']}",
-                (
-                    "selected_turn_content_hash: "
-                    f"{selected_turn_reference['content_hash']}"
-                ),
-                (
-                    "selected_turn_content_length: "
-                    f"{selected_turn_reference['content_length']}"
-                ),
-                "If a safe work-only task cannot be reconstructed from this reference, request clarification instead of dispatching.",
-                "Phase 2A constraints:",
-                "- selected_turn-only context_basis",
+                "If a safe work-only task cannot be reconstructed from these references, request clarification instead of dispatching.",
+                "Phase 2B constraints:",
+                "- selected turn lineage by reference only",
+                "- local Project KB context only when policy-allowed",
+                "- no GitHub context",
                 "- no source-thread result delivery",
-                "- no Project KB or GitHub context expansion",
                 "- no intent-spine unification",
             ]
         )
+        standardized_task_prompt = "\n".join(standardized_task_prompt_lines)
+        kb_context = [
+            self._serialize_plan_kb_entry(entry) for entry in project_kb_context
+        ]
+        dependencies = [
+            "selected source message reference",
+            "existing AgentRun storage",
+        ]
+        if kb_context:
+            dependencies.append("policy-allowed local project KB references")
         return {
             "standardized_task_prompt": standardized_task_prompt,
             "purpose": (
                 "Normalize the selected user turn by lineage reference into a "
-                "work-scoped coding-agent task summary."
+                "work-scoped coding-agent task summary with local Project KB "
+                "references when policy-allowed."
             ),
             "in_scope": [
                 "selected source message lineage reference",
+                "policy-filtered local project KB references",
                 "existing AgentRun backbone linkage",
                 "scoped auto-approval",
             ],
@@ -366,24 +449,24 @@ class GuardianDelegationService:
                 "thread result reinjection",
                 "Command Center transcript UI",
                 "human approval endpoints",
-                "Project KB or GitHub context expansion",
+                "GitHub context expansion",
+                "broad chat history",
                 "intent-spine unification",
             ],
             "acceptance_criteria": [
                 "persist GuardianDelegationIntent with source lineage",
-                "record selected_turn-only context_basis",
+                "record selected_turn context_basis",
+                "record policy-allowed Project KB context when available",
                 "link a durable AgentRun run_id",
             ],
             "blast_radius": (
                 "Guardian-owned delegation persistence and AgentRun linkage "
                 "only."
             ),
-            "dependencies": [
-                "selected source message reference",
-                "existing AgentRun storage",
-            ],
+            "dependencies": dependencies,
             "unknowns": [
-                "live queue dispatch remains deferred in Phase 2A",
+                "live queue dispatch remains deferred in Phase 2B",
+                "GitHub context and broader retrieval widening remain deferred",
             ],
             "risk_class": "medium",
             "approval_requirements": [
@@ -391,6 +474,7 @@ class GuardianDelegationService:
                 "approval_source=auto",
                 "work-scoped context only",
             ],
+            "kb_context": kb_context,
         }
 
     def _build_context_basis(
@@ -399,11 +483,9 @@ class GuardianDelegationService:
         thread_id: int,
         source_message_id: int,
         selected_turn_reference: dict[str, Any],
+        project_kb_context: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        # Phase 2A intentionally records selected-turn-only context. Project
-        # KB, repository expansion, linked artifacts, and work-scoped
-        # preferences are deferred to Phase 2B under the contract.
-        return [
+        context_basis = [
             {
                 "source_type": (
                     GuardianDelegationContextSourceType.SELECTED_TURN.value
@@ -425,6 +507,318 @@ class GuardianDelegationService:
                 "content_length": selected_turn_reference["content_length"],
             }
         ]
+        for entry in project_kb_context:
+            context_basis.append(self._serialize_context_basis_kb_entry(entry))
+        return context_basis
+
+    def _collect_project_kb_context(
+        self,
+        *,
+        session: Any,
+        project_id: int | None,
+        user_id: str,
+        selected_turn_text: str,
+    ) -> list[dict[str, Any]]:
+        if project_id is None:
+            return []
+
+        search_terms = self._extract_relevance_terms(selected_turn_text)
+        if not search_terms:
+            return []
+
+        links = (
+            session.query(ProjectDocumentLink)
+            .filter(ProjectDocumentLink.project_id == project_id)
+            .filter(ProjectDocumentLink.is_enabled.is_(True))
+            .order_by(ProjectDocumentLink.attached_at.desc())
+            .limit(_MAX_PROJECT_KB_LINK_SCAN)
+            .all()
+        )
+
+        candidates: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for attached_rank, link in enumerate(links, start=1):
+            doc_type = self._normalize_project_doc_type(
+                getattr(link, "document_type", None)
+            )
+            doc_id = str(getattr(link, "document_id", "") or "").strip()
+            if not doc_type or not doc_id:
+                continue
+            dedupe_key = (doc_type, doc_id)
+            if dedupe_key in seen:
+                continue
+            candidate = self._build_project_kb_candidate(
+                session=session,
+                project_id=project_id,
+                user_id=user_id,
+                doc_id=doc_id,
+                doc_type=doc_type,
+                search_terms=search_terms,
+                attached_rank=attached_rank,
+            )
+            if candidate is None:
+                continue
+            seen.add(dedupe_key)
+            candidates.append(candidate)
+
+        candidates.sort(
+            key=lambda entry: (
+                -int(entry["score"]),
+                int(entry["attached_rank"]),
+                str(entry["source_id"]),
+            )
+        )
+
+        selected: list[dict[str, Any]] = []
+        for rank, candidate in enumerate(candidates[:_MAX_PROJECT_KB_DOCS], start=1):
+            selected.append(
+                {
+                    **candidate,
+                    "rank": rank,
+                }
+            )
+        return selected
+
+    def _build_project_kb_candidate(
+        self,
+        *,
+        session: Any,
+        project_id: int,
+        user_id: str,
+        doc_id: str,
+        doc_type: str,
+        search_terms: list[str],
+        attached_rank: int,
+    ) -> dict[str, Any] | None:
+        row = self._load_project_document_row(
+            session=session,
+            project_id=project_id,
+            user_id=user_id,
+            doc_id=doc_id,
+            doc_type=doc_type,
+        )
+        if row is None:
+            return None
+
+        title = str(row.get("title") or "").strip()
+        filename = str(row.get("filename") or "").strip()
+        raw_content = str(row.get("raw_content") or "").strip()
+        filter_text = "\n".join(part for part in [title, filename, raw_content] if part)
+        if self._contains_excluded_kb_context(filter_text):
+            return None
+
+        safe_excerpt = self._build_safe_kb_excerpt(raw_content)
+        source_type = self._classify_project_kb_source_type(
+            title=title,
+            filename=filename,
+        )
+        score = self._score_project_kb_candidate(
+            search_terms=search_terms,
+            title=title,
+            filename=filename,
+            raw_content=raw_content,
+            source_type=source_type,
+        )
+        if score <= 0:
+            return None
+
+        safe_excerpt_hash = _hash_text(safe_excerpt) if safe_excerpt else None
+        content_hash_source = raw_content or title or filename
+        return {
+            "source_type": source_type,
+            "source_id": f"{doc_type}:{doc_id}",
+            "title": title or filename or doc_id,
+            "filename": filename or None,
+            "project_id": project_id,
+            "thread_id": row.get("thread_id"),
+            "content_hash": _hash_text(content_hash_source),
+            "excerpt_hash": safe_excerpt_hash,
+            "excerpt_length": len(safe_excerpt),
+            "excerpt": safe_excerpt or None,
+            "selection_reason": (
+                "project-linked local KB document matched the selected work "
+                "request via deterministic keyword overlap"
+            ),
+            "reason": (
+                "project-linked local KB document is within active project "
+                "scope and passed the Phase 2B policy filter"
+            ),
+            "confidence": "high",
+            "policy_allowed": True,
+            "included_fields": [
+                "document.title",
+                "document.filename",
+                "document.project_id",
+                "document.content_hash",
+                "document.safe_excerpt_hash",
+                "document.safe_excerpt_length",
+            ],
+            "score": score,
+            "attached_rank": attached_rank,
+        }
+
+    def _load_project_document_row(
+        self,
+        *,
+        session: Any,
+        project_id: int,
+        user_id: str,
+        doc_id: str,
+        doc_type: str,
+    ) -> dict[str, Any] | None:
+        if doc_type == "generated":
+            row = (
+                session.query(GeneratedDocument)
+                .filter(GeneratedDocument.id == doc_id)
+                .filter(GeneratedDocument.project_id == project_id)
+                .filter(GeneratedDocument.deleted_at.is_(None))
+                .first()
+            )
+            if row is None:
+                return None
+            row_user_id = getattr(row, "user_id", None)
+            if row_user_id is not None and str(row_user_id) != user_id:
+                return None
+            title = str(getattr(row, "title", "") or "")
+            return {
+                "title": title,
+                "filename": title,
+                "raw_content": str(getattr(row, "content", "") or ""),
+                "thread_id": getattr(row, "thread_id", None),
+            }
+
+        row = (
+            session.query(UploadedDocument)
+            .filter(UploadedDocument.id == doc_id)
+            .filter(UploadedDocument.project_id == project_id)
+            .filter(UploadedDocument.deleted_at.is_(None))
+            .first()
+        )
+        if row is None:
+            return None
+        if str(getattr(row, "user_id", "") or "") != user_id:
+            return None
+        return {
+            "title": str(getattr(row, "filename", "") or ""),
+            "filename": str(getattr(row, "filename", "") or ""),
+            "raw_content": str(getattr(row, "parsed_text", "") or ""),
+            "thread_id": getattr(row, "thread_id", None),
+        }
+
+    def _normalize_project_doc_type(self, value: Any) -> str | None:
+        normalized = str(value or "").strip().lower()
+        if normalized.startswith("gen"):
+            return "generated"
+        if normalized.startswith("up"):
+            return "uploaded"
+        return None
+
+    def _classify_project_kb_source_type(
+        self,
+        *,
+        title: str,
+        filename: str,
+    ) -> str:
+        label = f"{title} {filename}".strip().lower()
+        if re.search(r"\badr(?:[-_\s]?\d+)?\b", label):
+            return GuardianDelegationContextSourceType.ADR.value
+        if "architecture" in label:
+            return GuardianDelegationContextSourceType.ARCHITECTURE_DOC.value
+        if "protocol" in label:
+            return GuardianDelegationContextSourceType.PROTOCOL_DOC.value
+        if "task" in label:
+            return GuardianDelegationContextSourceType.TASK_FILE.value
+        if "linked" in label:
+            return GuardianDelegationContextSourceType.LINKED_DOCUMENT.value
+        return GuardianDelegationContextSourceType.PROJECT_KB.value
+
+    def _score_project_kb_candidate(
+        self,
+        *,
+        search_terms: list[str],
+        title: str,
+        filename: str,
+        raw_content: str,
+        source_type: str,
+    ) -> int:
+        title_text = f"{title} {filename}".strip().lower()
+        content_text = raw_content.lower()
+        score = 0
+        for term in search_terms:
+            if term in title_text:
+                score += 3
+                continue
+            if re.search(rf"\b{re.escape(term)}\b", content_text):
+                score += 1
+        if score > 0 and source_type != GuardianDelegationContextSourceType.PROJECT_KB.value:
+            score += 1
+        return score
+
+    def _extract_relevance_terms(self, text: str) -> list[str]:
+        terms: list[str] = []
+        seen: set[str] = set()
+        normalized = str(text or "").lower().replace("/", " ").replace(".", " ")
+        for token in re.findall(r"[a-z][a-z0-9_]{2,}", normalized):
+            if token in _PROJECT_KB_STOP_WORDS:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            terms.append(token)
+            if len(terms) >= 8:
+                break
+        return terms
+
+    def _contains_excluded_kb_context(self, text: str) -> bool:
+        normalized = str(text or "").strip()
+        return any(
+            pattern.search(normalized)
+            for pattern in _EXCLUDED_KB_CONTEXT_PATTERNS
+        )
+
+    def _build_safe_kb_excerpt(self, raw_content: str) -> str:
+        normalized = " ".join(str(raw_content or "").split())
+        if not normalized:
+            return ""
+        if len(normalized) <= _MAX_SAFE_KB_EXCERPT_CHARS:
+            return normalized
+        return normalized[:_MAX_SAFE_KB_EXCERPT_CHARS].rstrip() + "..."
+
+    def _serialize_plan_kb_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "source_type": entry["source_type"],
+            "source_id": entry["source_id"],
+            "title": entry["title"],
+            "filename": entry.get("filename"),
+            "project_id": entry.get("project_id"),
+            "content_hash": entry["content_hash"],
+            "excerpt_hash": entry.get("excerpt_hash"),
+            "excerpt_length": entry.get("excerpt_length", 0),
+            "excerpt": entry.get("excerpt"),
+            "rank": entry["rank"],
+            "selection_reason": entry["selection_reason"],
+        }
+
+    def _serialize_context_basis_kb_entry(
+        self, entry: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "source_type": entry["source_type"],
+            "source_id": entry["source_id"],
+            "included_fields": list(entry["included_fields"]),
+            "reason": entry["reason"],
+            "confidence": entry["confidence"],
+            "policy_allowed": bool(entry["policy_allowed"]),
+            "title": entry["title"],
+            "filename": entry.get("filename"),
+            "project_id": entry.get("project_id"),
+            "thread_id": entry.get("thread_id"),
+            "content_hash": entry["content_hash"],
+            "excerpt_hash": entry.get("excerpt_hash"),
+            "excerpt_length": entry.get("excerpt_length", 0),
+            "rank": entry["rank"],
+            "selection_reason": entry["selection_reason"],
+        }
 
     def _build_selected_turn_reference(
         self,
@@ -440,8 +834,8 @@ class GuardianDelegationService:
                 "selected_turn_requires_clarification"
             )
 
-        # Phase 2A does not try to extract a clean coding task from mixed
-        # personal/work turns deterministically. Require a work-only restatement.
+        # Phase 2 keeps selected-turn privacy hardening fail-closed for mixed
+        # personal/work turns. Require a work-only restatement instead.
         if self._contains_obvious_excluded_personal_context(selected_turn_text):
             raise GuardianDelegationValidationError(
                 "selected_turn_requires_clarification"

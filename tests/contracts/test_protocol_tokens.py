@@ -164,7 +164,32 @@ def test_guardian_delegation_protocol_tokens() -> None:
         GuardianDelegationContextSourceType.SELECTED_TURN.value
         == "selected_turn"
     )
-    assert GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES == {"selected_turn"}
+    assert (
+        GuardianDelegationContextSourceType.PROJECT_KB.value == "project_kb"
+    )
+    assert (
+        GuardianDelegationContextSourceType.ARCHITECTURE_DOC.value
+        == "architecture_doc"
+    )
+    assert GuardianDelegationContextSourceType.ADR.value == "adr"
+    assert GuardianDelegationContextSourceType.TASK_FILE.value == "task_file"
+    assert (
+        GuardianDelegationContextSourceType.PROTOCOL_DOC.value
+        == "protocol_doc"
+    )
+    assert (
+        GuardianDelegationContextSourceType.LINKED_DOCUMENT.value
+        == "linked_document"
+    )
+    assert GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES == {
+        "selected_turn",
+        "project_kb",
+        "architecture_doc",
+        "adr",
+        "task_file",
+        "protocol_doc",
+        "linked_document",
+    }
 
 
 def test_context_request_status_tokens() -> None:
