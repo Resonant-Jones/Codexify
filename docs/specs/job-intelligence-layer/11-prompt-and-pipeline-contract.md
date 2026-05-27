@@ -213,6 +213,15 @@ It does not call a model and does not define canonical schema or runtime behavio
 
 ## Output Validation Expectations
 
+The deterministic extraction-output validator now exists at
+`scripts/job_intelligence/validate_extraction_output.py`.
+It validates extraction-shaped JSON artifacts for shape and safety invariants
+and can be used against docs-local expected extraction artifacts or future
+manual prompt-output artifacts.
+
+The validator does not execute prompts, call a model, define a canonical schema,
+prove extraction quality, or prove production readiness.
+
 At planning level, future output validation should check:
 
 - required planning fields are present
@@ -225,7 +234,6 @@ At planning level, future output validation should check:
 - no subjective customer labels are generated
 - review is required before confirmation
 
-No validator is implemented by this document.
 No canonical schema is created by this document.
 
 ## Failure and Degraded Output Handling
