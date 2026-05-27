@@ -53,6 +53,12 @@ class GuardianDelegationRunStatus(str, Enum):
 
 class GuardianDelegationContextSourceType(str, Enum):
     SELECTED_TURN = "selected_turn"
+    PROJECT_KB = "project_kb"
+    ARCHITECTURE_DOC = "architecture_doc"
+    ADR = "adr"
+    TASK_FILE = "task_file"
+    PROTOCOL_DOC = "protocol_doc"
+    LINKED_DOCUMENT = "linked_document"
 
 
 class ContextRequestStatus(str, Enum):
