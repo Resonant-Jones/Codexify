@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import JSON, Integer, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -588,3 +589,206 @@ def test_get_guardian_delegation_includes_visibility_status(
     assert body["result_message_id"] == delivery["message_id"]
     assert body["result_delivered_at"] is not None
 
+
+def test_duplicate_delivery_key_recovers_without_duplicate_message(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_guardian_intent(delegation_client, auth_headers, seeded)
+    store = _make_store(db)
+    original_commit = store._commit_guardian_delegation_delivery
+    collision_raised = {"value": False}
+
+    def commit_with_duplicate_collision(session: Any) -> None:
+        original_commit(session)
+        if not collision_raised["value"]:
+            collision_raised["value"] = True
+            raise IntegrityError(
+                "UPDATE guardian_delegation_intents",
+                {},
+                Exception(
+                    "duplicate key value violates unique constraint "
+                    "'ix_guardian_delegation_intents_result_delivery_key'"
+                ),
+            )
+
+    monkeypatch.setattr(
+        store,
+        "_commit_guardian_delegation_delivery",
+        commit_with_duplicate_collision,
+    )
+
+    delivery = store.store_coding_result(
+        run_id=str(created["run_id"]),
+        coding_task_id="task-1",
+        attempt_id="attempt-1",
+        thread_id=int(created["thread_id"]),
+        source_message_id=int(created["source_message_id"]),
+        result_status="succeeded",
+        result_summary="Patched the delivery path cleanly.",
+        files_changed=["guardian/agents/store.py"],
+    )
+
+    assert delivery["delivery_ok"] is True
+    assert delivery["delivery_status"] == "delivered"
+    messages = _fetch_thread_messages(
+        db, created["thread_id"], kind="coding_result"
+    )
+    assert len(messages) == 1
+    assert delivery["message_id"] == messages[0].id
+
+
+def test_late_cancelled_intent_suppresses_before_final_delivery(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_guardian_intent(delegation_client, auth_headers, seeded)
+    store = _make_store(db)
+
+    def cancel_before_finalize(
+        *,
+        session: Any,
+        intent: GuardianDelegationIntent,
+        delivery_key: str,
+        run_id: str,
+    ) -> None:
+        intent.intent_status = "cancelled"
+
+    monkeypatch.setattr(
+        store,
+        "_before_guardian_delegation_delivery_finalize",
+        cancel_before_finalize,
+    )
+
+    delivery = store.store_coding_result(
+        run_id=str(created["run_id"]),
+        coding_task_id="task-1",
+        attempt_id="attempt-1",
+        thread_id=int(created["thread_id"]),
+        source_message_id=int(created["source_message_id"]),
+        result_status="succeeded",
+        result_summary="Patched the delivery path cleanly.",
+        files_changed=["guardian/agents/store.py"],
+    )
+
+    assert delivery["delivery_ok"] is False
+    assert delivery["delivery_status"] == "stale_suppressed"
+    assert delivery["visibility_status"] == "stale_suppressed"
+    assert _fetch_thread_messages(db, created["thread_id"], kind="coding_result") == []
+
+    row = _fetch_intent(db, created["intent_id"])
+    assert row is not None
+    assert row.intent_status == "cancelled"
+    assert row.visibility_status == "stale_suppressed"
+
+
+def test_validation_results_error_message_is_sanitized(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    selected_content = "Please patch guardian/agents/store.py."
+    seeded = _seed_source_context(db, selected_content=selected_content)
+    created = _create_guardian_intent(delegation_client, auth_headers, seeded)
+
+    _store_guardian_result(
+        db,
+        intent_payload=created,
+        result_summary="Patched the delivery path cleanly.",
+        validation_results={
+            "status": "failed",
+            "error_message": (
+                f"{selected_content} context_basis my boss is frustrating me"
+            ),
+        },
+    )
+
+    messages = _fetch_thread_messages(
+        db, created["thread_id"], kind="coding_result"
+    )
+    assert len(messages) == 1
+    content = messages[0].content
+    assert selected_content not in content
+    assert "context_basis" not in content
+    assert "my boss is frustrating me" not in content
+    assert "[redacted unsafe validation detail]" in content
+    safe_validation = messages[0].extra_meta["validation_results"]
+    assert safe_validation["error_message"] == "[redacted unsafe validation detail]"
+
+
+def test_validation_results_command_is_sanitized(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_guardian_intent(delegation_client, auth_headers, seeded)
+
+    _store_guardian_result(
+        db,
+        intent_payload=created,
+        result_summary="Patched the delivery path cleanly.",
+        validation_results={
+            "status": "failed",
+            "command": (
+                "OPENAI_API_KEY=sk-supersecret "
+                "/Users/chris/.ssh/id_rsa pytest guardian/agents/store.py"
+            ),
+        },
+    )
+
+    messages = _fetch_thread_messages(
+        db, created["thread_id"], kind="coding_result"
+    )
+    assert len(messages) == 1
+    content = messages[0].content
+    assert "OPENAI_API_KEY" not in content
+    assert "sk-supersecret" not in content
+    assert "/Users/chris/.ssh/id_rsa" not in content
+    assert "[redacted unsafe validation detail]" in content
+    safe_validation = messages[0].extra_meta["validation_results"]
+    assert safe_validation["command"] == "[redacted unsafe validation detail]"
+
+
+def test_files_changed_paths_are_sanitized(
+    delegation_client: TestClient,
+    db: _TestDB,
+    auth_headers,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_guardian_intent(delegation_client, auth_headers, seeded)
+
+    _store_guardian_result(
+        db,
+        intent_payload=created,
+        result_summary="Patched the delivery path cleanly.",
+        files_changed=[
+            "guardian/agents/store.py",
+            "/home/user/.ssh/id_rsa",
+            ".env",
+            "/Volumes/Dev_SSD/Codexify-main/guardian/core/guardian_delegation_service.py",
+        ],
+    )
+
+    messages = _fetch_thread_messages(
+        db, created["thread_id"], kind="coding_result"
+    )
+    assert len(messages) == 1
+    content = messages[0].content
+    assert "guardian/agents/store.py" in content
+    assert "guardian/core/guardian_delegation_service.py" in content
+    assert "/home/user/.ssh/id_rsa" not in content
+    assert ".env" not in content
+    assert "/Volumes/Dev_SSD/Codexify-main/" not in content
+    assert "[redacted unsafe path]" in content
+    assert messages[0].extra_meta["files_changed"] == [
+        "guardian/agents/store.py",
+        "guardian/core/guardian_delegation_service.py",
+        "[redacted unsafe path]",
+    ]
