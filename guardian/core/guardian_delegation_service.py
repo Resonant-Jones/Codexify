@@ -12,6 +12,10 @@ from typing import Any
 from uuid import uuid4
 
 from guardian.db.models import (
+    AgentDeployment,
+    AgentEvent,
+    AgentRun,
+    AgentRunArtifact,
     ChatMessage,
     ChatThread,
     GeneratedDocument,
@@ -29,6 +33,8 @@ from guardian.protocol_tokens import (
     GuardianDelegationInteractionMode,
     GuardianDelegationIntentStatus,
     GuardianDelegationRunStatus,
+    GuardianDelegationTranscriptItemKind,
+    GuardianDelegationTranscriptItemSource,
     GuardianDelegationVisibilityStatus,
     GUARDIAN_DELEGATION_APPROVAL_MODES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
@@ -115,11 +121,13 @@ _MAX_PROJECT_KB_DOCS = 3
 _MAX_PROJECT_KB_LINK_SCAN = 12
 _MAX_SAFE_KB_EXCERPT_CHARS = 240
 _MAX_SAFE_RESULT_SUMMARY_CHARS = 320
+_MAX_SAFE_TRANSCRIPT_SUMMARY_CHARS = 220
 _MAX_SAFE_VALIDATION_FIELD_CHARS = 220
 _MAX_SAFE_RENDERED_FILES = 20
 
 _REDACTED_UNSAFE_VALIDATION_DETAIL = "[redacted unsafe validation detail]"
 _REDACTED_UNSAFE_PATH = "[redacted unsafe path]"
+_REDACTED_UNSAFE_TRANSCRIPT_DETAIL = "[redacted unsafe transcript detail]"
 
 _GUARDIAN_RESULT_INTERNAL_MARKERS: tuple[str, ...] = (
     "context_basis",
@@ -761,6 +769,60 @@ class GuardianDelegationService:
                 run_status=self._resolve_row_run_status(row),
             )
 
+    def get_transcript(self, intent_id: str) -> dict[str, Any]:
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(GuardianDelegationIntent)
+                .filter_by(intent_id=intent_id)
+                .first()
+            )
+            if row is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_intent_not_found"
+                )
+
+            run_status = self._resolve_row_run_status(row)
+            source_message = (
+                session.query(ChatMessage)
+                .filter_by(id=row.source_message_id)
+                .first()
+            )
+            blocked_literals = []
+            selected_turn_text = str(
+                getattr(source_message, "content", "") or ""
+            ).strip()
+            if selected_turn_text:
+                blocked_literals.append(selected_turn_text)
+
+            run_row = None
+            deployment_row = None
+            if str(row.run_id or "").strip():
+                run_row = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(row.run_id))
+                    .first()
+                )
+                if run_row is None:
+                    raise GuardianDelegationValidationError(
+                        "linked_agent_run_missing",
+                        status_code=500,
+                    )
+                deployment_row = (
+                    session.query(AgentDeployment)
+                    .filter_by(id=run_row.deployment_id)
+                    .first()
+                )
+
+            return self._serialize_transcript_response(
+                session=session,
+                row=row,
+                run_row=run_row,
+                deployment_row=deployment_row,
+                run_status=run_status,
+                blocked_literals=blocked_literals,
+            )
+
     def project_run_status(self, agent_run_status: Any | None) -> str:
         if agent_run_status is None or not str(agent_run_status).strip():
             return GuardianDelegationRunStatus.NOT_ENQUEUED.value
@@ -780,6 +842,520 @@ class GuardianDelegationService:
             "unknown_agent_run_status",
             status_code=500,
         )
+
+    def _serialize_transcript_response(
+        self,
+        *,
+        session: Any,
+        row: GuardianDelegationIntent,
+        run_row: AgentRun | None,
+        deployment_row: AgentDeployment | None,
+        run_status: str,
+        blocked_literals: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "intent_id": row.intent_id,
+            "thread_id": int(row.thread_id),
+            "source_message_id": int(row.source_message_id),
+            "project_id": row.project_id,
+            "run_id": row.run_id,
+            "approval_state": str(row.approval_state),
+            "approval_source": str(row.approval_source),
+            "approval_mode": str(row.approval_mode),
+            "intent_status": str(row.intent_status),
+            "run_status": run_status,
+            "visibility_status": str(row.visibility_status),
+            "result_message_id": row.result_message_id,
+            "result_delivered_at": self._serialize_timestamp(
+                row.result_delivered_at
+            ),
+            "source_thread_reference": {
+                "thread_id": int(row.thread_id),
+                "source_message_id": int(row.source_message_id),
+            },
+            "inspection_only": True,
+            "transcript_items": self._build_transcript_items(
+                session=session,
+                row=row,
+                run_row=run_row,
+                deployment_row=deployment_row,
+                run_status=run_status,
+                blocked_literals=blocked_literals,
+            ),
+        }
+
+    def _build_transcript_items(
+        self,
+        *,
+        session: Any,
+        row: GuardianDelegationIntent,
+        run_row: AgentRun | None,
+        deployment_row: AgentDeployment | None,
+        run_status: str,
+        blocked_literals: list[str],
+    ) -> list[dict[str, Any]]:
+        base_metadata = self._base_transcript_metadata(
+            row,
+            run_id=str(row.run_id).strip() or None,
+        )
+        plan_summary = dict(row.plan_summary or {})
+        kb_context = [
+            entry
+            for entry in list(plan_summary.get("kb_context") or [])
+            if isinstance(entry, dict)
+        ]
+        kb_source_types = sorted(
+            {
+                str(entry.get("source_type") or "").strip()
+                for entry in kb_context
+                if str(entry.get("source_type") or "").strip()
+            }
+        )
+        items: list[dict[str, Any]] = [
+            self._make_transcript_item(
+                item_id=f"intent:{row.intent_id}:created",
+                kind=GuardianDelegationTranscriptItemKind.INTENT_CREATED.value,
+                source=(
+                    GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                ),
+                created_at=row.created_at,
+                summary=(
+                    "Guardian delegation intent created for source-thread "
+                    "lineage and inspection."
+                ),
+                metadata={
+                    **base_metadata,
+                    "approval_mode": str(row.approval_mode),
+                    "acceptance_status": str(row.acceptance_status),
+                    "interaction_mode": str(row.interaction_mode),
+                },
+            ),
+            self._make_transcript_item(
+                item_id=f"intent:{row.intent_id}:plan",
+                kind=GuardianDelegationTranscriptItemKind.PLAN_PREPARED.value,
+                source=(
+                    GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                ),
+                created_at=row.created_at,
+                summary=self._build_plan_prepared_summary(kb_context=kb_context),
+                metadata={
+                    **base_metadata,
+                    "approval_mode": str(row.approval_mode),
+                    "risk_class": self._safe_transcript_tokenish(
+                        plan_summary.get("risk_class")
+                    ),
+                    "kb_source_count": len(kb_context),
+                    "kb_source_types": kb_source_types,
+                },
+            ),
+            self._make_transcript_item(
+                item_id=f"intent:{row.intent_id}:approval",
+                kind=GuardianDelegationTranscriptItemKind.APPROVAL_STATE.value,
+                source=(
+                    GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                ),
+                created_at=(
+                    row.updated_at
+                    if str(row.approval_state)
+                    != GuardianDelegationApprovalState.PENDING.value
+                    else row.created_at
+                ),
+                summary=self._build_approval_summary(row),
+                metadata={
+                    **base_metadata,
+                    "approval_mode": str(row.approval_mode),
+                    "approval_state": str(row.approval_state),
+                    "approval_source": str(row.approval_source),
+                    "intent_status": str(row.intent_status),
+                },
+            ),
+        ]
+
+        if run_row is not None:
+            items.append(
+                self._make_transcript_item(
+                    item_id=f"run:{run_row.run_id}:linked",
+                    kind=GuardianDelegationTranscriptItemKind.RUN_LINKED.value,
+                    source=GuardianDelegationTranscriptItemSource.AGENT_RUN.value,
+                    created_at=run_row.created_at,
+                    summary=(
+                        "AgentRun linked to the intent through the existing "
+                        "Guardian-owned execution backbone."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "run_id": run_row.run_id,
+                        "deployment_id": (
+                            deployment_row.deployment_id
+                            if deployment_row is not None
+                            else None
+                        ),
+                        "runtime_target": run_row.runtime_target,
+                        "trust_state": (
+                            deployment_row.trust_state
+                            if deployment_row is not None
+                            else None
+                        ),
+                    },
+                )
+            )
+            items.append(
+                self._make_transcript_item(
+                    item_id=f"run:{run_row.run_id}:status",
+                    kind=GuardianDelegationTranscriptItemKind.RUN_STATUS.value,
+                    source=GuardianDelegationTranscriptItemSource.AGENT_RUN.value,
+                    created_at=(
+                        run_row.started_at
+                        or run_row.ended_at
+                        or run_row.created_at
+                    ),
+                    summary=f"Projected run status is `{run_status}`.",
+                    metadata={
+                        **base_metadata,
+                        "run_id": run_row.run_id,
+                        "run_status": run_status,
+                        "agent_run_status": run_row.status,
+                        "runtime_target": run_row.runtime_target,
+                        "rollback_applied": bool(run_row.rollback_applied),
+                    },
+                )
+            )
+            items.extend(
+                self._build_agent_event_items(
+                    session=session,
+                    row=row,
+                    run_row=run_row,
+                    blocked_literals=blocked_literals,
+                )
+            )
+
+        if str(row.intent_status or "").strip() == (
+            GuardianDelegationIntentStatus.CANCELLED.value
+        ):
+            items.append(
+                self._make_transcript_item(
+                    item_id=f"intent:{row.intent_id}:cancelled",
+                    kind=(
+                        GuardianDelegationTranscriptItemKind.INTENT_CANCELLED.value
+                    ),
+                    source=(
+                        GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                    ),
+                    created_at=row.updated_at,
+                    summary=(
+                        "Intent cancelled; future Guardian-owned result "
+                        "delivery is suppressed."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "intent_status": str(row.intent_status),
+                        "visibility_status": str(row.visibility_status),
+                    },
+                )
+            )
+
+        items.extend(
+            self._build_delivery_items(
+                session=session,
+                row=row,
+                run_row=run_row,
+                blocked_literals=blocked_literals,
+            )
+        )
+        return items
+
+    def _build_plan_prepared_summary(
+        self,
+        *,
+        kb_context: list[dict[str, Any]],
+    ) -> str:
+        if not kb_context:
+            return "Work plan prepared from selected-turn lineage only."
+        return (
+            "Work plan prepared from selected-turn lineage and "
+            f"{len(kb_context)} policy-allowed local KB source(s)."
+        )
+
+    def _build_approval_summary(
+        self,
+        row: GuardianDelegationIntent,
+    ) -> str:
+        approval_state = str(row.approval_state or "").strip()
+        approval_source = str(row.approval_source or "").strip()
+        if approval_state == GuardianDelegationApprovalState.PENDING.value:
+            return "Intent is awaiting human approval."
+        if approval_state == GuardianDelegationApprovalState.APPROVED.value:
+            if approval_source == GuardianDelegationApprovalSource.HUMAN.value:
+                return "Intent approved by human and eligible for dispatch."
+            if approval_source == GuardianDelegationApprovalSource.AUTO.value:
+                return "Intent auto-approved within scoped policy."
+        if approval_state == GuardianDelegationApprovalState.BLOCKED.value:
+            return "Intent is blocked from dispatch."
+        return "Intent approval state recorded for inspection."
+
+    def _build_agent_event_items(
+        self,
+        *,
+        session: Any,
+        row: GuardianDelegationIntent,
+        run_row: AgentRun,
+        blocked_literals: list[str],
+    ) -> list[dict[str, Any]]:
+        if not self._table_exists(session, AgentEvent.__tablename__):
+            return []
+        event_rows = (
+            session.query(AgentEvent)
+            .filter_by(run_id=run_row.id)
+            .order_by(AgentEvent.created_at.asc(), AgentEvent.id.asc())
+            .all()
+        )
+        items: list[dict[str, Any]] = []
+        for event_row in event_rows:
+            payload = (
+                dict(event_row.payload_json)
+                if isinstance(event_row.payload_json, dict)
+                else {}
+            )
+            safe_event_type = self._safe_transcript_tokenish(
+                event_row.event_type
+            ) or "event"
+            step_index = payload.get("step_index")
+            attempt_index = payload.get("attempt_index")
+            safe_status = self._safe_transcript_tokenish(payload.get("status"))
+            summary_parts = [f"Agent run event `{safe_event_type}`"]
+            if isinstance(step_index, int):
+                summary_parts.append(f"(step {step_index})")
+            if isinstance(attempt_index, int):
+                summary_parts.append(f"(attempt {attempt_index})")
+            if safe_status:
+                summary_parts.append(f"status `{safe_status}`")
+            items.append(
+                self._make_transcript_item(
+                    item_id=f"event:{event_row.id}",
+                    kind=(
+                        GuardianDelegationTranscriptItemKind.AGENT_RUN_EVENT.value
+                    ),
+                    source=(
+                        GuardianDelegationTranscriptItemSource.AGENT_RUN_EVENT.value
+                    ),
+                    created_at=event_row.created_at,
+                    summary=" ".join(summary_parts),
+                    metadata={
+                        **self._base_transcript_metadata(
+                            row, run_id=run_row.run_id
+                        ),
+                        "event_id": int(event_row.id),
+                        "event_type": safe_event_type,
+                        "step_index": (
+                            step_index if isinstance(step_index, int) else None
+                        ),
+                        "attempt_index": (
+                            attempt_index
+                            if isinstance(attempt_index, int)
+                            else None
+                        ),
+                        "event_status": safe_status,
+                    },
+                )
+            )
+        return items
+
+    def _build_delivery_items(
+        self,
+        *,
+        session: Any,
+        row: GuardianDelegationIntent,
+        run_row: AgentRun | None,
+        blocked_literals: list[str],
+    ) -> list[dict[str, Any]]:
+        visibility_status = str(row.visibility_status or "").strip()
+        if visibility_status not in GUARDIAN_DELEGATION_VISIBILITY_STATUSES:
+            raise GuardianDelegationValidationError(
+                "unknown_visibility_status",
+                status_code=500,
+            )
+
+        base_metadata = self._base_transcript_metadata(
+            row,
+            run_id=run_row.run_id if run_row is not None else None,
+        )
+        result_artifact = None
+        if run_row is not None:
+            result_artifact = (
+                session.query(AgentRunArtifact)
+                .filter_by(run_id=run_row.id, artifact_type="coding_result")
+                .order_by(AgentRunArtifact.created_at.desc(), AgentRunArtifact.id.desc())
+                .first()
+            )
+
+        if (
+            visibility_status
+            == GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+            and row.result_message_id is not None
+        ):
+            artifact_payload = (
+                dict(result_artifact.content_json)
+                if result_artifact is not None
+                and isinstance(result_artifact.content_json, dict)
+                else {}
+            )
+            safe_summary = _safe_guardian_result_summary(
+                artifact_payload.get("summary"),
+                blocked_literals=blocked_literals,
+            )
+            summary = "One terminal result message was posted to the source thread."
+            if safe_summary:
+                summary += f" Safe result summary: {safe_summary}"
+            safe_files = sanitize_guardian_result_files_for_display(
+                artifact_payload.get("files_changed")
+            )
+            safe_validation = sanitize_guardian_validation_results_for_display(
+                artifact_payload.get("validation_results"),
+                blocked_literals=blocked_literals,
+            )
+            safe_commit_hash = self._safe_transcript_tokenish(
+                artifact_payload.get("commit_hash")
+            )
+            return [
+                self._make_transcript_item(
+                    item_id=f"intent:{row.intent_id}:delivery",
+                    kind=(
+                        GuardianDelegationTranscriptItemKind.DELIVERY_RESULT.value
+                    ),
+                    source=(
+                        GuardianDelegationTranscriptItemSource.CHAT_MESSAGE.value
+                    ),
+                    created_at=(
+                        row.result_delivered_at
+                        or getattr(result_artifact, "created_at", None)
+                    ),
+                    summary=summary,
+                    metadata={
+                        **base_metadata,
+                        "delivery_key": self._safe_transcript_tokenish(
+                            row.result_delivery_key, max_chars=255
+                        ),
+                        "result_message_id": row.result_message_id,
+                        "visibility_status": visibility_status,
+                        "files_changed": safe_files or None,
+                        "validation_results": safe_validation,
+                        "commit_hash": safe_commit_hash,
+                    },
+                )
+            ]
+
+        if visibility_status == GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value:
+            return [
+                self._make_transcript_item(
+                    item_id=f"intent:{row.intent_id}:visibility",
+                    kind=(
+                        GuardianDelegationTranscriptItemKind.VISIBILITY_STATE.value
+                    ),
+                    source=(
+                        GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                    ),
+                    created_at=row.updated_at,
+                    summary=(
+                        "Source-thread delivery was suppressed because the "
+                        "intent was stale, superseded, or cancelled."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "visibility_status": visibility_status,
+                        "delivery_error": self._safe_transcript_tokenish(
+                            row.delivery_error, max_chars=128
+                        ),
+                    },
+                )
+            ]
+
+        if visibility_status == GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value:
+            return [
+                self._make_transcript_item(
+                    item_id=f"intent:{row.intent_id}:visibility",
+                    kind=(
+                        GuardianDelegationTranscriptItemKind.VISIBILITY_STATE.value
+                    ),
+                    source=(
+                        GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+                    ),
+                    created_at=row.updated_at,
+                    summary=(
+                        "Source-thread delivery is degraded; inspection truth "
+                        "is available without mutating execution state."
+                    ),
+                    metadata={
+                        **base_metadata,
+                        "visibility_status": visibility_status,
+                        "delivery_error": self._safe_transcript_tokenish(
+                            row.delivery_error, max_chars=128
+                        ),
+                    },
+                )
+            ]
+
+        return []
+
+    def _base_transcript_metadata(
+        self,
+        row: GuardianDelegationIntent,
+        *,
+        run_id: str | None,
+    ) -> dict[str, Any]:
+        metadata = {
+            "intent_id": row.intent_id,
+            "thread_id": int(row.thread_id),
+            "source_message_id": int(row.source_message_id),
+        }
+        if run_id:
+            metadata["run_id"] = run_id
+        return metadata
+
+    def _make_transcript_item(
+        self,
+        *,
+        item_id: str,
+        kind: str,
+        source: str,
+        created_at: Any,
+        summary: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "item_id": item_id,
+            "kind": kind,
+            "source": source,
+            "created_at": self._serialize_timestamp(created_at),
+            "summary": summary,
+            "metadata": metadata,
+        }
+
+    def _safe_transcript_tokenish(
+        self,
+        value: Any,
+        *,
+        max_chars: int = 64,
+    ) -> str | None:
+        normalized = _collapse_whitespace(value)
+        if not normalized:
+            return None
+        normalized = _rewrite_known_repo_prefixes(normalized)
+        if _contains_unsafe_result_text(normalized):
+            return None
+        if re.fullmatch(rf"[A-Za-z0-9:_.-]{{1,{max_chars}}}", normalized):
+            return normalized
+        return None
+
+    def _table_exists(self, session: Any, table_name: str) -> bool:
+        bind = getattr(session, "bind", None)
+        if bind is None:
+            return False
+        try:
+            from sqlalchemy import inspect as sqlalchemy_inspect
+
+            return bool(sqlalchemy_inspect(bind).has_table(table_name))
+        except Exception:  # pragma: no cover - defensive branch
+            return False
 
     def _create_agent_run_link(
         self,

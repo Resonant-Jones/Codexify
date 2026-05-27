@@ -70,6 +70,26 @@ class GuardianDelegationContextSourceType(str, Enum):
     LINKED_DOCUMENT = "linked_document"
 
 
+class GuardianDelegationTranscriptItemKind(str, Enum):
+    INTENT_CREATED = "intent_created"
+    PLAN_PREPARED = "plan_prepared"
+    APPROVAL_STATE = "approval_state"
+    RUN_LINKED = "run_linked"
+    RUN_STATUS = "run_status"
+    AGENT_RUN_EVENT = "agent_run_event"
+    INTENT_CANCELLED = "intent_cancelled"
+    DELIVERY_RESULT = "delivery_result"
+    VISIBILITY_STATE = "visibility_state"
+
+
+class GuardianDelegationTranscriptItemSource(str, Enum):
+    GUARDIAN_DELEGATION_INTENT = "guardian_delegation_intent"
+    AGENT_RUN = "agent_run"
+    AGENT_RUN_EVENT = "agent_run_event"
+    AGENT_RUN_ARTIFACT = "agent_run_artifact"
+    CHAT_MESSAGE = "chat_message"
+
+
 class ContextRequestStatus(str, Enum):
     ACCEPTED_NOT_EXECUTED = "accepted_not_executed"
     EXECUTED = "executed"
@@ -357,6 +377,12 @@ GUARDIAN_DELEGATION_VISIBILITY_STATUSES: frozenset[str] = frozenset(
 GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES: frozenset[str] = frozenset(
     {source_type.value for source_type in GuardianDelegationContextSourceType}
 )
+GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS: frozenset[str] = frozenset(
+    {kind.value for kind in GuardianDelegationTranscriptItemKind}
+)
+GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES: frozenset[str] = frozenset(
+    {source.value for source in GuardianDelegationTranscriptItemSource}
+)
 CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
     {status.value for status in ContextRequestStatus}
 )
@@ -463,6 +489,8 @@ __all__ = [
     "GuardianDelegationRunStatus",
     "GuardianDelegationVisibilityStatus",
     "GuardianDelegationContextSourceType",
+    "GuardianDelegationTranscriptItemKind",
+    "GuardianDelegationTranscriptItemSource",
     "ContextRequestStatus",
     "TaskEventType",
     "ToolTurnState",
@@ -500,6 +528,8 @@ __all__ = [
     "GUARDIAN_DELEGATION_RUN_STATUSES",
     "GUARDIAN_DELEGATION_VISIBILITY_STATUSES",
     "GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES",
+    "GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS",
+    "GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",

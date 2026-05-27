@@ -986,6 +986,7 @@ def test_only_expected_guardian_delegation_routes_registered() -> None:
         ("/api/guardian/delegations/{intent_id}", ("GET",)),
         ("/api/guardian/delegations/{intent_id}/approve", ("POST",)),
         ("/api/guardian/delegations/{intent_id}/cancel", ("POST",)),
+        ("/api/guardian/delegations/{intent_id}/transcript", ("GET",)),
     }
 
 
@@ -994,3 +995,4 @@ def test_guardian_api_route_is_flagged_off_by_default() -> None:
 
     paths = {route.path for route in app.routes}
     assert "/api/guardian/delegations" not in paths
+    assert "/api/guardian/delegations/{intent_id}/transcript" not in paths
