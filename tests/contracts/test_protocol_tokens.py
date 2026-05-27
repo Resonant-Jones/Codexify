@@ -46,6 +46,7 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_INTENT_STATUSES,
     GUARDIAN_DELEGATION_RUN_STATUSES,
+    GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     ORCHESTRATOR_DECISION_TOKENS,
@@ -80,6 +81,7 @@ from guardian.protocol_tokens import (
     GuardianDelegationInteractionMode,
     GuardianDelegationIntentStatus,
     GuardianDelegationRunStatus,
+    GuardianDelegationVisibilityStatus,
     ImageRoutingPath,
     LoopStopReason,
     OrchestratorDecisionToken,
@@ -159,6 +161,30 @@ def test_guardian_delegation_protocol_tokens() -> None:
         "completed",
         "failed",
         "cancelled",
+    }
+    assert GuardianDelegationVisibilityStatus.NOT_POSTED.value == "not_posted"
+    assert (
+        GuardianDelegationVisibilityStatus.INTERRUPT_POSTED.value
+        == "interrupt_posted"
+    )
+    assert (
+        GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+        == "result_posted"
+    )
+    assert (
+        GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
+        == "stale_suppressed"
+    )
+    assert (
+        GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+        == "delivery_degraded"
+    )
+    assert GUARDIAN_DELEGATION_VISIBILITY_STATUSES == {
+        "not_posted",
+        "interrupt_posted",
+        "result_posted",
+        "stale_suppressed",
+        "delivery_degraded",
     }
     assert (
         GuardianDelegationContextSourceType.SELECTED_TURN.value

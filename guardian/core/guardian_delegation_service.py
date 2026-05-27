@@ -1,15 +1,15 @@
-"""Guardian Delegation Loop v1 Phase 2 service helpers."""
+"""Guardian Delegation Loop v1 Phase 3 service helpers."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from hashlib import sha256
 import json
 import re
 from typing import Any
 from uuid import uuid4
 
-from guardian.agents.store import AgentStore
 from guardian.db.models import (
     ChatMessage,
     ChatThread,
@@ -28,6 +28,8 @@ from guardian.protocol_tokens import (
     GuardianDelegationInteractionMode,
     GuardianDelegationIntentStatus,
     GuardianDelegationRunStatus,
+    GuardianDelegationVisibilityStatus,
+    GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
 )
 
 
@@ -42,6 +44,12 @@ def _stable_hash(payload: dict[str, Any]) -> str:
 
 def _hash_text(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _new_agent_store() -> Any:
+    from guardian.agents.store import AgentStore
+
+    return AgentStore()
 
 
 _EXCLUDED_PERSONAL_CONTEXT_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -104,6 +112,99 @@ _PROJECT_KB_STOP_WORDS: frozenset[str] = frozenset(
 _MAX_PROJECT_KB_DOCS = 3
 _MAX_PROJECT_KB_LINK_SCAN = 12
 _MAX_SAFE_KB_EXCERPT_CHARS = 240
+_MAX_SAFE_RESULT_SUMMARY_CHARS = 320
+
+_GUARDIAN_RESULT_INTERNAL_MARKERS: tuple[str, ...] = (
+    "context_basis",
+    "kb_context",
+    "project_kb_reference",
+    "selected_turn_content_hash",
+    "selected_turn_content_length",
+    "standardized_task_prompt",
+    "hidden prompt",
+    "system prompt",
+)
+
+
+def build_guardian_delegation_result_delivery_key(
+    *, intent_id: str, run_id: str
+) -> str:
+    return f"guardian_delegation:{intent_id}:{run_id}:thread_result"
+
+
+def _safe_guardian_result_summary(summary: Any) -> str | None:
+    normalized = " ".join(str(summary or "").split())
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if any(marker in lowered for marker in _GUARDIAN_RESULT_INTERNAL_MARKERS):
+        return None
+    if any(
+        pattern.search(normalized)
+        for pattern in (
+            *_EXCLUDED_PERSONAL_CONTEXT_PATTERNS,
+            *_EXCLUDED_KB_CONTEXT_PATTERNS,
+        )
+    ):
+        return None
+    if len(normalized) <= _MAX_SAFE_RESULT_SUMMARY_CHARS:
+        return normalized
+    return normalized[:_MAX_SAFE_RESULT_SUMMARY_CHARS].rstrip() + "..."
+
+
+def build_guardian_delegation_result_message_content(
+    *,
+    intent_id: str,
+    run_id: str,
+    status: str,
+    summary: Any,
+    files_changed: list[str],
+    validation_results: Any | None,
+    commit_hash: str | None,
+) -> str:
+    content_parts = ["## Guardian Delegation Result\n\n"]
+    content_parts.append(f"**Status**: {str(status or '').upper()}\n\n")
+    content_parts.append(f"**Intent ID**: `{intent_id}`\n\n")
+    content_parts.append(f"**Run ID**: `{run_id}`\n\n")
+
+    safe_summary = _safe_guardian_result_summary(summary)
+    if safe_summary:
+        content_parts.append(f"**Summary**: {safe_summary}\n\n")
+
+    safe_files = [
+        str(path).strip()
+        for path in list(files_changed or [])[:20]
+        if str(path).strip()
+    ]
+    if safe_files:
+        content_parts.append("**Files Changed**:\n")
+        for path in safe_files:
+            content_parts.append(f"- `{path}`\n")
+        content_parts.append("\n")
+
+    if commit_hash:
+        content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
+
+    if isinstance(validation_results, dict):
+        validation_status = str(validation_results.get("status") or "").strip()
+        validation_command = str(validation_results.get("command") or "").strip()
+        validation_error = str(
+            validation_results.get("error_message") or ""
+        ).strip()
+        if validation_status:
+            content_parts.append(
+                f"**Validation Status**: `{validation_status}`\n\n"
+            )
+        if validation_command:
+            content_parts.append(
+                f"**Validation Command**: `{validation_command}`\n\n"
+            )
+        if validation_error:
+            content_parts.append(
+                f"**Validation Error**: {validation_error}\n\n"
+            )
+
+    return "".join(content_parts)
 
 
 class GuardianDelegationError(Exception):
@@ -135,7 +236,7 @@ class GuardianDelegationService:
     """Persist selected-turn delegation intents and link them to AgentRuns."""
 
     db: Any | None = None
-    agent_store: AgentStore = field(default_factory=AgentStore)
+    agent_store: Any = field(default_factory=_new_agent_store)
 
     def __post_init__(self) -> None:
         self.agent_store.configure_db(self.db)
@@ -224,6 +325,9 @@ class GuardianDelegationService:
                 approval_source=GuardianDelegationApprovalSource.AUTO.value,
                 acceptance_status=AcceptanceStatus.ACCEPTED.value,
                 intent_status=GuardianDelegationIntentStatus.PLANNING.value,
+                visibility_status=(
+                    GuardianDelegationVisibilityStatus.NOT_POSTED.value
+                ),
                 plan_summary=plan_summary,
                 context_basis=context_basis,
             )
@@ -269,6 +373,12 @@ class GuardianDelegationService:
                 )
             row.run_id = str(run["run_id"])
             row.intent_status = GuardianDelegationIntentStatus.ACCEPTED.value
+            row.result_delivery_key = (
+                build_guardian_delegation_result_delivery_key(
+                    intent_id=intent_id,
+                    run_id=str(run["run_id"]),
+                )
+            )
             session.commit()
             session.refresh(row)
             return self._serialize_intent(
@@ -334,8 +444,8 @@ class GuardianDelegationService:
             "guardian_delegation": {
                 "ownership": "guardian_delegation_intent",
                 "intent_id": intent_id,
-                "phase": "phase2b",
-                "suppress_source_thread_delivery": True,
+                "phase": "phase3",
+                "suppress_source_thread_delivery": False,
             },
             "source_thread_id": thread_id,
             "source_message_id": source_message_id,
@@ -354,10 +464,9 @@ class GuardianDelegationService:
             spec_hash=_stable_hash(deployment_spec),
             trust_state="supervised",
         )
-        # Guardian Delegation Loop v1 Phase 2B still uses a direct Guardian-owned
-        # route to prove delegation semantics with local Project KB context only.
-        # Intent-spine unification and source-thread result delivery remain
-        # deferred until the hybrid loop is proven under the contract.
+        # Guardian Delegation Loop v1 Phase 3 still uses a direct Guardian-owned
+        # route. Intent-spine unification remains deferred even though
+        # source-thread result delivery is now proven for Guardian-owned runs.
         return self.agent_store.create_run(
             deployment_id=str(deployment["deployment_id"]),
             thread_id=thread_id,
@@ -376,7 +485,7 @@ class GuardianDelegationService:
         project_kb_context: list[dict[str, Any]],
     ) -> dict[str, Any]:
         standardized_task_prompt_lines = [
-            "Guardian Delegation Loop v1 Phase 2B task.",
+            "Guardian Delegation Loop v1 Phase 3 task.",
             f"thread_id: {thread_id}",
             f"source_message_id: {source_message_id}",
             f"project_id: {project_id if project_id is not None else 'none'}",
@@ -414,11 +523,10 @@ class GuardianDelegationService:
         standardized_task_prompt_lines.extend(
             [
                 "If a safe work-only task cannot be reconstructed from these references, request clarification instead of dispatching.",
-                "Phase 2B constraints:",
+                "Phase 3 constraints:",
                 "- selected turn lineage by reference only",
                 "- local Project KB context only when policy-allowed",
                 "- no GitHub context",
-                "- no source-thread result delivery",
                 "- no intent-spine unification",
             ]
         )
@@ -444,9 +552,9 @@ class GuardianDelegationService:
                 "policy-filtered local project KB references",
                 "existing AgentRun backbone linkage",
                 "scoped auto-approval",
+                "Guardian-owned source-thread result delivery",
             ],
             "out_of_scope": [
-                "thread result reinjection",
                 "Command Center transcript UI",
                 "human approval endpoints",
                 "GitHub context expansion",
@@ -458,14 +566,15 @@ class GuardianDelegationService:
                 "record selected_turn context_basis",
                 "record policy-allowed Project KB context when available",
                 "link a durable AgentRun run_id",
+                "preserve separate visibility state while enabling guarded source-thread delivery",
             ],
             "blast_radius": (
-                "Guardian-owned delegation persistence and AgentRun linkage "
-                "only."
+                "Guardian-owned delegation persistence, AgentRun linkage, "
+                "and source-thread result delivery only."
             ),
             "dependencies": dependencies,
             "unknowns": [
-                "live queue dispatch remains deferred in Phase 2B",
+                "broader approval lifecycle remains deferred after Phase 3",
                 "GitHub context and broader retrieval widening remain deferred",
             ],
             "risk_class": "medium",
@@ -834,7 +943,7 @@ class GuardianDelegationService:
                 "selected_turn_requires_clarification"
             )
 
-        # Phase 2 keeps selected-turn privacy hardening fail-closed for mixed
+        # Phase 3 keeps selected-turn privacy hardening fail-closed for mixed
         # personal/work turns. Require a work-only restatement instead.
         if self._contains_obvious_excluded_personal_context(selected_turn_text):
             raise GuardianDelegationValidationError(
@@ -880,6 +989,12 @@ class GuardianDelegationService:
                 "unknown_acceptance_status",
                 status_code=500,
             )
+        visibility_status = str(row.visibility_status or "").strip()
+        if visibility_status not in GUARDIAN_DELEGATION_VISIBILITY_STATUSES:
+            raise GuardianDelegationValidationError(
+                "unknown_visibility_status",
+                status_code=500,
+            )
         return {
             "intent_id": row.intent_id,
             "thread_id": int(row.thread_id),
@@ -891,6 +1006,11 @@ class GuardianDelegationService:
             "intent_status": str(row.intent_status),
             "run_id": row.run_id,
             "run_status": run_status,
+            "visibility_status": visibility_status,
+            "result_message_id": row.result_message_id,
+            "result_delivered_at": self._serialize_timestamp(
+                row.result_delivered_at
+            ),
             "context_basis": list(row.context_basis or []),
             "plan_summary": dict(row.plan_summary or {}),
         }
@@ -902,8 +1022,22 @@ class GuardianDelegationService:
             )
         return self.db
 
+    def _serialize_timestamp(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if hasattr(value, "isoformat"):
+            try:
+                return value.isoformat()
+            except Exception:  # pragma: no cover - defensive branch
+                return str(value)
+        return str(value)
+
 
 __all__ = [
+    "build_guardian_delegation_result_delivery_key",
+    "build_guardian_delegation_result_message_content",
     "GuardianDelegationDispatchError",
     "GuardianDelegationError",
     "GuardianDelegationNotFoundError",
