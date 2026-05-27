@@ -444,3 +444,156 @@ def test_no_command_center_ui_or_extra_routes_added() -> None:
         "/api/guardian/delegations/{intent_id}/transcript",
     }
     assert all("command-center" not in path for path in route_paths)
+
+
+def test_transcript_missing_intent_returns_404(
+    delegation_client: TestClient,
+    auth_headers,
+) -> None:
+    response = delegation_client.get(
+        "/api/guardian/delegations/nonexistent_gdi_intent/transcript",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "guardian_delegation_intent_not_found"
+
+
+def test_transcript_stale_suppressed_produces_visibility_state_item(
+    delegation_client: TestClient,
+    db: _TranscriptTestDB,
+    auth_headers,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_manual_intent(delegation_client, auth_headers, seeded)
+
+    with db.get_session() as session:
+        row = (
+            session.query(GuardianDelegationIntent)
+            .filter_by(intent_id=created["intent_id"])
+            .first()
+        )
+        assert row is not None
+        row.visibility_status = "stale_suppressed"
+        row.delivery_error = "guardian_delegation_run_mismatch"
+        session.commit()
+
+    body = _get_transcript(delegation_client, auth_headers, created["intent_id"])
+
+    assert body["inspection_only"] is True
+    assert body["visibility_status"] == "stale_suppressed"
+
+    visibility_items = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "visibility_state"
+    ]
+    assert len(visibility_items) == 1
+    item = visibility_items[0]
+    assert item["source"] == "guardian_delegation_intent"
+    assert item["metadata"]["visibility_status"] == "stale_suppressed"
+    assert item["metadata"]["delivery_error"] is not None
+
+    delivery_items = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "delivery_result"
+    ]
+    assert len(delivery_items) == 0
+
+    serialized = json.dumps(body, sort_keys=True)
+    assert "context_basis" not in serialized
+    assert "hidden prompt" not in serialized
+
+
+def test_transcript_delivery_degraded_produces_visibility_state_item(
+    delegation_client: TestClient,
+    db: _TranscriptTestDB,
+    auth_headers,
+) -> None:
+    seeded = _seed_source_context(db)
+    created = _create_manual_intent(delegation_client, auth_headers, seeded)
+
+    with db.get_session() as session:
+        row = (
+            session.query(GuardianDelegationIntent)
+            .filter_by(intent_id=created["intent_id"])
+            .first()
+        )
+        assert row is not None
+        row.visibility_status = "delivery_degraded"
+        row.delivery_error = "source_thread_missing"
+        session.commit()
+
+    body = _get_transcript(delegation_client, auth_headers, created["intent_id"])
+
+    assert body["inspection_only"] is True
+    assert body["visibility_status"] == "delivery_degraded"
+
+    visibility_items = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "visibility_state"
+    ]
+    assert len(visibility_items) == 1
+    item = visibility_items[0]
+    assert item["source"] == "guardian_delegation_intent"
+    assert item["metadata"]["visibility_status"] == "delivery_degraded"
+    assert item["metadata"]["delivery_error"] is not None
+
+    delivery_items = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "delivery_result"
+    ]
+    assert len(delivery_items) == 0
+
+    serialized = json.dumps(body, sort_keys=True)
+    assert "context_basis" not in serialized
+    assert "hidden prompt" not in serialized
+
+
+def test_transcript_pending_intent_has_no_delivery_items(
+    delegation_client: TestClient,
+    db: _TranscriptTestDB,
+    auth_headers,
+) -> None:
+    selected_content = (
+        "Patch guardian/core/guardian_delegation_service.py and keep the "
+        "approval lifecycle contract deterministic."
+    )
+    seeded = _seed_source_context(db, selected_content=selected_content)
+    created = _create_manual_intent(delegation_client, auth_headers, seeded)
+
+    body = _get_transcript(delegation_client, auth_headers, created["intent_id"])
+
+    assert body["inspection_only"] is True
+    assert body["run_id"] is None
+    assert body["run_status"] == "not_enqueued"
+    assert body["intent_status"] == "awaiting_approval"
+    assert body["approval_state"] == "pending"
+
+    kinds = [item["kind"] for item in body["transcript_items"]]
+    assert kinds == [
+        "intent_created",
+        "plan_prepared",
+        "approval_state",
+    ]
+
+    delivery_results = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "delivery_result"
+    ]
+    assert len(delivery_results) == 0
+
+    visibility_states = [
+        item
+        for item in body["transcript_items"]
+        if item["kind"] == "visibility_state"
+    ]
+    assert len(visibility_states) == 0
+
+    serialized = json.dumps(body, sort_keys=True)
+    assert selected_content not in serialized
+    assert "context_basis" not in serialized
