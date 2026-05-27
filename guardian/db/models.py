@@ -61,6 +61,7 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES,
     GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_INTENT_STATUSES,
+    GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
 )
@@ -161,6 +162,13 @@ GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL = "','".join(
 GUARDIAN_DELEGATION_INTENT_STATUS_CHECK = (
     "intent_status IN "
     f"('{GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL}')"
+)
+GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL = "','".join(
+    sorted(GUARDIAN_DELEGATION_VISIBILITY_STATUSES)
+)
+GUARDIAN_DELEGATION_VISIBILITY_STATUS_CHECK = (
+    "visibility_status IN "
+    f"('{GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES)
@@ -2925,7 +2933,7 @@ class SystemDocLink(Base):
 
 
 class GuardianDelegationIntent(Base):
-    """Guardian-owned delegation intake artifact for Phase 2A."""
+    """Guardian-owned delegation intake artifact for the direct v1 route."""
 
     __tablename__ = "guardian_delegation_intents"
 
@@ -2959,6 +2967,17 @@ class GuardianDelegationIntent(Base):
     # internal numeric PK; a DB-level FK to run_id is deferred until the
     # linkage contract is reconciled more broadly.
     run_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    visibility_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="not_posted"
+    )
+    result_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    result_delivered_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    result_delivery_key: Mapped[str | None] = mapped_column(
+        String(255), unique=True, index=True
+    )
+    delivery_error: Mapped[str | None] = mapped_column(Text)
     plan_summary: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
@@ -2999,6 +3018,10 @@ class GuardianDelegationIntent(Base):
         CheckConstraint(
             GUARDIAN_DELEGATION_INTENT_STATUS_CHECK,
             name="guardian_delegation_intents_intent_status_check",
+        ),
+        CheckConstraint(
+            GUARDIAN_DELEGATION_VISIBILITY_STATUS_CHECK,
+            name="guardian_delegation_intents_visibility_status_check",
         ),
         Index(
             "ix_guardian_delegation_intents_thread_source",

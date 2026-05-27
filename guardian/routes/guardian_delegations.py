@@ -1,4 +1,4 @@
-"""Guardian-owned delegation proof routes for Phase 2A."""
+"""Guardian-owned delegation proof routes for the direct v1 seam."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ class GuardianDelegationCreateRequest(BaseModel):
 async def create_guardian_delegation(
     body: GuardianDelegationCreateRequest,
 ) -> dict[str, Any]:
-    # Phase 2A uses a direct Guardian-owned route to prove delegation
+    # Phase 3 still uses a direct Guardian-owned route to prove delegation
     # semantics. Intent-spine unification remains deferred until the hybrid
     # loop is proven, per the Guardian Delegation Loop Contract. This route
     # must not be treated as an independent long-term control plane.
