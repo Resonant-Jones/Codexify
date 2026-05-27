@@ -26,7 +26,7 @@ What is true now:
 - that prompt remains manual-only, synthetic-only, and non-runtime
 - the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
 - the deterministic proof-report runner now exists at `scripts/job_intelligence/run_fixture_proof.py`
-- the current checkout should not assume the deterministic assembly helper is present unless the branch actually contains it
+- the deterministic assembly helper now exists at `scripts/job_intelligence/assemble_fixture_draft.py`
 
 What remains not true:
 
@@ -44,11 +44,13 @@ What remains not true:
 - the deterministic fixture validator validates synthetic fixture shape and safety invariants only
 - the deterministic proof-report runner calls the fixture validator first
 - it validates cross-artifact fixture consistency and emits a machine-readable proof report
+- the deterministic assembly helper validates the docs-local fixture first
+- it deterministically assembles Job Profile draft and review packet artifacts from the synthetic extraction fixture
+- it compares generated artifacts against the docs-local expected artifacts
 - it does not call a model
 - it does not create runtime behavior
 - it does not validate extraction quality
 - it does not prove production readiness
-- deterministic assembly helper restoration or recreation remains deferred to a future atomic task
 - runtime, prompt execution, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch remain deferred
 
 ## First Proof Thesis

@@ -9,7 +9,7 @@
 
 ## Purpose
 
-This document reconciles the Job Intelligence Layer proof lane after discovering that some previously referenced synthetic proof-helper paths are missing from the current checkout while the docs-local extraction prompt template is already present.
+This document records the reconciled Job Intelligence Layer proof-helper state for the current checkout after the previously missing deterministic assembly seam was restored.
 
 ## Current Observed Branch State
 
@@ -18,71 +18,42 @@ This document reconciles the Job Intelligence Layer proof lane after discovering
 | `docs/specs/job-intelligence-layer/prompts/extraction-v0.md` | `present` | The docs-local extraction prompt template exists in this checkout. |
 | `scripts/job_intelligence/validate_fixture.py` | `present` | The deterministic fixture validator is available in this checkout. |
 | `scripts/job_intelligence/run_fixture_proof.py` | `present` | The deterministic proof-report runner is available in this checkout. |
-| `scripts/job_intelligence/assemble_fixture_draft.py` | `missing` | The previously referenced deterministic assembly helper is not available in this checkout. |
+| `scripts/job_intelligence/assemble_fixture_draft.py` | `present` | The deterministic assembly helper is available in this checkout. |
 | `tests/job_intelligence/test_validate_fixture.py` | `present` | The focused validator test is available in this checkout. |
 | `tests/job_intelligence/test_run_fixture_proof.py` | `present` | The focused proof-runner test is available in this checkout. |
-| `tests/job_intelligence/test_assemble_fixture_draft.py` | `missing` | The previously referenced deterministic-assembly test is not available in this checkout. |
+| `tests/job_intelligence/test_assemble_fixture_draft.py` | `present` | The focused deterministic-assembly test is available in this checkout. |
 | `docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/` | `present` | The docs-local synthetic fixture directory exists in this checkout. |
 
 ## Confirmed Boundaries
 
 - Existing prompt template does not imply runtime prompt execution.
-- Missing proof-helper scripts do not invalidate the docs-only concept lane.
-- Missing proof runner and deterministic assembly helper paths do mean proof-lane readiness is not complete in this checkout.
+- Proof-helper scripts remain synthetic-only and docs-local.
+- The proof-helper lane is now reconciled in this checkout.
 - No extraction quality is proven by docs alone.
 - No runtime surface is added by docs or fixtures.
 - No release promise changes.
 
 ## Missing Proof-Helper Paths
 
-### Scripts
-
-- `scripts/job_intelligence/assemble_fixture_draft.py`
-
-### Tests
-
-- `tests/job_intelligence/test_assemble_fixture_draft.py`
+No previously missing proof-helper paths remain in this checkout for the current synthetic fixture lane.
 
 ## Restoration Decision Boundary
 
 A future task may choose one of two paths.
 
-### Option A: Restore from known branch/history
-
-Use this only if the missing files can be found in local git history, another branch, or a known patch source.
-
-Requirements for a future restoration task:
-
-- restore only the missing proof-helper files
-- preserve their synthetic-only and docs-local boundary
-- rerun all Job Intelligence proof validations
-- commit restoration separately
-
-### Option B: Recreate from current contracts
-
-Use this only if no reliable prior implementation exists.
-
-Requirements for a future recreation task:
-
-- recreate the validator first
-- then proof runner
-- then deterministic assembly helper
-- add tests with each helper
-- avoid combining all proof helpers into one oversized task unless explicitly approved
+The remaining work is no longer about restoring missing proof-helper seams in this checkout.
+Future tasks should focus on expanding proof depth without widening into runtime behavior.
 
 ## Recommended Next Task
 
-- inspect git history and available branches for the remaining deterministic assembly helper files
-- if found, restore the smallest coherent remaining proof-helper slice
-- if not found, recreate the deterministic assembly helper as its own next slice
+- use the reconciled helper set to rerun deterministic synthetic proof
+- keep future work scoped to validation depth, not runtime integration
+- preserve synthetic-only and docs-local boundaries
 
-Restoration or recreation is deferred.
-No files are restored by this reconciliation note.
+The previously missing assembly helper seam is restored.
 
 ## Non-Goals
 
-- no script restoration
-- no test restoration
 - no fixture edits
 - no prompt edits
 - no model call
@@ -102,10 +73,7 @@ No files are restored by this reconciliation note.
 
 ## Open Questions
 
-- Did the missing proof helpers live on another branch?
-- Were they intentionally omitted from this checkout?
 - Should proof helpers live under `scripts/job_intelligence/` or a different dev-only location?
 - Should tests live under `tests/job_intelligence/` or a docs validation suite?
-- Should fixture validation be restored before prompt execution work continues?
-- Should the docs-local fixture set be revalidated before any script restoration?
+- Should the docs-local fixture set be expanded or revalidated before deeper proof work continues?
 - What proof is required before the lane moves beyond docs-local validation?
