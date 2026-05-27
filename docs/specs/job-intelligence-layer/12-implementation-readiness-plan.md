@@ -26,6 +26,7 @@ What is true now:
 - the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 - that prompt remains manual-only, synthetic-only, and non-runtime
 - the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
+- the deterministic extraction-output validator now exists at `scripts/job_intelligence/validate_extraction_output.py`
 - the deterministic proof-report runner now exists at `scripts/job_intelligence/run_fixture_proof.py`
 - the deterministic assembly helper now exists at `scripts/job_intelligence/assemble_fixture_draft.py`
 
@@ -43,6 +44,9 @@ What remains not true:
 
 - the current checkout has the docs-local extraction prompt template
 - the deterministic fixture validator validates synthetic fixture shape and safety invariants only
+- the deterministic extraction-output validator is standard-library only and docs-local
+- it validates shape and safety boundaries for extraction-shaped JSON artifacts
+- it keeps automated prompt execution deferred
 - the deterministic proof-report runner calls the fixture validator first
 - it validates cross-artifact fixture consistency and emits a machine-readable proof report
 - the deterministic assembly helper validates the docs-local fixture first
@@ -52,7 +56,7 @@ What remains not true:
 - it does not create runtime behavior
 - it does not validate extraction quality
 - it does not prove production readiness
-- runtime, prompt execution, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch remain deferred
+- runtime, prompt registry, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch remain deferred
 
 ## First Proof Thesis
 
@@ -205,6 +209,7 @@ Local-first supported posture must remain respected unless a separate architectu
 - use synthetic inputs only
 - fail closed on missing or contradictory input
 - keep prompt output, normalization, draft assembly, and review packet boundaries inspectable
+- use the docs-local extraction-output validator for extraction-shaped JSON shape and safety checks without executing prompts or registering runtime behavior
 
 ### Phase 2: Evaluation and reviewability proof
 
