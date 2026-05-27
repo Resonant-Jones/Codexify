@@ -5,6 +5,7 @@ import CommandCenterUtilityRail, {
 } from "@/features/commandCenter/components/CommandCenterUtilityRail";
 import CommandCenterBottomDrawer from "@/features/commandCenter/components/CommandCenterBottomDrawer";
 import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
+import GuardianDelegationTranscriptViewer from "@/components/command-center/GuardianDelegationTranscriptViewer";
 import TraceWorkbench, {
   RetrievalPosturePanel,
   type PinnedRetrievalPostureState,
@@ -17,6 +18,7 @@ import HeartbeatStatusPanel from "@/features/commandCenter/HeartbeatStatusPanel"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Input from "@/components/ui/input";
 
 import useRetrievalPostureHistory from "@/features/commandCenter/hooks/useRetrievalPostureHistory";
 import useRetrievalPosture from "@/features/commandCenter/hooks/useRetrievalPosture";
@@ -216,6 +218,71 @@ function RecentRetrievalPosturePanel({
   );
 }
 
+function readInitialDelegationIntentId(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("guardian_delegation_intent_id") ??
+    params.get("delegation_intent_id") ??
+    params.get("intent_id") ??
+    ""
+  ).trim();
+}
+
+function GuardianDelegationTranscriptLens() {
+  const initialIntentId = React.useMemo(readInitialDelegationIntentId, []);
+  const [draftIntentId, setDraftIntentId] = React.useState(initialIntentId);
+  const [intentId, setIntentId] = React.useState(initialIntentId);
+
+  return (
+    <div className="flex min-h-0 flex-col gap-4 overflow-visible">
+      <div
+        className="space-y-3"
+        style={{
+          background: "color-mix(in oklab, var(--panel-bg) 96%, transparent)",
+          border: "1px solid var(--panel-border)",
+          borderRadius: "var(--tile-radius)",
+          padding: "var(--card-pad)",
+        }}
+      >
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+            Delegation transcript
+          </h2>
+          <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
+            Inspection-only lookup for existing Guardian delegation transcript projections.
+          </p>
+        </div>
+        <form
+          className="flex flex-col gap-3 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setIntentId(draftIntentId.trim());
+          }}
+        >
+          <label className="min-w-0 flex-1 space-y-1">
+            <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>
+              Intent id
+            </span>
+            <Input
+              aria-label="Guardian delegation intent id"
+              autoComplete="off"
+              placeholder="gdi_..."
+              value={draftIntentId}
+              onChange={(event) => setDraftIntentId(event.currentTarget.value)}
+            />
+          </label>
+          <div className="flex items-end">
+            <Button type="submit">Inspect</Button>
+          </div>
+        </form>
+      </div>
+
+      <GuardianDelegationTranscriptViewer intentId={intentId} />
+    </div>
+  );
+}
+
 export default function CommandCenterShell(props: CommandCenterShellProps) {
   const {
     connectionDetail,
@@ -252,6 +319,9 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
     switch (activeLens) {
       case "agent-command":
         return <CodingWorkOrdersPanel />;
+
+      case "delegation-transcript":
+        return <GuardianDelegationTranscriptLens />;
 
       case "observability":
         return (
