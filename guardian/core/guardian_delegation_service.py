@@ -583,6 +583,12 @@ class GuardianDelegationService:
         with db.get_session() as session:
             row = (
                 session.query(GuardianDelegationIntent)
+                # PostgreSQL holds this FOR UPDATE lock until commit so the
+                # first approving transaction wins the run-link transition for
+                # a pending manual intent. The local SQLite contract tests
+                # below prove sequential idempotency only; a true concurrent PG
+                # row-lock proof remains future hardening before any broader
+                # multi-worker or operator-surface promotion.
                 .with_for_update()
                 .filter_by(intent_id=intent_id)
                 .first()
@@ -590,6 +596,15 @@ class GuardianDelegationService:
             if row is None:
                 raise GuardianDelegationNotFoundError(
                     "guardian_delegation_intent_not_found"
+                )
+
+            if (
+                str(row.approval_mode or "").strip()
+                != GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+            ):
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_approval_not_required",
+                    status_code=409,
                 )
 
             if (
@@ -613,15 +628,6 @@ class GuardianDelegationService:
                 return self._serialize_intent(
                     row,
                     run_status=self._resolve_row_run_status(row),
-                )
-
-            if (
-                str(row.approval_mode or "").strip()
-                != GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
-            ):
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_approval_not_required",
-                    status_code=409,
                 )
 
             if (
@@ -1381,6 +1387,7 @@ class GuardianDelegationService:
             "thread_id": int(row.thread_id),
             "source_message_id": int(row.source_message_id),
             "project_id": row.project_id,
+            "approval_mode": str(row.approval_mode),
             "acceptance_status": acceptance_status,
             "approval_state": str(row.approval_state),
             "approval_source": str(row.approval_source),
