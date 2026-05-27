@@ -107,7 +107,14 @@ def test_guardian_delegation_protocol_tokens() -> None:
     )
     assert GUARDIAN_DELEGATION_INTERACTION_MODES == {"non_blocking"}
     assert GuardianDelegationApprovalMode.SCOPED_AUTO.value == "scoped_auto"
-    assert GUARDIAN_DELEGATION_APPROVAL_MODES == {"scoped_auto"}
+    assert (
+        GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+        == "human_required"
+    )
+    assert GUARDIAN_DELEGATION_APPROVAL_MODES == {
+        "human_required",
+        "scoped_auto",
+    }
     assert GuardianDelegationApprovalState.PENDING.value == "pending"
     assert GuardianDelegationApprovalState.APPROVED.value == "approved"
     assert GuardianDelegationApprovalState.BLOCKED.value == "blocked"

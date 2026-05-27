@@ -17,6 +17,7 @@ class GuardianDelegationInteractionMode(str, Enum):
 
 class GuardianDelegationApprovalMode(str, Enum):
     SCOPED_AUTO = "scoped_auto"
+    HUMAN_REQUIRED = "human_required"
 
 
 class GuardianDelegationApprovalState(str, Enum):

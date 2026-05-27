@@ -1,4 +1,4 @@
-"""Guardian Delegation Loop v1 Phase 3 service helpers."""
+"""Guardian Delegation Loop v1 service helpers."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from guardian.protocol_tokens import (
     GuardianDelegationIntentStatus,
     GuardianDelegationRunStatus,
     GuardianDelegationVisibilityStatus,
+    GUARDIAN_DELEGATION_APPROVAL_MODES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
 )
 
@@ -423,7 +424,7 @@ class GuardianDelegationService:
         db = self._require_db()
         if interaction_mode != GuardianDelegationInteractionMode.NON_BLOCKING.value:
             raise GuardianDelegationValidationError("invalid_interaction_mode")
-        if approval_mode != GuardianDelegationApprovalMode.SCOPED_AUTO.value:
+        if approval_mode not in GUARDIAN_DELEGATION_APPROVAL_MODES:
             raise GuardianDelegationValidationError("invalid_approval_mode")
 
         with db.get_session() as session:
@@ -470,6 +471,7 @@ class GuardianDelegationService:
                 thread_id=thread.id,
                 source_message_id=source_message.id,
                 project_id=resolved_project_id,
+                approval_mode=approval_mode,
                 selected_turn_reference=selected_turn_reference,
                 project_kb_context=project_kb_context,
             )
@@ -487,10 +489,25 @@ class GuardianDelegationService:
                 project_id=resolved_project_id,
                 interaction_mode=interaction_mode,
                 approval_mode=approval_mode,
-                approval_state=GuardianDelegationApprovalState.APPROVED.value,
-                approval_source=GuardianDelegationApprovalSource.AUTO.value,
+                approval_state=(
+                    GuardianDelegationApprovalState.PENDING.value
+                    if approval_mode
+                    == GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+                    else GuardianDelegationApprovalState.APPROVED.value
+                ),
+                approval_source=(
+                    GuardianDelegationApprovalSource.NONE.value
+                    if approval_mode
+                    == GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+                    else GuardianDelegationApprovalSource.AUTO.value
+                ),
                 acceptance_status=AcceptanceStatus.ACCEPTED.value,
-                intent_status=GuardianDelegationIntentStatus.PLANNING.value,
+                intent_status=(
+                    GuardianDelegationIntentStatus.AWAITING_APPROVAL.value
+                    if approval_mode
+                    == GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+                    else GuardianDelegationIntentStatus.PLANNING.value
+                ),
                 visibility_status=(
                     GuardianDelegationVisibilityStatus.NOT_POSTED.value
                 ),
@@ -499,6 +516,15 @@ class GuardianDelegationService:
             )
             session.add(row)
             session.commit()
+            session.refresh(row)
+
+            if approval_mode == GuardianDelegationApprovalMode.HUMAN_REQUIRED.value:
+                return self._serialize_intent(
+                    row,
+                    run_status=(
+                        GuardianDelegationRunStatus.NOT_ENQUEUED.value
+                    ),
+                )
 
         try:
             run = self._create_agent_run_link(
@@ -552,6 +578,166 @@ class GuardianDelegationService:
                 run_status=self.project_run_status(run.get("status")),
             )
 
+    def approve_intent(self, intent_id: str) -> dict[str, Any]:
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(GuardianDelegationIntent)
+                .with_for_update()
+                .filter_by(intent_id=intent_id)
+                .first()
+            )
+            if row is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_intent_not_found"
+                )
+
+            if (
+                str(row.intent_status or "").strip()
+                == GuardianDelegationIntentStatus.CANCELLED.value
+            ):
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_intent_cancelled",
+                    status_code=409,
+                )
+            if str(row.intent_status or "").strip() in {
+                GuardianDelegationIntentStatus.SUPERSEDED.value,
+                GuardianDelegationIntentStatus.FAILED.value,
+            }:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_intent_not_approvable",
+                    status_code=409,
+                )
+
+            if str(row.run_id or "").strip():
+                return self._serialize_intent(
+                    row,
+                    run_status=self._resolve_row_run_status(row),
+                )
+
+            if (
+                str(row.approval_mode or "").strip()
+                != GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+            ):
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_approval_not_required",
+                    status_code=409,
+                )
+
+            if (
+                str(row.approval_state or "").strip()
+                != GuardianDelegationApprovalState.PENDING.value
+                or str(row.intent_status or "").strip()
+                != GuardianDelegationIntentStatus.AWAITING_APPROVAL.value
+            ):
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_intent_not_awaiting_approval",
+                    status_code=409,
+                )
+
+            thread = session.query(ChatThread).filter_by(id=row.thread_id).first()
+            if thread is None:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_thread_missing",
+                    status_code=500,
+                )
+
+            row.approval_state = (
+                GuardianDelegationApprovalState.APPROVED.value
+            )
+            row.approval_source = (
+                GuardianDelegationApprovalSource.HUMAN.value
+            )
+            row.intent_status = GuardianDelegationIntentStatus.PLANNING.value
+            session.flush()
+
+            try:
+                run = self._create_agent_run_link(
+                    intent_id=row.intent_id,
+                    thread_id=int(row.thread_id),
+                    source_message_id=int(row.source_message_id),
+                    project_id=row.project_id,
+                    user_id=str(thread.user_id),
+                    plan_summary=dict(row.plan_summary or {}),
+                    context_basis=list(row.context_basis or []),
+                )
+            except Exception as exc:  # pragma: no cover - defensive branch
+                row.intent_status = GuardianDelegationIntentStatus.FAILED.value
+                row.acceptance_status = (
+                    AcceptanceStatus.ACCEPTED_DEGRADED.value
+                )
+                session.commit()
+                raise GuardianDelegationDispatchError() from exc
+
+            row.run_id = str(run["run_id"])
+            row.intent_status = GuardianDelegationIntentStatus.ACCEPTED.value
+            row.result_delivery_key = (
+                build_guardian_delegation_result_delivery_key(
+                    intent_id=row.intent_id,
+                    run_id=str(run["run_id"]),
+                )
+            )
+            session.commit()
+            session.refresh(row)
+            return self._serialize_intent(
+                row,
+                run_status=self.project_run_status(run.get("status")),
+            )
+
+    def cancel_intent(self, intent_id: str) -> dict[str, Any]:
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(GuardianDelegationIntent)
+                .with_for_update()
+                .filter_by(intent_id=intent_id)
+                .first()
+            )
+            if row is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_intent_not_found"
+                )
+
+            if (
+                str(row.intent_status or "").strip()
+                == GuardianDelegationIntentStatus.CANCELLED.value
+            ):
+                return self._serialize_intent(
+                    row,
+                    run_status=self._resolve_row_run_status(row),
+                )
+
+            if str(row.intent_status or "").strip() in {
+                GuardianDelegationIntentStatus.SUPERSEDED.value,
+                GuardianDelegationIntentStatus.FAILED.value,
+            }:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_intent_not_cancellable",
+                    status_code=409,
+                )
+
+            if (
+                str(row.visibility_status or "").strip()
+                == GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                and row.result_message_id is not None
+            ):
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_result_already_posted",
+                    status_code=409,
+                )
+
+            row.intent_status = GuardianDelegationIntentStatus.CANCELLED.value
+            # Execution-side AgentRun cancellation remains deferred here. The
+            # v1 guarantee is durable intent cancellation plus Phase 3/3.1
+            # delivery suppression keyed by explicit Guardian delegation
+            # ownership metadata, without inventing a new worker control plane.
+            session.commit()
+            session.refresh(row)
+            return self._serialize_intent(
+                row,
+                run_status=self._resolve_row_run_status(row),
+            )
+
     def get_intent(self, intent_id: str) -> dict[str, Any]:
         db = self._require_db()
         with db.get_session() as session:
@@ -564,16 +750,10 @@ class GuardianDelegationService:
                 raise GuardianDelegationNotFoundError(
                     "guardian_delegation_intent_not_found"
                 )
-            run_status = GuardianDelegationRunStatus.NOT_ENQUEUED.value
-            if row.run_id:
-                run = self.agent_store.get_run(str(row.run_id))
-                if run is None:
-                    raise GuardianDelegationValidationError(
-                        "linked_agent_run_missing",
-                        status_code=500,
-                    )
-                run_status = self.project_run_status(run.get("status"))
-            return self._serialize_intent(row, run_status=run_status)
+            return self._serialize_intent(
+                row,
+                run_status=self._resolve_row_run_status(row),
+            )
 
     def project_run_status(self, agent_run_status: Any | None) -> str:
         if agent_run_status is None or not str(agent_run_status).strip():
@@ -647,14 +827,16 @@ class GuardianDelegationService:
         thread_id: int,
         source_message_id: int,
         project_id: int | None,
+        approval_mode: str,
         selected_turn_reference: dict[str, Any],
         project_kb_context: list[dict[str, Any]],
     ) -> dict[str, Any]:
         standardized_task_prompt_lines = [
-            "Guardian Delegation Loop v1 Phase 3 task.",
+            "Guardian Delegation Loop v1 task.",
             f"thread_id: {thread_id}",
             f"source_message_id: {source_message_id}",
             f"project_id: {project_id if project_id is not None else 'none'}",
+            f"approval_mode: {approval_mode}",
             "Use only the selected source message as explicit task input by reference.",
             "Use only policy-allowed local Project KB references included in plan_summary.kb_context when present.",
             "Do not use broad chat history, personal facts, identity-derived facts, or unrelated conversation context.",
@@ -689,7 +871,7 @@ class GuardianDelegationService:
         standardized_task_prompt_lines.extend(
             [
                 "If a safe work-only task cannot be reconstructed from these references, request clarification instead of dispatching.",
-                "Phase 3 constraints:",
+                "Current phase constraints:",
                 "- selected turn lineage by reference only",
                 "- local Project KB context only when policy-allowed",
                 "- no GitHub context",
@@ -717,12 +899,11 @@ class GuardianDelegationService:
                 "selected source message lineage reference",
                 "policy-filtered local project KB references",
                 "existing AgentRun backbone linkage",
-                "scoped auto-approval",
+                "scoped auto-approval or human approval gating",
                 "Guardian-owned source-thread result delivery",
             ],
             "out_of_scope": [
                 "Command Center transcript UI",
-                "human approval endpoints",
                 "GitHub context expansion",
                 "broad chat history",
                 "intent-spine unification",
@@ -740,15 +921,13 @@ class GuardianDelegationService:
             ),
             "dependencies": dependencies,
             "unknowns": [
-                "broader approval lifecycle remains deferred after Phase 3",
+                "broader approval lifecycle beyond approve/cancel remains deferred",
                 "GitHub context and broader retrieval widening remain deferred",
             ],
             "risk_class": "medium",
-            "approval_requirements": [
-                "approval_mode=scoped_auto",
-                "approval_source=auto",
-                "work-scoped context only",
-            ],
+            "approval_requirements": self._build_plan_approval_requirements(
+                approval_mode=approval_mode
+            ),
             "kb_context": kb_context,
         }
 
@@ -1142,6 +1321,42 @@ class GuardianDelegationService:
         if thread_project_id is not None and requested_project_id != thread_project_id:
             raise GuardianDelegationValidationError("project_id_mismatch")
         return requested_project_id
+
+    def _build_plan_approval_requirements(
+        self,
+        *,
+        approval_mode: str,
+    ) -> list[str]:
+        requirements = ["work-scoped context only"]
+        if approval_mode == GuardianDelegationApprovalMode.HUMAN_REQUIRED.value:
+            requirements.extend(
+                [
+                    "approval_mode=human_required",
+                    "approval_source=human before dispatch",
+                ]
+            )
+        else:
+            requirements.extend(
+                [
+                    "approval_mode=scoped_auto",
+                    "approval_source=auto",
+                ]
+            )
+        return requirements
+
+    def _resolve_row_run_status(
+        self,
+        row: GuardianDelegationIntent,
+    ) -> str:
+        if not str(row.run_id or "").strip():
+            return GuardianDelegationRunStatus.NOT_ENQUEUED.value
+        run = self.agent_store.get_run(str(row.run_id))
+        if run is None:
+            raise GuardianDelegationValidationError(
+                "linked_agent_run_missing",
+                status_code=500,
+            )
+        return self.project_run_status(run.get("status"))
 
     def _serialize_intent(
         self,
