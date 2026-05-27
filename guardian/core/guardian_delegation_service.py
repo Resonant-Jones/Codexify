@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
 import json
+import os
 import re
 from typing import Any
 from uuid import uuid4
@@ -113,6 +114,11 @@ _MAX_PROJECT_KB_DOCS = 3
 _MAX_PROJECT_KB_LINK_SCAN = 12
 _MAX_SAFE_KB_EXCERPT_CHARS = 240
 _MAX_SAFE_RESULT_SUMMARY_CHARS = 320
+_MAX_SAFE_VALIDATION_FIELD_CHARS = 220
+_MAX_SAFE_RENDERED_FILES = 20
+
+_REDACTED_UNSAFE_VALIDATION_DETAIL = "[redacted unsafe validation detail]"
+_REDACTED_UNSAFE_PATH = "[redacted unsafe path]"
 
 _GUARDIAN_RESULT_INTERNAL_MARKERS: tuple[str, ...] = (
     "context_basis",
@@ -125,6 +131,30 @@ _GUARDIAN_RESULT_INTERNAL_MARKERS: tuple[str, ...] = (
     "system prompt",
 )
 
+_SECRET_LIKE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:api[_-]?key|secret|token|password)\b\s*(?:=|:)\s*\S+",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bsk-[A-Za-z0-9]{12,}\b"),
+    re.compile(
+        r"-----BEGIN\s+(?:RSA|OPENSSH|EC|DSA|PGP)?\s*PRIVATE KEY-----",
+        re.IGNORECASE,
+    ),
+)
+
+_UNSAFE_PATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(^|/)\.ssh(/|$)", re.IGNORECASE),
+    re.compile(r"(^|/)\.env(?:\.[^/]+)?$", re.IGNORECASE),
+    re.compile(r"(^|/)\.aws/credentials$", re.IGNORECASE),
+    re.compile(r"(^|/)\.kube/config$", re.IGNORECASE),
+    re.compile(r"(^|/)\.npmrc$", re.IGNORECASE),
+    re.compile(r"(^|/)\.pypirc$", re.IGNORECASE),
+    re.compile(r"(^|/)\.netrc$", re.IGNORECASE),
+    re.compile(r"(^|/)(?:id_rsa|id_ed25519|known_hosts)$", re.IGNORECASE),
+    re.compile(r"\.(?:pem|p12|pfx|key)$", re.IGNORECASE),
+)
+
 
 def build_guardian_delegation_result_delivery_key(
     *, intent_id: str, run_id: str
@@ -132,24 +162,158 @@ def build_guardian_delegation_result_delivery_key(
     return f"guardian_delegation:{intent_id}:{run_id}:thread_result"
 
 
-def _safe_guardian_result_summary(summary: Any) -> str | None:
-    normalized = " ".join(str(summary or "").split())
+def _collapse_whitespace(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _known_repo_prefixes() -> tuple[str, ...]:
+    prefixes = ["/app/", "/Volumes/Dev_SSD/Codexify-main/"]
+    cwd = os.getcwd().replace("\\", "/").rstrip("/")
+    if cwd:
+        prefixes.insert(0, cwd + "/")
+    return tuple(dict.fromkeys(prefixes))
+
+
+def _rewrite_known_repo_prefixes(value: str) -> str:
+    rewritten = value.replace("\\", "/")
+    for prefix in _known_repo_prefixes():
+        if rewritten.startswith(prefix):
+            rewritten = rewritten[len(prefix) :]
+            break
+        rewritten = rewritten.replace(prefix, "")
+    return rewritten
+
+
+def _contains_unsafe_result_text(
+    value: str,
+    *,
+    blocked_literals: list[str] | None = None,
+) -> bool:
+    lowered = value.lower()
+    if any(marker in lowered for marker in _GUARDIAN_RESULT_INTERNAL_MARKERS):
+        return True
+    for literal in blocked_literals or []:
+        normalized_literal = _collapse_whitespace(literal)
+        if normalized_literal and normalized_literal in value:
+            return True
+    for pattern in (
+        *_EXCLUDED_PERSONAL_CONTEXT_PATTERNS,
+        *_EXCLUDED_KB_CONTEXT_PATTERNS,
+        *_SECRET_LIKE_PATTERNS,
+        *_UNSAFE_PATH_PATTERNS,
+    ):
+        if pattern.search(value):
+            return True
+    return False
+
+
+def _sanitize_guardian_display_text(
+    value: Any,
+    *,
+    max_chars: int,
+    placeholder: str | None = None,
+    allow_token_status: bool = False,
+    blocked_literals: list[str] | None = None,
+) -> str | None:
+    normalized = _collapse_whitespace(value)
     if not normalized:
         return None
-    lowered = normalized.lower()
-    if any(marker in lowered for marker in _GUARDIAN_RESULT_INTERNAL_MARKERS):
-        return None
-    if any(
-        pattern.search(normalized)
-        for pattern in (
-            *_EXCLUDED_PERSONAL_CONTEXT_PATTERNS,
-            *_EXCLUDED_KB_CONTEXT_PATTERNS,
-        )
-    ):
-        return None
-    if len(normalized) <= _MAX_SAFE_RESULT_SUMMARY_CHARS:
+    normalized = _rewrite_known_repo_prefixes(normalized)
+    if allow_token_status and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", normalized):
         return normalized
-    return normalized[:_MAX_SAFE_RESULT_SUMMARY_CHARS].rstrip() + "..."
+    if _contains_unsafe_result_text(
+        normalized,
+        blocked_literals=blocked_literals,
+    ):
+        return placeholder
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[:max_chars].rstrip() + "..."
+
+
+def sanitize_guardian_result_files_for_display(
+    files_changed: list[Any] | None,
+) -> list[str]:
+    safe_paths: list[str] = []
+    redacted_unsafe_path = False
+    for raw_path in list(files_changed or [])[:_MAX_SAFE_RENDERED_FILES]:
+        normalized = _collapse_whitespace(raw_path)
+        if not normalized:
+            continue
+        normalized = _rewrite_known_repo_prefixes(normalized)
+        if (
+            not normalized
+            or normalized in {".", ".."}
+            or normalized.startswith("../")
+            or normalized.startswith("/")
+            or _contains_unsafe_result_text(normalized)
+        ):
+            redacted_unsafe_path = True
+            continue
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        if not normalized or _contains_unsafe_result_text(normalized):
+            redacted_unsafe_path = True
+            continue
+        safe_paths.append(normalized[:220])
+    if redacted_unsafe_path:
+        safe_paths.append(_REDACTED_UNSAFE_PATH)
+    return safe_paths[:_MAX_SAFE_RENDERED_FILES]
+
+
+def sanitize_guardian_validation_results_for_display(
+    validation_results: Any | None,
+    *,
+    blocked_literals: list[str] | None = None,
+) -> dict[str, str] | None:
+    if not isinstance(validation_results, dict):
+        return None
+
+    safe_validation: dict[str, str] = {}
+    validation_status = _sanitize_guardian_display_text(
+        validation_results.get("status"),
+        max_chars=64,
+        placeholder=_REDACTED_UNSAFE_VALIDATION_DETAIL,
+        allow_token_status=True,
+        blocked_literals=blocked_literals,
+    )
+    if validation_status:
+        safe_validation["status"] = validation_status
+
+    validation_command = _sanitize_guardian_display_text(
+        validation_results.get("command"),
+        max_chars=_MAX_SAFE_VALIDATION_FIELD_CHARS,
+        placeholder=_REDACTED_UNSAFE_VALIDATION_DETAIL,
+        blocked_literals=blocked_literals,
+    )
+    if validation_command:
+        safe_validation["command"] = validation_command
+
+    validation_error = _sanitize_guardian_display_text(
+        validation_results.get("error_message"),
+        max_chars=_MAX_SAFE_VALIDATION_FIELD_CHARS,
+        placeholder=_REDACTED_UNSAFE_VALIDATION_DETAIL,
+        blocked_literals=blocked_literals,
+    )
+    if validation_error:
+        safe_validation["error_message"] = validation_error
+
+    return safe_validation or None
+
+
+def _safe_guardian_result_summary(
+    summary: Any,
+    *,
+    blocked_literals: list[str] | None = None,
+) -> str | None:
+    normalized = _sanitize_guardian_display_text(
+        summary,
+        max_chars=_MAX_SAFE_RESULT_SUMMARY_CHARS,
+        blocked_literals=blocked_literals,
+    )
+    if not normalized:
+        return None
+    return normalized
 
 
 def build_guardian_delegation_result_message_content(
@@ -161,21 +325,21 @@ def build_guardian_delegation_result_message_content(
     files_changed: list[str],
     validation_results: Any | None,
     commit_hash: str | None,
+    blocked_literals: list[str] | None = None,
 ) -> str:
     content_parts = ["## Guardian Delegation Result\n\n"]
     content_parts.append(f"**Status**: {str(status or '').upper()}\n\n")
     content_parts.append(f"**Intent ID**: `{intent_id}`\n\n")
     content_parts.append(f"**Run ID**: `{run_id}`\n\n")
 
-    safe_summary = _safe_guardian_result_summary(summary)
+    safe_summary = _safe_guardian_result_summary(
+        summary,
+        blocked_literals=blocked_literals,
+    )
     if safe_summary:
         content_parts.append(f"**Summary**: {safe_summary}\n\n")
 
-    safe_files = [
-        str(path).strip()
-        for path in list(files_changed or [])[:20]
-        if str(path).strip()
-    ]
+    safe_files = sanitize_guardian_result_files_for_display(files_changed)
     if safe_files:
         content_parts.append("**Files Changed**:\n")
         for path in safe_files:
@@ -185,12 +349,14 @@ def build_guardian_delegation_result_message_content(
     if commit_hash:
         content_parts.append(f"**Commit Hash**: `{commit_hash}`\n\n")
 
-    if isinstance(validation_results, dict):
-        validation_status = str(validation_results.get("status") or "").strip()
-        validation_command = str(validation_results.get("command") or "").strip()
-        validation_error = str(
-            validation_results.get("error_message") or ""
-        ).strip()
+    safe_validation = sanitize_guardian_validation_results_for_display(
+        validation_results,
+        blocked_literals=blocked_literals,
+    )
+    if isinstance(safe_validation, dict):
+        validation_status = safe_validation.get("status")
+        validation_command = safe_validation.get("command")
+        validation_error = safe_validation.get("error_message")
         if validation_status:
             content_parts.append(
                 f"**Validation Status**: `{validation_status}`\n\n"
@@ -1038,6 +1204,8 @@ class GuardianDelegationService:
 __all__ = [
     "build_guardian_delegation_result_delivery_key",
     "build_guardian_delegation_result_message_content",
+    "sanitize_guardian_result_files_for_display",
+    "sanitize_guardian_validation_results_for_display",
     "GuardianDelegationDispatchError",
     "GuardianDelegationError",
     "GuardianDelegationNotFoundError",
