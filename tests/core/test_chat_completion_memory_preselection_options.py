@@ -245,11 +245,15 @@ async def _build(
     dict[str, object] | None,
 ]:
     captured = _seed_completion_service(monkeypatch)
-    messages, provider, model, bundle, trace = (
-        await chat_completion_service.build_messages_for_llm(
-            _base_task(),
-            **kwargs,
-        )
+    (
+        messages,
+        provider,
+        model,
+        bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(
+        _base_task(),
+        **kwargs,
     )
     return captured, messages, provider, model, bundle, trace
 
@@ -345,10 +349,22 @@ async def test_active_option_returns_preselection_trace_metadata(
 async def test_trace_only_mode_keeps_prompt_bound_context_content_stable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, messages_base, _provider, _model, bundle_base, _trace_base = await _build(
-        monkeypatch
-    )
-    _, messages_trace, _provider2, _model2, bundle_trace, _trace_trace = await _build(
+    (
+        _,
+        messages_base,
+        _provider,
+        _model,
+        bundle_base,
+        _trace_base,
+    ) = await _build(monkeypatch)
+    (
+        _,
+        messages_trace,
+        _provider2,
+        _model2,
+        bundle_trace,
+        _trace_trace,
+    ) = await _build(
         monkeypatch,
         enable_memory_preselection_trace=True,
     )
@@ -360,10 +376,22 @@ async def test_trace_only_mode_keeps_prompt_bound_context_content_stable(
 async def test_active_mode_changes_only_memory_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, _messages_base, _provider, _model, bundle_base, _trace_base = await _build(
-        monkeypatch
-    )
-    _, _messages_active, _provider2, _model2, bundle_active, _trace_active = await _build(
+    (
+        _,
+        _messages_base,
+        _provider,
+        _model,
+        bundle_base,
+        _trace_base,
+    ) = await _build(monkeypatch)
+    (
+        _,
+        _messages_active,
+        _provider2,
+        _model2,
+        bundle_active,
+        _trace_active,
+    ) = await _build(
         monkeypatch,
         enable_memory_preselection_active=True,
     )
@@ -454,7 +482,10 @@ def test_missing_options_preserve_tool_loop_invocation_inputs(
             ],
             "local",
             "local-model",
-            {"semantic": [], "docs": {"thread": [], "project": [], "global": []}},
+            {
+                "semantic": [],
+                "docs": {"thread": [], "project": [], "global": []},
+            },
             {"source_mode": "project", "documents": [], "graph": []},
         )
 
@@ -556,7 +587,9 @@ async def test_preselection_trace_does_not_expose_raw_memory_body_text(
     assert "suppressed raw memory body" not in payload_text
 
 
-def test_pass_through_helper_has_no_direct_db_vector_llm_network_calls() -> None:
+def test_pass_through_helper_has_no_direct_db_vector_llm_network_calls() -> (
+    None
+):
     source = inspect.getsource(
         chat_completion_service._broker_memory_preselection_kwargs
     )
@@ -568,7 +601,14 @@ def test_pass_through_helper_has_no_direct_db_vector_llm_network_calls() -> None
 async def test_repeated_explicit_option_calls_are_deterministic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, first_messages, first_provider, first_model, first_bundle, first_trace = await _build(
+    (
+        _,
+        first_messages,
+        first_provider,
+        first_model,
+        first_bundle,
+        first_trace,
+    ) = await _build(
         monkeypatch,
         enable_memory_preselection_active=True,
         enable_memory_preselection_trace=True,
@@ -582,7 +622,14 @@ async def test_repeated_explicit_option_calls_are_deterministic(
             }
         ],
     )
-    _, second_messages, second_provider, second_model, second_bundle, second_trace = await _build(
+    (
+        _,
+        second_messages,
+        second_provider,
+        second_model,
+        second_bundle,
+        second_trace,
+    ) = await _build(
         monkeypatch,
         enable_memory_preselection_active=True,
         enable_memory_preselection_trace=True,
@@ -602,3 +649,44 @@ async def test_repeated_explicit_option_calls_are_deterministic(
     assert first_model == second_model
     assert first_bundle == second_bundle
     assert first_trace == second_trace
+
+
+@pytest.mark.asyncio
+async def test_context_assembly_failure_returns_safe_fallback_without_secondary_nameerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+
+    async def _boom(self, *args, **kwargs):
+        captured["boom_kwargs"] = dict(kwargs)
+        raise NameError("enable_memory_preselection_active is not defined")
+
+    monkeypatch.setattr(
+        chat_completion_service.ContextBroker,
+        "assemble",
+        _boom,
+    )
+
+    (
+        messages,
+        provider,
+        model,
+        bundle,
+        trace,
+    ) = await chat_completion_service.build_messages_for_llm(_base_task())
+
+    assert provider == "local"
+    assert model == "local-model"
+    assert captured["boom_kwargs"]["thread_id"] == 1
+    assert captured["boom_kwargs"]["query"] == "alpha request"
+    assert captured["boom_kwargs"]["depth_mode"] == "normal"
+    assert captured["boom_kwargs"]["user_id"] == "user-1"
+    assert captured["boom_kwargs"]["project_id"] == 42
+    assert captured["boom_kwargs"]["source_mode"] == "project"
+    assert captured["boom_kwargs"]["retrieval_override"] is None
+    assert isinstance(captured["boom_kwargs"]["retrieval_policy"], dict)
+    assert "enable_memory_preselection_active" not in captured["boom_kwargs"]
+    assert isinstance(messages, list)
+    assert messages
+    assert bundle["_completion_assembly"]["context_request_results"] == []
+    assert trace["context_request_results"] == []
