@@ -225,8 +225,14 @@ It validates extraction-shaped JSON artifacts for shape and safety invariants
 and can be used against docs-local expected extraction artifacts or future
 manual prompt-output artifacts.
 
-The validator does not execute prompts, call a model, define a canonical schema,
-prove extraction quality, or prove production readiness.
+The deterministic extraction-output comparison helper now exists at
+`scripts/job_intelligence/compare_extraction_outputs.py`.
+It validates both artifacts before comparison and compares docs-local expected
+extraction artifacts against manual extraction samples at field level.
+
+These helpers do not execute prompts, call a model, perform semantic scoring,
+define a canonical schema, prove extraction quality, or prove production
+readiness.
 
 At planning level, future output validation should check:
 

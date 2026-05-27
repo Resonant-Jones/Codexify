@@ -18,7 +18,10 @@ execution and model behavior outside the current task.
 - `expected-extraction.json` remains the docs-local expected fixture artifact.
 - `manual-extraction-output-v0.json` is an experimental sample.
 - The manual sample may be compared to expected extraction in future tasks.
-- This task does not introduce automated comparison.
+- This sample can now be compared to `expected-extraction.json` with `scripts/job_intelligence/compare_extraction_outputs.py`.
+- The comparison is field-level only.
+- It is not semantic grading.
+- It is not model-quality proof.
 
 ## Safety Boundary
 

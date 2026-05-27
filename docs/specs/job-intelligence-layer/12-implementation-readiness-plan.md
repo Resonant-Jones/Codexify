@@ -28,6 +28,7 @@ What is true now:
 - a docs-local manual extraction-output sample exists for the plumbing fixture
 - the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
 - the deterministic extraction-output validator now exists at `scripts/job_intelligence/validate_extraction_output.py`
+- the deterministic extraction-output comparison helper now exists at `scripts/job_intelligence/compare_extraction_outputs.py`
 - the deterministic proof-report runner now exists at `scripts/job_intelligence/run_fixture_proof.py`
 - the deterministic assembly helper now exists at `scripts/job_intelligence/assemble_fixture_draft.py`
 
@@ -51,6 +52,9 @@ What remains not true:
 - the deterministic extraction-output validator is standard-library only and docs-local
 - it validates shape and safety boundaries for extraction-shaped JSON artifacts
 - it keeps automated prompt execution deferred
+- the deterministic comparison helper is standard-library only and docs-local
+- it compares docs-local expected extraction and manual extraction sample artifacts
+- it keeps model scoring, runtime, prompt registry, schema, persistence, review UI, transcription, consent, retention, pricing, and dispatch deferred
 - the deterministic proof-report runner calls the fixture validator first
 - it validates cross-artifact fixture consistency and emits a machine-readable proof report
 - the deterministic assembly helper validates the docs-local fixture first
