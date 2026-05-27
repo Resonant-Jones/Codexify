@@ -25,6 +25,7 @@ What is true now:
 - the planning contracts for extraction, review, lineage, and pipeline decomposition exist
 - the first docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 - that prompt remains manual-only, synthetic-only, and non-runtime
+- a docs-local manual extraction-output sample exists for the plumbing fixture
 - the deterministic docs-local fixture validator now exists at `scripts/job_intelligence/validate_fixture.py`
 - the deterministic extraction-output validator now exists at `scripts/job_intelligence/validate_extraction_output.py`
 - the deterministic proof-report runner now exists at `scripts/job_intelligence/run_fixture_proof.py`
@@ -43,6 +44,9 @@ What remains not true:
 ## Reconciliation Note
 
 - the current checkout has the docs-local extraction prompt template
+- the manual extraction-output sample is synthetic-only and non-runtime
+- it can be validated for extraction-shaped JSON shape and safety boundaries
+- automated prompt execution and model-output comparison remain deferred
 - the deterministic fixture validator validates synthetic fixture shape and safety invariants only
 - the deterministic extraction-output validator is standard-library only and docs-local
 - it validates shape and safety boundaries for extraction-shaped JSON artifacts

@@ -197,6 +197,12 @@ A docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 It is manual-only, synthetic-only, and not registered in runtime.
 It does not call a model and does not define canonical schema or runtime behavior.
 
+A docs-local manual extraction-output sample now exists at
+`fixtures/plumbing-three-handle-drip/manual-extraction-output-v0.json`.
+It can be validated by the extraction-output validator, but it is not automated
+prompt execution, not model-quality proof, and does not define canonical schema
+or runtime behavior.
+
 ## Prompt Design Rules
 
 - prompts must be narrow and pass-specific
