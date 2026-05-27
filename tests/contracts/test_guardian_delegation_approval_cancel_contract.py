@@ -405,6 +405,7 @@ def test_no_command_center_or_github_or_intent_spine_side_effects(
         "/api/guardian/delegations/{intent_id}/approve",
         "/api/guardian/delegations/{intent_id}/cancel",
         "/api/guardian/delegations/{intent_id}",
+        "/api/guardian/delegations/{intent_id}/transcript",
     }
     assert all(
         not str(entry["source_type"]).startswith("github_")

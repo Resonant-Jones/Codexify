@@ -104,4 +104,15 @@ async def get_guardian_delegation(intent_id: str) -> dict[str, Any]:
         ) from exc
 
 
+@router.get("/{intent_id}/transcript")
+async def get_guardian_delegation_transcript(intent_id: str) -> dict[str, Any]:
+    try:
+        return _service.get_transcript(intent_id)
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+
 __all__ = ["configure_db", "get_service", "router"]
