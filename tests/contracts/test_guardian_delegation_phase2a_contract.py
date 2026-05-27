@@ -976,21 +976,17 @@ def test_reject_source_message_from_different_thread(
     assert response.json()["detail"] == "source_message_thread_mismatch"
 
 
-def test_no_approve_or_cancel_routes_registered(
-    delegation_client: TestClient,
-    auth_headers,
-) -> None:
-    approve = delegation_client.post(
-        "/api/guardian/delegations/intent-123/approve",
-        headers=auth_headers,
-    )
-    cancel = delegation_client.post(
-        "/api/guardian/delegations/intent-123/cancel",
-        headers=auth_headers,
-    )
-
-    assert approve.status_code == 404
-    assert cancel.status_code == 404
+def test_only_expected_guardian_delegation_routes_registered() -> None:
+    routes = {
+        (route.path, tuple(sorted((route.methods or set()) - {"HEAD", "OPTIONS"})))
+        for route in guardian_delegations.router.routes
+    }
+    assert routes == {
+        ("/api/guardian/delegations", ("POST",)),
+        ("/api/guardian/delegations/{intent_id}", ("GET",)),
+        ("/api/guardian/delegations/{intent_id}/approve", ("POST",)),
+        ("/api/guardian/delegations/{intent_id}/cancel", ("POST",)),
+    }
 
 
 def test_guardian_api_route_is_flagged_off_by_default() -> None:
