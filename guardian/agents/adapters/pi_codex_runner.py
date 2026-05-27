@@ -27,6 +27,8 @@ class PiCodexRunnerAdapter:
 
     Implements AgentAdapter protocol for Guardian orchestration.
     Uses the Pi SDK wrapper to execute tasks via the configured model.
+    `pi_codex_runner` is a legacy-compatible adapter name and does not mean
+    direct Codex CLI execution.
     """
 
     name = "pi_codex_runner"

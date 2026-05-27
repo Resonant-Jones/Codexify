@@ -218,6 +218,7 @@ Lineage and provenance:
 
 Delegation planning context:
 
+- [guardian-delegation-loop-contract.md](./guardian-delegation-loop-contract.md): Phase 1 docs-only contract for the future hybrid bridge from Guardian intake through durable intent, the existing coding-run/AgentRun backbone, source-thread continuation, and Command Center transcript mirroring. It does not prove current implementation.
 - [guardian-agent-delegation-recon.md](./guardian-agent-delegation-recon.md)
 - [docs/guardian/agent-orchestration.md](../guardian/agent-orchestration.md)
 - [docs/guardian/agent-runtime-onboarding.md](../guardian/agent-runtime-onboarding.md)
