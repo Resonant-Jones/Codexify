@@ -51,6 +51,14 @@ class GuardianDelegationRunStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class GuardianDelegationVisibilityStatus(str, Enum):
+    NOT_POSTED = "not_posted"
+    INTERRUPT_POSTED = "interrupt_posted"
+    RESULT_POSTED = "result_posted"
+    STALE_SUPPRESSED = "stale_suppressed"
+    DELIVERY_DEGRADED = "delivery_degraded"
+
+
 class GuardianDelegationContextSourceType(str, Enum):
     SELECTED_TURN = "selected_turn"
     PROJECT_KB = "project_kb"
@@ -342,6 +350,9 @@ GUARDIAN_DELEGATION_INTENT_STATUSES: frozenset[str] = frozenset(
 GUARDIAN_DELEGATION_RUN_STATUSES: frozenset[str] = frozenset(
     {status.value for status in GuardianDelegationRunStatus}
 )
+GUARDIAN_DELEGATION_VISIBILITY_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in GuardianDelegationVisibilityStatus}
+)
 GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES: frozenset[str] = frozenset(
     {source_type.value for source_type in GuardianDelegationContextSourceType}
 )
@@ -449,6 +460,7 @@ __all__ = [
     "GuardianDelegationApprovalSource",
     "GuardianDelegationIntentStatus",
     "GuardianDelegationRunStatus",
+    "GuardianDelegationVisibilityStatus",
     "GuardianDelegationContextSourceType",
     "ContextRequestStatus",
     "TaskEventType",
@@ -485,6 +497,7 @@ __all__ = [
     "GUARDIAN_DELEGATION_APPROVAL_SOURCES",
     "GUARDIAN_DELEGATION_INTENT_STATUSES",
     "GUARDIAN_DELEGATION_RUN_STATUSES",
+    "GUARDIAN_DELEGATION_VISIBILITY_STATUSES",
     "GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
