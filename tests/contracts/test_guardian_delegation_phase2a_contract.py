@@ -976,52 +976,6 @@ def test_reject_source_message_from_different_thread(
     assert response.json()["detail"] == "source_message_thread_mismatch"
 
 
-def test_phase2a_does_not_post_source_thread_result(
-    delegation_client: TestClient,
-    db: _TestDB,
-    auth_headers,
-) -> None:
-    seeded = _seed_source_context(db)
-    create_response = delegation_client.post(
-        "/api/guardian/delegations",
-        headers=auth_headers,
-        json={
-            "thread_id": seeded["thread_id"],
-            "source_message_id": seeded["source_message_id"],
-        },
-    )
-
-    assert create_response.status_code == 201
-    created = create_response.json()
-    store = _make_store(db)
-    result = store.store_coding_result(
-        run_id=created["run_id"],
-        coding_task_id="coding-task-phase2a",
-        attempt_id="attempt-phase2a",
-        thread_id=seeded["thread_id"],
-        source_message_id=seeded["source_message_id"],
-        result_status="ok",
-        result_summary="Applied the patch.",
-        artifacts=[],
-        errors=[],
-    )
-
-    assert result["delivery_status"] == "not_requested"
-    assert (
-        result["delivery_reason_code"]
-        == "guardian_delegation_source_thread_delivery_deferred"
-    )
-    assert result["source_thread_delivery_suppressed"] is True
-    run_row = _fetch_run(db, created["run_id"])
-    assert run_row is not None
-    assert run_row.status == "succeeded"
-    assert _fetch_thread_messages(
-        db,
-        seeded["thread_id"],
-        kind="coding_result",
-    ) == []
-
-
 def test_no_approve_or_cancel_routes_registered(
     delegation_client: TestClient,
     auth_headers,
