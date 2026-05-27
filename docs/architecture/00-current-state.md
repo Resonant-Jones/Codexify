@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-26
+2026-05-27
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,19 +13,18 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Since the last audit, `main` added health-check visibility for LLM model availability; the broader release posture is otherwise unchanged.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes narrowed the gap between runtime and operator visibility, but they do not widen the release promise.
 
 ## What changed recently
 - `main` now surfaces LLM model availability in health checks.
-- Supported-profile wiring remains aligned with the local-only beta contract.
+- Local provider catalog metadata was updated for Whooshd.
+- Supported-profile, health, and catalog surfaces remain aligned on the supported path.
 - Personal-facts settings routing remains repaired on `main`.
-- GuardianChat still surfaces runtime visual state in the shell.
-- Internal/manual local-model draft adapter work remains present, but not a release promise.
+- Internal/manual local-model draft adapter work is still present, but it is not a release promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- Supported-profile, health, and catalog surfaces are aligned on `main`.
 - Health checks now report LLM model availability.
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path.
@@ -46,8 +45,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
-- No single merged-code blocker is proven on `main`.
-- Chat completion is queue-coupled and still depends on Redis plus worker health.
+- Queue-coupled chat still depends on Redis plus worker health.
 - Canonical and legacy config paths still coexist, so startup and operator state can drift.
 - Legacy `/tools` behavior still overlaps with the command bus.
 - Sync subscriptions are still process-local rather than durable across restarts.
@@ -66,7 +64,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are proven on the supported stack.
 - [x] Coding results return through Guardian into the source thread.
 - [x] No internal-only or quarantined surface is part of the release claim.
-- [ ] Queue/worker, config, sync, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
+- [ ] Queue, config, sync, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
