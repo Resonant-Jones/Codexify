@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROFILE_PATH = Path.home() / ".config" / "campaign_runner" / "settings.toml"
+SUPPORTED_PROVIDER = "pi"
+LEGACY_UNSUPPORTED_PROVIDERS = {"codex", "claude"}
+UNSUPPORTED_PROVIDER = "unsupported"
+UNSUPPORTED_DIRECT_PROVIDER_MESSAGE = (
+    "Direct Codex/Claude execution is unsupported for Campaign Runner. "
+    "Use the Pi broker adapter."
+)
 
 PRESET_ALLOWED_KEYS = {
     "provider",
@@ -17,20 +24,18 @@ PRESET_ALLOWED_KEYS = {
     "branch_per_campaign",
     "allow_discovery_fallback",
     "base_ref",
-    "codex_model",
-    "codex_model_audit",
-    "codex_model_compiler",
-    "codex_model_task",
-    "claude_model",
-    "claude_model_audit",
-    "claude_model_compiler",
-    "claude_model_task",
+    "pi_provider",
+    "pi_model",
+    "pi_model_audit",
+    "pi_model_compiler",
+    "pi_model_task",
+    "pi_thinking",
 }
 
 
 @dataclass
 class RunnerSettings:
-    provider: str = "codex"
+    provider: str = SUPPORTED_PROVIDER
 
     repo_root: str = ""
     audit_prompt_file: str = ""
@@ -49,24 +54,19 @@ class RunnerSettings:
     verify: bool = False
     debug: bool = False
 
-    codex_model: str = ""
-    codex_model_audit: str = ""
-    codex_model_compiler: str = ""
-    codex_model_task: str = ""
-    codex_config: list[str] = field(default_factory=list)
-
-    claude_model: str = ""
-    claude_model_audit: str = ""
-    claude_model_compiler: str = ""
-    claude_model_task: str = ""
-    claude_settings: list[str] = field(default_factory=list)
+    pi_provider: str = ""
+    pi_model: str = ""
+    pi_model_audit: str = ""
+    pi_model_compiler: str = ""
+    pi_model_task: str = ""
+    pi_thinking: str = ""
 
 
 @dataclass
 class ProfileData:
     settings: RunnerSettings
-    presets: dict[str, dict[str, Any]] = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
+    presets: dict[str, dict[str, Any]]
+    warnings: list[str]
 
 
 def default_verify(ci_env: str | None) -> bool:
@@ -78,7 +78,7 @@ def default_verify(ci_env: str | None) -> bool:
 def default_settings(cwd: Path | None = None) -> RunnerSettings:
     root = str((cwd or Path.cwd()).resolve())
     return RunnerSettings(
-        provider="codex",
+        provider=SUPPORTED_PROVIDER,
         repo_root=root,
         audit_prompt_file=str(SCRIPT_DIR / "prompts" / "mega_audit.md"),
         audit_schema_file=str(
@@ -124,22 +124,23 @@ def _coerce_str(value: Any, fallback: str) -> str:
     return str(value)
 
 
-def _coerce_list(value: Any, fallback: list[str]) -> list[str]:
-    if not isinstance(value, list):
-        return list(fallback)
-    result: list[str] = []
-    for item in value:
-        text = str(item).strip()
-        if text:
-            result.append(text)
-    return result
-
-
-def _coerce_provider(value: Any, fallback: str) -> str:
+def _coerce_provider(
+    value: Any, fallback: str
+) -> tuple[str, list[str]]:
     provider = _coerce_str(value, fallback).strip().lower()
-    if provider in {"codex", "claude"}:
-        return provider
-    return fallback
+    if not provider:
+        return fallback, []
+    if provider == SUPPORTED_PROVIDER:
+        return provider, []
+    if provider in LEGACY_UNSUPPORTED_PROVIDERS:
+        return UNSUPPORTED_PROVIDER, [UNSUPPORTED_DIRECT_PROVIDER_MESSAGE]
+    return (
+        UNSUPPORTED_PROVIDER,
+        [
+            f"Unsupported persisted provider '{provider}'. "
+            "Choose 'pi' before running Campaign Runner."
+        ],
+    )
 
 
 def _coerce_execute_mode(value: Any, fallback: str) -> str:
@@ -151,7 +152,7 @@ def _coerce_execute_mode(value: Any, fallback: str) -> str:
 
 def settings_from_dict(
     raw: dict[str, Any], base: RunnerSettings
-) -> RunnerSettings:
+) -> tuple[RunnerSettings, list[str]]:
     passes_raw = raw.get("passes", base.passes)
     try:
         passes_value = int(passes_raw)
@@ -160,8 +161,9 @@ def settings_from_dict(
     if passes_value < 1:
         passes_value = 1
 
-    return RunnerSettings(
-        provider=_coerce_provider(raw.get("provider"), base.provider),
+    provider, warnings = _coerce_provider(raw.get("provider"), base.provider)
+    settings = RunnerSettings(
+        provider=provider,
         repo_root=_coerce_str(raw.get("repo_root"), base.repo_root),
         audit_prompt_file=_coerce_str(
             raw.get("audit_prompt_file"), base.audit_prompt_file
@@ -176,7 +178,8 @@ def settings_from_dict(
             raw.get("campaign_set_schema_file"), base.campaign_set_schema_file
         ),
         task_result_schema_file=_coerce_str(
-            raw.get("task_result_schema_file"), base.task_result_schema_file
+            raw.get("task_result_schema_file"),
+            base.task_result_schema_file,
         ),
         passes=passes_value,
         base_ref=_coerce_str(raw.get("base_ref"), base.base_ref),
@@ -193,31 +196,20 @@ def settings_from_dict(
         auto_commit=True,
         verify=_coerce_bool(raw.get("verify"), base.verify),
         debug=_coerce_bool(raw.get("debug"), base.debug),
-        codex_model=_coerce_str(raw.get("codex_model"), base.codex_model),
-        codex_model_audit=_coerce_str(
-            raw.get("codex_model_audit"), base.codex_model_audit
+        pi_provider=_coerce_str(raw.get("pi_provider"), base.pi_provider),
+        pi_model=_coerce_str(raw.get("pi_model"), base.pi_model),
+        pi_model_audit=_coerce_str(
+            raw.get("pi_model_audit"), base.pi_model_audit
         ),
-        codex_model_compiler=_coerce_str(
-            raw.get("codex_model_compiler"), base.codex_model_compiler
+        pi_model_compiler=_coerce_str(
+            raw.get("pi_model_compiler"), base.pi_model_compiler
         ),
-        codex_model_task=_coerce_str(
-            raw.get("codex_model_task"), base.codex_model_task
+        pi_model_task=_coerce_str(
+            raw.get("pi_model_task"), base.pi_model_task
         ),
-        codex_config=_coerce_list(raw.get("codex_config"), base.codex_config),
-        claude_model=_coerce_str(raw.get("claude_model"), base.claude_model),
-        claude_model_audit=_coerce_str(
-            raw.get("claude_model_audit"), base.claude_model_audit
-        ),
-        claude_model_compiler=_coerce_str(
-            raw.get("claude_model_compiler"), base.claude_model_compiler
-        ),
-        claude_model_task=_coerce_str(
-            raw.get("claude_model_task"), base.claude_model_task
-        ),
-        claude_settings=_coerce_list(
-            raw.get("claude_settings"), base.claude_settings
-        ),
+        pi_thinking=_coerce_str(raw.get("pi_thinking"), base.pi_thinking),
     )
+    return settings, warnings
 
 
 def load_profile(cwd: Path | None = None) -> RunnerSettings:
@@ -257,7 +249,7 @@ def _normalize_preset_map(
 def load_profile_data(cwd: Path | None = None) -> ProfileData:
     base = default_settings(cwd=cwd)
     if not PROFILE_PATH.exists():
-        return ProfileData(settings=base)
+        return ProfileData(settings=base, presets={}, warnings=[])
 
     try:
         try:
@@ -267,19 +259,21 @@ def load_profile_data(cwd: Path | None = None) -> ProfileData:
         with PROFILE_PATH.open("rb") as handle:
             raw = tomllib.load(handle)
     except Exception:
-        return ProfileData(settings=base)
+        return ProfileData(settings=base, presets={}, warnings=[])
 
     if not isinstance(raw, dict):
-        return ProfileData(settings=base)
+        return ProfileData(settings=base, presets={}, warnings=[])
 
     raw_presets = raw.get("presets", {})
     normalized_presets, warnings = _normalize_preset_map(raw_presets)
 
     merged_raw = dict(raw)
     merged_raw.pop("presets", None)
-    settings = settings_from_dict(merged_raw, base)
+    settings, provider_warnings = settings_from_dict(merged_raw, base)
     return ProfileData(
-        settings=settings, presets=normalized_presets, warnings=warnings
+        settings=settings,
+        presets=normalized_presets,
+        warnings=[*warnings, *provider_warnings],
     )
 
 
@@ -300,16 +294,12 @@ def settings_to_dict(settings: RunnerSettings) -> dict[str, Any]:
         "auto_commit": True,
         "verify": settings.verify,
         "debug": settings.debug,
-        "codex_model": settings.codex_model,
-        "codex_model_audit": settings.codex_model_audit,
-        "codex_model_compiler": settings.codex_model_compiler,
-        "codex_model_task": settings.codex_model_task,
-        "codex_config": list(settings.codex_config),
-        "claude_model": settings.claude_model,
-        "claude_model_audit": settings.claude_model_audit,
-        "claude_model_compiler": settings.claude_model_compiler,
-        "claude_model_task": settings.claude_model_task,
-        "claude_settings": list(settings.claude_settings),
+        "pi_provider": settings.pi_provider,
+        "pi_model": settings.pi_model,
+        "pi_model_audit": settings.pi_model_audit,
+        "pi_model_compiler": settings.pi_model_compiler,
+        "pi_model_task": settings.pi_model_task,
+        "pi_thinking": settings.pi_thinking,
     }
 
 
@@ -395,27 +385,18 @@ def to_cli_args(settings: RunnerSettings) -> list[str]:
     else:
         args.append("--no-verify")
 
-    if settings.codex_model:
-        args.extend(["--codex-model", settings.codex_model])
-    if settings.codex_model_audit:
-        args.extend(["--codex-model-audit", settings.codex_model_audit])
-    if settings.codex_model_compiler:
-        args.extend(["--codex-model-compiler", settings.codex_model_compiler])
-    if settings.codex_model_task:
-        args.extend(["--codex-model-task", settings.codex_model_task])
-    for config in settings.codex_config:
-        args.extend(["--codex-config", config])
-
-    if settings.claude_model:
-        args.extend(["--claude-model", settings.claude_model])
-    if settings.claude_model_audit:
-        args.extend(["--claude-model-audit", settings.claude_model_audit])
-    if settings.claude_model_compiler:
-        args.extend(["--claude-model-compiler", settings.claude_model_compiler])
-    if settings.claude_model_task:
-        args.extend(["--claude-model-task", settings.claude_model_task])
-    for setting in settings.claude_settings:
-        args.extend(["--claude-settings", setting])
+    if settings.pi_provider:
+        args.extend(["--pi-provider", settings.pi_provider])
+    if settings.pi_model:
+        args.extend(["--pi-model", settings.pi_model])
+    if settings.pi_model_audit:
+        args.extend(["--pi-model-audit", settings.pi_model_audit])
+    if settings.pi_model_compiler:
+        args.extend(["--pi-model-compiler", settings.pi_model_compiler])
+    if settings.pi_model_task:
+        args.extend(["--pi-model-task", settings.pi_model_task])
+    if settings.pi_thinking:
+        args.extend(["--pi-thinking", settings.pi_thinking])
 
     if settings.debug:
         args.append("--debug")

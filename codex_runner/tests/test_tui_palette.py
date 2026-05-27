@@ -29,16 +29,16 @@ def test_staged_changes_and_apply() -> None:
     app = CampaignRunnerTUI()
     app.staged_settings = RunnerSettings()
     app.active_settings = RunnerSettings()
-    app._execute_command("/set provider claude", instant=False)
-    assert app.staged_settings.provider == "claude"
-    assert app.active_settings.provider == "codex"
+    app._execute_command("/set provider pi", instant=False)
+    assert app.staged_settings.provider == "pi"
+    assert app.active_settings.provider == "pi"
 
 
 def test_run_blocked_when_staged_exists() -> None:
     app = CampaignRunnerTUI()
     app.active_settings = RunnerSettings()
     app.staged_settings = RunnerSettings()
-    app.staged_settings.provider = "claude"
+    app.staged_settings.pi_provider = "anthropic"
     app.has_staged_changes = True
     app._try_run(strict=True, instant=False)
     assert app._pending_run_args is None
@@ -47,7 +47,7 @@ def test_run_blocked_when_staged_exists() -> None:
 def test_validate_settings_blocks_missing_repo() -> None:
     app = CampaignRunnerTUI()
     settings = RunnerSettings(
-        provider="codex",
+        provider="pi",
         repo_root="/tmp/does-not-exist-runner",
         audit_prompt_file="/tmp/missing-audit.md",
         audit_schema_file="/tmp/missing-audit.schema.json",
@@ -85,7 +85,7 @@ def test_validate_settings_accepts_valid_repo_and_paths(tmp_path: Path) -> None:
     _tui_app.subprocess.run = fake_validate_git  # type: ignore[assignment]
     try:
         settings = RunnerSettings(
-            provider="claude",
+            provider="pi",
             repo_root=str(tmp_path),
             audit_prompt_file=str(tmp_path / "audit.md"),
             audit_schema_file=str(tmp_path / "audit.schema.json"),
@@ -116,7 +116,7 @@ def test_command_submission_updates_suggestions() -> None:
 def test_instant_run_auto_applies_staged_and_exits() -> None:
     app = CampaignRunnerTUI()
     app.active_settings = RunnerSettings()
-    app.staged_settings = RunnerSettings(provider="claude")
+    app.staged_settings = RunnerSettings(pi_provider="anthropic")
     app.has_staged_changes = True
 
     captured: dict[str, object] = {}
@@ -127,7 +127,7 @@ def test_instant_run_auto_applies_staged_and_exits() -> None:
     app.exit = fake_exit  # type: ignore[assignment]
     app._try_run(strict=False, instant=True)
 
-    assert app.active_settings.provider == "claude"
+    assert app.active_settings.pi_provider == "anthropic"
     assert isinstance(captured.get("value"), list)
 
 

@@ -3547,6 +3547,7 @@ async def build_messages_for_llm(
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
     assembly_succeeded = False
+    context_request_results: list[dict[str, Any]] = []
     retrieval_policy_obj: Any | None = None
     retrieval_policy: dict[str, Any] | None = None
     broker: ContextBroker | None = None

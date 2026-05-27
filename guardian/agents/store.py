@@ -10,11 +10,19 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
+
 from guardian.agents.campaign_runner_store import (
     CampaignRunnerStore,
     CampaignRunnerStoreError,
 )
 from guardian.agents.events import build_coding_result_lineage_payload
+from guardian.core.guardian_delegation_service import (
+    build_guardian_delegation_result_delivery_key,
+    build_guardian_delegation_result_message_content,
+    sanitize_guardian_result_files_for_display,
+    sanitize_guardian_validation_results_for_display,
+)
 from guardian.db.models import (
     AgentConfidenceReport,
     AgentDeployment,
@@ -26,9 +34,37 @@ from guardian.db.models import (
     AgentRunStep,
     ChatMessage,
     ChatThread,
+    GuardianDelegationIntent,
+)
+from guardian.protocol_tokens import (
+    GuardianDelegationIntentStatus,
+    GuardianDelegationVisibilityStatus,
 )
 
 logger = logging.getLogger(__name__)
+
+_GUARDIAN_DELEGATION_OWNERSHIP = "guardian_delegation_intent"
+_GUARDIAN_DELEGATION_DELIVERY_DEFERRED_REASON = (
+    "guardian_delegation_source_thread_delivery_deferred"
+)
+_GUARDIAN_DELEGATION_INTENT_MISSING_REASON = (
+    "guardian_delegation_intent_missing"
+)
+_GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON = (
+    "guardian_delegation_lineage_incomplete"
+)
+_GUARDIAN_DELEGATION_RUN_MISMATCH_REASON = (
+    "guardian_delegation_run_mismatch"
+)
+_GUARDIAN_DELEGATION_SUPERSEDED_REASON = (
+    "guardian_delegation_superseded"
+)
+_GUARDIAN_DELEGATION_CANCELLED_REASON = (
+    "guardian_delegation_cancelled"
+)
+_GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON = (
+    "guardian_delegation_scope_mismatch"
+)
 
 
 def _utc_now() -> datetime:
@@ -60,6 +96,24 @@ def _normalize_coding_result_status(status: Any) -> str:
     return value or "error"
 
 
+def _normalize_agent_run_status(status: Any) -> str:
+    value = str(status or "").strip().lower()
+    if value in {"success", "succeeded", "completed"}:
+        return "succeeded"
+    if value == "cancelled":
+        return "canceled"
+    return value or "failed"
+
+
+def _is_terminal_agent_run_status(status: Any) -> bool:
+    return _normalize_agent_run_status(status) in {
+        "succeeded",
+        "failed",
+        "canceled",
+        "escalated",
+    }
+
+
 def _should_persist_coding_result_message(status: str) -> bool:
     normalized = _normalize_coding_result_status(status)
     # Terminal coding outcomes should return bounded evidence to the source
@@ -72,6 +126,27 @@ def _should_persist_coding_result_message(status: str) -> bool:
         "in_progress",
         "processing",
     }
+
+
+def _guardian_delegation_metadata(
+    deployment_spec: dict[str, Any],
+) -> dict[str, Any] | None:
+    metadata = deployment_spec.get("guardian_delegation")
+    if not isinstance(metadata, dict):
+        return None
+    if (
+        str(metadata.get("ownership") or "").strip()
+        != _GUARDIAN_DELEGATION_OWNERSHIP
+    ):
+        return None
+    return metadata
+
+
+def _guardian_delegation_delivery_deferred(
+    deployment_spec: dict[str, Any],
+) -> bool:
+    metadata = _guardian_delegation_metadata(deployment_spec)
+    return bool(metadata and metadata.get("suppress_source_thread_delivery"))
 
 
 def _extract_patch_artifact_metadata(
@@ -104,6 +179,33 @@ def _extract_patch_artifact_metadata(
     return None
 
 
+def _find_existing_coding_result_message(
+    session: Any,
+    *,
+    thread_id: int,
+    run_id: str | None = None,
+    delivery_key: str | None = None,
+) -> ChatMessage | None:
+    # Phase 3.1 uses intent-row locking plus delivery-key recovery to keep
+    # Guardian-owned thread delivery effectively exactly-once. A true
+    # chat_messages-level DB uniqueness constraint on JSON metadata is deferred.
+    for candidate in (
+        session.query(ChatMessage)
+        .filter_by(thread_id=thread_id, kind="coding_result")
+        .order_by(ChatMessage.id.asc())
+        .all()
+    ):
+        if not isinstance(candidate.extra_meta, dict):
+            continue
+        if delivery_key and (
+            str(candidate.extra_meta.get("delivery_key") or "") == delivery_key
+        ):
+            return candidate
+        if run_id and str(candidate.extra_meta.get("run_id") or "") == run_id:
+            return candidate
+    return None
+
+
 @dataclass
 class AgentStore:
     """Durable store with SQLAlchemy-backed persistence and in-memory fallback."""
@@ -122,6 +224,20 @@ class AgentStore:
 
     def configure_db(self, db: Any | None) -> None:
         self.db = db
+
+    def _before_guardian_delegation_delivery_finalize(
+        self,
+        *,
+        session: Any,
+        intent: GuardianDelegationIntent,
+        delivery_key: str,
+        run_id: str,
+    ) -> None:
+        """Allow a final state boundary before Guardian result posting."""
+        return None
+
+    def _commit_guardian_delegation_delivery(self, session: Any) -> None:
+        session.commit()
 
     def _has_db(self) -> bool:
         return bool(self.db is not None and hasattr(self.db, "get_session"))
@@ -1109,16 +1225,15 @@ class AgentStore:
             str(commit_reason_code).strip() if commit_reason_code else None
         )
         resolved_merge_ready = bool(merge_ready) if merge_ready else False
+        guardian_delegation_metadata = _guardian_delegation_metadata(
+            deployment_spec
+        )
+        guardian_delegation_owned = guardian_delegation_metadata is not None
+        guardian_delegation_delivery_deferred = (
+            _guardian_delegation_delivery_deferred(deployment_spec)
+        )
 
         resolved_commit_hash = str(commit_hash).strip() if commit_hash else None
-        validation_results = None
-        validation_attempt_count = None
-        validation_attempts = None
-        validation_stop_reason = None
-        final_validation_status = None
-        final_fail_signature = None
-        best_validation_result = None
-        max_validation_attempts = None
         for artifact in artifact_rows:
             if resolved_commit_hash is None:
                 candidate = artifact.get("commit_hash") or artifact.get(
@@ -1196,53 +1311,6 @@ class AgentStore:
                     "max_validation_attempts"
                 )
 
-            result_payload = {
-                "run_id": run_id,
-                "coding_task_id": coding_task_id,
-                "attempt_id": attempt_id,
-                "campaign_id": resolved_campaign_id,
-                "work_order_id": resolved_work_order_id,
-                "request_id": request_id,
-                "thread_id": expected_thread_id,
-                "source_message_id": expected_source_message_id,
-                "adapter_kind": adapter_kind,
-                "user_id": expected_user_id,
-                "project_id": expected_project_id,
-                "status": normalized_status,
-                "coding_result_status": normalized_status,
-                "summary": result_summary,
-                "files_changed": normalized_files_changed,
-                "artifacts": artifact_rows,
-                "errors": errors or [],
-                "error_code": error_code,
-                "error_message": error_message,
-                "commit_after_validation": resolved_commit_after_validation,
-                "commit_hash": resolved_commit_hash,
-                "commit_status": resolved_commit_status,
-                "commit_reason_code": resolved_commit_reason_code,
-                "merge_ready": resolved_merge_ready,
-                "human_review_required": resolved_human_review_required,
-                "require_human_review_before_merge": (
-                    resolved_require_human_review_before_merge
-                ),
-                "validation_results": validation_results,
-                "validation_result": validation_results,
-                "validation_attempt_count": validation_attempt_count,
-                "validation_attempts": validation_attempts,
-                "validation_stop_reason": validation_stop_reason,
-                "final_validation_status": final_validation_status,
-                "final_fail_signature": final_fail_signature,
-                "best_validation_result": best_validation_result,
-                "max_validation_attempts": max_validation_attempts,
-                "adapter_session_ref": adapter_session_ref,
-                "worktree_lease_id": resolved_worktree_lease_id,
-                "lease_required": resolved_lease_required,
-                "branch_name": resolved_lease_branch_name,
-                "worktree_path": resolved_lease_worktree_path,
-                "patch_artifact": patch_artifact,
-                "result_captured_by_guardian": True,
-            }
-
         result_payload = {
             "run_id": run_id,
             "coding_task_id": coding_task_id,
@@ -1289,12 +1357,55 @@ class AgentStore:
             "patch_artifact": patch_artifact,
             "result_captured_by_guardian": True,
         }
+        if guardian_delegation_owned:
+            intent_id = str(
+                guardian_delegation_metadata.get("intent_id") or ""
+            ).strip()
+            if intent_id:
+                result_payload["guardian_delegation_intent_id"] = intent_id
 
         message_id = None
         delivery_reason_code = None
         delivery_ok = False
         delivery_status = "degraded"
-        if (
+        visibility_status = None
+        source_thread_delivery_suppressed = False
+        if guardian_delegation_delivery_deferred:
+            delivery_status = "not_requested"
+            delivery_reason_code = (
+                _GUARDIAN_DELEGATION_DELIVERY_DEFERRED_REASON
+            )
+            source_thread_delivery_suppressed = True
+        elif guardian_delegation_owned and self._has_db():
+            (
+                message_id,
+                delivery_status,
+                delivery_reason_code,
+                visibility_status,
+            ) = self._deliver_guardian_delegation_result_to_thread(
+                guardian_delegation_metadata=guardian_delegation_metadata,
+                run_id=run_id,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
+                expected_thread_id=expected_thread_id,
+                expected_source_message_id=expected_source_message_id,
+                expected_user_id=expected_user_id,
+                expected_project_id=expected_project_id,
+                adapter_kind=adapter_kind,
+                status=normalized_status,
+                summary=result_summary,
+                files_changed=normalized_files_changed,
+                validation_results=validation_results,
+                commit_hash=resolved_commit_hash,
+            )
+            delivery_ok = (
+                message_id is not None and delivery_status == "delivered"
+            )
+            source_thread_delivery_suppressed = (
+                delivery_status == "stale_suppressed"
+            )
+        elif (
             persist_message
             and expected_thread_id is not None
             and self._has_db()
@@ -1371,7 +1482,13 @@ class AgentStore:
                 "partial-success",
             }
         ):
-            terminal_run_status = "succeeded" if delivery_ok else "failed"
+            terminal_run_status = (
+                "succeeded"
+                if guardian_delegation_owned
+                or delivery_ok
+                or guardian_delegation_delivery_deferred
+                else "failed"
+            )
         else:
             terminal_run_status = "failed"
 
@@ -1390,6 +1507,11 @@ class AgentStore:
         artifact_payload["delivery_status"] = delivery_status
         artifact_payload["delivery_reason"] = delivery_reason_code
         artifact_payload["delivery_reason_code"] = delivery_reason_code
+        artifact_payload["source_thread_delivery_suppressed"] = (
+            source_thread_delivery_suppressed
+        )
+        if visibility_status is not None:
+            artifact_payload["visibility_status"] = visibility_status
         artifact_payload["terminal_run_status"] = terminal_run_status
         artifact_payload["terminal_run_status_updated"] = run_status_updated
         if self._has_db():
@@ -1470,6 +1592,10 @@ class AgentStore:
             "delivery_status": delivery_status,
             "delivery_reason": delivery_reason_code,
             "delivery_reason_code": delivery_reason_code,
+            "source_thread_delivery_suppressed": (
+                source_thread_delivery_suppressed
+            ),
+            "visibility_status": visibility_status,
             "thread_id": expected_thread_id,
             "source_message_id": expected_source_message_id,
             "terminal_run_status": terminal_run_status,
@@ -1494,6 +1620,456 @@ class AgentStore:
             "work_order_id": resolved_work_order_id,
             "result_payload": result_payload,
         }
+
+    def _deliver_guardian_delegation_result_to_thread(
+        self,
+        *,
+        guardian_delegation_metadata: dict[str, Any] | None,
+        run_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        request_id: str | None,
+        expected_thread_id: int | None,
+        expected_source_message_id: int | None,
+        expected_user_id: str | None,
+        expected_project_id: int | None,
+        adapter_kind: str | None,
+        status: str,
+        summary: str,
+        files_changed: list[str],
+        validation_results: Any | None,
+        commit_hash: str | None,
+    ) -> tuple[int | None, str, str | None, str | None]:
+        if not self._has_db():
+            return (
+                None,
+                "degraded",
+                "delivery_database_unavailable",
+                GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value,
+            )
+
+        intent_id = str(
+            (guardian_delegation_metadata or {}).get("intent_id") or ""
+        ).strip()
+        if not intent_id:
+            return (
+                None,
+                "degraded",
+                _GUARDIAN_DELEGATION_INTENT_MISSING_REASON,
+                None,
+            )
+
+        with self.db.get_session() as session:
+            intent = (
+                session.query(GuardianDelegationIntent)
+                .with_for_update()
+                .filter_by(intent_id=intent_id)
+                .first()
+            )
+            if intent is None:
+                return (
+                    None,
+                    "degraded",
+                    _GUARDIAN_DELEGATION_INTENT_MISSING_REASON,
+                    None,
+                )
+
+            suppressed = self._guard_guardian_delegation_delivery_state(
+                session=session,
+                intent=intent,
+                run_id=run_id,
+            )
+            if suppressed is not None:
+                return suppressed
+
+            thread_id = int(intent.thread_id)
+            source_message_id = int(intent.source_message_id)
+            if (
+                expected_thread_id is not None
+                and int(expected_thread_id) != thread_id
+            ) or (
+                expected_source_message_id is not None
+                and int(expected_source_message_id) != source_message_id
+            ):
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                )
+                intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
+                session.commit()
+                return (
+                    None,
+                    "degraded",
+                    _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON,
+                    intent.visibility_status,
+                )
+
+            delivery_key = build_guardian_delegation_result_delivery_key(
+                intent_id=intent_id,
+                run_id=run_id,
+            )
+            if (
+                str(intent.visibility_status or "").strip()
+                == GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                and intent.result_message_id is not None
+            ):
+                if not str(intent.result_delivery_key or "").strip():
+                    intent.result_delivery_key = delivery_key
+                    session.commit()
+                return (
+                    int(intent.result_message_id),
+                    "delivered",
+                    None,
+                    GuardianDelegationVisibilityStatus.RESULT_POSTED.value,
+                )
+
+            existing = _find_existing_coding_result_message(
+                session,
+                thread_id=thread_id,
+                delivery_key=delivery_key,
+            )
+            if existing is not None:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                )
+                intent.result_message_id = int(existing.id)
+                intent.result_delivery_key = delivery_key
+                intent.result_delivered_at = intent.result_delivered_at or _utc_now()
+                intent.delivery_error = None
+                self._commit_guardian_delegation_delivery(session)
+                return (
+                    int(existing.id),
+                    "delivered",
+                    None,
+                    intent.visibility_status,
+                )
+
+            thread = session.query(ChatThread).filter_by(id=thread_id).first()
+            if thread is None:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                )
+                intent.delivery_error = "source_thread_missing"
+                session.commit()
+                return (
+                    None,
+                    "degraded",
+                    "source_thread_missing",
+                    intent.visibility_status,
+                )
+            if expected_user_id and str(thread.user_id) != expected_user_id:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                )
+                intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
+                session.commit()
+                return (
+                    None,
+                    "degraded",
+                    _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON,
+                    intent.visibility_status,
+                )
+            if expected_project_id is not None and (
+                thread.project_id is None
+                or int(thread.project_id) != int(expected_project_id)
+            ):
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                )
+                intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
+                session.commit()
+                return (
+                    None,
+                    "degraded",
+                    _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON,
+                    intent.visibility_status,
+                )
+
+            source_message = (
+                session.query(ChatMessage)
+                .filter_by(id=source_message_id)
+                .first()
+            )
+            if source_message is None or int(source_message.thread_id) != thread_id:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+                )
+                intent.delivery_error = "source_message_missing"
+                session.commit()
+                return (
+                    None,
+                    "degraded",
+                    "source_message_missing",
+                    intent.visibility_status,
+                )
+            selected_turn_text = str(source_message.content or "").strip()
+
+            self._before_guardian_delegation_delivery_finalize(
+                session=session,
+                intent=intent,
+                delivery_key=delivery_key,
+                run_id=run_id,
+            )
+            suppressed = self._guard_guardian_delegation_delivery_state(
+                session=session,
+                intent=intent,
+                run_id=run_id,
+            )
+            if suppressed is not None:
+                return suppressed
+
+            existing = _find_existing_coding_result_message(
+                session,
+                thread_id=thread_id,
+                delivery_key=delivery_key,
+            )
+            if existing is not None:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                )
+                intent.result_message_id = int(existing.id)
+                intent.result_delivery_key = delivery_key
+                intent.result_delivered_at = intent.result_delivered_at or _utc_now()
+                intent.delivery_error = None
+                self._commit_guardian_delegation_delivery(session)
+                return (
+                    int(existing.id),
+                    "delivered",
+                    None,
+                    intent.visibility_status,
+                )
+
+            safe_files_changed = sanitize_guardian_result_files_for_display(
+                files_changed
+            )
+            safe_validation_results = (
+                sanitize_guardian_validation_results_for_display(
+                    validation_results,
+                    blocked_literals=[selected_turn_text],
+                )
+            )
+
+            extra_meta = build_coding_result_lineage_payload(
+                run_id=run_id,
+                queue_task_id=None,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                request_id=request_id,
+                source_thread_id=thread_id,
+                source_message_id=source_message_id,
+                adapter_kind=adapter_kind,
+            )
+            extra_meta.update(
+                {
+                    "type": "coding_result",
+                    "guardian_delegation_intent_id": intent_id,
+                    "thread_id": thread_id,
+                    "delivery_key": delivery_key,
+                    "delivery_kind": "guardian_delegation_result",
+                    "visibility_status": (
+                        GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                    ),
+                    "coding_result_status": status,
+                    "status": status,
+                    "files_changed": list(safe_files_changed),
+                    "commit_hash": commit_hash,
+                    "project_id": intent.project_id,
+                    "user_id": str(thread.user_id),
+                    "result_captured_by_guardian": True,
+                }
+            )
+            if safe_validation_results is not None:
+                extra_meta["validation_results"] = safe_validation_results
+                extra_meta["validation_result"] = safe_validation_results
+
+            content = build_guardian_delegation_result_message_content(
+                intent_id=intent_id,
+                run_id=run_id,
+                status=status,
+                summary=summary,
+                files_changed=safe_files_changed,
+                validation_results=safe_validation_results,
+                commit_hash=commit_hash,
+                blocked_literals=[selected_turn_text],
+            )
+            message = ChatMessage(
+                thread_id=thread_id,
+                user_id=str(thread.user_id),
+                role="assistant",
+                content=content,
+                kind="coding_result",
+                extra_meta=extra_meta,
+            )
+            session.add(message)
+            session.flush()
+
+            intent.visibility_status = (
+                GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+            )
+            intent.result_message_id = int(message.id)
+            intent.result_delivered_at = _utc_now()
+            intent.result_delivery_key = delivery_key
+            intent.delivery_error = None
+            try:
+                self._commit_guardian_delegation_delivery(session)
+            except IntegrityError as exc:
+                session.rollback()
+                recovered = self._recover_guardian_delegation_delivery_after_integrity_error(
+                    intent_id=intent_id,
+                    thread_id=thread_id,
+                    delivery_key=delivery_key,
+                    exc=exc,
+                )
+                if recovered is not None:
+                    return recovered
+                raise
+            return (
+                int(message.id),
+                "delivered",
+                None,
+                intent.visibility_status,
+            )
+
+    def _guard_guardian_delegation_delivery_state(
+        self,
+        *,
+        session: Any,
+        intent: GuardianDelegationIntent,
+        run_id: str,
+    ) -> tuple[int | None, str, str | None, str | None] | None:
+        if (
+            intent.thread_id is None
+            or intent.source_message_id is None
+            or not str(intent.run_id or "").strip()
+        ):
+            intent.visibility_status = (
+                GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
+            )
+            intent.delivery_error = (
+                _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON
+            )
+            self._commit_guardian_delegation_delivery(session)
+            return (
+                None,
+                "degraded",
+                _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON,
+                intent.visibility_status,
+            )
+
+        if str(intent.run_id or "").strip() != run_id:
+            intent.visibility_status = (
+                GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
+            )
+            intent.delivery_error = _GUARDIAN_DELEGATION_RUN_MISMATCH_REASON
+            self._commit_guardian_delegation_delivery(session)
+            return (
+                None,
+                "stale_suppressed",
+                _GUARDIAN_DELEGATION_RUN_MISMATCH_REASON,
+                intent.visibility_status,
+            )
+
+        normalized_intent_status = str(intent.intent_status or "").strip()
+        if normalized_intent_status == (
+            GuardianDelegationIntentStatus.SUPERSEDED.value
+        ):
+            intent.visibility_status = (
+                GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
+            )
+            intent.delivery_error = _GUARDIAN_DELEGATION_SUPERSEDED_REASON
+            self._commit_guardian_delegation_delivery(session)
+            return (
+                None,
+                "stale_suppressed",
+                _GUARDIAN_DELEGATION_SUPERSEDED_REASON,
+                intent.visibility_status,
+            )
+
+        if normalized_intent_status == (
+            GuardianDelegationIntentStatus.CANCELLED.value
+        ):
+            intent.visibility_status = (
+                GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
+            )
+            intent.delivery_error = _GUARDIAN_DELEGATION_CANCELLED_REASON
+            self._commit_guardian_delegation_delivery(session)
+            return (
+                None,
+                "stale_suppressed",
+                _GUARDIAN_DELEGATION_CANCELLED_REASON,
+                intent.visibility_status,
+            )
+
+        return None
+
+    def _recover_guardian_delegation_delivery_after_integrity_error(
+        self,
+        *,
+        intent_id: str,
+        thread_id: int,
+        delivery_key: str,
+        exc: IntegrityError,
+    ) -> tuple[int | None, str, str | None, str | None] | None:
+        error_text = str(exc).lower()
+        looks_like_idempotency_collision = (
+            "unique" in error_text
+            or "duplicate key" in error_text
+            or "result_delivery_key" in error_text
+            or "guardian_delegation_intents" in error_text
+        )
+
+        with self.db.get_session() as recovery_session:
+            intent = (
+                recovery_session.query(GuardianDelegationIntent)
+                .filter_by(intent_id=intent_id)
+                .first()
+            )
+            existing = _find_existing_coding_result_message(
+                recovery_session,
+                thread_id=thread_id,
+                delivery_key=delivery_key,
+            )
+
+            if existing is not None and intent is not None:
+                intent.visibility_status = (
+                    GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                )
+                intent.result_message_id = int(existing.id)
+                intent.result_delivery_key = delivery_key
+                intent.result_delivered_at = (
+                    intent.result_delivered_at or _utc_now()
+                )
+                intent.delivery_error = None
+                recovery_session.commit()
+                return (
+                    int(existing.id),
+                    "delivered",
+                    None,
+                    intent.visibility_status,
+                )
+
+            if (
+                intent is not None
+                and str(intent.visibility_status or "").strip()
+                == GuardianDelegationVisibilityStatus.RESULT_POSTED.value
+                and intent.result_message_id is not None
+                and str(intent.result_delivery_key or "").strip() == delivery_key
+            ):
+                return (
+                    int(intent.result_message_id),
+                    "delivered",
+                    None,
+                    GuardianDelegationVisibilityStatus.RESULT_POSTED.value,
+                )
+
+            if looks_like_idempotency_collision:
+                return (
+                    None,
+                    "degraded",
+                    "guardian_delegation_delivery_collision_unresolved",
+                    GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value,
+                )
+
+        return None
 
     def _record_campaign_execution_attempt(
         self,
@@ -1679,19 +2255,11 @@ class AgentStore:
             return None, "delivery_database_unavailable"
 
         with self.db.get_session() as session:
-            existing = None
-            for candidate in (
-                session.query(ChatMessage)
-                .filter_by(thread_id=thread_id, kind="coding_result")
-                .order_by(ChatMessage.id.asc())
-                .all()
-            ):
-                if (
-                    isinstance(candidate.extra_meta, dict)
-                    and str(candidate.extra_meta.get("run_id") or "") == run_id
-                ):
-                    existing = candidate
-                    break
+            existing = _find_existing_coding_result_message(
+                session,
+                thread_id=thread_id,
+                run_id=run_id,
+            )
             if existing:
                 return existing.id, None
 
