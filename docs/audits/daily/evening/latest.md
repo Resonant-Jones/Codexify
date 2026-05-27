@@ -1,10 +1,10 @@
-# Daily Audit — 2026-05-25
+# Daily Audit — 2026-05-26
 
 ## Repo Status
-- Date: 2026-05-25
+- Date: 2026-05-26
 - Phase: `evening`
-- Branch: `main`
-- HEAD: `f40fa9061d252d22e3b8f58390aed9487090e018`
+- Branch: `codex/add-whooshd-provider`
+- HEAD: `187a3ff2e7002e50b4e2d18ea4f52eee277177ae`
 - Worktree: clean
 
 ## Audit CLI Summary
@@ -45,26 +45,23 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 4
-- Unique files changed: 28
-- Files changed: `config/supported_profiles/v1-local-core-web-mcp.yaml`, `docker-compose.yml`, `frontend/src/features/chat/GuardianChat.tsx`, `guardian/routes/health.py`, `docs/specs/job-intelligence-layer/12-implementation-readiness-plan.md`, `docs/specs/job-intelligence-layer/README.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-24-audit.json`, `docs/audits/daily/evening/2026-05-24-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-25-audit.json`, `docs/audits/daily/morning/2026-05-25-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
+- Commit count: 3
+- Unique files changed: 26
+- Files changed: `.env.example`, `guardian/core/config.py`, `guardian/core/llm_catalog.py`, `tests/routes/test_llm_catalog.py`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-25-audit.json`, `docs/audits/daily/evening/2026-05-25-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-26-audit.json`, `docs/audits/daily/morning/2026-05-26-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `f40fa9061d25` | Surface LLM model availability in health checks | `config/supported_profiles/v1-local-core-web-mcp.yaml`, `docker-compose.yml`, `frontend/src/features/chat/GuardianChat.tsx`, `guardian/routes/health.py` |
-| `9fd274c2d000` | Finalizing Documentation on the job intelligence pipeline capabilites. | `docs/specs/job-intelligence-layer/12-implementation-readiness-plan.md`, `docs/specs/job-intelligence-layer/README.md` |
-| `b2ec7cc72703` | Record daily audit and marketing run history | `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-24-audit.json`, `docs/audits/daily/evening/2026-05-24-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-25-audit.json`, `docs/audits/daily/morning/2026-05-25-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `0a45fba7be6a` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `187a3ff2e700` | Add Whooshd local provider catalog metadata | `.env.example`, `guardian/core/config.py`, `guardian/core/llm_catalog.py`, `tests/routes/test_llm_catalog.py` |
+| `3e311d7f8685` | Record daily audit and marketing run history | `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-25-audit.json`, `docs/audits/daily/evening/2026-05-25-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-26-audit.json`, `docs/audits/daily/morning/2026-05-26-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `1bb7f3a85514` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 14 | `docs/specs/job-intelligence-layer/12-implementation-readiness-plan.md`, `docs/specs/job-intelligence-layer/README.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
-| `audit` | 10 | `docs/audits/daily/evening/2026-05-24-audit.json`, `docs/audits/daily/evening/2026-05-24-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-25-audit.json`, `docs/audits/daily/morning/2026-05-25-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
-| `providers` | 1 | `config/supported_profiles/v1-local-core-web-mcp.yaml` |
-| `frontend` | 1 | `frontend/src/features/chat/GuardianChat.tsx` |
-| `infra` | 1 | `docker-compose.yml` |
-| `unknown` | 1 | `guardian/routes/health.py` |
+| `docs` | 12 | `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `audit` | 10 | `docs/audits/daily/evening/2026-05-25-audit.json`, `docs/audits/daily/evening/2026-05-25-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-26-audit.json`, `docs/audits/daily/morning/2026-05-26-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `config` | 2 | `.env.example`, `guardian/core/config.py` |
+| `providers` | 2 | `guardian/core/llm_catalog.py`, `tests/routes/test_llm_catalog.py` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
