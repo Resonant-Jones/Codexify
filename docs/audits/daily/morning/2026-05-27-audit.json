@@ -63,24 +63,8 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 3,
+    "commit_count": 4,
     "commits": [
-      {
-        "files": [
-          "guardian/core/chat_completion_service.py",
-          "tests/core/test_chat_completion_memory_preselection_options.py"
-        ],
-        "sha": "f603d0a929867b9e0b5ecad778419813bcf9eb6b",
-        "subject": "Fix chat context assembly failure initialization"
-      },
-      {
-        "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/README.md"
-        ],
-        "sha": "0a595ec5c7444334c4bfe73501377d95cb059294",
-        "subject": "docs: refresh weekly current-state override"
-      },
       {
         "files": [
           "docs/audits/daily/evening/2026-05-26-audit.json",
@@ -92,56 +76,101 @@
         ],
         "sha": "6e5c2c6728fd143bc5003984089ff081ad390374",
         "subject": "Update evening audit latest JSON"
+      },
+      {
+        "files": [
+          ".env.example",
+          "guardian/core/config.py",
+          "guardian/core/llm_catalog.py",
+          "tests/routes/test_llm_catalog.py"
+        ],
+        "sha": "187a3ff2e7002e50b4e2d18ea4f52eee277177ae",
+        "subject": "Add Whooshd local provider catalog metadata"
+      },
+      {
+        "files": [
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
+          "docs/Marketing/generated/history/run-history.jsonl",
+          "docs/audits/daily/evening/2026-05-25-audit.json",
+          "docs/audits/daily/evening/2026-05-25-audit.md",
+          "docs/audits/daily/evening/latest.json",
+          "docs/audits/daily/evening/latest.md",
+          "docs/audits/daily/morning/2026-05-26-audit.json",
+          "docs/audits/daily/morning/2026-05-26-audit.md",
+          "docs/audits/daily/morning/latest.json",
+          "docs/audits/daily/morning/latest.md",
+          "docs/audits/latest.json",
+          "docs/audits/latest.md"
+        ],
+        "sha": "3e311d7f868526fddea645df82b1d340e38a2f07",
+        "subject": "Record daily audit and marketing run history"
+      },
+      {
+        "files": [
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md"
+        ],
+        "sha": "1bb7f3a85514a62fbb00e9c20781502d0cced8f0",
+        "subject": "docs: refresh weekly current-state override"
       }
     ],
     "files_changed": [
-      "guardian/core/chat_completion_service.py",
-      "tests/core/test_chat_completion_memory_preselection_options.py",
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/README.md",
       "docs/audits/daily/evening/2026-05-26-audit.json",
       "docs/audits/daily/evening/2026-05-26-audit.md",
       "docs/audits/daily/evening/latest.json",
       "docs/audits/daily/evening/latest.md",
       "docs/audits/latest.json",
-      "docs/audits/latest.md"
+      "docs/audits/latest.md",
+      ".env.example",
+      "guardian/core/config.py",
+      "guardian/core/llm_catalog.py",
+      "tests/routes/test_llm_catalog.py",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
+      "docs/Marketing/generated/history/run-history.jsonl",
+      "docs/audits/daily/evening/2026-05-25-audit.json",
+      "docs/audits/daily/evening/2026-05-25-audit.md",
+      "docs/audits/daily/morning/2026-05-26-audit.json",
+      "docs/audits/daily/morning/2026-05-26-audit.md",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/daily/morning/latest.md",
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/README.md"
     ],
-    "window_end": "2026-05-27T21:01:00.966141-04:00",
+    "window_end": "2026-05-27T05:00:51.336280-04:00",
     "window_hours": 24,
-    "window_start": "2026-05-26T21:01:00.966141-04:00"
+    "window_start": "2026-05-26T05:00:51.336280-04:00"
   },
   "date": "2026-05-27",
-  "generated_at": "2026-05-27T21:01:00.966141-04:00",
+  "generated_at": "2026-05-27T05:00:51.336280-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
     "next_priority": ""
   },
-  "phase": "evening",
+  "phase": "morning",
   "repo": {
     "branch": "codex/add-whooshd-provider",
     "date": "2026-05-27",
-    "dirty": true,
-    "head": "f603d0a929867b9e0b5ecad778419813bcf9eb6b",
+    "dirty": false,
+    "head": "6e5c2c6728fd143bc5003984089ff081ad390374",
     "status_error": "",
-    "status_lines": [
-      " M docs/Marketing/generated/history/run-history.jsonl",
-      " M docs/audits/daily/morning/latest.json",
-      " M docs/audits/daily/morning/latest.md",
-      " M docs/audits/latest.json",
-      " M docs/audits/latest.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json",
-      "?? docs/audits/daily/morning/2026-05-27-audit.json",
-      "?? docs/audits/daily/morning/2026-05-27-audit.md"
-    ]
+    "status_lines": []
   },
   "risk_flags": [
     {
@@ -198,33 +227,51 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 6,
+      "count": 12,
       "files": [
         "docs/audits/daily/evening/2026-05-26-audit.json",
         "docs/audits/daily/evening/2026-05-26-audit.md",
         "docs/audits/daily/evening/latest.json",
         "docs/audits/daily/evening/latest.md",
         "docs/audits/latest.json",
-        "docs/audits/latest.md"
+        "docs/audits/latest.md",
+        "docs/audits/daily/evening/2026-05-25-audit.json",
+        "docs/audits/daily/evening/2026-05-25-audit.md",
+        "docs/audits/daily/morning/2026-05-26-audit.json",
+        "docs/audits/daily/morning/2026-05-26-audit.md",
+        "docs/audits/daily/morning/latest.json",
+        "docs/audits/daily/morning/latest.md"
+      ]
+    },
+    "config": {
+      "count": 2,
+      "files": [
+        ".env.example",
+        "guardian/core/config.py"
       ]
     },
     "docs": {
-      "count": 2,
+      "count": 12,
       "files": [
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
+        "docs/Marketing/generated/history/run-history.jsonl",
         "docs/architecture/00-current-state.md",
         "docs/architecture/README.md"
       ]
     },
-    "tests": {
-      "count": 1,
+    "providers": {
+      "count": 2,
       "files": [
-        "tests/core/test_chat_completion_memory_preselection_options.py"
-      ]
-    },
-    "unknown": {
-      "count": 1,
-      "files": [
-        "guardian/core/chat_completion_service.py"
+        "guardian/core/llm_catalog.py",
+        "tests/routes/test_llm_catalog.py"
       ]
     }
   }
