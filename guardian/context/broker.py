@@ -925,6 +925,7 @@ class ContextBroker:
         retrieval_override: Optional[dict[str, Any]] = None,
         retrieval_policy: Optional[dict[str, Any]] = None,
         enable_memory_preselection_trace: bool = False,
+        enable_memory_preselection_active: bool = False,
         memory_preselection_candidate_headers: Optional[
             Sequence[MemoryCandidateHeader | dict[str, Any]]
         ] = None,

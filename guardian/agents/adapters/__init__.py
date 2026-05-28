@@ -6,14 +6,13 @@ from .base import (
     AgentRunEnvelope,
     AgentRunStatus,
 )
-from .claudecode import ClaudeCodeAdapter
-from .codex import CodexAdapter
 from .pi_codex_runner import PiCodexRunnerAdapter
 
+_pi_adapter = PiCodexRunnerAdapter()
+
 ADAPTERS = {
-    "codex": CodexAdapter(),
-    "claudecode": ClaudeCodeAdapter(),
-    "pi_codex_runner": PiCodexRunnerAdapter(),
+    "pi": _pi_adapter,
+    "pi_codex_runner": _pi_adapter,
 }
 
 __all__ = [
@@ -22,7 +21,5 @@ __all__ = [
     "AgentExecutionRequest",
     "AgentRunEnvelope",
     "AgentRunStatus",
-    "ClaudeCodeAdapter",
-    "CodexAdapter",
     "PiCodexRunnerAdapter",
 ]

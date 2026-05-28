@@ -11,6 +11,64 @@ class AcceptanceStatus(str, Enum):
     ACCEPTED_DEGRADED = "accepted_degraded"
 
 
+class GuardianDelegationInteractionMode(str, Enum):
+    NON_BLOCKING = "non_blocking"
+
+
+class GuardianDelegationApprovalMode(str, Enum):
+    SCOPED_AUTO = "scoped_auto"
+
+
+class GuardianDelegationApprovalState(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    BLOCKED = "blocked"
+
+
+class GuardianDelegationApprovalSource(str, Enum):
+    NONE = "none"
+    AUTO = "auto"
+    HUMAN = "human"
+
+
+class GuardianDelegationIntentStatus(str, Enum):
+    DRAFT = "draft"
+    PLANNING = "planning"
+    AWAITING_CLARIFICATION = "awaiting_clarification"
+    AWAITING_APPROVAL = "awaiting_approval"
+    ACCEPTED = "accepted"
+    SUPERSEDED = "superseded"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class GuardianDelegationRunStatus(str, Enum):
+    NOT_ENQUEUED = "not_enqueued"
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class GuardianDelegationVisibilityStatus(str, Enum):
+    NOT_POSTED = "not_posted"
+    INTERRUPT_POSTED = "interrupt_posted"
+    RESULT_POSTED = "result_posted"
+    STALE_SUPPRESSED = "stale_suppressed"
+    DELIVERY_DEGRADED = "delivery_degraded"
+
+
+class GuardianDelegationContextSourceType(str, Enum):
+    SELECTED_TURN = "selected_turn"
+    PROJECT_KB = "project_kb"
+    ARCHITECTURE_DOC = "architecture_doc"
+    ADR = "adr"
+    TASK_FILE = "task_file"
+    PROTOCOL_DOC = "protocol_doc"
+    LINKED_DOCUMENT = "linked_document"
+
+
 class ContextRequestStatus(str, Enum):
     ACCEPTED_NOT_EXECUTED = "accepted_not_executed"
     EXECUTED = "executed"
@@ -274,6 +332,30 @@ class ImageRoutingPath(str, Enum):
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
 )
+GUARDIAN_DELEGATION_INTERACTION_MODES: frozenset[str] = frozenset(
+    {mode.value for mode in GuardianDelegationInteractionMode}
+)
+GUARDIAN_DELEGATION_APPROVAL_MODES: frozenset[str] = frozenset(
+    {mode.value for mode in GuardianDelegationApprovalMode}
+)
+GUARDIAN_DELEGATION_APPROVAL_STATES: frozenset[str] = frozenset(
+    {state.value for state in GuardianDelegationApprovalState}
+)
+GUARDIAN_DELEGATION_APPROVAL_SOURCES: frozenset[str] = frozenset(
+    {source.value for source in GuardianDelegationApprovalSource}
+)
+GUARDIAN_DELEGATION_INTENT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in GuardianDelegationIntentStatus}
+)
+GUARDIAN_DELEGATION_RUN_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in GuardianDelegationRunStatus}
+)
+GUARDIAN_DELEGATION_VISIBILITY_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in GuardianDelegationVisibilityStatus}
+)
+GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES: frozenset[str] = frozenset(
+    {source_type.value for source_type in GuardianDelegationContextSourceType}
+)
 CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
     {status.value for status in ContextRequestStatus}
 )
@@ -372,6 +454,14 @@ IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
 
 __all__ = [
     "AcceptanceStatus",
+    "GuardianDelegationInteractionMode",
+    "GuardianDelegationApprovalMode",
+    "GuardianDelegationApprovalState",
+    "GuardianDelegationApprovalSource",
+    "GuardianDelegationIntentStatus",
+    "GuardianDelegationRunStatus",
+    "GuardianDelegationVisibilityStatus",
+    "GuardianDelegationContextSourceType",
     "ContextRequestStatus",
     "TaskEventType",
     "ToolTurnState",
@@ -401,6 +491,14 @@ __all__ = [
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
     "ACCEPTANCE_STATUSES",
+    "GUARDIAN_DELEGATION_INTERACTION_MODES",
+    "GUARDIAN_DELEGATION_APPROVAL_MODES",
+    "GUARDIAN_DELEGATION_APPROVAL_STATES",
+    "GUARDIAN_DELEGATION_APPROVAL_SOURCES",
+    "GUARDIAN_DELEGATION_INTENT_STATUSES",
+    "GUARDIAN_DELEGATION_RUN_STATUSES",
+    "GUARDIAN_DELEGATION_VISIBILITY_STATUSES",
+    "GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",

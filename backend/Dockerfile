@@ -136,9 +136,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app \
     PORT=8888 \
-    HOME=/home/codexify \
-    CODEXIFY_CODEX_BIN=codex \
-    CODEXIFY_CLAUDE_BIN=claude
+    HOME=/home/codexify
 
 WORKDIR /app
 
@@ -153,7 +151,6 @@ RUN apt-get update && \
         init-system-helpers \
         nodejs \
         npm && \
-    npm install -g @openai/codex @anthropic-ai/claude-code && \
     mkdir -p /home/codexify && \
     rm -rf /var/lib/apt/lists/*
 

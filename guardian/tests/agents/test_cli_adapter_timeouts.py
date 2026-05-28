@@ -1,49 +1,32 @@
 from __future__ import annotations
 
-import subprocess
-from typing import Any
-from unittest.mock import patch
-
 import pytest
 
-from guardian.agents.adapters.base import AgentExecutionRequest
+from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.claudecode import ClaudeCodeAdapter
 from guardian.agents.adapters.codex import CodexAdapter
 
 
+def test_adapter_registry_exposes_only_pi_lane() -> None:
+    assert "pi" in ADAPTERS
+    assert "pi_codex_runner" in ADAPTERS
+    assert "codex" not in ADAPTERS
+    assert "claudecode" not in ADAPTERS
+
+
 @pytest.mark.parametrize(
-    ("adapter", "patch_target", "summary"),
+    ("adapter_cls", "message_fragment"),
     [
+        (CodexAdapter, "Direct Codex CLI execution is unsupported"),
         (
-            CodexAdapter(),
-            "guardian.agents.adapters.codex.subprocess.run",
-            "Codex adapter execution timed out",
-        ),
-        (
-            ClaudeCodeAdapter(),
-            "guardian.agents.adapters.claudecode.subprocess.run",
-            "ClaudeCode adapter execution timed out",
+            ClaudeCodeAdapter,
+            "Direct Claude/Claude Code CLI execution is unsupported",
         ),
     ],
 )
-def test_cli_adapter_timeout_returns_error_envelope(
-    adapter: Any,
-    patch_target: str,
-    summary: str,
+def test_direct_cli_adapters_fail_closed(
+    adapter_cls: type[object],
+    message_fragment: str,
 ) -> None:
-    request = AgentExecutionRequest(
-        prompt="return envelope", timeout_seconds=17
-    )
-
-    with patch(
-        patch_target,
-        side_effect=subprocess.TimeoutExpired(cmd=["agent-cli"], timeout=17),
-    ):
-        envelope = adapter.execute(request)
-
-    assert envelope.status == "error"
-    assert envelope.summary == summary
-    assert envelope.errors == ["timeout_expired"]
-    assert envelope.metrics["timeout_seconds"] == 17
-    assert envelope.spec_alignment_ok is True
-    assert envelope.schema_valid is False
+    with pytest.raises(RuntimeError, match=message_fragment):
+        adapter_cls()

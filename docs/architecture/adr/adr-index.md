@@ -65,6 +65,8 @@ Use this note as the local map for all ADRs.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
+28. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
+29. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
 
 ---
 
@@ -370,6 +372,27 @@ Primary companion notes:
   * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[00-current-state]]
+
+* [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] links to:
+
+  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
+  * [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]]
+  * [[pi-invocation-boundary-contract|Pi Invocation Boundary Contract]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[config-and-ops|Config and Ops]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[00-current-state]]
+
+* [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] links to:
+
+  * [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]]
+  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
+  * [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]]
+  * [[pi-invocation-boundary-contract|Pi Invocation Boundary Contract]]
+  * [[config-and-ops|Config and Ops]]
+  * [[modules-and-ownership|Modules and Ownership]]
   * [[00-current-state]]
 ---
 
