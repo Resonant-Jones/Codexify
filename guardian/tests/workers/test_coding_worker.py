@@ -759,7 +759,7 @@ def _find_coding_patch_artifact(
     return None
 
 
-def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
+def test_direct_codex_adapter_kind_fails_closed(
     db,
     monkeypatch,
 ) -> None:
@@ -777,17 +777,6 @@ def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
-    calls = _install_fake_adapter(
-        monkeypatch,
-        SimpleNamespace(
-            status="ok",
-            summary="Codex adapter completed.",
-            artifacts=(),
-            errors=(),
-        ),
-        adapter_kind="codex",
-    )
-
     task = _build_task(
         run_id=run_id,
         deployment_id=deployment_id,
@@ -797,24 +786,16 @@ def test_codex_adapter_kind_selects_codex_adapter_and_lineage(
     )
     worker._process_task(task)
 
-    assert len(calls) == 1
-    assert [event for _, event, _ in published] == [
-        "task.running",
-        "task.completed",
-    ]
-    terminal_payload = published[-1][2]
-    assert terminal_payload["delivery_ok"] is True
-    assert terminal_payload["delivery_status"] == "delivered"
-    assert terminal_payload["delivery_reason_code"] is None
-    assert terminal_payload["terminal_run_status"] == "succeeded"
-    assert terminal_payload["terminal_run_status_updated"] is True
-    assert [payload["adapter_kind"] for _, _, payload in published] == [
-        "codex",
-        "codex",
-    ]
-    messages = _fetch_thread_messages(db, seeded["thread_id"])
-    assert len(messages) == 1
-    assert messages[0].extra_meta["adapter_kind"] == "codex"
+    assert [event for _, event, _ in published] == ["task.failed"]
+    failure_payload = published[-1][2]
+    assert failure_payload["adapter_kind"] == "codex"
+    assert failure_payload["error_code"] == "ADAPTER_NOT_FOUND"
+    assert (
+        failure_payload["error_message"]
+        == "Direct Codex/Claude execution is unsupported for Campaign Runner. Use the Pi broker adapter."
+    )
+    assert _fetch_thread_messages(db, seeded["thread_id"]) == []
+    assert _fetch_coding_result_artifacts(store, run_id) == []
 
 
 def test_pi_sdk_adapter_kind_resolves_to_pi_codex_runner(
@@ -844,6 +825,45 @@ def test_pi_sdk_adapter_kind_resolves_to_pi_codex_runner(
         thread_id=seeded["thread_id"],
         source_message_id=seeded["source_message_id"],
         coding_task_id="coding-task-pi-sdk",
+    )
+    worker._process_task(task)
+
+    assert len(calls) == 1
+    assert [payload["adapter_kind"] for _, _, payload in published] == [
+        "pi_codex_runner",
+        "pi_codex_runner",
+    ]
+
+
+def test_pi_adapter_kind_resolves_to_pi_codex_runner(
+    db,
+    monkeypatch,
+) -> None:
+    seeded = _seed_source_context(
+        db, user_id="pi-alias-user", project_name="pi"
+    )
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    calls = _install_fake_adapter(
+        monkeypatch,
+        SimpleNamespace(status="ok", summary="Pi alias adapter completed."),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-pi-alias",
     )
     worker._process_task(task)
 
@@ -957,7 +977,7 @@ def test_worker_records_campaign_attempt_ledger_and_work_order_markers(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
         extra_spec={
             "campaign_id": "campaign-ledger-1",
             "work_order_id": "wo-ledger-1",
@@ -973,7 +993,7 @@ def test_worker_records_campaign_attempt_ledger_and_work_order_markers(
             artifacts=({"commit_hash": "abc123def456"},),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(monkeypatch)
 
@@ -1028,7 +1048,7 @@ def test_lease_bound_execution_uses_leased_worktree_and_metadata(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "lease-worktree"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1051,7 +1071,7 @@ def test_lease_bound_execution_uses_leased_worktree_and_metadata(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     heartbeat_calls: list[str] = []
@@ -1118,14 +1138,14 @@ def test_missing_required_lease_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     task = _build_task(
@@ -1161,14 +1181,14 @@ def test_unknown_lease_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -1203,7 +1223,7 @@ def test_inactive_lease_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "inactive-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1228,7 +1248,7 @@ def test_inactive_lease_fails_before_adapter_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -1260,7 +1280,7 @@ def test_invalid_lease_contract_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "invalid-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1278,7 +1298,7 @@ def test_invalid_lease_contract_fails_before_adapter_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -1310,7 +1330,7 @@ def test_missing_lease_path_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     missing_path = tmp_path / "missing-lease-path"
     _create_active_worktree_lease(
@@ -1327,7 +1347,7 @@ def test_missing_lease_path_fails_before_adapter_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -1359,7 +1379,7 @@ def test_lease_path_file_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     file_path = tmp_path / "not-a-dir.txt"
     file_path.write_text("lease path file", encoding="utf-8")
@@ -1377,7 +1397,7 @@ def test_lease_path_file_fails_before_adapter_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -1409,7 +1429,7 @@ def test_lease_heartbeat_failure_fails_before_adapter_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "lease-heartbeat-fail"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1427,7 +1447,7 @@ def test_lease_heartbeat_failure_fails_before_adapter_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
 
     def _boom_heartbeat(
@@ -1470,14 +1490,14 @@ def test_commit_after_validation_omitted_preserves_existing_behavior(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(monkeypatch)
     commit_calls = _install_fake_commit_gate(monkeypatch)
@@ -1512,14 +1532,14 @@ def test_commit_after_validation_without_lease_fails_closed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     commit_calls = _install_fake_commit_gate(monkeypatch)
@@ -1558,7 +1578,7 @@ def test_validation_failure_does_not_run_commit_gate(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-validation-fail"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1576,7 +1596,7 @@ def test_validation_failure_does_not_run_commit_gate(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(
         monkeypatch,
@@ -1625,7 +1645,7 @@ def test_validation_error_does_not_run_commit_gate(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-validation-error"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1643,7 +1663,7 @@ def test_validation_error_does_not_run_commit_gate(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(
         monkeypatch,
@@ -1689,7 +1709,7 @@ def test_validation_not_run_does_not_run_commit_gate(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-validation-not-run"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1707,7 +1727,7 @@ def test_validation_not_run_does_not_run_commit_gate(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     commit_calls = _install_fake_commit_gate(monkeypatch)
     task = _build_task(
@@ -1748,7 +1768,7 @@ def test_validation_pass_with_lease_runs_commit_gate_and_emits_metadata(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-success-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1766,7 +1786,7 @@ def test_validation_pass_with_lease_runs_commit_gate_and_emits_metadata(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(monkeypatch)
     commit_calls = _install_fake_commit_gate(
@@ -1833,7 +1853,7 @@ def test_commit_no_changes_records_non_merge_ready_completion(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-no-changes-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1851,7 +1871,7 @@ def test_commit_no_changes_records_non_merge_ready_completion(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(monkeypatch)
     _install_fake_commit_gate(
@@ -1905,7 +1925,7 @@ def test_commit_failure_marks_terminal_failed_and_not_merge_ready(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     lease_path = tmp_path / "commit-failure-lease"
     lease_path.mkdir(parents=True, exist_ok=True)
@@ -1923,7 +1943,7 @@ def test_commit_failure_marks_terminal_failed_and_not_merge_ready(
     calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     _install_fake_validation_runner(monkeypatch)
     _install_fake_commit_gate(
@@ -1976,7 +1996,7 @@ def test_passing_validation_is_persisted_and_emitted(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -1988,7 +2008,7 @@ def test_passing_validation_is_persisted_and_emitted(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
@@ -2076,7 +2096,7 @@ def test_failing_validation_marks_attempt_failed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2088,7 +2108,7 @@ def test_failing_validation_marks_attempt_failed(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
@@ -2172,7 +2192,7 @@ def test_adapter_failure_does_not_run_validation(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2185,7 +2205,7 @@ def test_adapter_failure_does_not_run_validation(
             errors=("adapter failed",),
             error_message="adapter failed",
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     task = _build_task(
@@ -2231,7 +2251,7 @@ def test_validation_command_with_shell_blocked_records_not_run(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2243,7 +2263,7 @@ def test_validation_command_with_shell_blocked_records_not_run(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     task = _build_task(
@@ -2304,7 +2324,7 @@ def test_omitted_validation_command_preserves_existing_behavior(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2316,7 +2336,7 @@ def test_omitted_validation_command_preserves_existing_behavior(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     task = _build_task(
@@ -2364,7 +2384,7 @@ def test_worktree_isolation_disabled_preserves_direct_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "false")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -2373,7 +2393,7 @@ def test_worktree_isolation_disabled_preserves_direct_execution(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Direct execution."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
 
     task = _build_task(
@@ -2411,7 +2431,7 @@ def test_worktree_isolation_enabled_runs_adapter_and_validation_in_isolated_cwd(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -2421,7 +2441,7 @@ def test_worktree_isolation_enabled_runs_adapter_and_validation_in_isolated_cwd(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Isolated execution."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
 
@@ -2479,7 +2499,7 @@ def test_worktree_isolation_preserves_relative_subdirectory_cwd(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -2489,7 +2509,7 @@ def test_worktree_isolation_preserves_relative_subdirectory_cwd(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Isolated subdir execution."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
 
@@ -2536,7 +2556,7 @@ def test_isolated_success_captures_patch_manifest_and_terminal_metadata(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -2552,7 +2572,7 @@ def test_isolated_success_captures_patch_manifest_and_terminal_metadata(
             )
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"codex": _TrackedChangeAdapter()}
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _TrackedChangeAdapter()}
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2632,7 +2652,7 @@ def test_isolated_success_patch_capture_includes_untracked_file(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -2648,7 +2668,7 @@ def test_isolated_success_patch_capture_includes_untracked_file(
             )
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"codex": _UntrackedAdapter()}
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _UntrackedAdapter()}
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -2698,7 +2718,7 @@ def test_patch_artifact_root_can_stay_clean_with_gitignore_rule(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -2714,7 +2734,7 @@ def test_patch_artifact_root_can_stay_clean_with_gitignore_rule(
             )
             return SimpleNamespace(status="ok", summary="artifact check")
 
-    monkeypatch.setattr(coding_worker, "ADAPTERS", {"codex": _NoopAdapter()})
+    monkeypatch.setattr(coding_worker, "ADAPTERS", {"pi_codex_runner": _NoopAdapter()})
     worker = coding_worker.CodingWorker(agent_store=store)
     _capture_task_events(monkeypatch)
     task = _build_task(
@@ -2749,7 +2769,7 @@ def test_dirty_original_checkout_does_not_block_isolated_execution(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -2758,7 +2778,7 @@ def test_dirty_original_checkout_does_not_block_isolated_execution(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Isolated despite dirty source."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
 
     task = _build_task(
@@ -2792,7 +2812,7 @@ def test_non_git_cwd_with_isolation_enabled_fails_closed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -2801,7 +2821,7 @@ def test_non_git_cwd_with_isolation_enabled_fails_closed(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not execute"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -2835,7 +2855,7 @@ def test_worktree_creation_failure_fails_closed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -2870,7 +2890,7 @@ def test_worktree_creation_failure_fails_closed(
     adapter_calls = _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="should not execute"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -2959,7 +2979,7 @@ def test_isolated_success_cleans_up_by_default_without_promoting_changes(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     head_before = _run_git(repo, "rev-parse", "HEAD").stdout.strip()
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
@@ -2973,7 +2993,7 @@ def test_isolated_success_cleans_up_by_default_without_promoting_changes(
             )
             return SimpleNamespace(status="ok", summary="wrote isolated file")
 
-    monkeypatch.setattr(coding_worker, "ADAPTERS", {"codex": _WritingAdapter()})
+    monkeypatch.setattr(coding_worker, "ADAPTERS", {"pi_codex_runner": _WritingAdapter()})
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     task = _build_task(
@@ -3017,7 +3037,7 @@ def test_isolated_failure_keeps_worktree_by_default(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -3036,7 +3056,7 @@ def test_isolated_failure_keeps_worktree_by_default(
                 error_message="adapter failed",
             )
 
-    monkeypatch.setattr(coding_worker, "ADAPTERS", {"codex": _FailingAdapter()})
+    monkeypatch.setattr(coding_worker, "ADAPTERS", {"pi_codex_runner": _FailingAdapter()})
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     task = _build_task(
@@ -3077,7 +3097,7 @@ def test_keep_on_failure_false_cleans_isolated_worktree(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -3096,7 +3116,7 @@ def test_keep_on_failure_false_cleans_isolated_worktree(
                 error_message="adapter failed",
             )
 
-    monkeypatch.setattr(coding_worker, "ADAPTERS", {"codex": _FailingAdapter()})
+    monkeypatch.setattr(coding_worker, "ADAPTERS", {"pi_codex_runner": _FailingAdapter()})
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     task = _build_task(
@@ -3140,7 +3160,7 @@ def test_validation_failure_preserves_patch_artifact_evidence(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -3156,7 +3176,7 @@ def test_validation_failure_preserves_patch_artifact_evidence(
             return SimpleNamespace(status="ok", summary="adapter success")
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"codex": _FailingValidationAdapter()}
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _FailingValidationAdapter()}
     )
     _install_fake_validation_runner(
         monkeypatch,
@@ -3216,7 +3236,7 @@ def test_oversized_patch_writes_manifest_without_partial_patch(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -3234,7 +3254,7 @@ def test_oversized_patch_writes_manifest_without_partial_patch(
             return SimpleNamespace(status="ok", summary="large diff")
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"codex": _LargePatchAdapter()}
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _LargePatchAdapter()}
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3281,7 +3301,7 @@ def test_mutation_scope_violation_blocks_apply_ready_patch_artifact(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.setenv("CODING_WORKER_CAPTURE_PATCH_ARTIFACTS", "true")
@@ -3297,7 +3317,7 @@ def test_mutation_scope_violation_blocks_apply_ready_patch_artifact(
             return SimpleNamespace(status="ok", summary="scope violation")
 
     monkeypatch.setattr(
-        coding_worker, "ADAPTERS", {"codex": _ScopeViolatingAdapter()}
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _ScopeViolatingAdapter()}
     )
     monkeypatch.setattr(
         coding_worker,
@@ -3353,7 +3373,7 @@ def test_keep_on_success_flag_preserves_isolated_worktree(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -3363,7 +3383,7 @@ def test_keep_on_success_flag_preserves_isolated_worktree(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="keep success worktree"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     task = _build_task(
         run_id=run_id,
@@ -3401,7 +3421,7 @@ def test_cleanup_failure_is_reported_without_overwriting_success(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -3411,7 +3431,7 @@ def test_cleanup_failure_is_reported_without_overwriting_success(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="success with cleanup failure"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
 
     def _fake_cleanup(repo_root: str, worktree_path: str) -> dict[str, Any]:
@@ -3464,7 +3484,7 @@ def test_mutation_scope_guard_uses_isolated_worktree_path(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     monkeypatch.setenv("CODING_WORKER_WORKTREE_ISOLATION", "true")
     monkeypatch.delenv("CODING_WORKER_WORKTREE_ROOT", raising=False)
@@ -3473,7 +3493,7 @@ def test_mutation_scope_guard_uses_isolated_worktree_path(
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="scope check run"),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     scope_calls: list[dict[str, Any]] = []
 
@@ -3528,7 +3548,7 @@ def test_validation_timeout_is_normalized_and_fails_closed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3540,7 +3560,7 @@ def test_validation_timeout_is_normalized_and_fails_closed(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
@@ -3621,7 +3641,7 @@ def test_validation_failure_retries_once_and_completes(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3633,7 +3653,7 @@ def test_validation_failure_retries_once_and_completes(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_results = iter(
         [
@@ -3752,7 +3772,7 @@ def test_retry_prompt_uses_bounded_validation_feedback(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     _capture_task_events(monkeypatch)
@@ -3764,7 +3784,7 @@ def test_retry_prompt_uses_bounded_validation_feedback(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     long_stdout = "A" * 6000
     long_stderr = "B" * 6000
@@ -3855,7 +3875,7 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -3867,7 +3887,7 @@ def test_validation_failure_across_all_attempts_emits_terminal_failure(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_results = iter(
         [
@@ -3988,7 +4008,7 @@ def test_repeated_fail_signature_stops_before_budget_exhausted(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -4000,7 +4020,7 @@ def test_repeated_fail_signature_stops_before_budget_exhausted(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_results = iter(
         [
@@ -4116,7 +4136,7 @@ def test_validation_command_with_missing_cwd_records_not_run(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -4128,7 +4148,7 @@ def test_validation_command_with_missing_cwd_records_not_run(
             artifacts=(),
             errors=(),
         ),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(monkeypatch)
     task = _build_task(
@@ -4182,14 +4202,14 @@ def test_validation_command_error_is_normalized_and_fails_closed(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
     _install_fake_adapter(
         monkeypatch,
         SimpleNamespace(status="ok", summary="Adapter succeeded."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
@@ -4253,7 +4273,7 @@ def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
         source_message_id=seeded["source_message_id"],
         user_id=seeded["user_id"],
         project_id=seeded["project_id"],
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     worker = coding_worker.CodingWorker(agent_store=store)
     published = _capture_task_events(monkeypatch)
@@ -4261,7 +4281,7 @@ def test_clean_git_repo_allowed_path_mutation_passes_scope_guard(
         monkeypatch,
         lambda request: _mutate_file(repo, "allowed.txt", "changed\n"),
         SimpleNamespace(status="ok", summary="Allowed mutation completed."),
-        adapter_kind="codex",
+        adapter_kind="pi_codex_runner",
     )
     validation_calls = _install_fake_validation_runner(
         monkeypatch,
