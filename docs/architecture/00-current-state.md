@@ -21,6 +21,10 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Personal-facts settings routing remains repaired on `main`.
 - GuardianChat still surfaces runtime visual state in the shell.
 - Internal/manual local-model draft adapter work remains present, but not a release promise.
+- Build Proposal artifacts now have a doctrine/scaffold surface for reviewable
+  Guardian Build Loop task candidates; proposal generation remains draft-only
+  and does not imply approval, execution, release support, runtime proof, or
+  autonomous self-modification.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -43,6 +47,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
+- Do not assume Build Proposal generation means approval, execution, release
+  support, runtime proof, or autonomous self-modification.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
