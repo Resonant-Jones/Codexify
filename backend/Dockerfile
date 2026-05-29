@@ -1,7 +1,7 @@
 #syntax=docker/dockerfile:1
 
 # === Build stage: Install dependencies and prepare application ===
-FROM dhi.io/python:3.11.14-debian13-dev AS builder
+FROM docker.io/python:3.11.14-debian13-dev AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -129,7 +129,7 @@ RUN python -m pip install -r /tmp/backend/requirements-tts.txt
 # === Final stage: Create minimal runtime image ===
  # NOTE: The non-"-dev" runtime image is intentionally hardened/minimal and does not ship with apt.
  # We use the "-dev" variant here because this stage needs to install ffmpeg via apt-get.
-FROM dhi.io/python:3.11.14-debian13-dev AS runtime
+FROM docker.io/python:3.11.14-debian13-dev AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -205,7 +205,7 @@ RUN python -m pip install pyinstaller
 RUN pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
 
 # === Compiled runtime proof image ===
-FROM dhi.io/python:3.11.14-debian13-dev AS compiled-runtime
+FROM docker.io/python:3.11.14-debian13-dev AS compiled-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
