@@ -1643,6 +1643,15 @@ export function GuardianChat({
     slashIntent?: ComposerSendOptions["slashIntent"];
   };
 
+  function buildCompletionSlashIntent(
+    slashIntent: ComposerSendOptions["slashIntent"] | null | undefined
+  ) {
+    if (!slashIntent) return undefined;
+    const { contextDirectives: _contextDirectives, ...completionSlashIntent } =
+      slashIntent;
+    return completionSlashIntent;
+  }
+
   const resolveCompletionSelection = useCallback(
     (options: CompletionRequestOptions = {}) => ({
       providerId: options.providerId ?? selectedProvider?.id ?? activeProviderId ?? null,
@@ -1684,6 +1693,9 @@ export function GuardianChat({
       options.slashIntent?.commandId === "obsidian"
         ? "obsidian_only"
         : sourceMode;
+    const completionSlashIntent = buildCompletionSlashIntent(
+      options.slashIntent
+    );
     const payload = {
       ...buildChatCompletionPayload(depth, {
         providerId: selection.providerId,
@@ -1695,7 +1707,7 @@ export function GuardianChat({
         contextDirectives,
       }),
       source_mode: completionSourceMode,
-      ...(options.slashIntent ? { slashIntent: options.slashIntent } : {}),
+      ...(completionSlashIntent ? { slashIntent: completionSlashIntent } : {}),
     };
     const provisionalTaskId = `pending-${Date.now()}`;
     setCompletionInFlight(tid, true);

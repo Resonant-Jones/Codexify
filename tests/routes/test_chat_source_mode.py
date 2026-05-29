@@ -220,6 +220,15 @@ async def test_context_broker_workspace_mode_stays_local_and_user_bounded(
             },
             {"mode": "none", "reason": "no_override"},
         ),
+        (
+            {
+                "commandId": "codex_entry",
+                "rawInput": "/codex_entry",
+                "intentKind": "codex",
+                "retrievalHint": "none",
+            },
+            {"mode": "none", "reason": "no_override"},
+        ),
     ],
 )
 def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
@@ -311,6 +320,20 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
             "rawInput": "/project",
             "intentKind": "workspace",
             "retrievalHint": "team",
+        },
+        {
+            "commandId": "obsidian",
+            "rawInput": "/obsidian wiki notes",
+            "intentKind": "integration",
+            "retrievalHint": "none",
+            "contextDirectives": [
+                {
+                    "kind": "connector_context",
+                    "connectorId": "obsidian",
+                    "invocation": "turn_scoped",
+                    "queryText": "wiki notes",
+                }
+            ],
         },
     ],
 )
