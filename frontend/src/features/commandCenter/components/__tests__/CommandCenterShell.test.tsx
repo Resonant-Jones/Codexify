@@ -2,7 +2,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
-import CommandCenterShell from "../CommandCenterShell";
+import CommandCenterShell, { readInitialDelegationIntentId } from "../CommandCenterShell";
 import type {
   CommandCenterRetrievalPosture,
   CommandCenterRetrievalPostureHistoryItem,
@@ -447,5 +447,39 @@ describe("CommandCenterShell", () => {
     fireEvent.click(screen.getByTestId("command-center-rail-item-agent-command"));
     // Worker panel should still be there
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+  });
+
+  describe("readInitialDelegationIntentId", () => {
+    it("readInitialDelegationIntentId_supports_guardian_delegation_intent_id", () => {
+      vi.stubGlobal("location", {
+        search: "?guardian_delegation_intent_id=gdi_guardian_123",
+      });
+      expect(readInitialDelegationIntentId()).toBe("gdi_guardian_123");
+      vi.unstubAllGlobals();
+    });
+
+    it("readInitialDelegationIntentId_supports_delegation_intent_id", () => {
+      vi.stubGlobal("location", {
+        search: "?delegation_intent_id=gdi_delegation_456",
+      });
+      expect(readInitialDelegationIntentId()).toBe("gdi_delegation_456");
+      vi.unstubAllGlobals();
+    });
+
+    it("readInitialDelegationIntentId_supports_intent_id", () => {
+      vi.stubGlobal("location", {
+        search: "?intent_id=gdi_intent_789",
+      });
+      expect(readInitialDelegationIntentId()).toBe("gdi_intent_789");
+      vi.unstubAllGlobals();
+    });
+
+    it("readInitialDelegationIntentId_prefers_canonical_parameter", () => {
+      vi.stubGlobal("location", {
+        search: "?intent_id=gdi_intent_789&delegation_intent_id=gdi_delegation_456&guardian_delegation_intent_id=gdi_guardian_123",
+      });
+      expect(readInitialDelegationIntentId()).toBe("gdi_guardian_123");
+      vi.unstubAllGlobals();
+    });
   });
 });
