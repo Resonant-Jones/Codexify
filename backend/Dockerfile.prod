@@ -1,7 +1,7 @@
 #syntax=docker/dockerfile:1
 
 # === Build stage: compile dependencies only (no source yet) ===
-FROM dhi.io/python:3.11.14-debian13-dev AS builder
+FROM docker.io/python:3.11.14-debian13-dev AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -76,7 +76,7 @@ PY
 
 
 # === Runtime stage: minimal image with only production deps ===
-FROM dhi.io/python:3.11.14-debian13
+FROM docker.io/python:3.11.14-debian13
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
