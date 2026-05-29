@@ -236,6 +236,20 @@ class Settings(BaseSettings):
         default="local",
         description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
     )
+    LOCAL_PROVIDER_DISPLAY_NAME: str | None = Field(
+        default=None,
+        description=(
+            "Optional display name for the local OpenAI-compatible provider in "
+            "catalog/UI surfaces, e.g. Whoosh'd."
+        ),
+    )
+    LOCAL_PROVIDER_VENDOR: str | None = Field(
+        default=None,
+        description=(
+            "Optional vendor/runtime label for the local OpenAI-compatible "
+            "provider source metadata, e.g. whooshd."
+        ),
+    )
     LOCAL_LLM_MODEL: str = Field(
         default="library2/ministral-3:8b",
         description="Local chat model identifier for Ollama.",
