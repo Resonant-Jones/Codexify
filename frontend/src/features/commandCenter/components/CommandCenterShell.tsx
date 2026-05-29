@@ -218,7 +218,7 @@ function RecentRetrievalPosturePanel({
   );
 }
 
-function readInitialDelegationIntentId(): string {
+export function readInitialDelegationIntentId(): string {
   if (typeof window === "undefined") return "";
   const params = new URLSearchParams(window.location.search);
   return (

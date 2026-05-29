@@ -183,6 +183,37 @@ describe("GuardianDelegationTranscriptViewer", () => {
     expect(screen.getAllByText("2026-05-27T13:00:00Z").length).toBeGreaterThan(0);
   });
 
+  it("viewer_truncates_long_safe_metadata_values", async () => {
+    const longDeliveryKey = `delivery-${"a".repeat(220)}`;
+    const truncatedDeliveryKey = `${longDeliveryKey.slice(0, 137)}...`;
+    mockTranscript({
+      transcript_items: [
+        {
+          created_at: "2026-05-27T13:00:00Z",
+          item_id: "intent:gdi_intent_alpha:delivery",
+          kind: "delivery_result",
+          metadata: {
+            delivery_key: longDeliveryKey,
+            intent_id: "gdi_intent_alpha",
+            run_id: "run-alpha",
+            visibility_status: "result_posted",
+          },
+          source: "chat_message",
+          summary: "One terminal result message was posted to the source thread.",
+        },
+      ],
+    });
+
+    const { container } = render(
+      <GuardianDelegationTranscriptViewer intentId="gdi_intent_alpha" />
+    );
+
+    expect(await screen.findByText(truncatedDeliveryKey)).toBeInTheDocument();
+    expect(screen.queryByText(longDeliveryKey)).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain(`"delivery_key":"${longDeliveryKey}"`);
+    expect(container.textContent).not.toContain("delivery_key");
+  });
+
   it("does_not_render_raw_metadata_or_context_blobs", async () => {
     mockTranscript({
       transcript_items: [
