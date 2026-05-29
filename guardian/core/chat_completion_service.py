@@ -386,7 +386,8 @@ async def _build_messages_for_llm_compat(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
+    | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -417,44 +418,38 @@ async def _build_messages_for_llm_compat(
     call_kwargs: dict[str, Any] = {}
     if _accepts("user_id"):
         call_kwargs["user_id"] = user_id
-    if (
-        enable_memory_preselection_trace is not None
-        and _accepts("enable_memory_preselection_trace")
+    if enable_memory_preselection_trace is not None and _accepts(
+        "enable_memory_preselection_trace"
     ):
         call_kwargs["enable_memory_preselection_trace"] = bool(
             enable_memory_preselection_trace
         )
-    if (
-        enable_memory_preselection_active is not None
-        and _accepts("enable_memory_preselection_active")
+    if enable_memory_preselection_active is not None and _accepts(
+        "enable_memory_preselection_active"
     ):
         call_kwargs["enable_memory_preselection_active"] = bool(
             enable_memory_preselection_active
         )
-    if (
-        memory_preselection_candidate_headers is not None
-        and _accepts("memory_preselection_candidate_headers")
+    if memory_preselection_candidate_headers is not None and _accepts(
+        "memory_preselection_candidate_headers"
     ):
-        call_kwargs["memory_preselection_candidate_headers"] = (
-            memory_preselection_candidate_headers
-        )
-    if (
-        memory_preselection_persona_id is not None
-        and _accepts("memory_preselection_persona_id")
+        call_kwargs[
+            "memory_preselection_candidate_headers"
+        ] = memory_preselection_candidate_headers
+    if memory_preselection_persona_id is not None and _accepts(
+        "memory_preselection_persona_id"
     ):
-        call_kwargs["memory_preselection_persona_id"] = (
-            memory_preselection_persona_id
-        )
-    if (
-        memory_preselection_identity_depth is not None
-        and _accepts("memory_preselection_identity_depth")
+        call_kwargs[
+            "memory_preselection_persona_id"
+        ] = memory_preselection_persona_id
+    if memory_preselection_identity_depth is not None and _accepts(
+        "memory_preselection_identity_depth"
     ):
-        call_kwargs["memory_preselection_identity_depth"] = (
-            memory_preselection_identity_depth
-        )
-    if (
-        memory_preselection_include_diary_excluded is not None
-        and _accepts("memory_preselection_include_diary_excluded")
+        call_kwargs[
+            "memory_preselection_identity_depth"
+        ] = memory_preselection_identity_depth
+    if memory_preselection_include_diary_excluded is not None and _accepts(
+        "memory_preselection_include_diary_excluded"
     ):
         call_kwargs["memory_preselection_include_diary_excluded"] = bool(
             memory_preselection_include_diary_excluded
@@ -912,7 +907,8 @@ def _broker_memory_preselection_kwargs(
     *,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
+    | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -923,17 +919,17 @@ def _broker_memory_preselection_kwargs(
     if enable_memory_preselection_active is True:
         kwargs["enable_memory_preselection_active"] = True
     if memory_preselection_candidate_headers is not None:
-        kwargs["memory_preselection_candidate_headers"] = (
-            memory_preselection_candidate_headers
-        )
+        kwargs[
+            "memory_preselection_candidate_headers"
+        ] = memory_preselection_candidate_headers
     if memory_preselection_persona_id is not None:
-        kwargs["memory_preselection_persona_id"] = (
-            memory_preselection_persona_id
-        )
+        kwargs[
+            "memory_preselection_persona_id"
+        ] = memory_preselection_persona_id
     if memory_preselection_identity_depth is not None:
-        kwargs["memory_preselection_identity_depth"] = (
-            memory_preselection_identity_depth
-        )
+        kwargs[
+            "memory_preselection_identity_depth"
+        ] = memory_preselection_identity_depth
     if memory_preselection_include_diary_excluded is not None:
         kwargs["memory_preselection_include_diary_excluded"] = bool(
             memory_preselection_include_diary_excluded
@@ -1405,7 +1401,8 @@ async def _assemble_context_bundle(
     request_user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
+    | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -3349,7 +3346,8 @@ async def build_messages_for_llm(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
+    | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -3533,6 +3531,10 @@ async def build_messages_for_llm(
     )
     context_user_id = user_for_context or task_user_id
     source_mode = effective_source_mode
+    # Normalize nullable memory-preselection flags before the risky assembly
+    # block so fallback prompt construction never depends on an unbound local.
+    enable_memory_preselection_trace = bool(enable_memory_preselection_trace)
+    enable_memory_preselection_active = bool(enable_memory_preselection_active)
 
     project_id_for_prompt: int | None = None
     if thread_info:
@@ -3546,6 +3548,7 @@ async def build_messages_for_llm(
     bundle: dict[str, Any] = {}
     trace: dict[str, Any] | None = None
     trace_candidate: dict[str, Any] | None = None
+    context_request_results: list[dict[str, Any]] = []
     assembly_succeeded = False
     context_request_results: list[dict[str, Any]] = []
     retrieval_policy_obj: Any | None = None
@@ -3611,6 +3614,7 @@ async def build_messages_for_llm(
             depth,
             exc,
         )
+        context_request_results = []
         bundle = {}
     else:
         trace_candidate = trace
@@ -4248,7 +4252,8 @@ def run_chat_completion_task(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
+    | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -4278,41 +4283,36 @@ def run_chat_completion_task(
     compat_call_kwargs: dict[str, Any] = {}
     if _compat_accepts("user_id"):
         compat_call_kwargs["user_id"] = user_id
-    if (
-        enable_memory_preselection_trace is not None
-        and _compat_accepts("enable_memory_preselection_trace")
+    if enable_memory_preselection_trace is not None and _compat_accepts(
+        "enable_memory_preselection_trace"
     ):
         compat_call_kwargs["enable_memory_preselection_trace"] = bool(
             enable_memory_preselection_trace
         )
-    if (
-        enable_memory_preselection_active is not None
-        and _compat_accepts("enable_memory_preselection_active")
+    if enable_memory_preselection_active is not None and _compat_accepts(
+        "enable_memory_preselection_active"
     ):
         compat_call_kwargs["enable_memory_preselection_active"] = bool(
             enable_memory_preselection_active
         )
-    if (
-        memory_preselection_candidate_headers is not None
-        and _compat_accepts("memory_preselection_candidate_headers")
+    if memory_preselection_candidate_headers is not None and _compat_accepts(
+        "memory_preselection_candidate_headers"
     ):
-        compat_call_kwargs["memory_preselection_candidate_headers"] = (
-            memory_preselection_candidate_headers
-        )
-    if (
-        memory_preselection_persona_id is not None
-        and _compat_accepts("memory_preselection_persona_id")
+        compat_call_kwargs[
+            "memory_preselection_candidate_headers"
+        ] = memory_preselection_candidate_headers
+    if memory_preselection_persona_id is not None and _compat_accepts(
+        "memory_preselection_persona_id"
     ):
-        compat_call_kwargs["memory_preselection_persona_id"] = (
-            memory_preselection_persona_id
-        )
-    if (
-        memory_preselection_identity_depth is not None
-        and _compat_accepts("memory_preselection_identity_depth")
+        compat_call_kwargs[
+            "memory_preselection_persona_id"
+        ] = memory_preselection_persona_id
+    if memory_preselection_identity_depth is not None and _compat_accepts(
+        "memory_preselection_identity_depth"
     ):
-        compat_call_kwargs["memory_preselection_identity_depth"] = (
-            memory_preselection_identity_depth
-        )
+        compat_call_kwargs[
+            "memory_preselection_identity_depth"
+        ] = memory_preselection_identity_depth
     if (
         memory_preselection_include_diary_excluded is not None
         and _compat_accepts("memory_preselection_include_diary_excluded")
