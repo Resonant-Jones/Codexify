@@ -116,6 +116,14 @@ DEBUG_LATEST_RAG_TRACE_METADATA_KEY = "debug_latest_rag_trace"
 _LOCAL_IMAGE_CAPTIONER_MODEL_NAME = "Salesforce/blip-image-captioning-base"
 _LOCAL_IMAGE_CAPTIONER: tuple[Any, Any] | None = None
 _LOCAL_IMAGE_CAPTIONER_ATTEMPTED = False
+_ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION = (
+    "Active context directive: Obsidian workspace context is active for this turn.\n"
+    "The slash command has already been interpreted by Codexify. "
+    "Do not treat it as an unknown command.\n"
+    "Use any injected workspace/Obsidian context available in this completion request.\n"
+    "If no relevant workspace context is available, say that no relevant local context was found.\n"
+    "This directive does not grant arbitrary external tool access."
+)
 
 try:  # pragma: no cover - prompts are optional in some deployments
     from guardian.cognition.system_prompt_builder import (
@@ -648,6 +656,53 @@ def _supported_obsidian_context_request_plans(
         normalized_plan["execution_required"] = False
         supported_plans.append(normalized_plan)
     return supported_plans
+
+
+def _task_slash_intent_payload(task: Any) -> dict[str, Any] | None:
+    slash_intent = getattr(task, "slash_intent", None)
+    if slash_intent is None:
+        slash_intent = _slash_intent_from_origin(getattr(task, "origin", None))
+    if isinstance(slash_intent, dict):
+        return dict(slash_intent)
+
+    model_dump = getattr(slash_intent, "model_dump", None)
+    if callable(model_dump):
+        try:
+            payload = model_dump(exclude_none=True)
+        except TypeError:
+            payload = model_dump()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            return dict(payload)
+
+    try:
+        payload = vars(slash_intent)
+    except Exception:
+        return None
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def _has_active_obsidian_slash_intent(task: Any) -> bool:
+    slash_intent = _task_slash_intent_payload(task)
+    if not isinstance(slash_intent, dict):
+        return False
+
+    command_id = str(
+        slash_intent.get("commandId") or slash_intent.get("command_id") or ""
+    ).strip().lower()
+    intent_kind = str(
+        slash_intent.get("intentKind") or slash_intent.get("intent_kind") or ""
+    ).strip().lower()
+    return command_id == "obsidian" and intent_kind in {"", "integration"}
+
+
+def _build_active_context_instruction(task: Any) -> str | None:
+    if _supported_obsidian_context_request_plans(task):
+        return _ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION
+    if _has_active_obsidian_slash_intent(task):
+        return _ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION
+    return None
 
 
 def _context_request_result_record(
@@ -3704,6 +3759,7 @@ async def build_messages_for_llm(
     latest_turn_instruction = _latest_turn_instruction_message(
         completion_assembly
     )
+    active_context_instruction = _build_active_context_instruction(task)
 
     if isinstance(bundle, dict):
         try:
@@ -3718,6 +3774,10 @@ async def build_messages_for_llm(
     if latest_turn_instruction:
         messages_for_llm.append(
             {"role": "system", "content": latest_turn_instruction}
+        )
+    if active_context_instruction:
+        messages_for_llm.append(
+            {"role": "system", "content": active_context_instruction}
         )
 
     doc_message, doc_count = _build_document_context_message(bundle)
