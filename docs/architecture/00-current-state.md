@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-28
+2026-05-29
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,12 +13,12 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved operator visibility and added a site-ready documentation export bundle, but they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved chat context behavior, widened local provider catalog metadata, and added a site-ready developer-guide export bundle, but they do not widen the release promise.
 
 ## What changed recently
-- `main` added a site-ready developer guide export bundle under `docs/site-export/developer-guide/`.
+- `main` fixed chat context assembly and enabled memory preselection in chat completion.
 - `main` added Whooshd local provider catalog metadata.
-- Health checks still surface LLM model availability on the supported path.
+- `main` added a site-ready developer-guide export bundle under `docs/site-export/developer-guide/`.
 - Supported-profile, health, and catalog surfaces remain aligned on the local-only stack.
 - Personal-facts settings routing remains repaired on `main`.
 
@@ -29,7 +29,6 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path.
 - Workspace-local Obsidian retrieval is supported on the current tip.
-- Image-turn containment remains proven on the supported profile.
 - Coding results return through Guardian into the source thread on the supported path.
 - Graph writes remain default-off on the supported Compose path.
 - The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
@@ -42,7 +41,6 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the site-export bundle changes runtime support or release readiness.
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
-- Do not assume Whooshd catalog metadata widens provider support beyond the local-only contract.
 - Do not infer desktop packaging readiness from architecture docs alone.
 
 ## Active blockers
@@ -52,7 +50,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Sync subscriptions are still process-local rather than durable across restarts.
 - Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
 
-## This week’s priorities
+## This week's priorities
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep internal-only surfaces labeled as such and out of the release promise.
