@@ -1,33 +1,22 @@
-# Daily Audit — 2026-05-28
+# Daily Audit — 2026-05-29
 
 ## Repo Status
-- Date: 2026-05-28
+- Date: 2026-05-29
 - Phase: `morning`
 - Branch: `codex/add-whooshd-provider`
-- HEAD: `f603d0a929867b9e0b5ecad778419813bcf9eb6b`
+- HEAD: `ab1e9152a589956a53407efad98d7c1fe9b84c71`
 - Worktree: dirty
 - Status lines:
   - ` M docs/Marketing/generated/history/run-history.jsonl`
-  - ` M docs/architecture/00-current-state.md`
-  - ` M docs/audits/daily/evening/latest.json`
-  - ` M docs/audits/daily/evening/latest.md`
-  - ` M docs/audits/daily/morning/latest.json`
-  - ` M docs/audits/daily/morning/latest.md`
-  - ` M docs/audits/latest.json`
-  - ` M docs/audits/latest.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json`
-  - `?? docs/audits/daily/evening/2026-05-27-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-27-audit.md`
-  - `?? docs/audits/daily/morning/2026-05-27-audit.json`
-  - `?? docs/audits/daily/morning/2026-05-27-audit.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_05_29_MARKETING_V1/run-metadata.json`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
@@ -67,21 +56,22 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 2
-- Unique files changed: 4
-- Files changed: `guardian/core/chat_completion_service.py`, `tests/core/test_chat_completion_memory_preselection_options.py`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
+- Commit count: 4
+- Unique files changed: 35
+- Files changed: `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `docs/audits/daily/evening/2026-05-28-audit.json`, `docs/audits/daily/evening/2026-05-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-27-audit.json`, `docs/audits/daily/evening/2026-05-27-audit.md`, `docs/audits/daily/morning/2026-05-27-audit.json`, `docs/audits/daily/morning/2026-05-27-audit.md`, `docs/audits/daily/morning/2026-05-28-audit.json`, `docs/audits/daily/morning/2026-05-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `f603d0a92986` | Fix chat context assembly failure initialization | `guardian/core/chat_completion_service.py`, `tests/core/test_chat_completion_memory_preselection_options.py` |
-| `0a595ec5c744` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `ab1e9152a589` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `5c6c9f94a0c4` | Update evening audit artifacts | `docs/audits/daily/evening/2026-05-28-audit.json`, `docs/audits/daily/evening/2026-05-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `34ab49bc4fe8` | Update marketing history and daily audit artifacts | `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-05-27-audit.json`, `docs/audits/daily/evening/2026-05-27-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-05-27-audit.json`, `docs/audits/daily/morning/2026-05-27-audit.md`, `docs/audits/daily/morning/2026-05-28-audit.json`, `docs/audits/daily/morning/2026-05-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `13bc5d6b424e` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 2 | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
-| `tests` | 1 | `tests/core/test_chat_completion_memory_preselection_options.py` |
-| `unknown` | 1 | `guardian/core/chat_completion_service.py` |
+| `docs` | 21 | `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl` |
+| `audit` | 14 | `docs/audits/daily/evening/2026-05-28-audit.json`, `docs/audits/daily/evening/2026-05-28-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `docs/audits/daily/evening/2026-05-27-audit.json`, `docs/audits/daily/evening/2026-05-27-audit.md`, `docs/audits/daily/morning/2026-05-27-audit.json`, `docs/audits/daily/morning/2026-05-27-audit.md`, `docs/audits/daily/morning/2026-05-28-audit.json`, `docs/audits/daily/morning/2026-05-28-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`
