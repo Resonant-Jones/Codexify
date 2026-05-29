@@ -21,6 +21,11 @@ import {
   type ComposerInferenceMode,
 } from "@/types/inference";
 import {
+  buildSlashCommandSendPayload,
+  resolveSlashCommandIntent,
+  type SlashCommandIntentPayload,
+} from "@/contracts/slashCommands";
+import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
   CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS,
@@ -79,20 +84,7 @@ const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
 
 export type ComposerSendOptions = {
   threadIdOverride?: number;
-  slashIntent?: {
-    commandId: string;
-    rawToken?: string;
-    queryText?: string;
-    intentKind: string;
-    retrievalHint?: string;
-    rawInput: string;
-    contextDirectives?: Array<{
-      kind: string;
-      connectorId?: string;
-      invocation?: string;
-      queryText?: string;
-    }>;
-  };
+  slashIntent?: SlashCommandIntentPayload;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -405,46 +397,8 @@ export function Composer({
     return lines.join("\n\n").trim();
   };
 
-  const parseSlashIntent = (rawValue: string): ComposerSendOptions["slashIntent"] | undefined => {
-    const rawInput = rawValue.trim();
-
-    // Obsidian: /obsidian <query>
-    const obsidianMatch = rawInput.match(/^\/obsidian(?:\s+([\s\S]*))?$/i);
-    if (obsidianMatch) {
-      const queryText = String(obsidianMatch[1] || "").trim();
-      if (!queryText) return undefined;
-      return {
-        commandId: "obsidian",
-        rawToken: "/obsidian",
-        queryText,
-        intentKind: "knowledge",
-        retrievalHint: "personal_knowledge",
-        rawInput,
-        contextDirectives: [
-          {
-            kind: "connector_context",
-            connectorId: "obsidian",
-            invocation: "turn_scoped",
-            queryText,
-          },
-        ],
-      };
-    }
-
-    // Codex Entry: /codex_entry (or aliases /codex, /entry, /artifact)
-    const codexMatch = rawInput.match(/^\/(codex_entry|codex|entry|artifact)(?:\s.*)?$/i);
-    if (codexMatch) {
-      return {
-        commandId: "codex_entry",
-        rawToken: `/${codexMatch[1].toLowerCase()}`,
-        intentKind: "codex",
-        retrievalHint: "none",
-        rawInput,
-      };
-    }
-
-    return undefined;
-  };
+  const isObsidianSlashCommand = (rawValue: string) =>
+    resolveSlashCommandIntent(rawValue)?.command.id === "obsidian";
 
   const resolveProjectId = () => {
     // Prefer explicit storage values to reduce reliance on URL shape.
@@ -557,8 +511,8 @@ export function Composer({
       return;
     }
 
-    const slashIntent = parseSlashIntent(value);
-    const bodyText = slashIntent?.queryText ?? value.trim();
+    const { messageText, slashIntent } = buildSlashCommandSendPayload(value);
+    const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
     if (!bodyText && !hasAttachments) return;
 
@@ -748,7 +702,7 @@ export function Composer({
               const next = e.target.value;
               setValue(next);
               valueRef.current = next;
-              setObsidianSlashActive(/^\/obsidian(?:\s|$)/i.test(next.trimStart()));
+              setObsidianSlashActive(isObsidianSlashCommand(next.trimStart()));
               scheduleDraftCommit(next);
             }}
             onBlur={() => commitDraftNow(valueRef.current)}
