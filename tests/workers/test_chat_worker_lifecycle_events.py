@@ -133,7 +133,19 @@ def test_chat_worker_emits_lifecycle_states_in_order(monkeypatch):
         lambda *_args, **_kwargs: _TokenStream(),
     )
     monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *_args, **_kwargs: _TokenStream(),
+    )
+    monkeypatch.setattr(
         chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fallback should not be used")
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("fallback should not be used")

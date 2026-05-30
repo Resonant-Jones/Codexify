@@ -669,6 +669,40 @@ def _classify_runtime_status(detail: str) -> str | None:
     return None
 
 
+def _classify_runtime_status_from_metadata(
+    metadata: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    transport_classification = (
+        str(metadata.get("transport_classification") or "").strip().lower()
+    )
+    failure_kind = str(metadata.get("failure_kind") or "").strip().lower()
+    if transport_classification == "timeout" or failure_kind == "provider_timeout":
+        return "timeout"
+    if transport_classification:
+        return transport_classification
+    return None
+
+
+def _failed_after_state(
+    lifecycle_timings: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(lifecycle_timings, dict):
+        return None
+    if lifecycle_timings.get("first_output_at") or lifecycle_timings.get(
+        "first_token_at"
+    ):
+        return TaskLifecycleState.STREAMING.value
+    if lifecycle_timings.get("awaiting_first_token_at"):
+        return TaskLifecycleState.AWAITING_FIRST_TOKEN.value
+    if lifecycle_timings.get("awaiting_model_at"):
+        return TaskLifecycleState.AWAITING_MODEL.value
+    if lifecycle_timings.get("queued_at"):
+        return TaskLifecycleState.QUEUED.value
+    return None
+
+
 def _completion_truth(
     *,
     accepted: bool,
@@ -1666,7 +1700,10 @@ def _run_chat_completion_task_compat(
                 cancel_check=cancel_check,
             )
         )
-        return str(completion_result.get("assistant_text") or "")
+        assistant_output = str(completion_result.get("assistant_text") or "")
+        if assistant_output:
+            _publish_streaming("body")
+        return assistant_output
 
     fallback_reason: str | None = None
     failure_meta: dict[str, Any] = {}
@@ -2618,6 +2655,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         duration_ms = int((time.monotonic() - started) * 1000)
         error_detail = _describe_task_error(exc)
         error_metadata = _task_error_metadata(exc)
+        failed_after_state = _failed_after_state(lifecycle_timings)
         terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
         failure_payload = {
             "run_id": run_id,
@@ -2630,6 +2668,15 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "latest_turn_message_id": latest_turn_message_id,
             **terminal_timings,
         }
+        if failed_after_state:
+            failure_payload["failed_after_state"] = failed_after_state
+            failure_payload["provider_request_started"] = failed_after_state in {
+                TaskLifecycleState.AWAITING_FIRST_TOKEN.value,
+                TaskLifecycleState.STREAMING.value,
+            }
+            failure_payload["first_output_observed"] = failed_after_state == (
+                TaskLifecycleState.STREAMING.value
+            )
         for key in (
             "provider",
             "model",
@@ -2664,6 +2711,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 )
                 failure_payload[normalized_key] = value
         runtime_status = _classify_runtime_status(error_detail)
+        if runtime_status is None:
+            runtime_status = _classify_runtime_status_from_metadata(
+                error_metadata
+            )
         if runtime_status:
             failure_payload["runtime_status"] = runtime_status
         if task.provider:
