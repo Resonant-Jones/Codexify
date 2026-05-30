@@ -790,6 +790,7 @@ def _coerce_memory_preselection_headers(
 def _build_memory_preselection_trace(
     *,
     enabled: bool,
+    active: bool = False,
     query: str,
     user_id: str,
     project_id: int | None,
@@ -844,6 +845,8 @@ def _build_memory_preselection_trace(
 
     return {
         "enabled": True,
+        "active": bool(active),
+        "mode": "active" if active else "trace_only",
         "selected_count": len(selected_entries),
         "suppressed_count": len(suppressed_entries),
         "selected_candidate_ids": [
@@ -854,6 +857,68 @@ def _build_memory_preselection_trace(
         "affected_retrieval": False,
         "affected_prompt_injection": False,
     }
+
+
+def _apply_memory_preselection_active_influence(
+    memory_items: Sequence[Any],
+    *,
+    selected_candidate_ids: Sequence[str],
+    scoped_candidate_ids: Sequence[str],
+) -> tuple[list[Any], dict[str, Any], bool]:
+    def _clean_id(value: Any) -> str:
+        return str(value or "").strip()
+
+    selected_ordered = [
+        candidate_id
+        for candidate_id in dict.fromkeys(
+            _clean_id(candidate_id)
+            for candidate_id in selected_candidate_ids
+        )
+        if candidate_id
+    ]
+    selected = set(selected_ordered)
+    scoped = {
+        candidate_id
+        for candidate_id in (
+            _clean_id(candidate_id) for candidate_id in scoped_candidate_ids
+        )
+        if candidate_id
+    }
+
+    kept: list[Any] = []
+    removed: list[str] = []
+    for item in memory_items:
+        candidate_id = ""
+        if isinstance(item, dict):
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            candidate_id = _clean_id(
+                item.get("id")
+                or item.get("candidate_id")
+                or metadata.get("id")
+                or metadata.get("candidate_id")
+                or metadata.get("source_message_id")
+            )
+
+        if candidate_id and candidate_id in scoped and candidate_id not in selected:
+            removed.append(candidate_id)
+            continue
+        kept.append(item)
+
+    removed_ordered = [
+        candidate_id
+        for candidate_id in dict.fromkeys(removed)
+        if candidate_id
+    ]
+    applied = bool(removed_ordered)
+    influence = {
+        "applied": applied,
+        "allowed_candidate_ids": selected_ordered,
+        "removed_candidate_ids": removed_ordered,
+        "unchanged_item_count": len(kept),
+    }
+    return kept, influence, applied
 
 
 class ContextBroker:
@@ -1152,6 +1217,7 @@ class ContextBroker:
             }
             memory_preselection_trace = _build_memory_preselection_trace(
                 enabled=enable_memory_preselection_trace,
+                active=memory_preselection_active,
                 query=query,
                 user_id=resolved_user_id,
                 project_id=resolved_project_id,
@@ -1692,7 +1758,7 @@ class ContextBroker:
             ],
             "source_mode": normalized_source_mode,
             "effective_policy": effective_policy,
-            "retrieval_policy": dict(effective_policy),
+            "retrieval_policy": dict(effective_context_policy),
             "retrieval_provenance": retrieval_provenance,
             "retrieval_suppression": {
                 "items": [],
@@ -1710,18 +1776,6 @@ class ContextBroker:
             "personal_facts_context": personal_facts_trace,
             "verified_personal_facts_context": personal_facts_trace,
         }
-        memory_preselection_trace = _build_memory_preselection_trace(
-            enabled=enable_memory_preselection_trace,
-            query=query,
-            user_id=resolved_user_id,
-            project_id=resolved_project_id,
-            thread_id=thread_id,
-            persona_id=memory_preselection_persona_id,
-            identity_depth=memory_preselection_identity_depth,
-            include_diary_excluded=memory_preselection_include_diary_excluded,
-            memory_items=context.get("memory", []),
-            candidate_headers=memory_preselection_candidate_headers,
-        )
         if memory_preselection_trace is not None:
             rag_trace["memory_preselection"] = memory_preselection_trace
 
