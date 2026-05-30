@@ -153,7 +153,52 @@ describe("Composer draft sync", () => {
         slashIntent: expect.objectContaining({
           commandId: "obsidian",
           queryText: "wiki notes",
-          retrievalHint: "personal_knowledge",
+          retrievalHint: "none",
+          contextDirectives: [
+            {
+              kind: "connector_context",
+              connectorId: "obsidian",
+              invocation: "turn_scoped",
+              queryText: "wiki notes",
+            },
+          ],
+        }),
+      })
+    );
+  });
+
+  it("parses /obs alias through the shared slash-command contract", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <Composer
+        onSend={onSend}
+        draftScopeKey="tab-1"
+        draftValue=""
+      />
+    );
+
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, {
+      target: { value: "/obs wiki notes" },
+    });
+
+    expect(screen.getByTestId("composer-obsidian-action")).toHaveTextContent(
+      "Obsidian"
+    );
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledTimes(1);
+    });
+    expect(onSend).toHaveBeenCalledWith(
+      "wiki notes",
+      expect.objectContaining({
+        slashIntent: expect.objectContaining({
+          commandId: "obsidian",
+          queryText: "wiki notes",
+          retrievalHint: "none",
           contextDirectives: [
             {
               kind: "connector_context",

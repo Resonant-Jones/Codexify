@@ -701,6 +701,12 @@ describe("GuardianChat inference rail", () => {
           }),
         })
       );
+      const completeCall = apiMock.post.mock.calls.find(
+        ([url]) => url === "/chat/1/complete"
+      );
+      expect(completeCall?.[1]?.slashIntent).not.toHaveProperty(
+        "contextDirectives"
+      );
     });
   });
 
