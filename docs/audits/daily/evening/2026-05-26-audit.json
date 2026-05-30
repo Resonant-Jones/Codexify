@@ -63,93 +63,87 @@
     "summary": "Codexify has progressed beyond prototype into an operational substrate."
   },
   "changes_last_24h": {
-    "commit_count": 2,
+    "commit_count": 3,
     "commits": [
       {
         "files": [
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md",
-          "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json",
+          ".env.example",
+          "guardian/core/config.py",
+          "guardian/core/llm_catalog.py",
+          "tests/routes/test_llm_catalog.py"
+        ],
+        "sha": "187a3ff2e7002e50b4e2d18ea4f52eee277177ae",
+        "subject": "Add Whooshd local provider catalog metadata"
+      },
+      {
+        "files": [
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+          "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
           "docs/Marketing/generated/history/run-history.jsonl",
-          "docs/audits/daily/evening/2026-05-27-audit.json",
-          "docs/audits/daily/evening/2026-05-27-audit.md",
+          "docs/audits/daily/evening/2026-05-25-audit.json",
+          "docs/audits/daily/evening/2026-05-25-audit.md",
           "docs/audits/daily/evening/latest.json",
           "docs/audits/daily/evening/latest.md",
-          "docs/audits/daily/morning/2026-05-27-audit.json",
-          "docs/audits/daily/morning/2026-05-27-audit.md",
-          "docs/audits/daily/morning/2026-05-28-audit.json",
-          "docs/audits/daily/morning/2026-05-28-audit.md",
+          "docs/audits/daily/morning/2026-05-26-audit.json",
+          "docs/audits/daily/morning/2026-05-26-audit.md",
           "docs/audits/daily/morning/latest.json",
           "docs/audits/daily/morning/latest.md",
           "docs/audits/latest.json",
           "docs/audits/latest.md"
         ],
-        "sha": "34ab49bc4fe8d2f2c6d64a384444cc12d10408e6",
-        "subject": "Update marketing history and daily audit artifacts"
+        "sha": "3e311d7f868526fddea645df82b1d340e38a2f07",
+        "subject": "Record daily audit and marketing run history"
       },
       {
         "files": [
-          "docs/architecture/00-current-state.md"
+          "docs/architecture/00-current-state.md",
+          "docs/architecture/README.md"
         ],
-        "sha": "13bc5d6b424eaa30d04660938cca3699174d7ef1",
+        "sha": "1bb7f3a85514a62fbb00e9c20781502d0cced8f0",
         "subject": "docs: refresh weekly current-state override"
       }
     ],
     "files_changed": [
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md",
-      "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json",
+      ".env.example",
+      "guardian/core/config.py",
+      "guardian/core/llm_catalog.py",
+      "tests/routes/test_llm_catalog.py",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+      "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
       "docs/Marketing/generated/history/run-history.jsonl",
-      "docs/audits/daily/evening/2026-05-27-audit.json",
-      "docs/audits/daily/evening/2026-05-27-audit.md",
+      "docs/audits/daily/evening/2026-05-25-audit.json",
+      "docs/audits/daily/evening/2026-05-25-audit.md",
       "docs/audits/daily/evening/latest.json",
       "docs/audits/daily/evening/latest.md",
-      "docs/audits/daily/morning/2026-05-27-audit.json",
-      "docs/audits/daily/morning/2026-05-27-audit.md",
-      "docs/audits/daily/morning/2026-05-28-audit.json",
-      "docs/audits/daily/morning/2026-05-28-audit.md",
+      "docs/audits/daily/morning/2026-05-26-audit.json",
+      "docs/audits/daily/morning/2026-05-26-audit.md",
       "docs/audits/daily/morning/latest.json",
       "docs/audits/daily/morning/latest.md",
       "docs/audits/latest.json",
       "docs/audits/latest.md",
-      "docs/architecture/00-current-state.md"
+      "docs/architecture/00-current-state.md",
+      "docs/architecture/README.md"
     ],
-    "window_end": "2026-05-28T21:01:59.923842-04:00",
+    "window_end": "2026-05-26T21:02:26.003600-04:00",
     "window_hours": 24,
-    "window_start": "2026-05-27T21:01:59.923842-04:00"
+    "window_start": "2026-05-25T21:02:26.003600-04:00"
   },
-  "date": "2026-05-28",
-  "generated_at": "2026-05-28T21:01:59.923842-04:00",
+  "date": "2026-05-26",
+  "generated_at": "2026-05-26T21:02:26.003600-04:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -158,9 +152,9 @@
   "phase": "evening",
   "repo": {
     "branch": "codex/add-whooshd-provider",
-    "date": "2026-05-28",
+    "date": "2026-05-26",
     "dirty": false,
-    "head": "f0262ff44d42878603856e56892bb14760916a2d",
+    "head": "187a3ff2e7002e50b4e2d18ea4f52eee277177ae",
     "status_error": "",
     "status_lines": []
   },
@@ -219,45 +213,49 @@
   ],
   "subsystems_touched": {
     "audit": {
-      "count": 12,
+      "count": 10,
       "files": [
-        "docs/audits/daily/evening/2026-05-27-audit.json",
-        "docs/audits/daily/evening/2026-05-27-audit.md",
+        "docs/audits/daily/evening/2026-05-25-audit.json",
+        "docs/audits/daily/evening/2026-05-25-audit.md",
         "docs/audits/daily/evening/latest.json",
         "docs/audits/daily/evening/latest.md",
-        "docs/audits/daily/morning/2026-05-27-audit.json",
-        "docs/audits/daily/morning/2026-05-27-audit.md",
-        "docs/audits/daily/morning/2026-05-28-audit.json",
-        "docs/audits/daily/morning/2026-05-28-audit.md",
+        "docs/audits/daily/morning/2026-05-26-audit.json",
+        "docs/audits/daily/morning/2026-05-26-audit.md",
         "docs/audits/daily/morning/latest.json",
         "docs/audits/daily/morning/latest.md",
         "docs/audits/latest.json",
         "docs/audits/latest.md"
       ]
     },
-    "docs": {
-      "count": 20,
+    "config": {
+      "count": 2,
       "files": [
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/ad-copy.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-community.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-social.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/channel-website.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/core-brief.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/evidence-ledger.json",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/infographic-spec.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/review-notes.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_27_MARKETING_V1/run-metadata.json",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/ad-copy.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-community.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-social.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/channel-website.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/core-brief.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/evidence-ledger.json",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/infographic-spec.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/review-notes.md",
-        "docs/Marketing/generated/CAMPAIGN_2026_05_28_MARKETING_V1/run-metadata.json",
+        ".env.example",
+        "guardian/core/config.py"
+      ]
+    },
+    "docs": {
+      "count": 12,
+      "files": [
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/ad-copy.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-community.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-social.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/channel-website.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/core-brief.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/evidence-ledger.json",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/infographic-spec.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/review-notes.md",
+        "docs/Marketing/generated/CAMPAIGN_2026_05_26_MARKETING_V1/run-metadata.json",
         "docs/Marketing/generated/history/run-history.jsonl",
-        "docs/architecture/00-current-state.md"
+        "docs/architecture/00-current-state.md",
+        "docs/architecture/README.md"
+      ]
+    },
+    "providers": {
+      "count": 2,
+      "files": [
+        "guardian/core/llm_catalog.py",
+        "tests/routes/test_llm_catalog.py"
       ]
     }
   }
