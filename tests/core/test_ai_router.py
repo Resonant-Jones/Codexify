@@ -132,6 +132,7 @@ def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
 
 
 def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_call_alibaba(messages, model: str, *, settings=None):
@@ -282,6 +283,7 @@ def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
 def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, timeout):
