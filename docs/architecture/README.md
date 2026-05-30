@@ -33,7 +33,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Doc Map
 
-- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and this week's priorities.
 
 ## Start Here
 
