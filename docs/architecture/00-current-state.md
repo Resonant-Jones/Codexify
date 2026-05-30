@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-29
+2026-05-30
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved chat context behavior, widened local provider catalog metadata, and added a site-ready developer-guide export bundle, but they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes expanded Guardian delegation and campaign-runner plumbing, and added Whooshd provider metadata, but they do not widen the release promise.
 
 ## What changed recently
-- `main` fixed chat context assembly and enabled memory preselection in chat completion.
-- `main` added Whooshd local provider catalog metadata.
-- `main` added a site-ready developer-guide export bundle under `docs/site-export/developer-guide/`.
-- Supported-profile, health, and catalog surfaces remain aligned on the local-only stack.
-- Personal-facts settings routing remains repaired on `main`.
+- `main` added Guardian delegation loop and campaign-runner contracts plus worker/backend plumbing.
+- `main` added Whooshd provider metadata to the local catalog/config path.
+- `main` tightened the coding-worker adapter selection and delegation delivery fields.
+- `main` kept the current release-truth override pattern in place.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -37,8 +36,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
+- Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
-- Do not assume the site-export bundle changes runtime support or release readiness.
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not infer desktop packaging readiness from architecture docs alone.
@@ -47,13 +46,13 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Queue-coupled chat still depends on Redis plus worker health.
 - Canonical and legacy config paths still coexist, so startup and operator state can drift.
 - Legacy `/tools` behavior still overlaps with the command bus.
-- Sync subscriptions are still process-local rather than durable across restarts.
+- End-to-end Guardian delegation is not yet a release-supported path.
 - Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
 
 ## This week's priorities
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
-3. Keep internal-only surfaces labeled as such and out of the release promise.
+3. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
 4. Keep the release-truth docs in sync with the live `main` posture.
 5. Avoid widening supported beta claims until a new merged capability is proven end to end.
 
@@ -63,7 +62,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are proven on the supported stack.
 - [x] Coding results return through Guardian into the source thread.
 - [x] No internal-only or quarantined surface is part of the release claim.
-- [ ] Queue, config, sync, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
+- [ ] Queue, config, delegation, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
