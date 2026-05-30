@@ -65,9 +65,7 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
     if raw_source_mode is not None:
         payload["source_mode"] = raw_source_mode
 
-    expected_requested_source_mode = (
-        "project" if raw_source_mode is None else raw_source_mode
-    )
+    expected_requested_source_mode = expected_source_mode
 
     response = test_client.post("/chat/1/complete", json=payload)
 
