@@ -1295,6 +1295,52 @@ def _provider_failure_detail(
     return detail
 
 
+def _local_provider_failure_detail(
+    *,
+    settings: Settings,
+    model: str,
+    endpoint: str,
+    failure_kind: str,
+    message: str,
+    runtime_policy: LocalRuntimePolicy,
+    provider_error: str | None = None,
+    transport_classification: str | None = None,
+    attempted_endpoints: list[str] | None = None,
+    attempted_base_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    detail = _provider_failure_detail(
+        provider="local",
+        model=model,
+        endpoint=endpoint,
+        failure_kind=failure_kind,
+        message=message,
+        provider_error=provider_error,
+        transport_classification=transport_classification,
+    )
+    detail["local_runtime"] = runtime_policy.as_dict()
+    if attempted_endpoints:
+        detail["attempted_endpoints"] = list(attempted_endpoints)
+    normalized_base_urls = [
+        value
+        for value in dict.fromkeys(
+            str(item or "").strip() for item in (attempted_base_urls or [])
+        )
+        if value
+    ]
+    if normalized_base_urls:
+        detail["endpoint_resolution"] = describe_local_endpoint_resolution(
+            settings,
+            attempted_base_urls=normalized_base_urls,
+            state="degraded",
+            failure_kind=failure_kind,
+            reason=_summarize_local_attempt_failures(
+                list(attempted_endpoints or [])
+            )
+            or message,
+        )
+    return detail
+
+
 def _image_turn_vision_unsupported_detail(
     *,
     provider: str,
@@ -1969,10 +2015,12 @@ def call_local(
         )
 
     attempt_failures: list[str] = []
+    attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
     last_transport_url: str = ""
 
     for base_url in base_urls:
+        attempted_base_urls.append(base_url)
         is_gateway = base_url.endswith("/v1")
         attempt_urls = _local_attempt_urls(
             base_url,
@@ -2087,6 +2135,34 @@ def call_local(
             model=model,
             runtime_policy=runtime_policy,
         )
+        attempt_summary = _summarize_local_attempt_failures(attempt_failures)
+        detail = f"{detail} Attempted endpoints: {attempt_summary}"
+        if log_exceptions:
+            logger.error(detail)
+        else:
+            logger.warning(detail)
+        raise HTTPException(
+            status_code=502,
+            detail=_local_provider_failure_detail(
+                settings=settings,
+                model=model,
+                endpoint=last_transport_url,
+                failure_kind=_provider_transport_failure_kind(
+                    last_transport_error
+                ),
+                message=detail,
+                provider_error=_sanitize_provider_error(
+                    str(last_transport_error),
+                    secret=api_key,
+                ),
+                transport_classification=_classify_transport_error(
+                    last_transport_error
+                ),
+                runtime_policy=runtime_policy,
+                attempted_endpoints=attempt_failures,
+                attempted_base_urls=attempted_base_urls,
+            ),
+        ) from last_transport_error
     elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
         attempt_failures
     ):
@@ -2177,10 +2253,12 @@ def stream_local(
     response: Optional[requests.Response] = None
     current_url = ""
     attempt_failures: list[str] = []
+    attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
 
     try:
         for base_url in base_urls:
+            attempted_base_urls.append(base_url)
             is_gateway = base_url.endswith("/v1")
             attempt_urls = _local_attempt_urls(
                 base_url,
@@ -2280,6 +2358,30 @@ def stream_local(
                     model=model,
                     runtime_policy=runtime_policy,
                 )
+                summary = _summarize_local_attempt_failures(attempt_failures)
+                detail = f"{detail} Attempted endpoints: {summary}"
+                raise HTTPException(
+                    status_code=502,
+                    detail=_local_provider_failure_detail(
+                        settings=settings,
+                        model=model,
+                        endpoint=current_url,
+                        failure_kind=_provider_transport_failure_kind(
+                            last_transport_error
+                        ),
+                        message=detail,
+                        provider_error=_sanitize_provider_error(
+                            str(last_transport_error),
+                            secret=api_key,
+                        ),
+                        transport_classification=_classify_transport_error(
+                            last_transport_error
+                        ),
+                        runtime_policy=runtime_policy,
+                        attempted_endpoints=attempt_failures,
+                        attempted_base_urls=attempted_base_urls,
+                    ),
+                ) from last_transport_error
             elif (
                 local_model_resolution.strict
                 and _all_local_attempt_failures_are_404(attempt_failures)
@@ -2359,7 +2461,24 @@ def stream_local(
             summary = _summarize_local_attempt_failures(attempt_failures)
             detail = f"{detail} Attempted endpoints: {summary}"
             logger.warning(detail)
-            raise HTTPException(status_code=502, detail=detail) from exc
+            raise HTTPException(
+                status_code=502,
+                detail=_local_provider_failure_detail(
+                    settings=settings,
+                    model=model,
+                    endpoint=current_url,
+                    failure_kind=_provider_transport_failure_kind(exc),
+                    message=detail,
+                    provider_error=_sanitize_provider_error(
+                        str(exc),
+                        secret=api_key,
+                    ),
+                    transport_classification=_classify_transport_error(exc),
+                    runtime_policy=runtime_policy,
+                    attempted_endpoints=attempt_failures,
+                    attempted_base_urls=attempted_base_urls,
+                ),
+            ) from exc
     finally:
         if response is not None:
             try:
