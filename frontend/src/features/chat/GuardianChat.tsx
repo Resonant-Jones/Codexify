@@ -86,6 +86,7 @@ import {
   describeInferenceRequestState,
   useInferenceRequestState,
 } from "@/features/chat/hooks/useInferenceRequestState";
+import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
 import {
   formatRuntimeHealthDiagnostics,
   type RuntimeHealthStatus,
@@ -2758,7 +2759,7 @@ export function GuardianChat({
         inferenceRequest.markFailed(
           String(payload?.error || "Guardian could not finish the response."),
           {
-            detailText: "Try again or switch to a faster mode.",
+            detailText: describeTaskFailureDetailText(payload),
           }
         );
         pendingFastRetryRef.current = null;
