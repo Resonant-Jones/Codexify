@@ -179,6 +179,32 @@ def _context_plan_origin(plans: list[dict[str, object]]) -> str:
     )
 
 
+def _slash_intent_origin(slash_intent: dict[str, object]) -> str:
+    return "api:chat.complete|slash_intent=" + quote(
+        json.dumps(slash_intent, ensure_ascii=False, separators=(",", ":")),
+        safe="",
+    )
+
+
+def _system_message_contents(messages: list[dict[str, object]]) -> list[str]:
+    return [
+        str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "system"
+    ]
+
+
+def _active_context_instruction_messages(
+    messages: list[dict[str, object]],
+) -> list[str]:
+    return [
+        content
+        for content in _system_message_contents(messages)
+        if "Active context directive: Obsidian workspace context is active"
+        in content
+    ]
+
+
 def test_context_request_plans_from_origin_decodes_valid_metadata() -> None:
     origin = "api:chat.complete|turn_id=abc" + encode_context_request_plans_origin_segment(
         [
@@ -278,6 +304,151 @@ async def test_build_messages_for_llm_consumes_supported_obsidian_plan(
         }
     ]
     assert messages[-1]["content"] == "general ask"
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_adds_active_obsidian_context_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_user_text = "/obsidian memory decay"
+    _seed_completion_service(
+        monkeypatch,
+        messages=[{"id": 1, "role": "user", "content": raw_user_text}],
+        retrieved_items=[],
+    )
+    task = _task_with_origin(
+        _context_plan_origin(
+            [
+                {
+                    "request_kind": "read_only_context_request",
+                    "connector_id": "obsidian",
+                    "invocation": "turn_scoped",
+                    "query_text": "memory decay",
+                    "status": "accepted_not_executed",
+                    "execution_required": False,
+                }
+            ]
+        )
+    )
+
+    messages, _provider, _model, bundle, _trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
+
+    active_instructions = _active_context_instruction_messages(messages)
+    assert len(active_instructions) == 1
+    active_instruction = active_instructions[0]
+    assert "slash command has already been interpreted" in active_instruction
+    assert (
+        "Use any injected workspace/Obsidian context available"
+        in active_instruction
+    )
+    assert "no relevant local context was found" in active_instruction
+    assert (
+        "does not grant arbitrary external tool access"
+        in active_instruction
+    )
+    assert "MCP" not in active_instruction
+    assert "command bus" not in active_instruction.lower()
+    assert messages[-1] == {"role": "user", "content": raw_user_text}
+    assert (
+        bundle["_completion_assembly"]["latest_turn"]["content"]
+        == raw_user_text
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_adds_active_instruction_for_obsidian_slash_intent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(monkeypatch)
+    task = _task_with_origin(
+        _slash_intent_origin(
+            {
+                "commandId": "obsidian",
+                "intentKind": "integration",
+                "retrievalHint": "none",
+            }
+        )
+    )
+
+    messages, _provider, _model, _bundle, _trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
+
+    assert len(_active_context_instruction_messages(messages)) == 1
+
+
+@pytest.mark.asyncio
+async def test_build_messages_for_llm_omits_active_context_instruction_without_slash_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(monkeypatch)
+    task = _task_with_origin("api:chat.complete|turn_id=abc")
+
+    messages, _provider, _model, _bundle, _trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
+
+    assert _active_context_instruction_messages(messages) == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_slash_intent_does_not_add_active_context_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion_service(monkeypatch)
+    task = _task_with_origin(
+        _slash_intent_origin(
+            {
+                "commandId": "github",
+                "intentKind": "integration",
+                "retrievalHint": "none",
+            }
+        )
+    )
+
+    messages, _provider, _model, _bundle, _trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
+
+    assert _active_context_instruction_messages(messages) == []
+
+
+@pytest.mark.asyncio
+async def test_unsupported_context_request_plans_do_not_add_active_context_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _seed_completion_service(monkeypatch)
+    origin = (
+        "api:chat.complete|turn_id=abc|context_request_plans="
+        + quote(
+            json.dumps(
+                [
+                    {
+                        "request_kind": "read_only_context_request",
+                        "connector_id": "github",
+                        "invocation": "turn_scoped",
+                        "query_text": "repo issue",
+                        "status": "accepted_not_executed",
+                        "execution_required": False,
+                    }
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            safe="",
+        )
+    )
+    task = _task_with_origin(origin)
+
+    messages, _provider, _model, _bundle, trace = (
+        await chat_completion_service.build_messages_for_llm(task)
+    )
+
+    captured["broker"].retrieve_obsidian_context_command.assert_not_called()
+    assert _active_context_instruction_messages(messages) == []
+    assert trace["context_request_results"] == []
 
 
 @pytest.mark.asyncio

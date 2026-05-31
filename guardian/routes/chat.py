@@ -914,6 +914,7 @@ SlashCommandId = Literal[
     "secure",
     "connect",
     "obsidian",
+    "codex_entry",
     "help",
 ]
 SlashCommandIntentKind = Literal[
@@ -923,6 +924,7 @@ SlashCommandIntentKind = Literal[
     "automation",
     "security",
     "integration",
+    "codex",
     "help",
 ]
 SlashCommandRetrievalHint = Literal[

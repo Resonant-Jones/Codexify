@@ -33,7 +33,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 ## Doc Map
 
-- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and this week's priorities.
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 
 ## Start Here
 
@@ -41,7 +41,7 @@ Start here first when you need current-state interpretation rather than structur
 
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
-If you are working on self-build doctrine, coding-worker execution, Codex Runner substrate questions, Guardian delegation overlap, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for the governed build/change loop; use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
+If you are working on self-build doctrine, coding-worker execution, Codex Runner substrate questions, Guardian delegation overlap, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for the governed build/change loop; use [`build-proposal-artifact-contract.md`](./build-proposal-artifact-contract.md) for the canonical review artifact between diagnosis and execution, and use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
 
@@ -133,6 +133,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Core Export Workflow](../release/core-export-workflow.md): local-only `Publishing_Portal/Core/` source-mirror workflow for public-facing packaging and review. This is generated output, not the source of truth, and does not replace supported-path live proof.
 - [Unity Audit Doctrine](./unity-audit-doctrine.md): doctrine-first coherence and synthesis layer across runtime truth, contracts, operator reality, governance, extension boundaries, and community-facing narrative. It does not replace live proof, release truth, or ADR authority.
 - [Guardian Build Loop Doctrine](./guardian-build-loop-doctrine.md): canonical umbrella doctrine for self-build governance, Guardian delegation overlap, coding-worker execution substrate, Codex Runner naming, Pi-style harness boundaries, human review gate, patch artifacts, and commit-after-green posture. It does not claim autonomous build behavior or wider release support beyond `00-current-state.md`.
+- [Build Proposal Artifact Contract](./build-proposal-artifact-contract.md): canonical review artifact between diagnosis and execution in the Guardian Build Loop. It does not approve, execute, or prove work, and it does not claim autonomous execution.
 - [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.

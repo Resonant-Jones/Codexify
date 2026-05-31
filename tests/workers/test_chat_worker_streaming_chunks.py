@@ -152,17 +152,33 @@ def _prepare_worker_harness(
             "stream_local",
             lambda *_args, **_kwargs: _TokenStream(stream_tokens),
         )
+        monkeypatch.setattr(
+            chat_worker._chat_completion_service,
+            "stream_local",
+            lambda *_args, **_kwargs: _TokenStream(stream_tokens),
+        )
     else:
+        def _unexpected_stream_local(*_args, **_kwargs):
+            raise AssertionError("stream_local should not be used")
+
         monkeypatch.setattr(
             chat_worker,
             "stream_local",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                AssertionError("stream_local should not be used")
-            ),
+            _unexpected_stream_local,
+        )
+        monkeypatch.setattr(
+            chat_worker._chat_completion_service,
+            "stream_local",
+            _unexpected_stream_local,
         )
 
     monkeypatch.setattr(
         chat_worker,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: assistant_text,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: assistant_text,
     )
