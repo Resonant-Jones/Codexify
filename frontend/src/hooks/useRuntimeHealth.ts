@@ -379,6 +379,7 @@ function deriveLlmFailureReason(payload: unknown): string | null {
   const parsedOk = readParsedOk(payload);
   const detailsStatus = readPayloadString(payload, ["details", "status"]);
   const detailsOk = readPayloadBoolean(payload, ["details", "ok"]);
+  const detailsError = readPayloadString(payload, ["details", "error"]);
   const provider = readPayloadString(payload, ["provider"]);
   const providerRuntimeAvailable =
     readPayloadBoolean(payload, ["details", "provider_runtime", "available"]) ??
@@ -390,24 +391,30 @@ function deriveLlmFailureReason(payload: unknown): string | null {
   if (provider && provider.trim().toLowerCase() !== "local") {
     return `provider=${provider}`;
   }
-  if (parsedOk === false) return "ok=false";
-  if (detailsOk === false) return "details.ok=false";
+
+  // Surface the actual transport-level error when available.
+  const detailError = detailsError
+    ? `details.error=${detailsError}`
+    : null;
+
+  if (parsedOk === false) return detailError ?? "ok=false";
+  if (detailsOk === false) return detailError ?? "details.ok=false";
   if (providerRuntimeAvailable === false) {
-    return "provider_runtime.available=false";
+    return detailError ?? "provider_runtime.available=false";
   }
   if (
     endpointResolutionState &&
     endpointResolutionState.trim().toLowerCase() !== "available"
   ) {
-    return `endpoint_resolution.state=${endpointResolutionState}`;
+    return detailError ?? `endpoint_resolution.state=${endpointResolutionState}`;
   }
   if (isRedStatusToken(detailsStatus)) {
-    return `details.status=${detailsStatus}`;
+    return detailError ?? `details.status=${detailsStatus}`;
   }
   if (isRedStatusToken(parsedStatus)) {
-    return `status=${parsedStatus}`;
+    return detailError ?? `status=${parsedStatus}`;
   }
-  return null;
+  return detailError;
 }
 
 function resolveRuntimeHealthAuthSource(): RuntimeHealthAuthSource {
@@ -544,26 +551,44 @@ function normalizeDetail(value: unknown): string | null {
 function extractLlmDetail(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const candidate = payload as Record<string, unknown>;
-  const providerRuntime = candidate.provider_runtime;
+
+  // The /api/health/llm endpoint nests most fields under `details`.
+  // Read from details first, then fall back to top-level.
+  const details =
+    candidate.details && typeof candidate.details === "object"
+      ? (candidate.details as Record<string, unknown>)
+      : null;
+
+  const providerRuntime =
+    (details?.provider_runtime as Record<string, unknown> | undefined) ??
+    (candidate.provider_runtime as Record<string, unknown> | undefined);
   if (providerRuntime && typeof providerRuntime === "object") {
-    const modelIndex = (
-      providerRuntime as Record<string, unknown>
-    ).model_index;
+    const modelIndex = providerRuntime.model_index as
+      | Record<string, unknown>
+      | undefined;
     if (modelIndex && typeof modelIndex === "object") {
-      const index = modelIndex as Record<string, unknown>;
       return (
-        normalizeDetail(index.reason) ??
-        normalizeDetail(index.failure_kind) ??
-        normalizeDetail(index.state)
+        normalizeDetail(modelIndex.reason) ??
+        normalizeDetail(modelIndex.failure_kind) ??
+        normalizeDetail(modelIndex.state)
       );
     }
-    const runtimeReason = providerRuntime as Record<string, unknown>;
     return (
-      normalizeDetail(runtimeReason.reason) ??
-      normalizeDetail(runtimeReason.failure_kind) ??
-      normalizeDetail(runtimeReason.status_reason)
+      normalizeDetail(providerRuntime.reason) ??
+      normalizeDetail(providerRuntime.failure_kind) ??
+      normalizeDetail(providerRuntime.status_reason)
     );
   }
+
+  // Surface the actual connection error (transport error, HTTP status, etc.)
+  // which lives at details.error in the /api/health/llm response.
+  const errorDetail =
+    normalizeDetail(details?.error) ??
+    normalizeDetail(details?.message) ??
+    normalizeDetail(details?.failure_kind) ??
+    normalizeDetail(details?.status_reason);
+  if (errorDetail) return errorDetail;
+
   return (
     normalizeDetail(candidate.error) ??
     normalizeDetail(candidate.status_reason) ??
