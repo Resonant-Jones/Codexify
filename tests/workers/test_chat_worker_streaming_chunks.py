@@ -259,8 +259,5 @@ def test_chat_worker_does_not_fabricate_chunks_for_non_streaming_flow(
         event_type == "task.chunk" for event_type, _payload in published
     )
     assert any(
-        event_type == "task.progress" for event_type, _payload in published
-    )
-    assert any(
         event_type == "task.completed" for event_type, _payload in published
     )

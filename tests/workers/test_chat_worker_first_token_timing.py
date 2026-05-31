@@ -7,6 +7,10 @@ import pytest
 from fastapi import HTTPException
 
 from guardian.core.chat_completion_service import ChatTaskCancelled
+from guardian.protocol_tokens import (
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.workers import chat_worker
 
@@ -446,8 +450,10 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
             "error": "provider_request_failed",
             "provider": "local",
             "model": "test-model",
-            "failure_kind": "provider_timeout",
-            "transport_classification": "timeout",
+            "failure_kind": GuardianProviderFailureKind.PROVIDER_TIMEOUT.value,
+            "transport_classification": (
+                GuardianProviderTransportClassification.TIMEOUT.value
+            ),
             "message": "Local request timed out before first token",
         },
     )
@@ -466,9 +472,17 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
         for event_type, payload in published
         if event_type == "task.failed"
     )
-    assert terminal_payload["failure_kind"] == "provider_timeout"
-    assert terminal_payload["transport_classification"] == "timeout"
-    assert terminal_payload["runtime_status"] == "timeout"
+    assert (
+        terminal_payload["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert terminal_payload["transport_classification"] == (
+        GuardianProviderTransportClassification.TIMEOUT.value
+    )
+    assert (
+        terminal_payload["runtime_status"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
     assert terminal_payload["failed_after_state"] == (
         TaskLifecycleState.AWAITING_FIRST_TOKEN.value
     )
