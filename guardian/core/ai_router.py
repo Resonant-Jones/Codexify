@@ -1708,7 +1708,16 @@ def _resolve_local_endpoint_candidates(
 
     parsed = urlparse(primary_base)
     host = str(parsed.hostname or "").strip().lower()
-    if host not in _LOCAL_LOOPBACK_HOSTS:
+
+    # ── Docker fallback is opt-in.  When LOCAL_BASE_URL points at ──
+    # localhost/loopback inside a container the operator may want a
+    # sidecar path to host.docker.internal, but this MUST be an
+    # explicit choice — silent fallback hides failure and removes the
+    # operator's ability to see the system degrade and correct it.
+    _docker_fallback_enabled = bool(
+        getattr(settings, "CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED", False)
+    )
+    if not _docker_fallback_enabled or host not in _LOCAL_LOOPBACK_HOSTS:
         return candidates
 
     fallback_raw = str(
