@@ -61,6 +61,10 @@ from guardian.core.provider_registry import (
 )
 from guardian.core.provider_truth import build_provider_truth
 from guardian.evals.spine import schedule_post_completion_eval
+from guardian.protocol_tokens import (
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -661,11 +665,13 @@ def _classify_runtime_status(detail: str) -> str | None:
     if not lowered:
         return None
     if "timed out" in lowered or "read timeout" in lowered:
-        return "timeout"
+        return GuardianProviderTransportClassification.TIMEOUT.value
     if "connection refused" in lowered:
-        return "connection_refused"
+        return (
+            GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+        )
     if "failed to resolve" in lowered or "name resolution" in lowered:
-        return "dns_error"
+        return GuardianProviderTransportClassification.DNS_ERROR.value
     return None
 
 
@@ -678,8 +684,12 @@ def _classify_runtime_status_from_metadata(
         str(metadata.get("transport_classification") or "").strip().lower()
     )
     failure_kind = str(metadata.get("failure_kind") or "").strip().lower()
-    if transport_classification == "timeout" or failure_kind == "provider_timeout":
-        return "timeout"
+    if (
+        transport_classification
+        == GuardianProviderTransportClassification.TIMEOUT.value
+        or failure_kind == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    ):
+        return GuardianProviderTransportClassification.TIMEOUT.value
     if transport_classification:
         return transport_classification
     return None
@@ -730,12 +740,12 @@ def _should_attempt_provider_fallback(exc: Exception) -> bool:
         if isinstance(detail, dict):
             failure_kind = str(detail.get("failure_kind") or "").strip().lower()
             if failure_kind in {
-                "provider_timeout",
-                "transport_error",
+                GuardianProviderFailureKind.PROVIDER_TIMEOUT.value,
+                GuardianProviderFailureKind.TRANSPORT_ERROR.value,
                 "provider_unavailable",
                 "provider_http_error",
                 "http_error",
-                "request_error",
+                GuardianProviderFailureKind.REQUEST_ERROR.value,
                 "auth_config_error",
             }:
                 return True

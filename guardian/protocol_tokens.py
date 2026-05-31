@@ -97,6 +97,19 @@ class ContextRequestStatus(str, Enum):
     FAILED = "failed"
 
 
+class GuardianProviderFailureKind(str, Enum):
+    PROVIDER_TIMEOUT = "provider_timeout"
+    TRANSPORT_ERROR = "transport_error"
+    REQUEST_ERROR = "request_error"
+
+
+class GuardianProviderTransportClassification(str, Enum):
+    TIMEOUT = "timeout"
+    CONNECTION_REFUSED = "connection_refused"
+    DNS_ERROR = "dns_error"
+    REQUEST_ERROR = "request_error"
+
+
 class TaskEventType(str, Enum):
     TASK_CREATED = "task.created"
     TASK_COMPLETED = "task.completed"
@@ -386,6 +399,15 @@ GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES: frozenset[str] = frozenset(
 CONTEXT_REQUEST_STATUSES: frozenset[str] = frozenset(
     {status.value for status in ContextRequestStatus}
 )
+GUARDIAN_PROVIDER_FAILURE_KINDS: frozenset[str] = frozenset(
+    {kind.value for kind in GuardianProviderFailureKind}
+)
+GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {
+        classification.value
+        for classification in GuardianProviderTransportClassification
+    }
+)
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
@@ -492,6 +514,8 @@ __all__ = [
     "GuardianDelegationTranscriptItemKind",
     "GuardianDelegationTranscriptItemSource",
     "ContextRequestStatus",
+    "GuardianProviderFailureKind",
+    "GuardianProviderTransportClassification",
     "TaskEventType",
     "ToolTurnState",
     "LoopStopReason",
@@ -530,6 +554,8 @@ __all__ = [
     "GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES",
     "GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS",
     "GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES",
+    "GUARDIAN_PROVIDER_FAILURE_KINDS",
+    "GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",
