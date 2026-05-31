@@ -8,6 +8,9 @@ x-postgres-env: &postgres_env
   PGPORT: "5432"
   PGUSER: ${POSTGRES_USER:-codexify}
   PGPASSWORD: ${POSTGRES_PASSWORD:-codexify}
+
+x-local-llm: &local_llm
+  LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
   PGDATABASE: ${POSTGRES_DB:-Codexify}
   DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
   GUARDIAN_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -20,7 +23,7 @@ services:
     image: postgres:15
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
     healthcheck:
       test:
         [
@@ -114,7 +117,7 @@ services:
         condition: service_healthy
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -192,7 +195,7 @@ services:
     entrypoint: ["python", "scripts/chatgpt_import/import_chatgpt.py"]
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -289,7 +292,7 @@ services:
       - hf_cache:/root/.cache/huggingface
       - ./models:/models
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -332,7 +335,6 @@ services:
       # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
       # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
@@ -412,7 +414,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -430,7 +432,6 @@ services:
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
 
       # Local inference base URL (Ollama native by default). If you point this at an OpenAI-compat gateway, use a /v1 suffix.
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
 
@@ -478,7 +479,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -493,7 +494,6 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -537,7 +537,7 @@ services:
         condition: service_healthy
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -580,7 +580,7 @@ services:
         condition: service_healthy
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -590,7 +590,6 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
@@ -637,7 +636,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -651,7 +650,6 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -695,7 +693,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -709,7 +707,6 @@ services:
       # Never use localhost for cross-container calls; localhost points to this worker container.
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
@@ -755,7 +752,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
@@ -766,7 +763,6 @@ services:
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}"
       LOCAL_API_KEY: "local"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
@@ -813,7 +809,7 @@ services:
         condition: service_completed_successfully
     env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
     environment:
-      <<: *postgres_env
+      <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       PYTHONUTF8: "1"
