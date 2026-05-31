@@ -38,6 +38,7 @@ from guardian.core.provider_truth import (
     build_provider_truth,
     cloud_capable_configuration_present,
 )
+from guardian.protocol_tokens import GuardianProviderFailureKind
 
 logger = logging.getLogger(__name__)
 _LLM_HEALTH_PROBE_CACHE: dict | None = None
@@ -157,13 +158,13 @@ def _probe_local_llm(settings, timeout_seconds: float) -> dict:
             except requests.exceptions.RequestException as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 failure_kind = (
-                    "provider_timeout"
+                    GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
                     if isinstance(exc, requests.exceptions.Timeout)
-                    else "transport_error"
+                    else GuardianProviderFailureKind.TRANSPORT_ERROR.value
                 )
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
-                failure_kind = "request_error"
+                failure_kind = GuardianProviderFailureKind.REQUEST_ERROR.value
 
     return {
         "ok": False,

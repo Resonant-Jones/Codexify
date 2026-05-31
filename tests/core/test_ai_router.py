@@ -17,6 +17,10 @@ from guardian.core.ai_router import (
     stream_local,
 )
 from guardian.core.config import Settings
+from guardian.protocol_tokens import (
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
 
 SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
 
@@ -524,8 +528,14 @@ def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert detail["failure_kind"] == "provider_timeout"
-    assert detail["transport_classification"] == "timeout"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
     assert detail["local_runtime"]["profile"] == "default"
     assert detail["local_runtime"]["read_timeout_seconds"] == 60.0
 
@@ -561,8 +571,14 @@ def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert detail["failure_kind"] == "provider_timeout"
-    assert detail["transport_classification"] == "timeout"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
     assert detail["local_runtime"]["profile"] == "default"
     assert detail["local_runtime"]["read_timeout_seconds"] == 60.0
 
@@ -624,8 +640,14 @@ def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "alibaba"
-    assert detail["failure_kind"] == "provider_timeout"
-    assert detail["transport_classification"] == "timeout"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
 
 
 def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
@@ -660,8 +682,14 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "minimax"
-    assert detail["failure_kind"] == "transport_error"
-    assert detail["transport_classification"] == "connection_refused"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.TRANSPORT_ERROR.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+    )
 
 
 def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
