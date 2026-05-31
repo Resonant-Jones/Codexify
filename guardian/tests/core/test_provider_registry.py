@@ -1,5 +1,7 @@
+import os
 from itertools import combinations
 
+import pytest
 import requests
 
 from guardian.core.config import ROUTER_SUPPORTED_LLM_PROVIDERS, Settings
@@ -25,6 +27,18 @@ from guardian.core.provider_truth import (
     build_provider_truth,
     cloud_capable_configuration_present,
 )
+from guardian.protocol_tokens import GuardianProviderFailureKind
+
+
+# These tests exercise provider-registry policy with explicit Settings objects.
+# Keep repo-local .env supported-profile state from turning that into a
+# supported-profile validation test.
+os.environ.pop("CODEXIFY_SUPPORTED_PROFILE", None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_supported_profile_env(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
 
 
 def _settings(**overrides) -> Settings:
@@ -459,7 +473,9 @@ def test_minimax_discovery_failure_degrades_without_fabricating_models(
     assert capability["default_model"] == "minimax-chat"
     assert capability["model_index"]["state"] == "degraded"
     assert capability["model_index"]["source"] == "fallback"
-    assert capability["model_index"]["failure_kind"] == "provider_timeout"
+    assert capability["model_index"]["failure_kind"] == (
+        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
     assert "timed out" in capability["model_index"]["reason"].lower()
 
     valid, reason = validate_provider_model_selection(
