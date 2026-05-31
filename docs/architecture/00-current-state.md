@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-30
+2026-05-31
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes expanded Guardian delegation and campaign-runner plumbing, and added Whooshd provider metadata, but they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged changes are mainly documentation and release-truth maintenance, plus export/scaffold work; they do not widen the release promise.
 
 ## What changed recently
-- `main` added Guardian delegation loop and campaign-runner contracts plus worker/backend plumbing.
-- `main` added Whooshd provider metadata to the local catalog/config path.
-- `main` tightened the coding-worker adapter selection and delegation delivery fields.
-- `main` kept the current release-truth override pattern in place.
+- `main` expanded the developer guide export bundle under `docs/site-export/developer-guide/`.
+- `main` added the Codexify teaching documentation scaffold.
+- `main` refreshed marketing and daily audit artifacts.
+- `main` resynced `docs/DEV_LOG` history into the current layout.
+- No merged runtime surface changed the supported local-first release promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -31,6 +32,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Coding results return through Guardian into the source thread on the supported path.
 - Graph writes remain default-off on the supported Compose path.
 - The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
+- The current doc map treats this file as the first read for release/readiness interpretation.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -40,7 +42,12 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
+- Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
+- Do not assume Build Proposal generation means approval, execution, release
+  support, runtime proof, or autonomous self-modification.
+- Do not assume Whooshd catalog metadata widens provider support beyond the local-only contract.
 - Do not infer desktop packaging readiness from architecture docs alone.
+- Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
@@ -48,6 +55,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Legacy `/tools` behavior still overlaps with the command bus.
 - End-to-end Guardian delegation is not yet a release-supported path.
 - Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
+- Docs-heavy merged work does not remove the need to recheck runtime proof on the supported path.
 
 ## This week's priorities
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
