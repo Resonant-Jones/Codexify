@@ -40,7 +40,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     providerOptions,
     modelOptions,
@@ -59,12 +59,12 @@ vi.mock("@/features/chat/components", () => ({
         ))}
       </div>
       <div data-testid="model-options">
-      {(modelOptions ?? []).map((option, index) => (
-        <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
-          <span>{option.label}</span>
-          {option.description ? <span>{option.description}</span> : null}
-        </div>
-      ))}
+        {(modelOptions ?? []).map((option, index) => (
+          <div key={`${option.label}-${option.description ?? "none"}-${index}`}>
+            <span>{option.label}</span>
+            {option.description ? <span>{option.description}</span> : null}
+          </div>
+        ))}
       </div>
     </div>
   ),
