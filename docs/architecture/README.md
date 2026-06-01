@@ -25,7 +25,7 @@ Source anchors:
 Start here: if you need current-state interpretation rather than structural architecture, read [`00-current-state.md`](./00-current-state.md) first.
 Use it first for live release/readiness interpretation, supported install path, active blockers, and short-horizon priorities.
 
-If you need the live operational truth layer, read `00-current-state.md` first and treat the rest of the KB as supporting context.
+If you need the live operational truth layer, read [`00-current-state.md`](./00-current-state.md) first and treat the rest of the KB as supporting context.
 
 ## What Codexify Is
 
