@@ -2,8 +2,10 @@ import * as React from "react";
 
 export type CommandCenterLensId =
   | "agent-command"
+  | "delegation-transcript"
   | "observability"
   | "runtime-health"
+  | "heartbeat"
   | "event-console"
   | "deep-settings"
   | "extensions";
@@ -17,6 +19,7 @@ interface LensEntry {
 
 const LENSES: LensEntry[] = [
   { id: "agent-command", label: "Agent Command", icon: "⚡", ariaLabel: "Agent Command lens" },
+  { id: "delegation-transcript", label: "Delegation Transcript", icon: "T", ariaLabel: "Delegation Transcript lens" },
   { id: "observability", label: "Observability", icon: "◉", ariaLabel: "Observability lens" },
   { id: "runtime-health", label: "Runtime Health", icon: "♥", ariaLabel: "Runtime Health lens" },
   { id: "heartbeat", label: "Heartbeat", icon: "⊛", ariaLabel: "Heartbeat pipeline lens" },

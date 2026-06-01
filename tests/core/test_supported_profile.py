@@ -14,3 +14,4 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.route_status("personal_facts") == "enabled"
     assert manifest.route_status("tools") == "quarantined"
     assert manifest.route_status("media") == "enabled"
+    assert manifest.route_status("obsidian") == "enabled"

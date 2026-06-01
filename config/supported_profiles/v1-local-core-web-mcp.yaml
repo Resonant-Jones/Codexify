@@ -34,6 +34,7 @@ route_posture:
     - personal_facts
     - migration
     - embeddings
+    - obsidian
   internal_only:
     - command_bus
   quarantined:
