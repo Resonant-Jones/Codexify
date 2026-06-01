@@ -52,7 +52,7 @@ class GuardianDelegationCreateRequest(BaseModel):
 async def create_guardian_delegation(
     body: GuardianDelegationCreateRequest,
 ) -> dict[str, Any]:
-    # Phase 3 still uses a direct Guardian-owned route to prove delegation
+    # Guardian Delegation Loop v1 still uses a direct Guardian-owned route to prove delegation
     # semantics. Intent-spine unification remains deferred until the hybrid
     # loop is proven, per the Guardian Delegation Loop Contract. This route
     # must not be treated as an independent long-term control plane.
@@ -71,10 +71,43 @@ async def create_guardian_delegation(
         ) from exc
 
 
+@router.post("/{intent_id}/approve")
+async def approve_guardian_delegation(intent_id: str) -> dict[str, Any]:
+    try:
+        return _service.approve_intent(intent_id)
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+
+@router.post("/{intent_id}/cancel")
+async def cancel_guardian_delegation(intent_id: str) -> dict[str, Any]:
+    try:
+        return _service.cancel_intent(intent_id)
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+
 @router.get("/{intent_id}")
 async def get_guardian_delegation(intent_id: str) -> dict[str, Any]:
     try:
         return _service.get_intent(intent_id)
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+
+@router.get("/{intent_id}/transcript")
+async def get_guardian_delegation_transcript(intent_id: str) -> dict[str, Any]:
+    try:
+        return _service.get_transcript(intent_id)
     except GuardianDelegationError as exc:
         raise HTTPException(
             status_code=exc.status_code,
