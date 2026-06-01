@@ -1,8 +1,8 @@
 ## Purpose
-This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
+This file is Codexify's canonical short-form source of truth for the current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-05-31
+2026-06-01
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged changes are mainly documentation and release-truth maintenance, plus export/scaffold work; they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work on `main` is mainly release-truth maintenance plus chat/provider presentation fixes and Obsidian index proof; it does not widen the release promise.
 
 ## What changed recently
-- `main` expanded the developer guide export bundle under `docs/site-export/developer-guide/`.
-- `main` added the Codexify teaching documentation scaffold.
-- `main` refreshed marketing and daily audit artifacts.
-- `main` resynced `docs/DEV_LOG` history into the current layout.
-- No merged runtime surface changed the supported local-first release promise.
+- `main` merged frontend provider timeout presentation fixes.
+- `main` repaired provider registry catalog token coverage.
+- `main` added real-vault-scoped Obsidian index proof.
+- `main` refreshed release-truth and delegation contract docs.
+- No merged change expanded the supported beta surface.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -31,8 +31,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Workspace-local Obsidian retrieval is supported on the current tip.
 - Coding results return through Guardian into the source thread on the supported path.
 - Graph writes remain default-off on the supported Compose path.
+- Provider timeout failure states are now classified and presented more accurately in the UI.
 - The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
-- The current doc map treats this file as the first read for release/readiness interpretation.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -43,9 +43,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
 - Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
 - Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
-- Do not assume Build Proposal generation means approval, execution, release
-  support, runtime proof, or autonomous self-modification.
-- Do not assume Whooshd catalog metadata widens provider support beyond the local-only contract.
+- Do not assume Build Proposal generation means approval, execution, release support, runtime proof, or autonomous self-modification.
 - Do not infer desktop packaging readiness from architecture docs alone.
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 
@@ -57,7 +55,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
 - Docs-heavy merged work does not remove the need to recheck runtime proof on the supported path.
 
-## This week's priorities
+## This week’s priorities
 1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
 2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
 3. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
