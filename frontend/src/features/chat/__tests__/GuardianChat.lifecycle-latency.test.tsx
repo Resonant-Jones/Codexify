@@ -30,6 +30,7 @@ type MockGuardianEventSource = EventTarget & {
 
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
+  buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
   getAuthToken: vi.fn(() => null),
   getDevApiKey: vi.fn(() => null),
   readRuntimeApiKey: vi.fn(() => null),
