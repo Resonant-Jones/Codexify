@@ -25,7 +25,11 @@ from guardian.core.provider_registry import (
     provider_routing_requires_discovered_inventory,
     validate_provider_model_selection,
 )
-from guardian.protocol_tokens import ErrorCode
+from guardian.protocol_tokens import (
+    ErrorCode,
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1295,6 +1299,52 @@ def _provider_failure_detail(
     return detail
 
 
+def _local_provider_failure_detail(
+    *,
+    settings: Settings,
+    model: str,
+    endpoint: str,
+    failure_kind: str,
+    message: str,
+    runtime_policy: LocalRuntimePolicy,
+    provider_error: str | None = None,
+    transport_classification: str | None = None,
+    attempted_endpoints: list[str] | None = None,
+    attempted_base_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    detail = _provider_failure_detail(
+        provider="local",
+        model=model,
+        endpoint=endpoint,
+        failure_kind=failure_kind,
+        message=message,
+        provider_error=provider_error,
+        transport_classification=transport_classification,
+    )
+    detail["local_runtime"] = runtime_policy.as_dict()
+    if attempted_endpoints:
+        detail["attempted_endpoints"] = list(attempted_endpoints)
+    normalized_base_urls = [
+        value
+        for value in dict.fromkeys(
+            str(item or "").strip() for item in (attempted_base_urls or [])
+        )
+        if value
+    ]
+    if normalized_base_urls:
+        detail["endpoint_resolution"] = describe_local_endpoint_resolution(
+            settings,
+            attempted_base_urls=normalized_base_urls,
+            state="degraded",
+            failure_kind=failure_kind,
+            reason=_summarize_local_attempt_failures(
+                list(attempted_endpoints or [])
+            )
+            or message,
+        )
+    return detail
+
+
 def _image_turn_vision_unsupported_detail(
     *,
     provider: str,
@@ -1343,19 +1393,21 @@ def resolve_model_vision_capability_state(
 def _classify_transport_error(exc: Exception) -> str:
     lowered = str(exc or "").strip().lower()
     if isinstance(exc, req_exc.Timeout) or "timed out" in lowered:
-        return "timeout"
+        return GuardianProviderTransportClassification.TIMEOUT.value
     if "connection refused" in lowered:
-        return "connection_refused"
+        return (
+            GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+        )
     if "name or service not known" in lowered or "failed to resolve" in lowered:
-        return "dns_error"
-    return "request_error"
+        return GuardianProviderTransportClassification.DNS_ERROR.value
+    return GuardianProviderTransportClassification.REQUEST_ERROR.value
 
 
 def _provider_transport_failure_kind(exc: Exception) -> str:
     classification = _classify_transport_error(exc)
-    if classification == "timeout":
-        return "provider_timeout"
-    return "transport_error"
+    if classification == GuardianProviderTransportClassification.TIMEOUT.value:
+        return GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    return GuardianProviderFailureKind.TRANSPORT_ERROR.value
 
 
 def _normalize_openai_model(model: str, settings: Settings) -> str:
@@ -1656,7 +1708,16 @@ def _resolve_local_endpoint_candidates(
 
     parsed = urlparse(primary_base)
     host = str(parsed.hostname or "").strip().lower()
-    if host not in _LOCAL_LOOPBACK_HOSTS:
+
+    # ── Docker fallback is opt-in.  When LOCAL_BASE_URL points at ──
+    # localhost/loopback inside a container the operator may want a
+    # sidecar path to host.docker.internal, but this MUST be an
+    # explicit choice — silent fallback hides failure and removes the
+    # operator's ability to see the system degrade and correct it.
+    _docker_fallback_enabled = bool(
+        getattr(settings, "CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED", False)
+    )
+    if not _docker_fallback_enabled or host not in _LOCAL_LOOPBACK_HOSTS:
         return candidates
 
     fallback_raw = str(
@@ -1839,7 +1900,9 @@ def discover_local_model_inventory(
                 attempt_failures.append(f"{url} ({failure_kind}: {exc})")
                 continue
             except Exception as exc:
-                failure_kind = "request_error"
+                failure_kind = (
+                    GuardianProviderTransportClassification.REQUEST_ERROR.value
+                )
                 attempt_failures.append(f"{url} ({type(exc).__name__}: {exc})")
                 continue
             if not (200 <= response.status_code < 300):
@@ -1969,10 +2032,12 @@ def call_local(
         )
 
     attempt_failures: list[str] = []
+    attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
     last_transport_url: str = ""
 
     for base_url in base_urls:
+        attempted_base_urls.append(base_url)
         is_gateway = base_url.endswith("/v1")
         attempt_urls = _local_attempt_urls(
             base_url,
@@ -2087,6 +2152,34 @@ def call_local(
             model=model,
             runtime_policy=runtime_policy,
         )
+        attempt_summary = _summarize_local_attempt_failures(attempt_failures)
+        detail = f"{detail} Attempted endpoints: {attempt_summary}"
+        if log_exceptions:
+            logger.error(detail)
+        else:
+            logger.warning(detail)
+        raise HTTPException(
+            status_code=502,
+            detail=_local_provider_failure_detail(
+                settings=settings,
+                model=model,
+                endpoint=last_transport_url,
+                failure_kind=_provider_transport_failure_kind(
+                    last_transport_error
+                ),
+                message=detail,
+                provider_error=_sanitize_provider_error(
+                    str(last_transport_error),
+                    secret=api_key,
+                ),
+                transport_classification=_classify_transport_error(
+                    last_transport_error
+                ),
+                runtime_policy=runtime_policy,
+                attempted_endpoints=attempt_failures,
+                attempted_base_urls=attempted_base_urls,
+            ),
+        ) from last_transport_error
     elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
         attempt_failures
     ):
@@ -2177,10 +2270,12 @@ def stream_local(
     response: Optional[requests.Response] = None
     current_url = ""
     attempt_failures: list[str] = []
+    attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
 
     try:
         for base_url in base_urls:
+            attempted_base_urls.append(base_url)
             is_gateway = base_url.endswith("/v1")
             attempt_urls = _local_attempt_urls(
                 base_url,
@@ -2280,6 +2375,30 @@ def stream_local(
                     model=model,
                     runtime_policy=runtime_policy,
                 )
+                summary = _summarize_local_attempt_failures(attempt_failures)
+                detail = f"{detail} Attempted endpoints: {summary}"
+                raise HTTPException(
+                    status_code=502,
+                    detail=_local_provider_failure_detail(
+                        settings=settings,
+                        model=model,
+                        endpoint=current_url,
+                        failure_kind=_provider_transport_failure_kind(
+                            last_transport_error
+                        ),
+                        message=detail,
+                        provider_error=_sanitize_provider_error(
+                            str(last_transport_error),
+                            secret=api_key,
+                        ),
+                        transport_classification=_classify_transport_error(
+                            last_transport_error
+                        ),
+                        runtime_policy=runtime_policy,
+                        attempted_endpoints=attempt_failures,
+                        attempted_base_urls=attempted_base_urls,
+                    ),
+                ) from last_transport_error
             elif (
                 local_model_resolution.strict
                 and _all_local_attempt_failures_are_404(attempt_failures)
@@ -2359,7 +2478,24 @@ def stream_local(
             summary = _summarize_local_attempt_failures(attempt_failures)
             detail = f"{detail} Attempted endpoints: {summary}"
             logger.warning(detail)
-            raise HTTPException(status_code=502, detail=detail) from exc
+            raise HTTPException(
+                status_code=502,
+                detail=_local_provider_failure_detail(
+                    settings=settings,
+                    model=model,
+                    endpoint=current_url,
+                    failure_kind=_provider_transport_failure_kind(exc),
+                    message=detail,
+                    provider_error=_sanitize_provider_error(
+                        str(exc),
+                        secret=api_key,
+                    ),
+                    transport_classification=_classify_transport_error(exc),
+                    runtime_policy=runtime_policy,
+                    attempted_endpoints=attempt_failures,
+                    attempted_base_urls=attempted_base_urls,
+                ),
+            ) from exc
     finally:
         if response is not None:
             try:
@@ -2415,7 +2551,7 @@ def call_groq(
                 provider="groq",
                 model=model,
                 endpoint=url,
-                failure_kind="request_error",
+                failure_kind=GuardianProviderFailureKind.REQUEST_ERROR.value,
                 message=f"Groq request failed: {detail}",
                 provider_error=detail,
                 transport_classification=_classify_transport_error(exc),
@@ -2526,7 +2662,7 @@ def _call_openai_compatible_chat(
         failure_kind = (
             _provider_transport_failure_kind(exc)
             if typed_failure_kinds
-            else "request_error"
+            else GuardianProviderFailureKind.REQUEST_ERROR.value
         )
         logger.exception(
             "%s backend request error model=%s endpoint=%s transport=%s",

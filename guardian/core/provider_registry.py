@@ -20,6 +20,7 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.protocol_tokens import GuardianProviderFailureKind
 
 logger = logging.getLogger(__name__)
 
@@ -1142,14 +1143,14 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason="Provider model index request timed out",
-            failure_kind="provider_timeout",
+            failure_kind=GuardianProviderFailureKind.PROVIDER_TIMEOUT.value,
         )
     except req_exc.RequestException as exc:
         return [], _model_index_metadata(
             "degraded",
             endpoint=endpoint,
             reason=f"Provider model index request failed: {type(exc).__name__}",
-            failure_kind="transport_error",
+            failure_kind=GuardianProviderFailureKind.TRANSPORT_ERROR.value,
         )
 
     if not (200 <= response.status_code < 300):

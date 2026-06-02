@@ -46,7 +46,11 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_INTENT_STATUSES,
     GUARDIAN_DELEGATION_RUN_STATUSES,
+    GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS,
+    GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
+    GUARDIAN_PROVIDER_FAILURE_KINDS,
+    GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     ORCHESTRATOR_DECISION_TOKENS,
@@ -81,7 +85,11 @@ from guardian.protocol_tokens import (
     GuardianDelegationInteractionMode,
     GuardianDelegationIntentStatus,
     GuardianDelegationRunStatus,
+    GuardianDelegationTranscriptItemKind,
+    GuardianDelegationTranscriptItemSource,
     GuardianDelegationVisibilityStatus,
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
     ImageRoutingPath,
     LoopStopReason,
     OrchestratorDecisionToken,
@@ -107,7 +115,14 @@ def test_guardian_delegation_protocol_tokens() -> None:
     )
     assert GUARDIAN_DELEGATION_INTERACTION_MODES == {"non_blocking"}
     assert GuardianDelegationApprovalMode.SCOPED_AUTO.value == "scoped_auto"
-    assert GUARDIAN_DELEGATION_APPROVAL_MODES == {"scoped_auto"}
+    assert (
+        GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
+        == "human_required"
+    )
+    assert GUARDIAN_DELEGATION_APPROVAL_MODES == {
+        "human_required",
+        "scoped_auto",
+    }
     assert GuardianDelegationApprovalState.PENDING.value == "pending"
     assert GuardianDelegationApprovalState.APPROVED.value == "approved"
     assert GuardianDelegationApprovalState.BLOCKED.value == "blocked"
@@ -216,6 +231,74 @@ def test_guardian_delegation_protocol_tokens() -> None:
         "protocol_doc",
         "linked_document",
     }
+    assert (
+        GuardianDelegationTranscriptItemKind.INTENT_CREATED.value
+        == "intent_created"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.PLAN_PREPARED.value
+        == "plan_prepared"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.APPROVAL_STATE.value
+        == "approval_state"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.RUN_LINKED.value
+        == "run_linked"
+    )
+    assert GuardianDelegationTranscriptItemKind.RUN_STATUS.value == "run_status"
+    assert (
+        GuardianDelegationTranscriptItemKind.AGENT_RUN_EVENT.value
+        == "agent_run_event"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.INTENT_CANCELLED.value
+        == "intent_cancelled"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.DELIVERY_RESULT.value
+        == "delivery_result"
+    )
+    assert (
+        GuardianDelegationTranscriptItemKind.VISIBILITY_STATE.value
+        == "visibility_state"
+    )
+    assert GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS == {
+        "intent_created",
+        "plan_prepared",
+        "approval_state",
+        "run_linked",
+        "run_status",
+        "agent_run_event",
+        "intent_cancelled",
+        "delivery_result",
+        "visibility_state",
+    }
+    assert (
+        GuardianDelegationTranscriptItemSource.GUARDIAN_DELEGATION_INTENT.value
+        == "guardian_delegation_intent"
+    )
+    assert GuardianDelegationTranscriptItemSource.AGENT_RUN.value == "agent_run"
+    assert (
+        GuardianDelegationTranscriptItemSource.AGENT_RUN_EVENT.value
+        == "agent_run_event"
+    )
+    assert (
+        GuardianDelegationTranscriptItemSource.AGENT_RUN_ARTIFACT.value
+        == "agent_run_artifact"
+    )
+    assert (
+        GuardianDelegationTranscriptItemSource.CHAT_MESSAGE.value
+        == "chat_message"
+    )
+    assert GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES == {
+        "guardian_delegation_intent",
+        "agent_run",
+        "agent_run_event",
+        "agent_run_artifact",
+        "chat_message",
+    }
 
 
 def test_context_request_status_tokens() -> None:
@@ -230,6 +313,44 @@ def test_context_request_status_tokens() -> None:
         "executed",
         "no_results",
         "failed",
+    }
+
+
+def test_provider_failure_and_transport_classification_tokens() -> None:
+    assert (
+        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+        == "provider_timeout"
+    )
+    assert (
+        GuardianProviderFailureKind.TRANSPORT_ERROR.value
+        == "transport_error"
+    )
+    assert GuardianProviderFailureKind.REQUEST_ERROR.value == "request_error"
+    assert GUARDIAN_PROVIDER_FAILURE_KINDS == {
+        "provider_timeout",
+        "transport_error",
+        "request_error",
+    }
+
+    assert (
+        GuardianProviderTransportClassification.TIMEOUT.value == "timeout"
+    )
+    assert (
+        GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+        == "connection_refused"
+    )
+    assert GuardianProviderTransportClassification.DNS_ERROR.value == (
+        "dns_error"
+    )
+    assert (
+        GuardianProviderTransportClassification.REQUEST_ERROR.value
+        == "request_error"
+    )
+    assert GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS == {
+        "timeout",
+        "connection_refused",
+        "dns_error",
+        "request_error",
     }
 
 

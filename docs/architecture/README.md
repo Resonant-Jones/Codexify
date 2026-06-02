@@ -22,7 +22,7 @@ Source anchors:
 
 # Codexify Architecture KB
 
-Start here with [`00-current-state.md`](./00-current-state.md) when you need live release/readiness interpretation instead of structural architecture.
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
 Use it first for live release/readiness interpretation, supported install path, active blockers, and short-horizon priorities.
 
 If you need the live operational truth layer, read `00-current-state.md` first and treat the rest of the KB as supporting context.
@@ -31,13 +31,17 @@ If you need the live operational truth layer, read `00-current-state.md` first a
 
 Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
 
+## Doc Map
+
+- [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+
 ## Start Here
 
 Start here first when you need current-state interpretation rather than structural architecture: [`00-current-state.md`](./00-current-state.md). It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
-If you are working on self-build doctrine, Guardian-mediated build/delegation planning, coding-worker execution framing, Codex Runner substrate questions, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for governance, delegation, execution, proof, result return, and duplication control; use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
+If you are working on self-build doctrine, coding-worker execution, Codex Runner substrate questions, Guardian delegation overlap, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for the governed build/change loop; use [`build-proposal-artifact-contract.md`](./build-proposal-artifact-contract.md) for the canonical review artifact between diagnosis and execution, and use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
 
 If you are working on Guardian-mediated coding-agent execution or future Pi SDK integration, start with [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md). That ADR defines the contract-only execution seam and keeps Guardian as the request, policy, transcript, and lineage owner.
 
@@ -128,7 +132,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Tech Debt and Risks](./tech-debt-and-risks.md): evidence-backed current risk register; use for risk overlays, not baseline topology.
 - [Core Export Workflow](../release/core-export-workflow.md): local-only `Publishing_Portal/Core/` source-mirror workflow for public-facing packaging and review. This is generated output, not the source of truth, and does not replace supported-path live proof.
 - [Unity Audit Doctrine](./unity-audit-doctrine.md): doctrine-first coherence and synthesis layer across runtime truth, contracts, operator reality, governance, extension boundaries, and community-facing narrative. It does not replace live proof, release truth, or ADR authority.
-- [Guardian Build Loop Doctrine](./guardian-build-loop-doctrine.md): canonical umbrella doctrine for self-build governance, Guardian delegation overlap, coding-worker execution substrate, Codex Runner alignment, Pi-style harness boundaries, human review, proof posture, patch artifacts, commit-after-green posture, and duplication control. It consolidates existing bounded seams without widening release support, claiming autonomous runtime behavior, or overriding `00-current-state.md`.
+- [Guardian Build Loop Doctrine](./guardian-build-loop-doctrine.md): canonical umbrella doctrine for self-build governance, Guardian delegation overlap, coding-worker execution substrate, Codex Runner naming, Pi-style harness boundaries, human review gate, patch artifacts, and commit-after-green posture. It does not claim autonomous build behavior or wider release support beyond `00-current-state.md`.
+- [Build Proposal Artifact Contract](./build-proposal-artifact-contract.md): canonical review artifact between diagnosis and execution in the Guardian Build Loop. It does not approve, execute, or prove work, and it does not claim autonomous execution.
 - [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
@@ -146,6 +151,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Guardian Delegation Loop Contract](./guardian-delegation-loop-contract.md): Phase 1 docs-only contract for the future hybrid bridge from Guardian-owned chat intake through durable intent, existing AgentRun backbone, source-thread continuation, and Command Center transcript mirror. It does not claim current implementation or widen the release promise.
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): Codexify-native boundary contract for future Pi-like harness invocation, Guardian ownership, provider-lane separation, and bounded result return.
+- [Solo Operator Coding Worker Runbook](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md): operational truth for the current coding-worker route, queue, adapter registry, validation behavior, mutation-scope guard, optional worktree isolation, patch artifact capture, and opt-in commit-after-green seam. It is an ops surface, not a release promise.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
 - [Account Export + Restore Contract](./account-export-restore-contract.md): provenance, lineage, and restore semantics for durable artifacts and imported state.
 - [Continuity Engine Working Set and Decay Contract](./adr/015-continuity-engine-working-set-and-decay-contract.md): user-governed continuity layer above thread-first chat, with working-set decay, provenance, and imported-history scaffolding.

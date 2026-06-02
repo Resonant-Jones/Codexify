@@ -37,6 +37,25 @@ export const PROVIDER_RUNTIME_STATES = {
 export type ProviderRuntimeState =
   (typeof PROVIDER_RUNTIME_STATES)[keyof typeof PROVIDER_RUNTIME_STATES];
 
+export const PROVIDER_FAILURE_KINDS = {
+  PROVIDER_TIMEOUT: "provider_timeout",
+  TRANSPORT_ERROR: "transport_error",
+  REQUEST_ERROR: "request_error",
+} as const;
+
+export type ProviderFailureKind =
+  (typeof PROVIDER_FAILURE_KINDS)[keyof typeof PROVIDER_FAILURE_KINDS];
+
+export const PROVIDER_TRANSPORT_CLASSIFICATIONS = {
+  TIMEOUT: "timeout",
+  CONNECTION_REFUSED: "connection_refused",
+  DNS_ERROR: "dns_error",
+  REQUEST_ERROR: "request_error",
+} as const;
+
+export type ProviderTransportClassification =
+  (typeof PROVIDER_TRANSPORT_CLASSIFICATIONS)[keyof typeof PROVIDER_TRANSPORT_CLASSIFICATIONS];
+
 export function describeProviderState(state: ProviderRuntimeState): {
   title: string;
   detail: string;

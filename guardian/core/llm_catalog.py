@@ -558,12 +558,20 @@ def _source_label(base_url: str) -> str:
 
 
 def _provider_source(
-    provider_id: str, settings: Settings
+    provider_id: str,
+    settings: Settings,
+    endpoint_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if provider_id != "local":
         return None
+    selected_base = str(
+        ((endpoint_resolution or {}).get("selected_endpoint") or {}).get(
+            "base_url"
+        )
+        or ""
+    ).strip()
     try:
-        base_url = _resolve_local_base(settings)
+        base_url = selected_base or _resolve_local_base(settings)
     except Exception:
         return None
 
@@ -577,7 +585,21 @@ def _provider_source(
         source["host"] = parsed.hostname
     if parsed.port:
         source["port"] = parsed.port
+    vendor = str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip()
+    if vendor:
+        source["vendor"] = vendor
     return source
+
+
+def _provider_display_name(provider_id: str, settings: Settings) -> str:
+    fallback = _PROVIDER_LABELS.get(provider_id, provider_id.title())
+    if provider_id != "local":
+        return fallback
+
+    configured = str(
+        getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", "") or ""
+    ).strip()
+    return configured or fallback
 
 
 def _provider_entry(
@@ -653,19 +675,20 @@ def _provider_entry(
         and not bool(supported_profile_approved)
     ):
         return None
+    display_name = _provider_display_name(provider_id, settings)
     entry: dict[str, Any] = {
         "id": provider_id,
-        "displayName": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
+        "displayName": display_name,
         "enabled": enabled,
         # backward compatibility fields used by existing callers
-        "label": _PROVIDER_LABELS.get(provider_id, provider_id.title()),
+        "label": display_name,
         "authorized": authorized,
         "available": available,
         "models": models,
         "model_index": dict(capability["model_index"]),
         "truth": truth,
     }
-    source = _provider_source(provider_id, settings)
+    source = _provider_source(provider_id, settings, endpoint_resolution)
     if source is not None:
         entry["source"] = source
     if endpoint_resolution is not None:

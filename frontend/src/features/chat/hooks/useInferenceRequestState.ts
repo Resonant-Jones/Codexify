@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import api, { buildAuthenticatedFetchInit } from "@/lib/api";
+import { describeTaskFailureDetailText } from "@/features/chat/requestFailurePresentation";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -60,7 +61,6 @@ const INFERENCE_DETAIL_TEXT = {
   COMPLETED: "Guardian finished responding.",
   COMPLETED_AND_SAVED: "Guardian finished and saved the response.",
   PROVIDER_ERROR: "Provider error: Guardian could not finish this turn.",
-  PROVIDER_ERROR_RETRY: "Provider error: try again or switch to a faster mode.",
   CANCELLED: "The current response was stopped.",
   CANCELLED_ACTIVE: "The current response was cancelled.",
   CANCEL_THINKING: "Cancelling the current reasoning pass…",
@@ -787,7 +787,7 @@ export function useInferenceRequestState() {
               ? payload.error.trim()
               : "Guardian could not finish the response.";
           markFailed(errorText, {
-            detailText: INFERENCE_DETAIL_TEXT.PROVIDER_ERROR_RETRY,
+            detailText: describeTaskFailureDetailText(payload),
             timingPatch,
           });
           return;
@@ -830,7 +830,7 @@ export function useInferenceRequestState() {
             ? payload.error.trim()
             : "Guardian could not finish the response.";
         markFailed(errorText, {
-          detailText: INFERENCE_DETAIL_TEXT.PROVIDER_ERROR_RETRY,
+          detailText: describeTaskFailureDetailText(payload),
           timingPatch: extractTimingPatch(payload),
         });
       };

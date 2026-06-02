@@ -328,7 +328,9 @@ export function ChatView({
   }, [inferenceState, isCompletingForThread, threadId]);
 
   const showCompletionIndicator =
-    isCompletingForThread || isActiveInferencePhase(activeInferenceState.phase);
+    isCompletingForThread ||
+    isActiveInferencePhase(activeInferenceState.phase) ||
+    activeInferenceState.phase === "failed";
   const streamingDraftText =
     streamingDraft && streamingDraft.threadId === threadId
       ? streamingDraft.content
