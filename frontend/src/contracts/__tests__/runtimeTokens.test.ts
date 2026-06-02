@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PROVIDER_FAILURE_KINDS,
+  PROVIDER_TRANSPORT_CLASSIFICATIONS,
   RUNTIME_STATUS_PRESENTATIONS,
   describeRuntimeStatusPresentation,
 } from "@/contracts/runtimeTokens";
@@ -35,7 +37,27 @@ const FALLBACK_PRESENTATION = {
   isFallback: true,
 } as const;
 
+const EXPECTED_PROVIDER_FAILURE_KINDS = {
+  PROVIDER_TIMEOUT: "provider_timeout",
+  TRANSPORT_ERROR: "transport_error",
+  REQUEST_ERROR: "request_error",
+} as const;
+
+const EXPECTED_PROVIDER_TRANSPORT_CLASSIFICATIONS = {
+  TIMEOUT: "timeout",
+  CONNECTION_REFUSED: "connection_refused",
+  DNS_ERROR: "dns_error",
+  REQUEST_ERROR: "request_error",
+} as const;
+
 describe("runtimeTokens contract", () => {
+  it("keeps provider failure and transport classifications aligned with backend tokens", () => {
+    expect(PROVIDER_FAILURE_KINDS).toEqual(EXPECTED_PROVIDER_FAILURE_KINDS);
+    expect(PROVIDER_TRANSPORT_CLASSIFICATIONS).toEqual(
+      EXPECTED_PROVIDER_TRANSPORT_CLASSIFICATIONS
+    );
+  });
+
   it("keeps the runtime status registry bounded and explicit", () => {
     expect(RUNTIME_STATUS_PRESENTATIONS).toEqual(
       EXPECTED_RUNTIME_STATUS_PRESENTATIONS

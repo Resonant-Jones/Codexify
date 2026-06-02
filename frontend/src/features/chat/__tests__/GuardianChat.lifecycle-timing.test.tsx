@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  PROVIDER_FAILURE_KINDS,
+  PROVIDER_TRANSPORT_CLASSIFICATIONS,
+} from "@/contracts/runtimeTokens";
+
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -44,12 +49,14 @@ type MockGuardianEventSource = EventTarget & {
 
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
+  buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getAuthToken: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
   getDevApiKey: vi.fn(() => null),
   getInFlightCompletionTurnId: vi.fn(() => null),
+  hasRequestAuthCredential: vi.fn(() => true),
   readRuntimeApiKey: vi.fn(() => null),
   updateThreadConfig: async (
     threadId: string | number,
@@ -61,6 +68,18 @@ vi.mock("@/lib/api", () => ({
     );
     return response?.data ?? {};
   },
+}));
+
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => ({
+    ready: true,
+    status: "authenticated",
+    token: "test-token",
+  }),
+}));
+
+vi.mock("@/lib/runtimeConfig", () => ({
+  getRuntimeConfigHydrationState: () => "ready",
 }));
 
 vi.mock("@/lib/guardianEventSource", () => {
@@ -226,7 +245,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     onSend,
     onProviderChange,
@@ -468,6 +487,40 @@ describe("GuardianChat lifecycle timing", () => {
     expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
   });
 
+  it("renders provider first-token timeout as retryable timeout instead of offline", async () => {
+    renderChat("1");
+    const source = await startTrackedRequest();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "AWAITING_FIRST_TOKEN",
+      awaiting_first_token_at: "2026-04-05T00:00:02.000Z",
+    });
+    await screen.findByText("Waiting for first token…");
+
+    emitTaskEvent(source, "task.failed", {
+      thread_id: 1,
+      task_id: "task-1",
+      error: "provider timeout sentinel",
+      failure_kind: PROVIDER_FAILURE_KINDS.PROVIDER_TIMEOUT,
+      transport_classification: PROVIDER_TRANSPORT_CLASSIFICATIONS.TIMEOUT,
+      failed_after_state: "awaiting_first_token",
+      provider_request_started: true,
+      first_output_observed: false,
+    });
+
+    await screen.findByText("Reply failed");
+    expect(
+      screen.getByText(/timed out after accepting the request and before the first token/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText("LLM backend offline")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Guardian cannot reach the model endpoint/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("provider timeout sentinel")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("chat-message")).toHaveLength(2);
+    expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
+  });
+
   it("clears stale lifecycle text when switching threads during an in-flight request", async () => {
     const { rerender } = renderChat("1");
     const source = await startTrackedRequest();
@@ -505,33 +558,55 @@ describe("GuardianChat lifecycle timing", () => {
     expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["task.failed", "Reply failed"],
-    ["task.cancelled", "Reply stopped"],
-  ] as const)(
-    "clears generating when the request ends with %s",
-    async (eventType, terminalLabel) => {
-      renderChat("1");
-      const source = await startTrackedRequest();
+  it("renders generic provider failures as failed request state without adding an assistant message", async () => {
+    renderChat("1");
+    const source = await startTrackedRequest();
 
-      emitTaskEvent(source, "task.state", {
-        thread_id: 1,
-        task_id: "task-1",
-        state: "STREAMING",
-      });
-      await screen.findByText("Generating…");
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "STREAMING",
+    });
+    await screen.findByText("Generating…");
 
-      emitTaskEvent(source, eventType, {
-        thread_id: 1,
-        task_id: "task-1",
-        error: "backend boom",
-      });
+    emitTaskEvent(source, "task.failed", {
+      thread_id: 1,
+      task_id: "task-1",
+      error: "backend boom",
+    });
 
-      await waitFor(() => {
-        expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
-        expect(screen.queryByText(terminalLabel)).not.toBeInTheDocument();
-      });
+    await waitFor(() => {
       expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
-    }
-  );
+      expect(screen.getByText("Reply failed")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Provider error: try again or switch to a faster mode/i)
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("chat-message")).toHaveLength(2);
+    expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
+  });
+
+  it("clears generating when the request is cancelled", async () => {
+    renderChat("1");
+    const source = await startTrackedRequest();
+
+    emitTaskEvent(source, "task.state", {
+      thread_id: 1,
+      task_id: "task-1",
+      state: "STREAMING",
+    });
+    await screen.findByText("Generating…");
+
+    emitTaskEvent(source, "task.cancelled", {
+      thread_id: 1,
+      task_id: "task-1",
+      error: "backend boom",
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+      expect(screen.queryByText("Reply stopped")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+  });
 });

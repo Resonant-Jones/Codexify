@@ -1,0 +1,68 @@
+Dev Log - 2026-05-30
+
+Summary
+
+documentation truth-alignment day
+
+Today was about tightening the short-horizon release record rather than expanding product surface area. The main work was a weekly refresh of docs/architecture/00-current-state.md and the surrounding architecture index so the repo’s canonical operational truth stayed aligned with the current main posture.
+
+The important part is not that the docs changed, but that the release interpretation stayed disciplined. The current-state file now reflects the latest supported reality: local-only Compose remains the supported path, the release promise still stops short of delegation/federation/graph-write expansion, and the week’s priorities are framed around keeping those boundaries explicit until they are proven end to end.
+
+What I completed
+
+Release-truth refresh
+
+Updated the Last updated stamp to 2026-05-30.
+Reframed the “current phase” language to reflect the latest main changes: Guardian delegation and campaign-runner plumbing, plus Whooshd provider metadata.
+Kept the release promise narrow by explicitly noting that those additions do not widen supported runtime claims.
+Boundary hardening
+
+Replaced older “what changed recently” bullets with a more current account of the week’s real deltas:
+Guardian delegation loop and campaign-runner contracts plus worker/backend plumbing
+Whooshd provider metadata in the local catalog/config path
+tighter coding-worker adapter selection and delegation delivery fields
+Strengthened the “do not assume” section so end-to-end delegation is clearly marked as not yet release-supported.
+Adjusted the active risk list and weekly priorities to keep delegation, federation, and graph-write work outside the release promise until proven.
+Docs navigation
+
+Updated docs/architecture/README.md so the current-state file is described as this week’s live operational truth and priorities, not just a generic readiness reference.
+Important outcome
+
+00-current-state.md is no longer lagging behind the week’s actual work. It now carries the current interpretation layer for release truth, which matters because this repo relies on that file to separate supported reality from promising-but-unshipped architecture.
+
+The system also got more honest about delegation. Guardian delegation work is now visible in the docs, but it is still correctly fenced off from release support. That keeps the docs useful as an operating contract instead of letting them drift into marketing language.
+
+Commits
+
+65eedff39 - docs: refresh weekly current-state override
+
+Notes
+
+This was documentation-level work only; there was no live runtime proof added today.
+The evidence supports current-state alignment, not shipment of the newly mentioned delegation path.
+No unrelated failures surfaced in the repo during this pass.
+Next likely moves
+
+Keep the current-state file synchronized with any new main changes so release truth does not drift.
+Verify whether any of the delegation/campaign-runner work has earned a stronger proof claim.
+Continue preserving the local-only supported path as the default release contract.
+Recheck adjacent architecture docs for any stale language that could contradict 00-current-state.md.
+Closing thought
+
+Today’s progress was mostly about reducing ambiguity. The repo now has a cleaner line between what is supported, what is being built, and what still needs proof. That kind of work does not look flashy, but it keeps the system trustworthy.
+
+Narrative Log
+Dev Log - 2026-05-30
+
+This was a truth-surface day. The work did not expand the product in a visible way; it tightened the language that defines what the product is allowed to mean right now. In a repo like this, that matters. When architecture notes drift, the team starts inheriting false confidence, and the boundary between “implemented” and “supported” gets blurry fast.
+
+The central change was a refresh of docs/architecture/00-current-state.md. That file is the short-form release contract for the repo, and today it was brought back into alignment with the current week’s actual main work. The update reflects the Guardian delegation and campaign-runner plumbing that landed recently, along with the Whooshd provider metadata now present in the local catalog/config path. But the important discipline is what the file did not say: it did not inflate those changes into a wider release promise.
+
+That distinction was the real work. The docs now name the new pieces, but they also keep the fence in place. End-to-end delegation is still not treated as release-supported. Federation is still treated as high-blast-radius. Graph writes are still not being casually pulled into the supported path. The file is doing what it should do: describing the system as it is, not as it would be convenient to claim it is.
+
+I also updated the architecture README so the current-state doc is framed as this week’s live operational truth and priority set. That is a small change, but it helps keep the navigation layer honest. When people land in the architecture docs, they should be able to find the current contract quickly and understand that it is the active interpretation layer, not just another static reference.
+
+The deeper shift here is subtle but important. The system did not become more feature-rich today. It became more legible. It became harder to mistake in-progress delegation work for shipped runtime behavior. It became easier to tell what is actually supported on the local-only path and what still needs proof before it can be widened. That is the kind of change that prevents future confusion.
+
+What this makes possible next is straightforward: keep the release-truth docs synced with the live main posture, and only widen the support story when the runtime proof is actually there.
+

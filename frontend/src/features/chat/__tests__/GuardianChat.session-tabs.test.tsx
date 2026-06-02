@@ -50,7 +50,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: () => <div data-testid="composer-stub" />,
 }));
 

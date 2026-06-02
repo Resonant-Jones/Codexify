@@ -35,7 +35,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-vi.mock("@/features/chat/components", () => ({
+vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({ providerOpenSignal }: { providerOpenSignal?: number }) => (
     <div data-testid="composer-stub">
       <div data-testid="provider-open-signal">

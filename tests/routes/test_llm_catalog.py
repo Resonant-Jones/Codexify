@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import os
+
+import pytest
 import requests
 from fastapi.testclient import TestClient
+
+# Catalog route tests mutate Settings directly and assert catalog policy
+# behavior. Do not let repo-local .env supported-profile state reject the route
+# before the catalog seam under test runs.
+os.environ.pop("CODEXIFY_SUPPORTED_PROFILE", None)
 
 from guardian.core.ai_router import stream_local
 from guardian.core.config import get_settings
 from guardian.guardian_api import app
+from guardian.protocol_tokens import GuardianProviderFailureKind
 
 
 class _MockResponse:
@@ -204,6 +213,11 @@ def _clear_extra_cloud_keys(monkeypatch) -> None:
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     monkeypatch.delenv("MINIMAX_API_BASE", raising=False)
     monkeypatch.delenv("MINIMAX_MODEL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_supported_profile_env(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
 
 
 def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
@@ -814,7 +828,9 @@ def test_llm_catalog_alibaba_discovery_timeout_reports_failure_kind(
         assert alibaba["available"] is False
         assert alibaba["enabled"] is False
         assert alibaba["model_index"]["state"] == "degraded"
-        assert alibaba["model_index"]["failure_kind"] == "provider_timeout"
+        assert alibaba["model_index"]["failure_kind"] == (
+            GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+        )
         assert (
             alibaba["disabled_reason"]
             == "Provider model index request timed out"
@@ -865,7 +881,9 @@ def test_llm_catalog_minimax_discovery_transport_failure_reports_failure_kind(
         assert minimax["models"][0]["id"] == "MiniMax-M2.7"
         assert minimax["model_index"]["state"] == "degraded"
         assert minimax["model_index"]["source"] == "fallback"
-        assert minimax["model_index"]["failure_kind"] == "transport_error"
+        assert minimax["model_index"]["failure_kind"] == (
+            GuardianProviderFailureKind.TRANSPORT_ERROR.value
+        )
         assert minimax.get("disabled_reason") is None
     finally:
         for field, value in snapshot.items():

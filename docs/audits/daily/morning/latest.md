@@ -10,8 +10,6 @@
   - ` M docs/Marketing/generated/history/run-history.jsonl`
   - ` M docs/audits/daily/evening/latest.json`
   - ` M docs/audits/daily/evening/latest.md`
-  - ` M docs/audits/daily/morning/latest.json`
-  - ` M docs/audits/daily/morning/latest.md`
   - ` M docs/audits/latest.json`
   - ` M docs/audits/latest.md`
   - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/ad-copy.md`
