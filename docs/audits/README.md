@@ -1,5 +1,23 @@
 # Audits Directory
 
+## Guardian Work Brief
+
+The daily audit artifacts are evidence inputs for the original Axis instance in
+ChatGPT and for manual KB transfer. They should not be treated as the whole
+operating layer by themselves.
+
+Use `scripts/guardian_work_brief.py` or `make guardian-brief` to generate the
+decision packet that sits above the audits:
+
+- `docs/guardian/work-briefs/latest-axis-brief.md`
+- `docs/guardian/work-briefs/latest-codex-next-task.md`
+- `docs/guardian/work-briefs/latest-truth-ledger.json`
+- `docs/guardian/work-briefs/latest-decision-log.md`
+
+The brief turns audit evidence, current-state truth, repo status, and draft
+publication state into a compact `Reality / Drift / Risk / Decision / Task`
+packet. See `docs/Ops/GUARDIAN_WORK_BRIEF_RUNBOOK.md` for the operating flow.
+
 ## Beta Release Sentinel
 
 `scripts/release/beta_release_sentinel.py` generates repo-local, evidence-led beta readiness artifacts.
