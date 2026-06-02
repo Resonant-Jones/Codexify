@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for the current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-01
+2026-06-02
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work on `main` is mainly release-truth maintenance plus chat/provider presentation fixes and Obsidian index proof; it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merges focus on chat/provider reliability, slash-command repair, and proof/fixture maintenance; they do not widen the release promise.
 
 ## What changed recently
-- `main` merged frontend provider timeout presentation fixes.
-- `main` repaired provider registry catalog token coverage.
-- `main` added real-vault-scoped Obsidian index proof.
-- `main` refreshed release-truth and delegation contract docs.
-- No merged change expanded the supported beta surface.
+- `main` repaired in-chat slash command handling.
+- `main` added synthetic slow-provider proof and updated fixture coverage.
+- `main` hardened LLM health checks and provider failure surfacing.
+- `main` improved frontend timeout/offline presentation for provider failures.
+- `main` refreshed the current-state override and supporting release docs.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -31,8 +31,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - Workspace-local Obsidian retrieval is supported on the current tip.
 - Coding results return through Guardian into the source thread on the supported path.
 - Graph writes remain default-off on the supported Compose path.
-- Provider timeout failure states are now classified and presented more accurately in the UI.
-- The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week.
+- Provider timeout and slow-path failures are classified and presented more accurately in the UI.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
