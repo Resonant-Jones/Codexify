@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Last updated: 2026-05-25
+Last updated: 2026-06-02
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -24,6 +24,7 @@ Source anchors:
 
 Start here: if you need current-state interpretation rather than structural architecture, read [`00-current-state.md`](./00-current-state.md) first.
 Use it first for live release/readiness interpretation, supported install path, active blockers, and short-horizon priorities.
+If you need the live weekly interpretation of `main`, start with [`00-current-state.md`](./00-current-state.md).
 
 If you need the live operational truth layer, read [`00-current-state.md`](./00-current-state.md) first and treat the rest of the KB as supporting context.
 
