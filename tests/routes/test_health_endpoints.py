@@ -149,13 +149,23 @@ def _install_fake_redis(monkeypatch, client: _FakeRedisClient) -> None:
     )
 
 
+def _llm_health_details(payload: dict) -> dict:
+    details = payload.get("details")
+    return details if isinstance(details, dict) else payload
+
+
 @pytest.fixture(autouse=True)
 def _reset_health_route_state():
+    settings = get_settings()
+    snapshot = _snapshot_settings(settings)
+    _apply_local_only_runtime(settings)
     health_routes._CHAT_QUEUE_LAST_DEPTH = None
     health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
     health_routes._LLM_HEALTH_PROBE_CACHE = None
     health_routes._LLM_HEALTH_PROBE_TS = 0.0
     yield
+    for field, value in snapshot.items():
+        setattr(settings, field, value)
     health_routes._CHAT_QUEUE_LAST_DEPTH = None
     health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
     health_routes._LLM_HEALTH_PROBE_CACHE = None
@@ -186,7 +196,7 @@ def test_health_llm_reports_effective_local_chat_model(
     snapshot = _snapshot_settings(settings)
     try:
         _apply_local_only_runtime(settings)
-        payload = test_client.get("/health/llm").json()
+        payload = _llm_health_details(test_client.get("/health/llm").json())
         assert payload["model"] == "qwen3.5:0.8b"
         assert payload["provider_runtime"]["default_model"] == "qwen3.5:0.8b"
         assert payload["model_resolution"]["source"] == "LOCAL_CHAT_MODEL"
@@ -272,12 +282,13 @@ def test_health_surfaces_match_executed_local_model(
         )
         llm_payload = test_client.get("/health/llm").json()
         chat_payload = test_client.get("/health/chat").json()
+        llm_details = _llm_health_details(llm_payload)
 
         assert result == "Strict reply"
         assert captured["json"]["model"] == "qwen3.5:0.8b"
-        assert llm_payload["model"] == captured["json"]["model"]
+        assert llm_details["model"] == captured["json"]["model"]
         assert (
-            llm_payload["provider_runtime"]["default_model"]
+            llm_details["provider_runtime"]["default_model"]
             == captured["json"]["model"]
         )
         assert chat_payload["model"] == captured["json"]["model"]
@@ -317,7 +328,7 @@ def test_health_llm_surfaces_local_model_resolution_error(
     try:
         _apply_local_only_runtime(settings)
         settings.LOCAL_CHAT_MODEL = ""
-        payload = test_client.get("/health/llm").json()
+        payload = _llm_health_details(test_client.get("/health/llm").json())
         assert payload["status"] == "misconfigured"
         assert payload["error"] == LOCAL_MODEL_RESOLUTION_ERROR
         assert payload["failure_kind"] == "local_model_missing"

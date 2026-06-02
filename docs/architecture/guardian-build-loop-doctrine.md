@@ -2,7 +2,6 @@ Purpose: define the canonical Guardian Build Loop doctrine for Codexify so Unity
 Last updated: 2026-05-23
 Source anchors:
 - docs/architecture/00-current-state.md
-- docs/architecture/README.md
 - docs/architecture/unity-audit-doctrine.md
 - docs/architecture/agent-protocol-operations.md
 - docs/architecture/self-extending-agent-plugin-system.md

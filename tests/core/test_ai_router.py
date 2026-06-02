@@ -17,6 +17,12 @@ from guardian.core.ai_router import (
     stream_local,
 )
 from guardian.core.config import Settings
+from guardian.protocol_tokens import (
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
+
+SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
 
 
 class _MockResponse:
@@ -72,6 +78,13 @@ def _mock_alibaba_model_index(url, headers, timeout):
     return _MockResponse({"data": [{"id": "qwen-plus"}]})
 
 
+def _disable_supported_profile(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "guardian.core.supported_profile.get_active_supported_profile",
+        lambda: None,
+    )
+
+
 def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
     captured: dict[str, object] = {}
 
@@ -123,6 +136,7 @@ def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
 
 
 def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_call_alibaba(messages, model: str, *, settings=None):
@@ -145,6 +159,7 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
         CODEXIFY_LOCAL_ONLY_MODE=False,
         CODEXIFY_EGRESS_ALLOWLIST="alibaba",
         ALIBABA_API_KEY="test-alibaba-key",
+        ALIBABA_API_BASE="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
         ALIBABA_MODEL="qwen-plus",
     )
     messages = [{"role": "user", "content": "Ping"}]
@@ -165,6 +180,7 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
 def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     calls: list[str] = []
 
     def _mock_post(url: str, *, json, headers, timeout):
@@ -201,6 +217,8 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
 
 
 def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+
     def _mock_post(url: str, *, json, headers, timeout):
         _ = (url, json, headers, timeout)
         raise requests.exceptions.ConnectionError("connection refused")
@@ -269,6 +287,7 @@ def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
 def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, timeout):
@@ -284,7 +303,7 @@ def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
         CODEXIFY_LOCAL_ONLY_MODE=False,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="llama3.2:3b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="llama3.2:3b",
@@ -323,7 +342,7 @@ def test_chat_with_ai_local_only_uses_local_chat_model_for_execution(
         CODEXIFY_LOCAL_ONLY_MODE=True,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -347,7 +366,7 @@ def test_chat_with_ai_local_only_blank_local_chat_model_fails_clearly():
         CODEXIFY_LOCAL_ONLY_MODE=True,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -381,7 +400,7 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
         CODEXIFY_LOCAL_ONLY_MODE=True,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -420,7 +439,7 @@ def test_call_local_local_only_uses_resolved_model_for_execution(monkeypatch):
         CODEXIFY_LOCAL_ONLY_MODE=True,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -461,7 +480,7 @@ def test_stream_local_local_only_uses_resolved_model_for_execution(
         CODEXIFY_LOCAL_ONLY_MODE=True,
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://127.0.0.1:11434/v1",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -478,6 +497,90 @@ def test_stream_local_local_only_uses_resolved_model_for_execution(
 
     assert result == ["Local ", "stream"]
     assert captured["json"]["model"] == "qwen3.5:0.8b"
+
+
+def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, json, headers, timeout)
+        raise requests.exceptions.ReadTimeout("read timed out")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
+        LLM_MODEL="library2/ministral-3:8b",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        call_local(
+            [{"role": "user", "content": "hello"}],
+            "library2/ministral-3:8b",
+            settings=settings,
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "local"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
+    assert detail["local_runtime"]["profile"] == "default"
+    assert detail["local_runtime"]["read_timeout_seconds"] == 60.0
+
+
+def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
+    def _mock_post(url: str, *, json, headers, stream, timeout):
+        _ = (url, json, headers, stream, timeout)
+        raise requests.exceptions.ReadTimeout("read timed out")
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
+        LLM_MODEL="library2/ministral-3:8b",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        list(
+            stream_local(
+                [{"role": "user", "content": "hello"}],
+                "library2/ministral-3:8b",
+                settings=settings,
+            )
+        )
+
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["provider"] == "local"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
+    assert detail["local_runtime"]["profile"] == "default"
+    assert detail["local_runtime"]["read_timeout_seconds"] == 60.0
 
 
 def test_call_alibaba_missing_key_surfaces_auth_config_failure():
@@ -537,8 +640,14 @@ def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "alibaba"
-    assert detail["failure_kind"] == "provider_timeout"
-    assert detail["transport_classification"] == "timeout"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.TIMEOUT.value
+    )
 
 
 def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
@@ -573,8 +682,14 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "minimax"
-    assert detail["failure_kind"] == "transport_error"
-    assert detail["transport_classification"] == "connection_refused"
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.TRANSPORT_ERROR.value
+    )
+    assert (
+        detail["transport_classification"]
+        == GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+    )
 
 
 def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):

@@ -553,7 +553,7 @@ describe("AppShell settings utility trigger", () => {
     vi.clearAllMocks();
   });
 
-  it("hides unfinished beta surfaces from the visible primary nav", async () => {
+  it("keeps Flow Builder and Persona Studio visible in the primary nav", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "dashboard");
 
@@ -583,11 +583,21 @@ describe("AppShell settings utility trigger", () => {
     const primaryNav = within(screen.getByTestId("app-shell-top-nav"));
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Flow Builder" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
-    expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
-    expect(primaryNav.queryByRole("button", { name: "Persona Studio" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
+
+    await user.click(primaryNav.getByRole("button", { name: "Flow Builder" }));
+
+    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/flow-builder");
+
+    await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
+
+    expect(await screen.findByTestId("persona-studio-framecard")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/persona-studio");
 
     await user.click(screen.getByTestId("settings-utility-toggle"));
 
