@@ -197,6 +197,12 @@ A docs-local extraction prompt template now exists at `prompts/extraction-v0.md`
 It is manual-only, synthetic-only, and not registered in runtime.
 It does not call a model and does not define canonical schema or runtime behavior.
 
+A docs-local manual extraction-output sample now exists at
+`fixtures/plumbing-three-handle-drip/manual-extraction-output-v0.json`.
+It can be validated by the extraction-output validator, but it is not automated
+prompt execution, not model-quality proof, and does not define canonical schema
+or runtime behavior.
+
 ## Prompt Design Rules
 
 - prompts must be narrow and pass-specific
@@ -213,6 +219,21 @@ It does not call a model and does not define canonical schema or runtime behavio
 
 ## Output Validation Expectations
 
+The deterministic extraction-output validator now exists at
+`scripts/job_intelligence/validate_extraction_output.py`.
+It validates extraction-shaped JSON artifacts for shape and safety invariants
+and can be used against docs-local expected extraction artifacts or future
+manual prompt-output artifacts.
+
+The deterministic extraction-output comparison helper now exists at
+`scripts/job_intelligence/compare_extraction_outputs.py`.
+It validates both artifacts before comparison and compares docs-local expected
+extraction artifacts against manual extraction samples at field level.
+
+These helpers do not execute prompts, call a model, perform semantic scoring,
+define a canonical schema, prove extraction quality, or prove production
+readiness.
+
 At planning level, future output validation should check:
 
 - required planning fields are present
@@ -225,7 +246,6 @@ At planning level, future output validation should check:
 - no subjective customer labels are generated
 - review is required before confirmation
 
-No validator is implemented by this document.
 No canonical schema is created by this document.
 
 ## Failure and Degraded Output Handling
