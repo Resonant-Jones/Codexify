@@ -10,6 +10,12 @@ Included files:
 - `expected-extraction.json`
 - `expected-job-profile-draft.json`
 - `expected-review-packet.json`
+- `manual-extraction-output-v0.json`
+- `manual-extraction-output-v0-notes.md`
+
+The manual extraction-output files are sample artifacts only.
+They are not expected artifacts, are not consumed by runtime, and are not proof
+of model quality.
 
 ## Do Not Assume
 

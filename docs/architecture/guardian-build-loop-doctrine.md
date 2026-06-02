@@ -256,6 +256,53 @@ This doctrine does not claim:
 - Future docs must map new execution systems back to this loop.
 - Existing Codex Runner, Pi, and delegation docs should be cross-referenced rather than redefined.
 
+## Minimal Viable Network
+
+Nodes:
+
+- source thread and message
+- Guardian backend
+- Postgres
+- Redis queue and task-event transport
+- coding worker
+- selected adapter or harness
+- optional isolated worktree or lease-bound worktree
+- human reviewer
+
+Trust boundaries:
+
+- user and source-thread boundary
+- Guardian policy boundary
+- queue and worker boundary
+- adapter or harness boundary
+- filesystem or worktree mutation boundary
+- human review and approval boundary
+
+Threat model:
+
+- honest-but-buggy worker or adapter
+- stale or degraded queue visibility
+- mutation outside approved scope
+- missing or broken lineage
+- overclaiming proof from partial evidence
+
+What breaks first:
+
+- route acceptance can succeed while downstream execution fails
+- execution can succeed while visibility degrades
+- validation can pass while proof remains insufficient for release claims
+- patch artifacts can exist while human review is still pending
+
+## Invariants
+
+- Do not implement runtime behavior in this doctrine.
+- Do not add routes, workers, DB tables, command-bus commands, or UI.
+- Do not introduce another competing loop name.
+- Do not imply autonomous self-modification exists.
+- Do not widen beta release claims.
+- Do not weaken Guardian authority, provenance, identity, command-bus, or provider boundaries.
+- Do not treat patch artifacts, validation success, or commit-after-green as release proof.
+
 ## Current-Truth Anchors
 
 What is true now:
@@ -277,7 +324,18 @@ What this document does not add:
 - no runtime behavior,
 - no new routes, workers, tables, commands, or UI,
 - no widened release support,
-- no autonomous authority.
+- no autonomous authority,
+- no change to supported-path truth in `00-current-state.md`.
+
+## Related Reading
+
+- [Unity Audit Doctrine](./unity-audit-doctrine.md)
+- [Delegation Runtime Contract](./delegation-runtime.md)
+- [Delegation Operator Manual](./delegation-operator-manual.md)
+- [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md)
+- [Agent Tool Loop Contract](./agent-tool-loop-contract.md)
+- [Self-Extending Agent Plugin System](./self-extending-agent-plugin-system.md)
+- [Solo Operator Coding Worker Runbook](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md)
 
 ## Maintenance Rule
 

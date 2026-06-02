@@ -1,0 +1,105 @@
+{
+  "fixture_id": "fixture_plumbing_three_handle_drip_v1",
+  "fixture_kind": "synthetic_docs_local_manual_extraction_sample",
+  "source_interaction_id": "synthetic_interaction_plumbing_three_handle_drip_001",
+  "interaction_type": "service_call_transcript",
+  "service_vertical": "plumbing",
+  "directly_stated_facts": {
+    "raw_customer_language": [
+      "The tub spout keeps dripping even when the fixture is off.",
+      "It has a hot knob, a middle knob, and a cold knob.",
+      "The middle knob sends the water up to the shower or back down to the tub.",
+      "I do not know the brand, but there is an access panel behind the shower.",
+      "Do you charge a diagnostic fee, and what does something like this usually cost?",
+      "Around 1:00 PM would be best."
+    ],
+    "reported_symptoms": [
+      "tub spout keeps dripping when fixture is off"
+    ],
+    "reported_fixture_details": [
+      "hot knob",
+      "middle knob",
+      "cold knob",
+      "middle knob changes flow between shower and tub"
+    ],
+    "reported_brand": "unknown",
+    "reported_access_detail": "access panel behind the shower",
+    "reported_scheduling_preference": "around 1:00 PM",
+    "reported_policy_questions": [
+      "diagnostic fee",
+      "usual cost for this kind of issue"
+    ]
+  },
+  "inferred_fields": {
+    "service_type": "plumbing",
+    "possible_category": "three_handle_tub_spout_drip",
+    "fixture_configuration": "three_handle_tub_shower_fixture",
+    "brand_status": "unknown",
+    "scheduling_status": "preference_only",
+    "sample_status": "manual_unconfirmed_sample"
+  },
+  "ambiguities": [
+    {
+      "field": "inferred_fields.possible_category",
+      "reason": "The source reports the symptom and fixture layout, but the internal repair cause remains unverified."
+    },
+    {
+      "field": "directly_stated_facts.reported_brand",
+      "reason": "The customer directly states they do not know the brand."
+    },
+    {
+      "field": "directly_stated_facts.reported_access_detail",
+      "reason": "The access panel is reported, but usability and exact access constraints still need human review."
+    }
+  ],
+  "missing_information": [
+    "full service address placeholder",
+    "onsite contact method placeholder",
+    "fixture brand confirmation",
+    "whether dripping is continuous or intermittent",
+    "whether there are additional access constraints"
+  ],
+  "policy_questions": [
+    {
+      "topic": "diagnostic_fee",
+      "customer_language": "Do you charge a diagnostic fee?",
+      "commitment_status": "not_committed"
+    },
+    {
+      "topic": "general_pricing_expectation",
+      "customer_language": "What does something like this usually cost?",
+      "commitment_status": "not_committed"
+    }
+  ],
+  "risk_signals": [],
+  "review_recommendations": [
+    "Review the possible service category before any operational use.",
+    "Keep the brand unknown until a human verifies it.",
+    "Confirm whether the access panel is usable for service planning.",
+    "Keep diagnostic fee and general cost questions separate from reported symptoms.",
+    "Treat the 1:00 PM statement as a customer preference only."
+  ],
+  "confidence": {
+    "overall": "medium",
+    "service_vertical": "high",
+    "fixture_configuration": "medium",
+    "brand": "unknown",
+    "repair_cause": "unknown",
+    "scheduling_preference": "medium",
+    "notes": "This manual sample preserves source phrasing and visible uncertainty. It is a review aid only, not operational truth."
+  },
+  "metadata": {
+    "created_at": "2026-05-27T00:00:00Z",
+    "sample_id": "manual_extraction_output_v0",
+    "source_fixture": "plumbing-three-handle-drip",
+    "prompt_reference": "docs/specs/job-intelligence-layer/prompts/extraction-v0.md",
+    "manual_sample": true,
+    "synthetic_only": true,
+    "docs_local_only": true,
+    "runtime_executed": false,
+    "model_called": false,
+    "persisted_as_operational_truth": false,
+    "schema_status": "not_canonical",
+    "human_review_required": true
+  }
+}
