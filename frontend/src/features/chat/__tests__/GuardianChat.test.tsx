@@ -1046,6 +1046,7 @@ describe("GuardianChat inference rail", () => {
   });
 
   it("lets the user choose a voice and threads that selection through voice turns", async () => {
+    window.localStorage.setItem("cfy.voice.turnEnabled", "1");
     const { container } = renderChat("1");
 
     fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));

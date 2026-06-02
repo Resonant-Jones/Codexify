@@ -49,6 +49,8 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS,
     GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
+    GUARDIAN_PROVIDER_FAILURE_KINDS,
+    GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     ORCHESTRATOR_DECISION_TOKENS,
@@ -86,6 +88,8 @@ from guardian.protocol_tokens import (
     GuardianDelegationTranscriptItemKind,
     GuardianDelegationTranscriptItemSource,
     GuardianDelegationVisibilityStatus,
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
     ImageRoutingPath,
     LoopStopReason,
     OrchestratorDecisionToken,
@@ -309,6 +313,44 @@ def test_context_request_status_tokens() -> None:
         "executed",
         "no_results",
         "failed",
+    }
+
+
+def test_provider_failure_and_transport_classification_tokens() -> None:
+    assert (
+        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+        == "provider_timeout"
+    )
+    assert (
+        GuardianProviderFailureKind.TRANSPORT_ERROR.value
+        == "transport_error"
+    )
+    assert GuardianProviderFailureKind.REQUEST_ERROR.value == "request_error"
+    assert GUARDIAN_PROVIDER_FAILURE_KINDS == {
+        "provider_timeout",
+        "transport_error",
+        "request_error",
+    }
+
+    assert (
+        GuardianProviderTransportClassification.TIMEOUT.value == "timeout"
+    )
+    assert (
+        GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+        == "connection_refused"
+    )
+    assert GuardianProviderTransportClassification.DNS_ERROR.value == (
+        "dns_error"
+    )
+    assert (
+        GuardianProviderTransportClassification.REQUEST_ERROR.value
+        == "request_error"
+    )
+    assert GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS == {
+        "timeout",
+        "connection_refused",
+        "dns_error",
+        "request_error",
     }
 
 

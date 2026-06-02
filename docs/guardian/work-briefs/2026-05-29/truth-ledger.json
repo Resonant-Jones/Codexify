@@ -1,0 +1,274 @@
+{
+  "brief_date": "2026-05-29",
+  "decision": {
+    "drift_count": 4,
+    "focus": "Synchronize the working branch before making release claims.",
+    "next_task_type": "truth_closure",
+    "rationale": "The branch is behind upstream, so proof gathered here may be stale."
+  },
+  "drift": [
+    {
+      "kind": "repo_sync",
+      "signal": "Branch is behind upstream by 10 commit(s).",
+      "why_it_matters": "Release proof should be tied to the current main tip."
+    },
+    {
+      "kind": "dirty_worktree",
+      "signal": "11 changed file(s) are present.",
+      "why_it_matters": "Unclassified local changes can blur what is proven."
+    },
+    {
+      "kind": "release_claim_boundary",
+      "signal": "Do not assume cloud-provider beta support.",
+      "why_it_matters": "Axis and Codex should not steer from aspirational claims."
+    },
+    {
+      "kind": "draft_publication_boundary",
+      "signal": "5 recent marketing/history run(s) are draft.",
+      "why_it_matters": "Draft packets are alignment inputs, not release proof."
+    }
+  ],
+  "generated_at": "2026-05-29T12:32:16.357597+00:00",
+  "human_closeout": {
+    "axis_kb_note": "",
+    "blocked": "",
+    "finished_today": "",
+    "next_priority": "Synchronize the working branch before making release claims."
+  },
+  "purpose": "Manual alignment packet for Axis plus a narrow Codex task packet for solo-builder steering.",
+  "reality": {
+    "audit_summary": {
+      "fail": 0,
+      "pass": 43,
+      "warn": 11
+    },
+    "current_phase": "Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. This audit window did not surface a new merged runtime capability on `main`; the visible movement remains in release-truth maintenance and docs-level consolidation.",
+    "current_supported_reality": [
+      "Local Docker Compose remains the supported install path.",
+      "The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.",
+      "Supported-profile, health, and catalog surfaces are aligned on `main`.",
+      "Chat completion works on the supported path and persists back into the source thread.",
+      "Upload -> embed -> readback works on the supported path.",
+      "Workspace-local Obsidian retrieval is supported on the current tip.",
+      "Image-turn containment remains proven on the supported profile.",
+      "Coding results return through Guardian into the source thread on the supported path.",
+      "Graph writes remain default-off on the supported Compose path.",
+      "The release-truth override at `docs/architecture/00-current-state.md` is the live interpretation layer for this week."
+    ],
+    "release_definition": [
+      "[x] Supported-profile flags match the local-only beta contract.",
+      "[x] Fresh live evidence exists on the current `main` tip for the supported path.",
+      "[x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are proven on the supported stack.",
+      "[x] Coding results return through Guardian into the source thread.",
+      "[x] No internal-only or quarantined surface is part of the release claim.",
+      "[ ] Queue/worker, config, sync, and federation risks must stay explicitly documented and rechecked when the supported path drifts."
+    ],
+    "strongest_domains": [
+      "Extension Boundary",
+      "Core Loop Integrity",
+      "Primitive Stability"
+    ],
+    "weakest_domains": [
+      "Federation Readiness",
+      "Alternate Surface Readiness",
+      "Governance Readiness"
+    ]
+  },
+  "recent_marketing_history": [
+    {
+      "approval_state": "draft",
+      "audience": "local-first-builders",
+      "campaign_id": "CAMPAIGN_2026_05_16_MARKETING_V1",
+      "channels": [
+        "community",
+        "social",
+        "website"
+      ],
+      "claim_count": 24,
+      "generated_at": "2026-05-16T14:31:59.566500+00:00",
+      "marketable_claim_count": 12,
+      "mode": "draft",
+      "non_marketable_claim_count": 12,
+      "output_dir": "docs/Marketing/generated/CAMPAIGN_2026_05_16_MARKETING_V1"
+    },
+    {
+      "approval_state": "draft",
+      "audience": "local-first-builders",
+      "campaign_id": "TEST_MARKETING_PUBLIC_RENDERING",
+      "channels": [
+        "community",
+        "social",
+        "website"
+      ],
+      "claim_count": 24,
+      "generated_at": "2026-05-19T23:35:56.667908+00:00",
+      "marketable_claim_count": 12,
+      "mode": "draft",
+      "non_marketable_claim_count": 12,
+      "output_dir": "docs/Marketing/generated/TEST_MARKETING_PUBLIC_RENDERING"
+    },
+    {
+      "approval_state": "draft",
+      "audience": "local-first-builders",
+      "campaign_id": "CAMPAIGN_2026_05_23_MARKETING_V1",
+      "channels": [
+        "community",
+        "social",
+        "website"
+      ],
+      "claim_count": 24,
+      "generated_at": "2026-05-23T09:01:13.961560+00:00",
+      "marketable_claim_count": 12,
+      "mode": "draft",
+      "non_marketable_claim_count": 12,
+      "output_dir": "docs/Marketing/generated/CAMPAIGN_2026_05_23_MARKETING_V1"
+    },
+    {
+      "approval_state": "draft",
+      "audience": "local-first-builders",
+      "campaign_id": "CAMPAIGN_2026_05_24_MARKETING_V1",
+      "channels": [
+        "community",
+        "social",
+        "website"
+      ],
+      "claim_count": 24,
+      "generated_at": "2026-05-24T11:26:47.482787+00:00",
+      "marketable_claim_count": 12,
+      "mode": "draft",
+      "non_marketable_claim_count": 12,
+      "output_dir": "docs/Marketing/generated/CAMPAIGN_2026_05_24_MARKETING_V1"
+    },
+    {
+      "approval_state": "draft",
+      "audience": "local-first-builders",
+      "campaign_id": "CAMPAIGN_2026_05_25_MARKETING_V1",
+      "channels": [
+        "community",
+        "social",
+        "website"
+      ],
+      "claim_count": 24,
+      "generated_at": "2026-05-25T09:02:25.659616+00:00",
+      "marketable_claim_count": 12,
+      "mode": "draft",
+      "non_marketable_claim_count": 12,
+      "output_dir": "docs/Marketing/generated/CAMPAIGN_2026_05_25_MARKETING_V1"
+    }
+  ],
+  "repo": {
+    "ahead": 0,
+    "behind": 10,
+    "branch": "main",
+    "changed_files": [
+      "Makefile",
+      "docs/audits/README.md",
+      "docs/audits/daily/evening/latest.json",
+      "docs/audits/daily/morning/latest.json",
+      "docs/audits/latest.json",
+      "frontend/src/components/persona/layout/AppShell.tsx",
+      "frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "docs/Ops/GUARDIAN_WORK_BRIEF_RUNBOOK.md",
+      "docs/guardian/work-briefs/",
+      "scripts/guardian_work_brief.py",
+      "tests/scripts/test_guardian_work_brief.py"
+    ],
+    "head": "07d7c7a00",
+    "status_error": "",
+    "status_lines": [
+      "## main...origin/main [behind 10]",
+      " M Makefile",
+      " M docs/audits/README.md",
+      " M docs/audits/daily/evening/latest.json",
+      " M docs/audits/daily/morning/latest.json",
+      " M docs/audits/latest.json",
+      " M frontend/src/components/persona/layout/AppShell.tsx",
+      " M frontend/src/components/persona/layout/__tests__/AppShell.test.tsx",
+      "?? docs/Ops/GUARDIAN_WORK_BRIEF_RUNBOOK.md",
+      "?? docs/guardian/work-briefs/",
+      "?? scripts/guardian_work_brief.py",
+      "?? tests/scripts/test_guardian_work_brief.py"
+    ]
+  },
+  "risk": {
+    "active_blockers": [
+      "No single merged-code blocker is proven on `main`.",
+      "Chat completion is queue-coupled and still depends on Redis plus worker health.",
+      "Canonical and legacy config paths still coexist, so startup and operator state can drift.",
+      "Legacy `/tools` behavior still overlaps with the command bus.",
+      "Sync subscriptions are still process-local rather than durable across restarts.",
+      "Federation remains a high-blast-radius area with trust-policy and egress sensitivity."
+    ],
+    "audit_failures": [],
+    "audit_risk_flags": [
+      {
+        "active": true,
+        "description": "Chat completion is queue-coupled and depends on Redis plus worker availability.",
+        "evidence": [
+          "docs/architecture/tech-debt-and-risks.md",
+          "docs/architecture/roadmap-signals.md"
+        ],
+        "flag": "chat_depends_on_redis_and_workers",
+        "severity": "high"
+      },
+      {
+        "active": true,
+        "description": "Canonical and legacy config paths still coexist, so startup and operator state can drift.",
+        "evidence": [
+          "docs/architecture/tech-debt-and-risks.md",
+          "docs/architecture/roadmap-signals.md"
+        ],
+        "flag": "config_split_brain_risk",
+        "severity": "high"
+      },
+      {
+        "active": true,
+        "description": "Legacy /tools behavior and the command bus still overlap, which increases contract drift risk.",
+        "evidence": [
+          "docs/architecture/tech-debt-and-risks.md",
+          "docs/architecture/roadmap-signals.md"
+        ],
+        "flag": "legacy_tools_and_command_bus_duality",
+        "severity": "high"
+      },
+      {
+        "active": true,
+        "description": "Sync subscriptions are still process-local rather than durable across restarts.",
+        "evidence": [
+          "docs/architecture/tech-debt-and-risks.md",
+          "docs/architecture/roadmap-signals.md",
+          "docs/architecture/data-and-storage.md"
+        ],
+        "flag": "sync_not_durable",
+        "severity": "medium"
+      },
+      {
+        "active": true,
+        "description": "Federation remains sensitive to trust policy, feature flags, and egress behavior.",
+        "evidence": [
+          "docs/architecture/tech-debt-and-risks.md",
+          "docs/architecture/roadmap-signals.md"
+        ],
+        "flag": "federation_high_blast_radius",
+        "severity": "high"
+      }
+    ],
+    "audit_warnings": [],
+    "do_not_assume": [
+      "Do not assume cloud-provider beta support.",
+      "Do not assume the packaged desktop shell replaces the local Compose supported path.",
+      "Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.",
+      "Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features. The new retrieval navigation note is planning doctrine only, does not expand the supported release surface, and does not change the current graph-writes-default-off boundary.",
+      "Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.",
+      "Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.",
+      "Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.",
+      "Do not infer desktop packaging readiness from architecture docs alone."
+    ]
+  },
+  "schema_version": "guardian-work-brief/v1",
+  "truth_sources": {
+    "current_state": "docs/architecture/00-current-state.md",
+    "latest_audit": "docs/audits/latest.json",
+    "marketing_history": "docs/Marketing/generated/history/run-history.jsonl"
+  }
+}

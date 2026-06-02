@@ -25,7 +25,11 @@ from guardian.core.provider_registry import (
     provider_routing_requires_discovered_inventory,
     validate_provider_model_selection,
 )
-from guardian.protocol_tokens import ErrorCode
+from guardian.protocol_tokens import (
+    ErrorCode,
+    GuardianProviderFailureKind,
+    GuardianProviderTransportClassification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1389,19 +1393,21 @@ def resolve_model_vision_capability_state(
 def _classify_transport_error(exc: Exception) -> str:
     lowered = str(exc or "").strip().lower()
     if isinstance(exc, req_exc.Timeout) or "timed out" in lowered:
-        return "timeout"
+        return GuardianProviderTransportClassification.TIMEOUT.value
     if "connection refused" in lowered:
-        return "connection_refused"
+        return (
+            GuardianProviderTransportClassification.CONNECTION_REFUSED.value
+        )
     if "name or service not known" in lowered or "failed to resolve" in lowered:
-        return "dns_error"
-    return "request_error"
+        return GuardianProviderTransportClassification.DNS_ERROR.value
+    return GuardianProviderTransportClassification.REQUEST_ERROR.value
 
 
 def _provider_transport_failure_kind(exc: Exception) -> str:
     classification = _classify_transport_error(exc)
-    if classification == "timeout":
-        return "provider_timeout"
-    return "transport_error"
+    if classification == GuardianProviderTransportClassification.TIMEOUT.value:
+        return GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    return GuardianProviderFailureKind.TRANSPORT_ERROR.value
 
 
 def _normalize_openai_model(model: str, settings: Settings) -> str:
@@ -1702,7 +1708,16 @@ def _resolve_local_endpoint_candidates(
 
     parsed = urlparse(primary_base)
     host = str(parsed.hostname or "").strip().lower()
-    if host not in _LOCAL_LOOPBACK_HOSTS:
+
+    # ── Docker fallback is opt-in.  When LOCAL_BASE_URL points at ──
+    # localhost/loopback inside a container the operator may want a
+    # sidecar path to host.docker.internal, but this MUST be an
+    # explicit choice — silent fallback hides failure and removes the
+    # operator's ability to see the system degrade and correct it.
+    _docker_fallback_enabled = bool(
+        getattr(settings, "CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED", False)
+    )
+    if not _docker_fallback_enabled or host not in _LOCAL_LOOPBACK_HOSTS:
         return candidates
 
     fallback_raw = str(
@@ -1885,7 +1900,9 @@ def discover_local_model_inventory(
                 attempt_failures.append(f"{url} ({failure_kind}: {exc})")
                 continue
             except Exception as exc:
-                failure_kind = "request_error"
+                failure_kind = (
+                    GuardianProviderTransportClassification.REQUEST_ERROR.value
+                )
                 attempt_failures.append(f"{url} ({type(exc).__name__}: {exc})")
                 continue
             if not (200 <= response.status_code < 300):
@@ -2534,7 +2551,7 @@ def call_groq(
                 provider="groq",
                 model=model,
                 endpoint=url,
-                failure_kind="request_error",
+                failure_kind=GuardianProviderFailureKind.REQUEST_ERROR.value,
                 message=f"Groq request failed: {detail}",
                 provider_error=detail,
                 transport_classification=_classify_transport_error(exc),
@@ -2645,7 +2662,7 @@ def _call_openai_compatible_chat(
         failure_kind = (
             _provider_transport_failure_kind(exc)
             if typed_failure_kinds
-            else "request_error"
+            else GuardianProviderFailureKind.REQUEST_ERROR.value
         )
         logger.exception(
             "%s backend request error model=%s endpoint=%s transport=%s",

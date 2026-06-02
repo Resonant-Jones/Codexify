@@ -38,6 +38,7 @@ from guardian.core.provider_truth import (
     build_provider_truth,
     cloud_capable_configuration_present,
 )
+from guardian.protocol_tokens import GuardianProviderFailureKind
 
 logger = logging.getLogger(__name__)
 _LLM_HEALTH_PROBE_CACHE: dict | None = None
@@ -157,13 +158,13 @@ def _probe_local_llm(settings, timeout_seconds: float) -> dict:
             except requests.exceptions.RequestException as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 failure_kind = (
-                    "provider_timeout"
+                    GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
                     if isinstance(exc, requests.exceptions.Timeout)
-                    else "transport_error"
+                    else GuardianProviderFailureKind.TRANSPORT_ERROR.value
                 )
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
-                failure_kind = "request_error"
+                failure_kind = GuardianProviderFailureKind.REQUEST_ERROR.value
 
     return {
         "ok": False,
@@ -572,11 +573,16 @@ def health_llm():
     completion_service = _collect_completion_service_health()
     local_model_resolution = None
 
+    _health_probe_timeout = float(
+        os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "3.0")
+    )
+
     if provider == "local":
         local_model_resolution = resolve_local_execution_model(
             settings=settings,
             requested_model=model,
             validate_availability=True,
+            timeout_seconds=_health_probe_timeout,
             request_get=requests.get,
         )
         if local_model_resolution.model:
@@ -589,6 +595,7 @@ def health_llm():
     payload = {
         "provider": provider,
         "model": model,
+        "local_base_url": getattr(settings, "LOCAL_BASE_URL", None) or None,
         "provider_runtime": provider_runtime,
         "completion_service": completion_service,
         "supported_profile": (
@@ -693,7 +700,7 @@ def health_llm():
         return _wrap("down", http_status=503)
 
     if provider == "local":
-        timeout = float(os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "1.0"))
+        timeout = _health_probe_timeout
         cache_ttl = _llm_health_cache_ttl_seconds()
         cached = _get_cached_probe(cache_ttl)
         if cached is not None:
@@ -707,6 +714,41 @@ def health_llm():
                 selectable=bool(payload.get("ok")),
             )
             return _wrap(cached.get("status"))
+
+        # ── When model discovery already proved endpoint reachability, ──
+        # skip the redundant /api/tags probe entirely.  The health probe
+        # result is derived from the discovery call we already paid for.
+        _discovery_state = None
+        if (
+            local_model_resolution is not None
+            and local_model_resolution.endpoint_resolution is not None
+        ):
+            _discovery_state = str(
+                local_model_resolution.endpoint_resolution.get("state") or ""
+            ).strip()
+        if (
+            _discovery_state == "available"
+            and local_model_resolution is not None
+        ):
+            probe_payload = {
+                "ok": True,
+                "status": "online",
+                "endpoint_resolution": local_model_resolution.endpoint_resolution,
+                "checked_endpoints": ["<model-discovery>"],
+                "checked_endpoint": "<model-discovery>",
+                "http_status": 200,
+            }
+            _store_probe(probe_payload)
+            payload.update(probe_payload)
+            payload["cache"] = "discovery_reused"
+            payload["provider_truth"] = build_provider_truth(
+                provider,
+                settings,
+                capability=provider_runtime,
+                discoverable=True,
+                selectable=True,
+            )
+            return _wrap("online")
 
         if not _LLM_HEALTH_PROBE_INFLIGHT_LOCK.acquire(blocking=False):
             stale = _get_latest_probe()
@@ -821,6 +863,9 @@ def health_chat():
     provider_runtime = dict(resolve_provider_capability(provider, settings))
     local_model_resolution = None
     model = str(provider_runtime.get("default_model") or "").strip()
+    _chat_health_probe_timeout = float(
+        os.getenv("HEALTH_LLM_REQUEST_TIMEOUT_SECONDS", "3.0")
+    )
     if provider == "local":
         from guardian.core.ai_router import (
             describe_local_runtime,
@@ -831,6 +876,7 @@ def health_chat():
             settings=settings,
             requested_model=model,
             validate_availability=True,
+            timeout_seconds=_chat_health_probe_timeout,
             request_get=requests.get,
         )
         if local_model_resolution.model:
