@@ -2895,26 +2895,6 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "flowBuilder" ? "active" : "inactive"}
-                aria-current={view === "flowBuilder" ? "page" : undefined}
-                onClick={() => navigateToView("flowBuilder")}
-                style={getMobileNavPillStyle("flowBuilder")}
-              >
-                Flow Builder
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "personaStudio" ? "active" : "inactive"}
-                aria-current={view === "personaStudio" ? "page" : undefined}
-                onClick={() => navigateToView("personaStudio")}
-                style={getMobileNavPillStyle("personaStudio")}
-              >
-                Persona Studio
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "documents" ? "active" : "inactive"}
                 aria-current={view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
@@ -2931,6 +2911,26 @@ export default function AppShell({
                 style={getMobileNavPillStyle("gallery")}
               >
                 Gallery
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "flowBuilder" ? "active" : "inactive"}
+                aria-current={view === "flowBuilder" ? "page" : undefined}
+                onClick={() => navigateToView("flowBuilder")}
+                style={getMobileNavPillStyle("flowBuilder")}
+              >
+                Flow Builder
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={view === "personaStudio" ? "active" : "inactive"}
+                aria-current={view === "personaStudio" ? "page" : undefined}
+                onClick={() => navigateToView("personaStudio")}
+                style={getMobileNavPillStyle("personaStudio")}
+              >
+                Persona Studio
               </PhonePressButton>
             </div>
           </div>
