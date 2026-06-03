@@ -312,7 +312,7 @@ describe("workspace invocation contract", () => {
     });
   });
 
-  it("blocks nested shell rendering when the app re-enters inside a workspace preview", async () => {
+  it("blocks nested Flow Builder shell rendering inside a workspace preview", async () => {
     vi.doMock("@/features/workspace/state/useWorkspaceState", async () => {
       const actual =
         await vi.importActual<typeof import("@/features/workspace/state/useWorkspaceState")>(
@@ -323,6 +323,8 @@ describe("workspace invocation contract", () => {
         shouldBlockNestedWorkspaceShell: vi.fn(() => true),
       };
     });
+
+    window.history.pushState({}, "", "/flow-builder");
 
     const { default: App } = await import("@/App");
 
