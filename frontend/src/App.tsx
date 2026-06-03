@@ -125,6 +125,11 @@ function isPersonaStudioRoute() {
   return window.location.pathname.startsWith("/persona-studio");
 }
 
+function isFlowBuilderRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/flow-builder");
+}
+
 function isShareRoute() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith("/share/");
@@ -583,6 +588,7 @@ export default function App() {
   const eventsRoute = isEventsRoute();
   const commandCenterRoute = isCommandCenterRoute();
   const personaStudioRoute = isPersonaStudioRoute();
+  const flowBuilderRoute = isFlowBuilderRoute();
   const shareRoute = isShareRoute();
   const loginRoute = isLoginRoute();
   const registerRoute = isRegisterRoute();
@@ -630,6 +636,7 @@ export default function App() {
     !eventsRoute &&
     !commandCenterRoute &&
     !personaStudioRoute &&
+    !flowBuilderRoute &&
     !loginRoute &&
     !registerRoute &&
     !(shareRoute && !!shareToken) &&
@@ -1423,7 +1430,7 @@ export default function App() {
         </main>
       </div>
     );
-  } else if (personaStudioRoute) {
+  } else if (personaStudioRoute || flowBuilderRoute) {
     mainContent = <AppShell />;
   } else if (shareRoute && shareToken) {
     mainContent = <SharePage token={shareToken} />;
