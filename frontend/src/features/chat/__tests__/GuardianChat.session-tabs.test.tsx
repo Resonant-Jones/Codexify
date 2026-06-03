@@ -7,6 +7,7 @@ import GuardianChat, {
 import {
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_MAX_WIDTH_CLASS,
+  GUARDIAN_SHELL_MAX_WIDTH,
   GUARDIAN_SHELL_MAX_WIDTH_CLASS,
 } from "@/features/chat/chatLane";
 
@@ -333,6 +334,7 @@ describe("GuardianChat session-tab binding", () => {
     await waitFor(() => {
       const shell = screen.getByTestId("guardian-shell");
       expect(shell.className).toContain(GUARDIAN_SHELL_MAX_WIDTH_CLASS);
+      expect(shell).toHaveStyle({ maxWidth: GUARDIAN_SHELL_MAX_WIDTH });
 
       const lane = screen.getByTestId("composer-conversation-lane");
       expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
