@@ -157,7 +157,7 @@ def test_classifies_docker_unavailable(tmp_path: Path, monkeypatch: Any) -> None
     assert summary.state == setup_wizard.SetupReadinessState.DOCKER_NOT_RUNNING
 
 
-def test_classifies_ollama_unavailable(tmp_path: Path, monkeypatch: Any) -> None:
+def test_classifies_local_inference_unavailable(tmp_path: Path, monkeypatch: Any) -> None:
     _write_env(tmp_path / ".env", **_valid_env())
     monkeypatch.setattr(
         setup_wizard,
@@ -179,7 +179,7 @@ def test_classifies_ollama_unavailable(tmp_path: Path, monkeypatch: Any) -> None
         tmp_path, runner=runner, http_getter=http_getter
     )
 
-    assert summary.state == setup_wizard.SetupReadinessState.OLLAMA_NOT_RUNNING
+    assert summary.state == setup_wizard.SetupReadinessState.LOCAL_INFERENCE_NOT_RUNNING
 
 
 def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> None:

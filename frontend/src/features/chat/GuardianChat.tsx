@@ -1365,8 +1365,8 @@ export function GuardianChat({
   const llmStatusMessage = (() => {
     if (llmHealth.modelsAvailable === false) {
       return (
-        "No AI models are available. Pull a model into Ollama "
-        + "(e.g. `ollama pull qwen3`) or connect a cloud provider."
+        "No AI models are available. Start Whoosh'd and load or select a model "
+        + "advertised by `/v1/models` or `/api/tags`, or enable a supported cloud provider."
       );
     }
     return (
