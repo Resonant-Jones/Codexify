@@ -14,6 +14,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
 
+from guardian.core.local_runtime_presets import (
+    default_local_runtime_preset_id,
+    local_runtime_env_defaults,
+    normalize_local_runtime_preset,
+)
+
 
 @dataclass(frozen=True)
 class DepStatus:
@@ -47,23 +53,23 @@ REQUIRED_LOCAL_CONFIG_KEYS = (
     "NEO4J_PASS",
 )
 
-LOCAL_BETA_DEFAULTS = {
-    "AI_BACKEND": "ollama",
-    "LLM_PROVIDER": "local",
-    "CODEXIFY_LOCAL_ONLY_MODE": "true",
-    "ALLOW_CLOUD_PROVIDERS": "false",
-    "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
-    "LOCAL_DOCKER_FALLBACK_BASE_URL": "http://host.docker.internal:8000/v1",
-    "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
-    "LOCAL_PROVIDER_VENDOR": "whooshd",
-    "LOCAL_LLM_MODEL": "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    "LOCAL_CHAT_MODEL": "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    "LOCAL_COMPAT_FIRST": "1",
-    "LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK": "0",
-    "VAULTNODE_BASE_URL": "http://host.docker.internal:8000",
-    "VAULTNODE_HEALTH_ENDPOINTS": "/v1/models,/api/tags",
-    "NEO4J_USER": "neo4j",
-}
+def local_beta_defaults(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    requested_preset = str((env or {}).get("LOCAL_RUNTIME_PRESET") or "").strip()
+    preset_id = normalize_local_runtime_preset(
+        requested_preset or default_local_runtime_preset_id()
+    )
+    defaults = {
+        "AI_BACKEND": "ollama",
+        "LLM_PROVIDER": "local",
+        "CODEXIFY_LOCAL_ONLY_MODE": "true",
+        "ALLOW_CLOUD_PROVIDERS": "false",
+        "NEO4J_USER": "neo4j",
+    }
+    defaults.update(local_runtime_env_defaults(preset_id, docker=True))
+    return defaults
+
+
+LOCAL_BETA_DEFAULTS = local_beta_defaults()
 
 SECRET_CONFIG_KEYS = {
     "GUARDIAN_API_KEY",
@@ -240,7 +246,7 @@ def detect_core_dependencies(
     """
     Core deps for a local-first default experience.
     - docker: optional depending on how you run services, but common for DB/redis.
-    - ollama: optional legacy runtime detection; Whoosh'd readiness uses HTTP probes.
+    - ollama: optional legacy runtime detection; local runtime readiness uses HTTP probes.
     """
 
     paths = custom_paths or {}
@@ -442,7 +448,14 @@ def normalize_local_beta_config_values(
         values["GUARDIAN_API_KEY"] = secrets.token_hex(32)
         generated.append("GUARDIAN_API_KEY")
 
-    for key, value in LOCAL_BETA_DEFAULTS.items():
+    existing_preset = str(values.get("LOCAL_RUNTIME_PRESET", "") or "").strip()
+    if existing_preset and not is_placeholder_config_value(existing_preset):
+        normalized_preset = normalize_local_runtime_preset(existing_preset)
+        if existing_preset.lower() != normalized_preset:
+            values["LOCAL_RUNTIME_PRESET"] = normalized_preset
+            repaired.append("LOCAL_RUNTIME_PRESET")
+
+    for key, value in local_beta_defaults(values).items():
         existing = values.get(key)
         if is_placeholder_config_value(existing):
             values[key] = value
@@ -476,6 +489,7 @@ def normalize_local_beta_config_values(
             "LLM_PROVIDER",
             "CODEXIFY_LOCAL_ONLY_MODE",
             "ALLOW_CLOUD_PROVIDERS",
+            "LOCAL_RUNTIME_PRESET",
             "LOCAL_BASE_URL",
             "LOCAL_DOCKER_FALLBACK_BASE_URL",
             "LOCAL_PROVIDER_DISPLAY_NAME",
@@ -755,7 +769,7 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         return _summary(
             SetupReadinessState.MISSING_CONFIG,
             "Local config is missing. Codexify needs to create your runtime config.",
-            "Run the setup wizard to create .env for Local via Whoosh'd.",
+            "Run the setup wizard to create .env for the local inference runtime.",
             f"env_path={env_path}",
         )
 
@@ -954,6 +968,12 @@ def classify_setup_readiness(
             detail,
         )
 
+    provider_label = (
+        env.get("LOCAL_PROVIDER_DISPLAY_NAME", "").strip()
+        or local_beta_defaults(env).get(
+            "LOCAL_PROVIDER_DISPLAY_NAME", "local inference"
+        )
+    )
     local_ok, local_detail, local_models, selected_inventory_url = (
         _probe_local_runtime_inventory(env, http_getter)
     )
@@ -961,7 +981,7 @@ def classify_setup_readiness(
         return _summary(
             SetupReadinessState.LOCAL_INFERENCE_NOT_RUNNING,
             "Configured local inference runtime is not reachable.",
-            "Start Whoosh'd or update LOCAL_BASE_URL, then retry.",
+            f"Start {provider_label} or update LOCAL_BASE_URL, then retry.",
             local_detail,
         )
 
@@ -969,8 +989,8 @@ def classify_setup_readiness(
     if model and model not in local_models:
         return _summary(
             SetupReadinessState.MODEL_MISSING,
-            f"The selected local model is not advertised by Whoosh'd: {model}.",
-            "Load the model in Whoosh'd or update LOCAL_CHAT_MODEL, then retry.",
+            f"The selected local model is not advertised by {provider_label}: {model}.",
+            f"Load the model in {provider_label} or update LOCAL_CHAT_MODEL, then retry.",
             "inventory_url="
             + selected_inventory_url
             + " installed_models="
@@ -1032,7 +1052,6 @@ def classify_setup_readiness(
             frontend_detail,
         )
 
-    provider_label = env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd") or "Whoosh'd"
     return _summary(
         SetupReadinessState.READY,
         "Codexify local runtime is ready.",

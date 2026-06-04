@@ -7,6 +7,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from guardian.core.local_runtime_presets import (
+    DEFAULT_LOCAL_RUNTIME_PRESET,
+    WHOOSHD_MODEL,
+    local_runtime_env_defaults,
+)
+
 # Module-level logger for config coherence reporting
 logger = logging.getLogger(__name__)
 
@@ -14,9 +20,19 @@ _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
 _DEFAULT_MINIMAX_ANTHROPIC_API_BASE = "https://api.minimax.io/anthropic"
-_DEFAULT_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-_DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:8000/v1"
-_DEFAULT_LOCAL_DOCKER_BASE_URL = "http://host.docker.internal:8000/v1"
+_DEFAULT_LOCAL_RUNTIME = local_runtime_env_defaults(
+    DEFAULT_LOCAL_RUNTIME_PRESET,
+    docker=False,
+)
+_DEFAULT_LOCAL_RUNTIME_DOCKER = local_runtime_env_defaults(
+    DEFAULT_LOCAL_RUNTIME_PRESET,
+    docker=True,
+)
+_DEFAULT_WHOOSHD_MODEL = WHOOSHD_MODEL
+_DEFAULT_LOCAL_BASE_URL = _DEFAULT_LOCAL_RUNTIME["LOCAL_BASE_URL"]
+_DEFAULT_LOCAL_DOCKER_BASE_URL = _DEFAULT_LOCAL_RUNTIME_DOCKER[
+    "LOCAL_DOCKER_FALLBACK_BASE_URL"
+]
 SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "openai",
@@ -188,9 +204,16 @@ class Settings(BaseSettings):
     # NOTE: We keep only *defaults* here. A UI model selector should usually query the
     # local provider for installed models rather than hard-coding a full catalog in config.
     # --- Local OpenAI-compatible routing ---
+    LOCAL_RUNTIME_PRESET: str = Field(
+        default=DEFAULT_LOCAL_RUNTIME_PRESET,
+        description=(
+            "Named local runtime defaults for setup/catalog display. Runtime values "
+            "still come from LOCAL_BASE_URL and model env vars."
+        ),
+    )
     LOCAL_BASE_URL: str = Field(
         default=_DEFAULT_LOCAL_BASE_URL,
-        description="Base URL for the local OpenAI-compatible API (Whoosh'd by default).",
+        description="Base URL for the local OpenAI-compatible API.",
     )
     LOCAL_DOCKER_FALLBACK_BASE_URL: str = Field(
         default=_DEFAULT_LOCAL_DOCKER_BASE_URL,
@@ -246,14 +269,14 @@ class Settings(BaseSettings):
         description="API key placeholder for the local OpenAI-compatible API.",
     )
     LOCAL_PROVIDER_DISPLAY_NAME: str | None = Field(
-        default="Whoosh'd",
+        default=_DEFAULT_LOCAL_RUNTIME["LOCAL_PROVIDER_DISPLAY_NAME"],
         description=(
             "Optional display name for the local OpenAI-compatible provider in "
             "catalog/UI surfaces, e.g. Whoosh'd."
         ),
     )
     LOCAL_PROVIDER_VENDOR: str | None = Field(
-        default="whooshd",
+        default=_DEFAULT_LOCAL_RUNTIME["LOCAL_PROVIDER_VENDOR"],
         description=(
             "Optional vendor/runtime label for the local OpenAI-compatible "
             "provider source metadata, e.g. whooshd."
@@ -987,7 +1010,7 @@ def _validate_supported_profile_contract(settings: Settings) -> None:
     if mismatches:
         detail = "; ".join(mismatches)
         raise LLMConfigError(
-            "supported profile requires blessed local gateway contract: "
+            "supported profile requires local provider safety contract: "
             f"{detail}"
         )
 

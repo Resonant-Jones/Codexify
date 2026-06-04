@@ -30,7 +30,7 @@ You will need:
 
 - macOS
 - Docker Desktop installed and running
-- Whoosh'd or a compatible local OpenAI gateway running if you are testing the local model path
+- A local inference runtime running if you are testing the local model path. Defaults target Whoosh'd/MLX on Apple Silicon; set `LOCAL_RUNTIME_PRESET=ollama` or `LOCAL_RUNTIME_PRESET=lmstudio` and update the local URL/model fields for Ollama or LM Studio.
 - The required local model advertised by the local gateway if you stay on the default local path
 
 ### First Launch
@@ -80,7 +80,7 @@ For the small-folder handoff bundle, open `Codexify-Beta/README.md`.
 You will need:
 
 - Docker Desktop installed and running
-- Whoosh'd or a compatible local OpenAI gateway running if you are testing the local model path
+- A local inference runtime running if you are testing the local model path. Defaults target Whoosh'd/MLX on Apple Silicon; set `LOCAL_RUNTIME_PRESET=ollama` or `LOCAL_RUNTIME_PRESET=lmstudio` and update the local URL/model fields for Ollama or LM Studio.
 - The required local model advertised by the local gateway if you stay on the default local path
 
 Normal path:

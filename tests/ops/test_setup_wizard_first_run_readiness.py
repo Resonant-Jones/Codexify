@@ -23,6 +23,7 @@ def _valid_env() -> dict[str, str]:
         "GUARDIAN_API_KEY": "a" * 64,
         "AI_BACKEND": "ollama",
         "LLM_PROVIDER": "local",
+        "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
         "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
         "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
         "LOCAL_PROVIDER_VENDOR": "whooshd",
@@ -33,8 +34,16 @@ def _valid_env() -> dict[str, str]:
     }
 
 
-def test_normalizer_creates_missing_env_with_local_beta_posture(tmp_path: Path) -> None:
+def test_normalizer_creates_missing_env_with_local_beta_posture(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
     env_path = tmp_path / ".env"
+    monkeypatch.setattr(
+        setup_wizard,
+        "default_local_runtime_preset_id",
+        lambda: "whooshd-mlx",
+    )
 
     setup_wizard.write_env_file(env_path, {})
     env = setup_wizard.read_env_file(env_path)
@@ -44,6 +53,7 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(tmp_path: Path) 
     assert env["LLM_PROVIDER"] == "local"
     assert env["CODEXIFY_LOCAL_ONLY_MODE"] == "true"
     assert env["ALLOW_CLOUD_PROVIDERS"] == "false"
+    assert env["LOCAL_RUNTIME_PRESET"] == "whooshd-mlx"
     assert env["LOCAL_BASE_URL"] == "http://host.docker.internal:8000/v1"
     assert env["LOCAL_PROVIDER_DISPLAY_NAME"] == "Whoosh'd"
     assert env["LOCAL_PROVIDER_VENDOR"] == "whooshd"
@@ -53,6 +63,29 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(tmp_path: Path) 
     assert env["VAULTNODE_HEALTH_ENDPOINTS"] == "/v1/models,/api/tags"
     assert env["NEO4J_USER"] == "neo4j"
     assert env["NEO4J_PASS"]
+
+
+def test_normalizer_applies_lmstudio_runtime_preset(tmp_path: Path) -> None:
+    env_path = tmp_path / ".env"
+
+    setup_wizard.write_env_file(
+        env_path,
+        {
+            "LOCAL_RUNTIME_PRESET": "lmstudio",
+            "LOCAL_CHAT_MODEL": "change-me",
+        },
+    )
+    env = setup_wizard.read_env_file(env_path)
+
+    assert env["LOCAL_RUNTIME_PRESET"] == "lmstudio"
+    assert env["LOCAL_BASE_URL"] == "http://host.docker.internal:1234/v1"
+    assert env["LOCAL_DOCKER_FALLBACK_BASE_URL"] == (
+        "http://host.docker.internal:1234/v1"
+    )
+    assert env["LOCAL_PROVIDER_DISPLAY_NAME"] == "LM Studio"
+    assert env["LOCAL_PROVIDER_VENDOR"] == "lmstudio"
+    assert env["LOCAL_CHAT_MODEL"] == "local-model"
+    assert env["VAULTNODE_BASE_URL"] == "http://host.docker.internal:1234"
 
 
 def test_placeholder_guardian_api_key_is_replaced(tmp_path: Path) -> None:
@@ -172,7 +205,7 @@ def test_classifies_local_inference_unavailable(tmp_path: Path, monkeypatch: Any
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if "8000" in url:
-            raise ConnectionError("whooshd stopped")
+            raise ConnectionError("local runtime stopped")
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(

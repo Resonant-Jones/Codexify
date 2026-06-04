@@ -10,6 +10,8 @@ x-postgres-env: &postgres_env
   PGPASSWORD: ${POSTGRES_PASSWORD:-codexify}
 
 x-local-llm: &local_llm
+  LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
   LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
   LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
   LOCAL_PROVIDER_DISPLAY_NAME: "${LOCAL_PROVIDER_DISPLAY_NAME:-Whoosh'd}"
@@ -338,7 +340,7 @@ services:
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
       # --- Local OpenAI-compatible inference ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
-      # NOTE: Keep this set to a model that Whoosh'd advertises (check /v1/models or /api/tags).
+      # NOTE: Keep this set to a model that the selected local runtime advertises (check /v1/models or /api/tags).
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
       LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
@@ -436,13 +438,13 @@ services:
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
 
-      # Local inference base URL. Whoosh'd is OpenAI-compatible and should use a /v1 suffix.
+      # Local inference base URL. OpenAI-compatible runtimes should use a /v1 suffix.
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
       LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
 
       # Routing knobs (handled by guardian/core/ai_router.py)
-      # Prefer /v1/chat/completions first for Whoosh'd/OpenAI-compatible runtimes.
+      # Prefer /v1/chat/completions first for OpenAI-compatible local runtimes.
       LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"

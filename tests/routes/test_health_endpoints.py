@@ -105,6 +105,7 @@ def _snapshot_settings(settings):
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_RUNTIME_PRESET": settings.LOCAL_RUNTIME_PRESET,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "LOCAL_API_KEY": settings.LOCAL_API_KEY,
         "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
@@ -119,6 +120,7 @@ def _apply_local_only_runtime(settings) -> None:
     settings.ALLOW_CLOUD_PROVIDERS = False
     settings.CODEXIFY_LOCAL_ONLY_MODE = True
     settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+    settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
     settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
     settings.LOCAL_API_KEY = "local"
     settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"

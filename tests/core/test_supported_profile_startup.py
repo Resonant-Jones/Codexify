@@ -18,6 +18,7 @@ _GUARDIAN_API_ENV_KEYS = (
     "ALLOW_CLOUD_PROVIDERS",
     "CODEXIFY_LOCAL_ONLY_MODE",
     "CODEXIFY_EGRESS_ALLOWLIST",
+    "LOCAL_RUNTIME_PRESET",
     "LOCAL_BASE_URL",
     "LOCAL_API_KEY",
     "LOCAL_COMPAT_FIRST",
@@ -63,6 +64,10 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     monkeypatch.setenv(
         "CODEXIFY_EGRESS_ALLOWLIST",
         env_overrides.pop("CODEXIFY_EGRESS_ALLOWLIST", ""),
+    )
+    monkeypatch.setenv(
+        "LOCAL_RUNTIME_PRESET",
+        env_overrides.pop("LOCAL_RUNTIME_PRESET", "whooshd-mlx"),
     )
     monkeypatch.setenv(
         "LOCAL_BASE_URL",
@@ -130,6 +135,9 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     )
     settings.CODEXIFY_EGRESS_ALLOWLIST = os.getenv(
         "CODEXIFY_EGRESS_ALLOWLIST", ""
+    )
+    settings.LOCAL_RUNTIME_PRESET = os.getenv(
+        "LOCAL_RUNTIME_PRESET", "whooshd-mlx"
     )
     settings.LOCAL_BASE_URL = os.getenv(
         "LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"

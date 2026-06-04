@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for the current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-03
+2026-06-04
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,11 +13,12 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved operator visibility, added a site-ready documentation export bundle, and moved the local inference target to a Whoosh'd/OpenAI-compatible endpoint, but they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved operator visibility, added a site-ready documentation export bundle, and added local runtime presets for Whoosh'd/MLX, Ollama, LM Studio, and custom OpenAI-compatible endpoints, but they do not widen the release promise.
 
 ## What changed recently
 - `main` added a site-ready developer guide export bundle under `docs/site-export/developer-guide/`.
-- `main` moved the supported local provider endpoint defaults from Ollama to Whoosh'd/OpenAI-compatible `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`.
+- `main` moved the Apple Silicon default local runtime preset from Ollama to Whoosh'd/OpenAI-compatible `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`.
+- `main` added `LOCAL_RUNTIME_PRESET` so users can keep `LLM_PROVIDER=local` while swapping between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` local runtimes.
 - Health checks still surface LLM model availability on the supported path.
 - Supported-profile, health, and catalog surfaces remain aligned on the local-only stack.
 - Personal-facts settings routing remains repaired on `main`.
@@ -31,7 +32,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- The current local inference target is Whoosh'd/OpenAI-compatible, with live model availability proven only when `/v1/models` or `/api/tags` advertises the selected local model.
+- The current Apple Silicon default local inference target is Whoosh'd/OpenAI-compatible. The setup wizard defaults to Ollama on non-Mac machines when no preset is selected.
+- Live model availability is proven only when `/v1/models` or `/api/tags` advertises the selected local model.
 - Health checks report LLM model availability.
 - Chat completion works on the supported path and persists back into the source thread.
 - Upload -> embed -> readback works on the supported path.
@@ -51,7 +53,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
 - Do not assume Build Proposal generation means approval, execution, release
   support, runtime proof, or autonomous self-modification.
-- Do not assume Whoosh'd runtime availability without live endpoint/model inventory proof.
+- Do not assume any local runtime is available without live endpoint/model inventory proof.
 - Do not infer desktop packaging readiness from architecture docs alone.
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 
