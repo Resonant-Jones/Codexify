@@ -1430,6 +1430,11 @@ export default function App() {
         </main>
       </div>
     );
+  } else if (
+    (personaStudioRoute || flowBuilderRoute) &&
+    shouldBlockNestedWorkspaceShell()
+  ) {
+    mainContent = <WorkspaceRecursionGuard />;
   } else if (personaStudioRoute || flowBuilderRoute) {
     mainContent = <AppShell />;
   } else if (shareRoute && shareToken) {

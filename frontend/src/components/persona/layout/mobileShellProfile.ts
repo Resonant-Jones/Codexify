@@ -86,7 +86,7 @@ const DESKTOP_SHELL_PROFILE = {
   },
   guardian: {
     singleLane: false,
-    frameMaxWidth: "1500px",
+    frameMaxWidth: "100%",
     drawerWidth: "min(360px, 90vw)",
   },
   workspace: {

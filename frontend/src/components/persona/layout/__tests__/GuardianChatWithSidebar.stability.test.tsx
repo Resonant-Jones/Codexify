@@ -514,6 +514,16 @@ describe("GuardianChatWithSidebar stability contract", () => {
     expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
   });
 
+  it("lets the desktop Guardian frame stretch to the workspace pane", () => {
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    const guardianLayout = screen
+      .getByTestId("guardian-chat-mock")
+      .closest("[data-guardian-layout]");
+
+    expect(guardianLayout).toHaveStyle({ maxWidth: "100%" });
+  });
+
   it("keeps selected thread stable when pagination appends", async () => {
     setupThreadApi({
       all: {

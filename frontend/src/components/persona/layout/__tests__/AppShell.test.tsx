@@ -590,7 +590,7 @@ describe("AppShell settings utility trigger", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps Flow Builder and Persona Studio visible in the primary nav", async () => {
+  it("keeps the primary nav in the preferred visual order", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "dashboard");
 
@@ -618,12 +618,34 @@ describe("AppShell settings utility trigger", () => {
       "max-w-full"
     );
     const primaryNav = within(screen.getByTestId("app-shell-top-nav"));
+    const navButtonOrder = primaryNav
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim() ?? "")
+      .filter((label) =>
+        [
+          "Guardian",
+          "Dashboard",
+          "Documents",
+          "Gallery",
+          "Flow Builder",
+          "Persona Studio",
+        ].includes(label)
+      );
+
+    expect(navButtonOrder).toEqual([
+      "Guardian",
+      "Dashboard",
+      "Documents",
+      "Gallery",
+      "Flow Builder",
+      "Persona Studio",
+    ]);
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Flow Builder" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Flow Builder" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
     await user.click(primaryNav.getByRole("button", { name: "Flow Builder" }));
