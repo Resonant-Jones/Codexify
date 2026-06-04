@@ -119,7 +119,7 @@ def _apply_local_only_runtime(settings) -> None:
     settings.ALLOW_CLOUD_PROVIDERS = False
     settings.CODEXIFY_LOCAL_ONLY_MODE = True
     settings.CODEXIFY_EGRESS_ALLOWLIST = ""
-    settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+    settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
     settings.LOCAL_API_KEY = "local"
     settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
     settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"

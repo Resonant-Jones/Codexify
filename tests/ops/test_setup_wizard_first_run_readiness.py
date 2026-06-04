@@ -8,6 +8,9 @@ from typing import Any
 from guardian.ops import setup_wizard
 
 
+_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+
 def _write_env(path: Path, **values: str) -> None:
     path.write_text(
         "\n".join(f"{key}={value}" for key, value in values.items()) + "\n",
@@ -20,8 +23,11 @@ def _valid_env() -> dict[str, str]:
         "GUARDIAN_API_KEY": "a" * 64,
         "AI_BACKEND": "ollama",
         "LLM_PROVIDER": "local",
-        "LOCAL_BASE_URL": "http://host.docker.internal:11434",
-        "LOCAL_CHAT_MODEL": "llama3.2:latest",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
+        "LOCAL_PROVIDER_VENDOR": "whooshd",
+        "LOCAL_LLM_MODEL": _WHOOSHD_MODEL,
+        "LOCAL_CHAT_MODEL": _WHOOSHD_MODEL,
         "NEO4J_USER": "neo4j",
         "NEO4J_PASS": "not-a-placeholder",
     }
@@ -30,7 +36,7 @@ def _valid_env() -> dict[str, str]:
 def test_normalizer_creates_missing_env_with_local_beta_posture(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
 
-    setup_wizard.write_env_file(env_path, {"LOCAL_CHAT_MODEL": "llama3.2:latest"})
+    setup_wizard.write_env_file(env_path, {})
     env = setup_wizard.read_env_file(env_path)
 
     assert len(env["GUARDIAN_API_KEY"]) == 64
@@ -38,14 +44,20 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(tmp_path: Path) 
     assert env["LLM_PROVIDER"] == "local"
     assert env["CODEXIFY_LOCAL_ONLY_MODE"] == "true"
     assert env["ALLOW_CLOUD_PROVIDERS"] == "false"
-    assert env["LOCAL_BASE_URL"] == "http://host.docker.internal:11434"
+    assert env["LOCAL_BASE_URL"] == "http://host.docker.internal:8000/v1"
+    assert env["LOCAL_PROVIDER_DISPLAY_NAME"] == "Whoosh'd"
+    assert env["LOCAL_PROVIDER_VENDOR"] == "whooshd"
+    assert env["LOCAL_CHAT_MODEL"] == _WHOOSHD_MODEL
+    assert env["LOCAL_COMPAT_FIRST"] == "1"
+    assert env["VAULTNODE_BASE_URL"] == "http://host.docker.internal:8000"
+    assert env["VAULTNODE_HEALTH_ENDPOINTS"] == "/v1/models,/api/tags"
     assert env["NEO4J_USER"] == "neo4j"
     assert env["NEO4J_PASS"]
 
 
 def test_placeholder_guardian_api_key_is_replaced(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
-    _write_env(env_path, GUARDIAN_API_KEY="change-me", LOCAL_CHAT_MODEL="llama3.2:latest")
+    _write_env(env_path, GUARDIAN_API_KEY="change-me", LOCAL_CHAT_MODEL=_WHOOSHD_MODEL)
 
     setup_wizard.write_env_file(env_path, setup_wizard.read_env_file(env_path))
     env = setup_wizard.read_env_file(env_path)
@@ -91,13 +103,13 @@ def test_secret_diagnostics_are_redacted() -> None:
         {
             "GUARDIAN_API_KEY": "super-secret",
             "NEO4J_PASS": "also-secret",
-            "LOCAL_CHAT_MODEL": "llama3.2:latest",
+            "LOCAL_CHAT_MODEL": _WHOOSHD_MODEL,
         }
     )
 
     assert diagnostics["GUARDIAN_API_KEY"] == "<redacted>"
     assert diagnostics["NEO4J_PASS"] == "<redacted>"
-    assert diagnostics["LOCAL_CHAT_MODEL"] == "llama3.2:latest"
+    assert diagnostics["LOCAL_CHAT_MODEL"] == _WHOOSHD_MODEL
     assert "super-secret" not in json.dumps(diagnostics)
 
 
@@ -159,8 +171,8 @@ def test_classifies_ollama_unavailable(tmp_path: Path, monkeypatch: Any) -> None
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if "11434" in url:
-            raise ConnectionError("ollama stopped")
+        if "8000" in url:
+            raise ConnectionError("whooshd stopped")
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -184,8 +196,8 @@ def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> 
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if "11434" in url:
-            return 200, '{"models":[{"name":"other:latest"}]}'
+        if url.endswith("/v1/models"):
+            return 200, '{"data":[{"id":"other:latest"}]}'
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -211,7 +223,7 @@ def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> 
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        return 200, '{"models":[{"name":"llama3.2:latest"}]}'
+        return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
@@ -235,8 +247,8 @@ def test_classifies_frontend_not_running(tmp_path: Path, monkeypatch: Any) -> No
         return subprocess.CompletedProcess(args, 0, "", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if "11434" in url:
-            return 200, '{"models":[{"name":"llama3.2:latest"}]}'
+        if url.endswith("/v1/models"):
+            return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
         if "5173" in url:
             raise ConnectionError("frontend stopped")
         return 200, '{"status":"ok"}'
@@ -262,8 +274,8 @@ def test_classifies_ready(tmp_path: Path, monkeypatch: Any) -> None:
         return subprocess.CompletedProcess(args, 0, "", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if "11434" in url:
-            return 200, '{"models":[{"name":"llama3.2:latest"}]}'
+        if url.endswith("/v1/models"):
+            return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(

@@ -1,5 +1,23 @@
 # Inference Providers
 
+## Local / Whoosh'd
+
+The supported beta profile uses the canonical local provider lane:
+
+- `LLM_PROVIDER=local`
+- `AI_BACKEND=ollama` as the legacy compatibility alias
+- `ALLOW_CLOUD_PROVIDERS=false`
+- `CODEXIFY_LOCAL_ONLY_MODE=true`
+- `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`
+- `LOCAL_PROVIDER_DISPLAY_NAME=Whoosh'd`
+- `LOCAL_PROVIDER_VENDOR=whooshd`
+- `LOCAL_COMPAT_FIRST=1`
+
+Whoosh'd is expected to expose an OpenAI-compatible local gateway. The router
+prefers `/v1/chat/completions` when `LOCAL_COMPAT_FIRST` is true and model
+inventory is proven through `/v1/models` or `/api/tags`. The supported-profile
+manifest does not enforce a model id; model availability is runtime evidence.
+
 ## Alibaba / DashScope
 
 Alibaba Cloud DashScope / Model Studio is available as a first-class chat
