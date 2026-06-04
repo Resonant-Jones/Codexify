@@ -3889,7 +3889,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         probe_local_runtime_inventory(&setup_env_values);
     if !local_runtime_ok {
         return setup_readiness_summary(
-            "ollama_not_running",
+            "local_inference_not_running",
             "Configured local inference runtime is not reachable.",
             "Start Whoosh'd or update LOCAL_BASE_URL, then retry.",
             Some(if local_runtime_detail.is_empty() {

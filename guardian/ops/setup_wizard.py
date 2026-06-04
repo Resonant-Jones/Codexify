@@ -99,7 +99,7 @@ class SetupReadinessState(str, Enum):
     DOCKER_NOT_RUNNING = "docker_not_running"
     DOCKER_COMPOSE_MISSING = "docker_compose_missing"
     OLLAMA_MISSING = "ollama_missing"
-    OLLAMA_NOT_RUNNING = "ollama_not_running"
+    LOCAL_INFERENCE_NOT_RUNNING = "local_inference_not_running"
     MODEL_MISSING = "model_missing"
     COMPOSE_CONFIG_INVALID = "compose_config_invalid"
     EXISTING_VOLUMES_DETECTED = "existing_volumes_detected"
@@ -959,7 +959,7 @@ def classify_setup_readiness(
     )
     if not local_ok:
         return _summary(
-            SetupReadinessState.OLLAMA_NOT_RUNNING,
+            SetupReadinessState.LOCAL_INFERENCE_NOT_RUNNING,
             "Configured local inference runtime is not reachable.",
             "Start Whoosh'd or update LOCAL_BASE_URL, then retry.",
             local_detail,
