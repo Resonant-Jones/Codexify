@@ -22,7 +22,7 @@ from guardian.protocol_tokens import (
     GuardianProviderTransportClassification,
 )
 
-SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
+SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
 
 
 class _MockResponse:
@@ -198,6 +198,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
         LLM_PROVIDER="local",
         LOCAL_BASE_URL="http://127.0.0.1:11434",
         LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED=True,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="library2/ministral-3:8b",
     )
@@ -229,6 +230,7 @@ def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
         LLM_PROVIDER="local",
         LOCAL_BASE_URL="http://127.0.0.1:11434",
         LOCAL_DOCKER_FALLBACK_BASE_URL="http://host.docker.internal:11434",
+        CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED=True,
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="library2/ministral-3:8b",
     )

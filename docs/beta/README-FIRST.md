@@ -30,8 +30,8 @@ You will need:
 
 - macOS
 - Docker Desktop installed and running
-- Ollama installed and running if you are testing the local model path
-- The required local model available in Ollama if you stay on the default local path
+- Whoosh'd or a compatible local OpenAI gateway running if you are testing the local model path
+- The required local model advertised by the local gateway if you stay on the default local path
 
 ### First Launch
 
@@ -80,8 +80,8 @@ For the small-folder handoff bundle, open `Codexify-Beta/README.md`.
 You will need:
 
 - Docker Desktop installed and running
-- Ollama installed and running if you are testing the local model path
-- The required local model available in Ollama if you stay on the default local path
+- Whoosh'd or a compatible local OpenAI gateway running if you are testing the local model path
+- The required local model advertised by the local gateway if you stay on the default local path
 
 Normal path:
 

@@ -14,6 +14,9 @@ _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
 _DEFAULT_MINIMAX_ANTHROPIC_API_BASE = "https://api.minimax.io/anthropic"
+_DEFAULT_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+_DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:8000/v1"
+_DEFAULT_LOCAL_DOCKER_BASE_URL = "http://host.docker.internal:8000/v1"
 SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "openai",
@@ -120,12 +123,12 @@ class Settings(BaseSettings):
         ),
     )
     LLM_MODEL: str = Field(
-        default="library2/ministral-3:8b",
+        default=_DEFAULT_WHOOSHD_MODEL,
         description="Model identifier to pass to the selected LLM provider.",
     )
     DEFAULT_LOCAL_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Default chat model for local (Ollama) completions.",
+        default=_DEFAULT_WHOOSHD_MODEL,
+        description="Default chat model for local OpenAI-compatible completions.",
     )
     DEFAULT_OPENAI_MODEL: str = Field(
         default="gpt-4o",
@@ -183,18 +186,24 @@ class Settings(BaseSettings):
         ),
     )
     # NOTE: We keep only *defaults* here. A UI model selector should usually query the
-    # local provider (e.g., Ollama) for installed models rather than hard-coding a full
-    # catalog in config.
-    # --- Local (Ollama OpenAI-compatible) routing ---
+    # local provider for installed models rather than hard-coding a full catalog in config.
+    # --- Local OpenAI-compatible routing ---
     LOCAL_BASE_URL: str = Field(
-        default="http://127.0.0.1:11434/v1",
-        description="Base URL for the local OpenAI-compatible API (e.g., Ollama ).",
+        default=_DEFAULT_LOCAL_BASE_URL,
+        description="Base URL for the local OpenAI-compatible API (Whoosh'd by default).",
     )
     LOCAL_DOCKER_FALLBACK_BASE_URL: str = Field(
-        default="http://host.docker.internal:11434",
+        default=_DEFAULT_LOCAL_DOCKER_BASE_URL,
         description=(
-            "Optional Docker-host bridge fallback for local Ollama when "
+            "Optional Docker-host bridge fallback for local inference when "
             "LOCAL_BASE_URL points to localhost/loopback inside containers."
+        ),
+    )
+    CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Opt-in bridge fallback from localhost/loopback local inference URLs "
+            "to LOCAL_DOCKER_FALLBACK_BASE_URL."
         ),
     )
     CODEXIFY_LOCAL_ENDPOINT_CHAIN: str | None = Field(
@@ -216,10 +225,10 @@ class Settings(BaseSettings):
         description=("Timeout budget for a Codex delegation run in seconds."),
     )
     LOCAL_COMPAT_FIRST: bool = Field(
-        default=False,
+        default=True,
         description=(
             "When true, prefer the OpenAI-compatible /v1 surface before "
-            "Ollama-native endpoints for local execution."
+            "runtime-native endpoints for local execution."
         ),
     )
     LOCAL_PREFER_OPENAI_COMPAT: bool = Field(
@@ -234,28 +243,28 @@ class Settings(BaseSettings):
     )
     LOCAL_API_KEY: str = Field(
         default="local",
-        description="API key placeholder for the local OpenAI-compatible API (often ignored by Ollama).",
+        description="API key placeholder for the local OpenAI-compatible API.",
     )
     LOCAL_PROVIDER_DISPLAY_NAME: str | None = Field(
-        default=None,
+        default="Whoosh'd",
         description=(
             "Optional display name for the local OpenAI-compatible provider in "
             "catalog/UI surfaces, e.g. Whoosh'd."
         ),
     )
     LOCAL_PROVIDER_VENDOR: str | None = Field(
-        default=None,
+        default="whooshd",
         description=(
             "Optional vendor/runtime label for the local OpenAI-compatible "
             "provider source metadata, e.g. whooshd."
         ),
     )
     LOCAL_LLM_MODEL: str = Field(
-        default="library2/ministral-3:8b",
-        description="Local chat model identifier for Ollama.",
+        default=_DEFAULT_WHOOSHD_MODEL,
+        description="Local chat model identifier for the OpenAI-compatible runtime.",
     )
     LOCAL_CHAT_MODEL: str = Field(
-        default="library2/ministral-3:8b",
+        default=_DEFAULT_WHOOSHD_MODEL,
         description="Local chat model identifier used by supported profile validation.",
     )
     LOCAL_EMBEDDING_MODEL: str | None = Field(

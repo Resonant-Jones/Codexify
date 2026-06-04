@@ -15,7 +15,7 @@ The browser-side beta auth key is localhost/dev only and must match the backend 
 ## Prerequisites
 
 - Docker Desktop, or Docker Engine with Compose
-- A local Ollama or compatible host model setup if you want the default local model path
+- Whoosh'd or a compatible local OpenAI gateway if you want the default local model path
 - Read [AUTHORIZATION.md](./AUTHORIZATION.md) before first launch if you need to set or recover the beta API key.
 
 ## Setup

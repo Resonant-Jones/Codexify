@@ -12,12 +12,12 @@ Every claim is tagged with a confidence level:
 
 ## Executive Summary
 
-Codexify is a local-first chat + knowledge workspace with a FastAPI backend, Redis-backed async task queue, and OpenAI-compatible local model interface. It currently uses Ollama as its primary local inference backend, communicating via OpenAI-compatible `/v1/chat/completions` and `/api/chat` endpoints.
+Codexify is a local-first chat + knowledge workspace with a FastAPI backend, Redis-backed async task queue, and OpenAI-compatible local model interface. The current local provider target is Whoosh'd through `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`, with legacy Ollama-compatible fallback semantics still present in the router.
 
 For Whoosh'd to serve as a drop-in or superior replacement, it needs to:
 
 1. **Speak OpenAI-compatible chat completions** (streaming + non-streaming) — `confirmed`
-2. **Serve an `/api/tags` or equivalent model listing endpoint** — `confirmed`
+2. **Serve `/v1/models`, `/api/tags`, or equivalent model inventory** — `confirmed`
 3. **Support concurrent requests** (default 2 concurrent chat workers, configurable) — `confirmed`
 4. **Handle model warm-up gracefully** (distinct from offline) — `confirmed`
 5. **Support cancellation** — `confirmed`
@@ -140,9 +140,9 @@ Codexify has optional TTS (text-to-speech) capabilities via a separate microserv
 Codexify communicates with local models via two endpoint patterns:
 
 1. **OpenAI-compatible:** `POST {LOCAL_BASE_URL}/v1/chat/completions` with `{"stream": true}`
-2. **Ollama-native:** `POST {LOCAL_BASE_URL}/api/chat` with `{"stream": true}`
+2. **Legacy native fallback:** `POST {LOCAL_BASE_URL}/api/chat` with `{"stream": true}`
 
-The backend tries OpenAI-compat first, falls back to Ollama-native. Both use standard HTTP with `Authorization: Bearer {api_key}` headers.
+The backend prefers OpenAI-compat when `LOCAL_COMPAT_FIRST=1`, with native fallback retained for compatible local runtimes. Both use standard HTTP with `Authorization: Bearer {api_key}` headers.
 
 **Source:** `guardian/core/ai_router.py::stream_local()` — `confirmed`
 
@@ -227,22 +227,22 @@ Codexify has a provider registry with governance categories:
 
 ### Local Model Resolution
 
-The local provider is currently Ollama. Codexify resolves the local model through a priority chain:
+The local provider lane is `LLM_PROVIDER=local`; the current configured target is Whoosh'd. Codexify resolves the local model through a priority chain:
 
 1. `LOCAL_CHAT_MODEL` (authoritative in strict/local-only mode)
 2. `LOCAL_LLM_MODEL`
 3. `DEFAULT_LOCAL_MODEL`
 4. `LLM_MODEL`
 
-Model availability is validated against the Ollama `/api/tags` endpoint.
+Model availability is validated against local inventory from `/v1/models` or `/api/tags`.
 
 **Source:** `guardian/core/ai_router.py::resolve_local_execution_model()` — `confirmed`
 
 ### Model Listing / Discovery
 
-Codexify calls the local model listing endpoint to discover available models. For Ollama, this is `GET /api/tags`. The `discover_local_model_inventory()` function probes this.
+Codexify calls the local model listing endpoint to discover available models. The `discover_local_model_inventory()` function probes `/api/tags` and `/v1/models`.
 
-**Implication for Whoosh'd:** Whoosh'd should implement a model listing endpoint equivalent to Ollama's `/api/tags` or a separate discovery mechanism. `confirmed`
+**Implication for Whoosh'd:** Whoosh'd should implement `/v1/models` and may also implement `/api/tags` for compatibility. `confirmed`
 
 ### Fallback Behavior
 
@@ -256,9 +256,9 @@ The terminal payload records this as `fallback_reason="cloud_failure_local_rescu
 
 ### MLX Model Assumptions
 
-Codexify currently uses Ollama as its local backend. It has no explicit MLX awareness. The local model interface is purely OpenAI-compatible HTTP.
+Codexify currently targets Whoosh'd through an OpenAI-compatible local gateway. It has no explicit MLX awareness; MLX remains an implementation detail behind the HTTP interface.
 
-**Implication for Whoosh'd:** Whoosh'd should present the same OpenAI-compatible HTTP interface that Ollama presents. MLX-specific optimizations (shared memory, batched inference) are an implementation detail behind this interface. `needs-owner-decision`
+**Implication for Whoosh'd:** Whoosh'd should present the OpenAI-compatible HTTP interface Codexify already routes through. MLX-specific optimizations (shared memory, batched inference) are an implementation detail behind this interface. `needs-owner-decision`
 
 ## Concurrency and Queueing Requirements
 
@@ -429,13 +429,13 @@ Based on Codexify's current local provider interface:
 | Endpoint | Method | Purpose | Priority |
 |----------|--------|---------|----------|
 | `/v1/chat/completions` | POST | Chat completion (streaming + non-streaming) | **Critical** |
-| `/api/chat` | POST | Ollama-native chat (fallback) | High |
+| `/api/chat` | POST | Legacy native chat fallback | High |
 | `/api/tags` | GET | Model listing/discovery | **Critical** |
 | `/v1/models` | GET | OpenAI-compatible model list | High |
-| `/api/generate` | POST | Ollama-native generate (fallback for non-chat) | Medium |
+| `/api/generate` | POST | Legacy native generate fallback for non-chat | Medium |
 | Health endpoint | GET | Runtime availability check | High |
 
-`confirmed` for `/v1/chat/completions` and `/api/tags`; `inferred` for the rest based on Codexify's current Ollama interface.
+`confirmed` for `/v1/chat/completions`, `/v1/models`, and `/api/tags`; legacy native fallbacks remain compatibility surfaces.
 
 ### Health Check Surface
 
@@ -661,7 +661,7 @@ Codexify has a `worker-warmup` that preloads models. The term "ThreadWake Cache"
 
 | Question | Status |
 |----------|--------|
-| Does Codexify have any MLX-specific model requirements? | `unknown` — Codexify currently uses Ollama, which may use llama.cpp or MLX backends. |
+| Does Codexify have any MLX-specific model requirements? | `unknown` — Codexify targets an HTTP local gateway and does not encode MLX-specific model formats. |
 | Will Codexify adopt MLX-native model formats? | `unknown` — No evidence in current codebase. |
 | Does Codexify need specific MLX model quantization formats? | `unknown` |
 
@@ -685,7 +685,7 @@ Codexify has a `worker-warmup` that preloads models. The term "ThreadWake Cache"
 | Question | Recommendation |
 |----------|---------------|
 | Should Whoosh'd implement Ollama-compatible `/api/tags` or OpenAI-compatible `/v1/models`? | Implement both — `/v1/models` for standards compliance, `/api/tags` for Codexify compatibility |
-| Should Whoosh'd implement `/api/chat` (Ollama-native) or only `/v1/chat/completions`? | Implement both if possible — Codexify tries OpenAI-compat first, falls back to Ollama-native |
+| Should Whoosh'd implement `/api/chat` or only `/v1/chat/completions`? | `/v1/chat/completions` is the supported default; `/api/chat` is useful compatibility coverage |
 | Should Whoosh'd support prompt prefix caching? | Yes — this would significantly benefit Codexify's large, stable system prompts |
 | Should Whoosh'd support batched inference? | Yes — Codexify runs concurrent workers, and batching would improve throughput |
 | Should Whoosh'd expose MLX-specific endpoints? | Consider it — MLX shared memory could reduce load times for model switching |
