@@ -1,5 +1,4 @@
 import pytest
-from fastapi import HTTPException
 
 from guardian.core.ai_router import _resolve_local_base
 from guardian.core.config import LLMConfigError, Settings, validate_llm_config
@@ -14,6 +13,7 @@ def _supported_profile_settings(**overrides) -> Settings:
         "ALLOW_CLOUD_PROVIDERS": False,
         "CODEXIFY_LOCAL_ONLY_MODE": True,
         "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
         "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
         "LOCAL_API_KEY": "local",
         "LOCAL_COMPAT_FIRST": True,
@@ -47,11 +47,13 @@ def test_validate_llm_config_rejects_supported_profile_provider_drift(
         CODEXIFY_EGRESS_ALLOWLIST="groq",
     )
 
-    with pytest.raises(LLMConfigError, match="blessed local gateway contract"):
+    with pytest.raises(
+        LLMConfigError, match="local provider safety contract"
+    ):
         validate_llm_config(settings, provider_override="local")
 
 
-def test_resolve_local_base_rejects_supported_profile_gateway_drift(
+def test_resolve_local_base_accepts_supported_profile_runtime_preset_drift(
     monkeypatch,
 ):
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
@@ -59,8 +61,4 @@ def test_resolve_local_base_rejects_supported_profile_gateway_drift(
         LOCAL_BASE_URL="http://127.0.0.1:8000/v1"
     )
 
-    with pytest.raises(HTTPException) as exc:
-        _resolve_local_base(settings)
-
-    assert exc.value.status_code == 400
-    assert "host.docker.internal:8000/v1" in str(exc.value.detail)
+    assert _resolve_local_base(settings) == "http://127.0.0.1:8000/v1"

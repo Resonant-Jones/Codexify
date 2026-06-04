@@ -201,6 +201,8 @@ services:
       CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
+      LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
@@ -265,6 +267,8 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
+      LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
@@ -316,6 +320,8 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
+      LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
@@ -401,6 +407,8 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
+      LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
@@ -454,6 +462,8 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
+      LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
+
       LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
       LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"

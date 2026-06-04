@@ -1751,6 +1751,7 @@ fn materialize_packaged_setup_env(
         ("ALLOW_CLOUD_PROVIDERS", "false"),
         ("CODEXIFY_IMAGE_REGISTRY", "ghcr.io/resonant-jones"),
         ("CODEXIFY_IMAGE_TAG", "local-beta"),
+        ("LOCAL_RUNTIME_PRESET", "whooshd-mlx"),
         ("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"),
         (
             "LOCAL_DOCKER_FALLBACK_BASE_URL",
@@ -3665,7 +3666,7 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
         return Some(setup_readiness_summary(
             "missing_config",
             "Local config is missing. Codexify needs to create your runtime config.",
-            "Run the setup wizard to create .env for Local via Whoosh'd.",
+            "Run the setup wizard to create .env for the local inference runtime.",
             Some(format!("envPath={}", env_path.display())),
         ));
     }
@@ -3885,13 +3886,18 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
     let setup_env_values = read_env_file_ordered(&runtime_env_file_path(runtime_root))
         .map(|(_order, values)| values)
         .unwrap_or_default();
+    let provider_label = setup_env_values
+        .get("LOCAL_PROVIDER_DISPLAY_NAME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("local inference runtime");
     let (local_runtime_ok, local_runtime_detail, local_models, inventory_url) =
         probe_local_runtime_inventory(&setup_env_values);
     if !local_runtime_ok {
         return setup_readiness_summary(
             "local_inference_not_running",
             "Configured local inference runtime is not reachable.",
-            "Start Whoosh'd or update LOCAL_BASE_URL, then retry.",
+            &format!("Start {provider_label} or update LOCAL_BASE_URL, then retry."),
             Some(if local_runtime_detail.is_empty() {
                 "No configured local inventory endpoint responded.".to_string()
             } else {
@@ -3915,8 +3921,10 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
             };
             return setup_readiness_summary(
                 "model_missing",
-                &format!("The selected local model is not advertised by Whoosh'd: {model}."),
-                "Install or select an advertised Whoosh'd model, then retry.",
+                &format!(
+                    "The selected local model is not advertised by {provider_label}: {model}."
+                ),
+                &format!("Install or select an advertised {provider_label} model, then retry."),
                 Some(format!(
                     "inventoryUrl={}; advertisedModels={}",
                     inventory_url.unwrap_or_else(|| "unknown".to_string()),
@@ -4022,14 +4030,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         "ready",
         "Codexify local runtime is ready.",
         "Open Codexify.",
-        Some(format!(
-            "provider=Local via {}",
-            setup_env_values
-                .get("LOCAL_PROVIDER_DISPLAY_NAME")
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-                .unwrap_or("Whoosh'd")
-        )),
+        Some(format!("provider=Local via {provider_label}")),
     )
 }
 

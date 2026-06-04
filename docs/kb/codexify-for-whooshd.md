@@ -12,7 +12,7 @@ Every claim is tagged with a confidence level:
 
 ## Executive Summary
 
-Codexify is a local-first chat + knowledge workspace with a FastAPI backend, Redis-backed async task queue, and OpenAI-compatible local model interface. The current local provider target is Whoosh'd through `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`, with legacy Ollama-compatible fallback semantics still present in the router.
+Codexify is a local-first chat + knowledge workspace with a FastAPI backend, Redis-backed async task queue, and OpenAI-compatible local model interface. The current Apple Silicon default local runtime preset is Whoosh'd through `LOCAL_RUNTIME_PRESET=whooshd-mlx` and `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`, with legacy Ollama-compatible fallback semantics still present in the router.
 
 For Whoosh'd to serve as a drop-in or superior replacement, it needs to:
 
@@ -227,7 +227,7 @@ Codexify has a provider registry with governance categories:
 
 ### Local Model Resolution
 
-The local provider lane is `LLM_PROVIDER=local`; the current configured target is Whoosh'd. Codexify resolves the local model through a priority chain:
+The local provider lane is `LLM_PROVIDER=local`; Whoosh'd is selected through the `whooshd-mlx` runtime preset, not through a separate provider id. Codexify resolves the local model through a priority chain:
 
 1. `LOCAL_CHAT_MODEL` (authoritative in strict/local-only mode)
 2. `LOCAL_LLM_MODEL`
@@ -256,7 +256,7 @@ The terminal payload records this as `fallback_reason="cloud_failure_local_rescu
 
 ### MLX Model Assumptions
 
-Codexify currently targets Whoosh'd through an OpenAI-compatible local gateway. It has no explicit MLX awareness; MLX remains an implementation detail behind the HTTP interface.
+Codexify currently targets Whoosh'd through an OpenAI-compatible local gateway when `LOCAL_RUNTIME_PRESET=whooshd-mlx`. It has no explicit MLX awareness; MLX remains an implementation detail behind the HTTP interface.
 
 **Implication for Whoosh'd:** Whoosh'd should present the OpenAI-compatible HTTP interface Codexify already routes through. MLX-specific optimizations (shared memory, batched inference) are an implementation detail behind this interface. `needs-owner-decision`
 
