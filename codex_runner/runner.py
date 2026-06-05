@@ -37,6 +37,11 @@ DEFAULT_TASK_RESULT_SCHEMA_PATH = (
 DEFAULT_COMPILER_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 DEFAULT_REPO_ROOT_TOKEN = "<REPO_ROOT>"
 DEFAULT_AUDIT_ID_TOKEN = "<AUDIT_ID>"
+DEFAULT_INTENTION_PACKET_TOKEN = "<INTENTION_PACKET>"
+DEFAULT_INTENTION_PACKET_TEXT = (
+    "No explicit intention packet was provided. Use the default "
+    "repository-grounded audit posture and do not infer a narrower target."
+)
 
 CAMPAIGN_ID_PATTERN = re.compile(
     r"^(?P<date>\d{4}-\d{2}-\d{2})::(?P<slug>[a-z0-9_]+)::(?P<seq>\d{3})$"
@@ -96,6 +101,50 @@ def sha256_text(value: str) -> str:
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def replace_template_placeholders(
+    template: str, replacements: dict[str, str]
+) -> str:
+    rendered = template
+    replacement_values = list(replacements.values())
+    sentinels: dict[str, str] = {}
+
+    for index, (token, value) in enumerate(replacements.items()):
+        if not token:
+            continue
+        seed = sha256_text(f"{index}:{token}")[:12]
+        sentinel = f"__RUNNER_PLACEHOLDER_{index}_{seed}__"
+        while sentinel in rendered or any(
+            sentinel in replacement for replacement in replacement_values
+        ):
+            seed = sha256_text(seed)[:12]
+            sentinel = f"__RUNNER_PLACEHOLDER_{index}_{seed}__"
+        rendered = rendered.replace(token, sentinel)
+        sentinels[sentinel] = value
+
+    for sentinel, value in sentinels.items():
+        rendered = rendered.replace(sentinel, value)
+    return rendered
+
+
+def validate_intention_packet_file(path: Path) -> None:
+    if not path.exists():
+        raise RunnerError(f"Intention packet file not found: {path}")
+    if path.is_dir():
+        raise RunnerError(f"Intention packet path is a directory: {path}")
+
+
+def load_intention_packet(path: Path | None) -> str:
+    if path is None:
+        return DEFAULT_INTENTION_PACKET_TEXT
+    validate_intention_packet_file(path)
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RunnerError(
+            f"Intention packet file must be UTF-8 text: {path}"
+        ) from exc
 
 
 def json_read(path: Path) -> dict[str, Any]:
@@ -899,14 +948,23 @@ def enforce_scope_guard(
 
 
 def render_audit_prompt(
-    template: str, repo_root: Path, audit_id: str, run_id: str
+    template: str,
+    repo_root: Path,
+    audit_id: str,
+    run_id: str,
+    intention_packet_text: str = DEFAULT_INTENTION_PACKET_TEXT,
 ) -> str:
-    rendered = template
-    rendered = rendered.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(DEFAULT_AUDIT_ID_TOKEN, audit_id)
-    rendered = rendered.replace("{{AUDIT_ID}}", audit_id)
-    rendered = rendered.replace("<RUN_ID>", run_id)
-    rendered = rendered.replace("{{RUN_ID}}", run_id)
+    rendered = replace_template_placeholders(
+        template,
+        {
+            DEFAULT_REPO_ROOT_TOKEN: str(repo_root),
+            DEFAULT_AUDIT_ID_TOKEN: audit_id,
+            "{{AUDIT_ID}}": audit_id,
+            "<RUN_ID>": run_id,
+            "{{RUN_ID}}": run_id,
+            DEFAULT_INTENTION_PACKET_TOKEN: intention_packet_text,
+        },
+    )
 
     if (
         DEFAULT_AUDIT_ID_TOKEN not in template
@@ -921,12 +979,21 @@ def render_audit_prompt(
 
 
 def render_compiler_prompt(
-    template: str, repo_root: Path, mega_payload: dict[str, Any]
+    template: str,
+    repo_root: Path,
+    mega_payload: dict[str, Any],
+    intention_packet_text: str = DEFAULT_INTENTION_PACKET_TEXT,
 ) -> str:
     mega_json = json.dumps(mega_payload, indent=2, ensure_ascii=False)
-    rendered = template.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(DEFAULT_COMPILER_JSON_TOKEN, mega_json)
-    rendered = rendered.replace("<AUDIT_JSON>", mega_json)
+    rendered = replace_template_placeholders(
+        template,
+        {
+            DEFAULT_REPO_ROOT_TOKEN: str(repo_root),
+            DEFAULT_COMPILER_JSON_TOKEN: mega_json,
+            "<AUDIT_JSON>": mega_json,
+            DEFAULT_INTENTION_PACKET_TOKEN: intention_packet_text,
+        },
+    )
     if (
         DEFAULT_COMPILER_JSON_TOKEN not in template
         and "<AUDIT_JSON>" not in template
@@ -1242,8 +1309,9 @@ def run_inputs_payload(
     pass_index: int,
     execute_mode: str,
     provider: str,
+    intention_packet_sha256: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "repo_root": str(repo_root.resolve()),
         "base_ref": base_ref_sha,
         "provider": provider,
@@ -1254,6 +1322,9 @@ def run_inputs_payload(
         "pass_index": pass_index,
         "execute_mode": execute_mode,
     }
+    if intention_packet_sha256 is not None:
+        payload["intention_packet_sha256"] = intention_packet_sha256
+    return payload
 
 
 def write_run_meta(
@@ -1275,22 +1346,30 @@ def write_run_meta(
     provider: str,
     provider_models: dict[str, str | None],
     provider_settings_sanitized: list[str],
+    intention_packet_file: Path | None = None,
+    intention_packet_sha256: str | None = None,
 ) -> None:
+    inputs = {
+        "audit_prompt_file": str(audit_prompt_file.resolve()),
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "compiler_prompt_file": str(compiler_prompt_file.resolve()),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "audit_prompt_sha256": hashes.audit_prompt_sha256,
+        "audit_schema_sha256": hashes.audit_schema_sha256,
+        "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
+        "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
+    }
+    if intention_packet_file is not None:
+        inputs["intention_packet_file"] = str(intention_packet_file.resolve())
+    if intention_packet_sha256 is not None:
+        inputs["intention_packet_sha256"] = intention_packet_sha256
+
     payload = {
         "run_id": run_id,
         "audit_id": audit_id,
         "generated_at": now_iso(),
         "resolved_base_ref_sha": base_ref_sha,
-        "inputs": {
-            "audit_prompt_file": str(audit_prompt_file.resolve()),
-            "audit_schema_file": str(audit_schema_file.resolve()),
-            "compiler_prompt_file": str(compiler_prompt_file.resolve()),
-            "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
-            "audit_prompt_sha256": hashes.audit_prompt_sha256,
-            "audit_schema_sha256": hashes.audit_schema_sha256,
-            "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
-            "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
-        },
+        "inputs": inputs,
         "cli_args": cli_args,
         "preflight": {
             "git_clean": preflight_clean,
@@ -1393,6 +1472,12 @@ def run_pass(
         compiler_prompt_sha256=sha256_file(args.compiler_prompt_file),
         campaign_set_schema_sha256=sha256_file(args.campaign_set_schema_file),
     )
+    intention_packet_text = load_intention_packet(args.intention_packet_file)
+    intention_packet_sha256 = (
+        sha256_text(intention_packet_text)
+        if args.intention_packet_file is not None
+        else None
+    )
 
     run_inputs = run_inputs_payload(
         repo_root=repo_root,
@@ -1403,6 +1488,7 @@ def run_pass(
         if args.execute and not args.dry_run
         else "dry-run",
         provider=args.provider,
+        intention_packet_sha256=intention_packet_sha256,
     )
     run_id = sha256_text(canonical_json(run_inputs))[:12]
     audit_id = f"AUDIT_{run_id}"
@@ -1415,7 +1501,11 @@ def run_pass(
 
     audit_prompt_template = args.audit_prompt_file.read_text(encoding="utf-8")
     audit_prompt_text = render_audit_prompt(
-        audit_prompt_template, repo_root, audit_id, run_id
+        audit_prompt_template,
+        repo_root,
+        audit_id,
+        run_id,
+        intention_packet_text,
     )
     text_write(audit_dir_abs / "audit_input_prompt.md", audit_prompt_text)
 
@@ -1440,7 +1530,10 @@ def run_pass(
 
     compiler_template = args.compiler_prompt_file.read_text(encoding="utf-8")
     compiler_prompt_text = render_compiler_prompt(
-        compiler_template, repo_root, audit_payload
+        compiler_template,
+        repo_root,
+        audit_payload,
+        intention_packet_text,
     )
     text_write(audit_dir_abs / "compiler_input_prompt.md", compiler_prompt_text)
 
@@ -1520,6 +1613,8 @@ def run_pass(
         provider=args.provider,
         provider_models=active_models,
         provider_settings_sanitized=active_settings_sanitized,
+        intention_packet_file=args.intention_packet_file,
+        intention_packet_sha256=intention_packet_sha256,
     )
     write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
     write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
@@ -1843,6 +1938,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compiler-prompt-file", type=Path, required=True)
     parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
     parser.add_argument(
+        "--intention-packet-file",
+        type=Path,
+        default=None,
+        help="Optional UTF-8 markdown intention packet for Stage A and Stage B",
+    )
+    parser.add_argument(
         "--task-result-schema-file",
         type=Path,
         default=DEFAULT_TASK_RESULT_SCHEMA_PATH,
@@ -1907,6 +2008,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.campaign_set_schema_file = (
         args.campaign_set_schema_file.expanduser().resolve()
     )
+    if args.intention_packet_file is not None:
+        args.intention_packet_file = (
+            args.intention_packet_file.expanduser().resolve()
+        )
     args.task_result_schema_file = (
         args.task_result_schema_file.expanduser().resolve()
     )
@@ -1939,6 +2044,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     for path in required_paths:
         if not path.exists():
             raise RunnerError(f"Required file not found: {path}")
+    if args.intention_packet_file is not None:
+        validate_intention_packet_file(args.intention_packet_file)
 
     return args
 
