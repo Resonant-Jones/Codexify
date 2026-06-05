@@ -48,6 +48,8 @@ If you are working on Guardian-mediated coding-agent execution or future Pi SDK 
 
 If you are working on Execution Ledger gate artifacts, acceptance-criteria mapping, implementation-plan artifacts, or completion/proof evidence mapping over Campaign Runner and Guardian rails, start with [`Execution Ledger Gate Artifacts Contract`](./execution-ledger-gate-artifacts-contract.md) after ADR-028.
 
+If you are working on Campaign Runner Stage A/Stage B planning objectives or operator-authored prompt intent, read [`Campaign Runner Intention Packet Contract`](./campaign-runner-intention-packet-contract.md). That contract defines the bounded intention input seam without changing provider behavior, schemas, Pi broker semantics, Guardian ownership, or current release truth.
+
 If you are working on proposed Execution Ledger token vocabularies (gate decisions, plan states, acceptance results, proof decisions, escalation reasons) before runtime tokenization, start with [`Execution Ledger Token Domain Proposal`](./execution-ledger-token-domain-proposal.md) after the gate/artifact contract.
 
 If you are working on Pi SDK integration, Pi-like external coding-agent harnesses, or invocation governance boundaries, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) first, then apply [`ADR-020: Guardian Mediated Coding Agent Execution Contract`](./adr/020-guardian-mediated-coding-agent-execution-contract.md) for Guardian ownership and result-return doctrine.
@@ -90,6 +92,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
 - [Agent Protocol Operations Index](./agent-protocol-operations.md): agent-facing map for task rituals, campaign/task interpretation, architecture-impact workflow, validation expectations, and contingency behavior.
 - [Execution Ledger Gate Artifacts Contract](./execution-ledger-gate-artifacts-contract.md): docs-only follow-through contract for ADR-028 defining gate artifacts, acceptance-criteria mapping, implementation plans, and completion/proof evidence mapping onto Campaign Runner and Guardian execution surfaces.
+- [Campaign Runner Intention Packet Contract](./campaign-runner-intention-packet-contract.md): bounded operator-authored planning input seam for Stage A audit and Stage B campaign compilation; not runtime proof and not a release-claim source.
 - [Execution Ledger Token Domain Proposal](./execution-ledger-token-domain-proposal.md): docs-only proposal for candidate Execution Ledger token domains, semantics, and registry placement guidance before runtime tokenization.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
