@@ -250,10 +250,11 @@ export default function FlowBuilderPage({
     <div
       data-testid="flow-builder-page"
       data-flow-builder-mode={view.mode}
-      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-auto p-[var(--card-pad)]"
+      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-x-hidden overflow-y-auto p-[var(--card-pad)]"
     >
       <div
-        className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-hidden rounded-[var(--tile-radius,19px)] border"
+        data-testid="flow-builder-surface"
+        className="mx-auto flex w-full max-w-[1680px] flex-col rounded-[var(--tile-radius,19px)] border"
         style={{
           borderColor: "var(--panel-border)",
           background:
@@ -324,7 +325,10 @@ export default function FlowBuilderPage({
           </div>
         </header>
 
-        <div className="grid flex-1 gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]">
+        <div
+          data-testid="flow-builder-panel-grid"
+          className="grid gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]"
+        >
           <FlowBuilderParameterRail
             currentSelection={currentSelection}
             onSelectStage={handleSelectStage}
