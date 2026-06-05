@@ -95,71 +95,72 @@ export default function WebRuntimeStartupGate({
     setRetryNonce((current) => current + 1);
   }, []);
 
-  if (!enabled || ready) {
+  if (!enabled) {
     return <>{children}</>;
   }
 
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden p-6 sm:p-8">
-      <div className="absolute inset-0 bg-black/35 backdrop-blur-xl" />
-      <div
-        className="relative z-10 w-full max-w-2xl overflow-hidden rounded-[26px] border shadow-2xl"
-        style={{
-          borderColor: "var(--panel-border-strong, var(--panel-border))",
-          background:
-            "linear-gradient(155deg, rgba(12,18,30,0.95), rgba(19,29,42,0.86))",
-          color: "var(--text)",
-          boxShadow: "0 32px 110px rgba(0,0,0,0.34)",
-        }}
-      >
-        <div
-          className="border-b px-6 py-4 sm:px-8"
-          style={{ borderColor: "var(--panel-border)" }}
-        >
-          <span
-            className="inline-flex items-center rounded-full border px-3 py-1 text-xs uppercase tracking-[0.24em]"
+    <div className="relative min-h-screen w-full">
+      {children}
+      {!ready && (
+        <div className="pointer-events-none fixed inset-0 z-[1100] flex items-end justify-center p-4 sm:p-6">
+          <div
+            className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[22px] border shadow-2xl backdrop-blur-xl"
             style={{
-              borderColor: "var(--chip-border)",
-              background: "rgba(255,255,255,0.04)",
-              color: "var(--muted)",
+              borderColor: "var(--panel-border-strong, var(--panel-border))",
+              background:
+                "linear-gradient(155deg, rgba(12,18,30,0.96), rgba(19,29,42,0.9))",
+              color: "var(--text)",
+              boxShadow: "0 24px 90px rgba(0,0,0,0.28)",
             }}
           >
-            Local runtime
-          </span>
-        </div>
-
-        <div className="space-y-6 px-6 py-7 sm:px-8 sm:py-9">
-          <div className="space-y-3">
-            <h1 className="text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">
-              Waiting for the backend
-            </h1>
-            <p
-              className="max-w-xl text-sm leading-6 sm:text-[15px]"
-              style={{ color: "var(--muted)" }}
+            <div
+              className="border-b px-5 py-4 sm:px-6"
+              style={{ borderColor: "var(--panel-border)" }}
             >
-              The frontend is ready, but the local API has not answered yet.
-              This usually clears itself after Docker finishes restarting.
-            </p>
-            <p
-              className="max-w-xl text-xs leading-6"
-              style={{ color: "var(--muted)" }}
-            >
-              {checking
-                ? "Checking the runtime now."
-                : formatDetail(detail)}
-            </p>
-          </div>
+              <span
+                className="inline-flex items-center rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.24em]"
+                style={{
+                  borderColor: "var(--chip-border)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "var(--muted)",
+                }}
+              >
+                Local runtime
+              </span>
+            </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={handleRetry} disabled={checking}>
-              {checking ? "Checking..." : "Retry now"}
-            </Button>
-            <span className="text-xs" style={{ color: "var(--muted)" }}>
-              Automatic retries stay on until the backend is reachable.
-            </span>
+            <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div className="space-y-2">
+                <h1 className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">
+                  Waiting for the backend
+                </h1>
+                <p
+                  className="max-w-xl text-sm leading-6"
+                  style={{ color: "var(--muted)" }}
+                >
+                  The frontend is ready, but the local API has not answered yet.
+                </p>
+                <p
+                  className="max-w-xl text-xs leading-6"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {checking ? "Checking the runtime now." : formatDetail(detail)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" onClick={handleRetry} disabled={checking}>
+                  {checking ? "Checking..." : "Retry now"}
+                </Button>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>
+                  Automatic retries stay on until the backend is reachable.
+                </span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

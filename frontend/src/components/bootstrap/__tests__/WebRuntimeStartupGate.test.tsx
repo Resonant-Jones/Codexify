@@ -41,6 +41,6 @@ describe("WebRuntimeStartupGate", () => {
     );
 
     expect(await screen.findByText("Waiting for the backend")).toBeInTheDocument();
-    expect(screen.queryByText("App shell")).toBeNull();
+    expect(screen.getByText("App shell")).toBeInTheDocument();
   });
 });
