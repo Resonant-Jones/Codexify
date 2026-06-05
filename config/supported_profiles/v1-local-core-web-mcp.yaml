@@ -69,8 +69,10 @@ provider_contract:
   ALLOW_CLOUD_PROVIDERS: false
   CODEXIFY_LOCAL_ONLY_MODE: true
   CODEXIFY_EGRESS_ALLOWLIST: ""
-  LOCAL_BASE_URL: http://host.docker.internal:11434/v1
   LOCAL_API_KEY: local
+  # Local runtime implementation is intentionally not fixed here. Mac installs
+  # may use Whoosh'd/MLX, while non-Mac installs may use Ollama, LM Studio, or
+  # another OpenAI-compatible local endpoint.
   # Model names are NOT enforced here — the system discovers available models
   # at runtime. If no local models exist AND no cloud provider is configured,
   # the /health/llm endpoint will report models_available: false.

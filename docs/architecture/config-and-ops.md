@@ -53,7 +53,7 @@ Source anchors:
 | `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_SUPPORTED_PROFILE` | Names the supported-profile manifest to load at startup; supported Compose sets this explicitly for the local beta profile | `guardian/core/supported_profile.py`, `guardian/guardian_api.py`, `docker-compose.yml` |
 | `CODEXIFY_SUPPORTED_PROFILE_DIR` | Optional override for the manifest directory; default is `config/supported_profiles`, and the supported Compose backend mounts `./config:/app/config:ro` so the manifest is available | `guardian/core/supported_profile.py`, `docker-compose.yml` |
-| `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_EMBED_MODEL` | Local provider connectivity and model selection; backend attempts `LOCAL_BASE_URL` first, then Docker host bridge fallback when loopback is configured | `guardian/core/config.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
+| `LOCAL_RUNTIME_PRESET`, `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_PROVIDER_DISPLAY_NAME`, `LOCAL_PROVIDER_VENDOR`, `LOCAL_COMPAT_FIRST`, `LOCAL_EMBED_MODEL` | Local runtime preset, connectivity, and model selection. Presets include `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible`; all remain behind `LLM_PROVIDER=local` | `guardian/core/config.py`, `guardian/core/local_runtime_presets.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
@@ -191,10 +191,11 @@ The supported local Docker Compose path enforces a default-off contract for grap
 
 ### Desktop first-run setup readiness
 
-- The desktop launcher/setup wizard now classifies local first-run readiness into explicit states such as missing or incomplete config, Docker/Ollama availability, selected Ollama model availability, Compose config validity, existing Codexify volumes, backend/frontend availability, and ready.
+- The desktop launcher/setup wizard now classifies local first-run readiness into explicit states such as missing or incomplete config, Docker availability, configured local inference endpoint availability, selected local model inventory, Compose config validity, existing Codexify volumes, backend/frontend availability, and ready.
 - Native bridge failures in the desktop shell are classified separately from Docker preflight failures so browser-mode or Tauri bridge import problems do not masquerade as a missing Docker installation.
-- The wizard/launcher presents the user-facing local provider posture as “Local via Ollama.”
-- The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`, with `LOCAL_BASE_URL=http://host.docker.internal:11434` for the Docker Compose runtime.
+- The wizard/launcher presents the user-facing local runtime label from `LOCAL_PROVIDER_DISPLAY_NAME`.
+- Whoosh'd is a host-local inference node, not code vendored into Codexify. Use [`../Ops/WHOOSHD_LOCAL_RUNTIME_RUNBOOK.md`](../Ops/WHOOSHD_LOCAL_RUNTIME_RUNBOOK.md) to install, start, and prove the local Whoosh'd runtime when `LOCAL_RUNTIME_PRESET=whooshd-mlx`.
+- The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`. `LOCAL_RUNTIME_PRESET` picks setup defaults for Whoosh'd/MLX, Ollama, LM Studio, or another OpenAI-compatible local endpoint; the supported profile enforces local-only safety, not one blessed port.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
 - Local backend smoke testing should start the runtime backend with `CODEXIFY_CONFIG_SOURCE=core` so the canonical local provider path can boot without a Groq key when AI inference is not being exercised.
 - If someone intentionally forces `CODEXIFY_CONFIG_SOURCE=legacy`, the legacy validator still applies and `AI_BACKEND=groq` continues to require `GROQ_API_KEY`.

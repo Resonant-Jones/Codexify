@@ -15,7 +15,8 @@ def test_compiled_runtime_docker_target_and_overlay_exist() -> None:
     )
 
     assert "FROM builder AS compiled-builder" in dockerfile
-    assert "FROM python:3.11.14-slim AS compiled-runtime" in dockerfile
+    assert "ARG PYTHON_BASE_IMAGE=python:3.11.14-bookworm" in dockerfile
+    assert "FROM ${PYTHON_BASE_IMAGE} AS compiled-runtime" in dockerfile
     assert (
         "pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec"
         in dockerfile

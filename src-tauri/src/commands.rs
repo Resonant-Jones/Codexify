@@ -654,8 +654,12 @@ fn read_packaged_runtime_image_state(
         return Ok(None);
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read packaged runtime image state {}: {err}", path.display()))?;
+    let contents = fs::read_to_string(&path).map_err(|err| {
+        format!(
+            "Failed to read packaged runtime image state {}: {err}",
+            path.display()
+        )
+    })?;
     serde_json::from_str::<PackagedRuntimeImageState>(&contents)
         .map(Some)
         .map_err(|err| {
@@ -700,8 +704,7 @@ fn write_packaged_runtime_image_state(
         fs::create_dir_all(parent).map_err(|err| BootstrapRuntimeMaterializationError {
             failure_kind: FAILURE_KIND_RUNTIME_ROOT_UNAVAILABLE,
             detail: join_lines(vec![
-                "Packaged runtime image state could not prepare its parent directory."
-                    .to_string(),
+                "Packaged runtime image state could not prepare its parent directory.".to_string(),
                 format!("runtimeContext={}", runtime.runtime_context),
                 format!("statePath={}", state_path.display()),
                 format!("parent={}", parent.display()),
@@ -710,23 +713,24 @@ fn write_packaged_runtime_image_state(
         })?;
     }
 
-    let serialized = serde_json::to_string_pretty(&packaged_runtime_image_state(runtime))
-        .map_err(|err| BootstrapRuntimeMaterializationError {
-            failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
-            detail: join_lines(vec![
-                "Packaged runtime image state failed while serializing the image state file."
-                    .to_string(),
-                format!("runtimeContext={}", runtime.runtime_context),
-                format!("statePath={}", state_path.display()),
-                format!("error={err}"),
-            ]),
+    let serialized =
+        serde_json::to_string_pretty(&packaged_runtime_image_state(runtime)).map_err(|err| {
+            BootstrapRuntimeMaterializationError {
+                failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
+                detail: join_lines(vec![
+                    "Packaged runtime image state failed while serializing the image state file."
+                        .to_string(),
+                    format!("runtimeContext={}", runtime.runtime_context),
+                    format!("statePath={}", state_path.display()),
+                    format!("error={err}"),
+                ]),
+            }
         })?;
 
     fs::write(&state_path, serialized).map_err(|err| BootstrapRuntimeMaterializationError {
         failure_kind: FAILURE_KIND_PACKAGED_RUNTIME_MATERIALIZATION_FAILED,
         detail: join_lines(vec![
-            "Packaged runtime image state failed while writing the image state file."
-                .to_string(),
+            "Packaged runtime image state failed while writing the image state file.".to_string(),
             format!("runtimeContext={}", runtime.runtime_context),
             format!("statePath={}", state_path.display()),
             format!("error={err}"),
@@ -916,7 +920,9 @@ fn write_packaged_runtime_manifest(
         image_tag: packaged_runtime_image_tag(runtime),
         backend_image: packaged_runtime_backend_image(runtime),
         runtime_home: runtime_root.display().to_string(),
-        compose_file: compose_file_path(runtime_root, runtime).display().to_string(),
+        compose_file: compose_file_path(runtime_root, runtime)
+            .display()
+            .to_string(),
         env_file: runtime_env_file_path(runtime_root).display().to_string(),
         env_template: runtime_env_template_path(runtime_root)
             .display()
@@ -1745,7 +1751,26 @@ fn materialize_packaged_setup_env(
         ("ALLOW_CLOUD_PROVIDERS", "false"),
         ("CODEXIFY_IMAGE_REGISTRY", "ghcr.io/resonant-jones"),
         ("CODEXIFY_IMAGE_TAG", "local-beta"),
-        ("LOCAL_BASE_URL", "http://host.docker.internal:11434"),
+        ("LOCAL_RUNTIME_PRESET", "whooshd-mlx"),
+        ("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"),
+        (
+            "LOCAL_DOCKER_FALLBACK_BASE_URL",
+            "http://host.docker.internal:8000/v1",
+        ),
+        ("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
+        ("LOCAL_PROVIDER_VENDOR", "whooshd"),
+        (
+            "LOCAL_LLM_MODEL",
+            "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        ),
+        (
+            "LOCAL_CHAT_MODEL",
+            "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        ),
+        ("LOCAL_COMPAT_FIRST", "1"),
+        ("LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK", "0"),
+        ("VAULTNODE_BASE_URL", "http://host.docker.internal:8000"),
+        ("VAULTNODE_HEALTH_ENDPOINTS", "/v1/models,/api/tags"),
         ("NEO4J_USER", PACKAGED_SETUP_DEFAULT_NEO4J_USER),
         ("NEO4J_PASS", PACKAGED_SETUP_DEFAULT_NEO4J_PASS),
     ];
@@ -3028,6 +3053,146 @@ fn parse_json_body(body: &str) -> Option<Value> {
     serde_json::from_str(body).ok()
 }
 
+fn normalize_local_base_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let with_scheme = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    };
+    let normalized = trim_trailing_slash(&with_scheme);
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn host_probe_variants(base: &str) -> Vec<String> {
+    let mut variants = vec![base.to_string()];
+    if base.contains("://host.docker.internal") {
+        let host_variant = base.replacen("://host.docker.internal", "://127.0.0.1", 1);
+        if host_variant != base {
+            variants.push(host_variant);
+        }
+    }
+    variants
+}
+
+fn configured_local_probe_bases(values: &BTreeMap<String, String>) -> Vec<String> {
+    let configured = values
+        .get("CODEXIFY_LOCAL_ENDPOINT_CHAIN")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            values
+                .get("LOCAL_BASE_URL")
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("http://127.0.0.1:8000/v1");
+
+    let mut seen = HashSet::new();
+    let mut bases = Vec::new();
+    for entry in configured.split(',') {
+        if let Some(base) = normalize_local_base_url(entry) {
+            for variant in host_probe_variants(&base) {
+                if seen.insert(variant.clone()) {
+                    bases.push(variant);
+                }
+            }
+        }
+    }
+    bases
+}
+
+fn local_inventory_urls(base: &str) -> Vec<String> {
+    let normalized = trim_trailing_slash(base);
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+    let (openai_base, native_base) = if let Some(native) = normalized.strip_suffix("/v1") {
+        (normalized.clone(), native.to_string())
+    } else {
+        (format!("{normalized}/v1"), normalized.clone())
+    };
+    vec![
+        format!("{}/models", trim_trailing_slash(&openai_base)),
+        format!("{}/api/tags", trim_trailing_slash(&native_base)),
+    ]
+}
+
+fn local_runtime_model_names(body: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let Some(payload) = parse_json_body(body) else {
+        return names;
+    };
+    for key in ["models", "data"] {
+        let Some(entries) = payload.get(key).and_then(|value| value.as_array()) else {
+            continue;
+        };
+        for entry in entries {
+            if let Some(name) = entry
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                names.insert(name.to_string());
+                continue;
+            }
+            for field in ["name", "model", "id"] {
+                if let Some(name) = entry
+                    .get(field)
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                {
+                    names.insert(name.to_string());
+                    break;
+                }
+            }
+        }
+    }
+    names
+}
+
+fn probe_local_runtime_inventory(
+    values: &BTreeMap<String, String>,
+) -> (bool, String, HashSet<String>, Option<String>) {
+    let mut details = Vec::new();
+    for base in configured_local_probe_bases(values) {
+        for url in local_inventory_urls(&base) {
+            let (check, body) = probe_http_endpoint_with_body(&url, false);
+            if check.ok {
+                let models = body
+                    .as_deref()
+                    .map(local_runtime_model_names)
+                    .unwrap_or_default();
+                let status = check
+                    .detail
+                    .unwrap_or_else(|| "local inventory endpoint responded".to_string());
+                return (
+                    true,
+                    format!("inventoryUrl={url}; {status}"),
+                    models,
+                    Some(url),
+                );
+            }
+            details.push(format!(
+                "{}: {}",
+                url,
+                check
+                    .detail
+                    .unwrap_or_else(|| "local inventory endpoint did not respond".to_string())
+            ));
+        }
+    }
+    (false, details.join(" | "), HashSet::new(), None)
+}
+
 fn json_bool_field(value: &Value, key: &str) -> Option<bool> {
     value.get(key).and_then(|entry| entry.as_bool())
 }
@@ -3501,7 +3666,7 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
         return Some(setup_readiness_summary(
             "missing_config",
             "Local config is missing. Codexify needs to create your runtime config.",
-            "Run the setup wizard to create .env for Local via Ollama.",
+            "Run the setup wizard to create .env for the local inference runtime.",
             Some(format!("envPath={}", env_path.display())),
         ));
     }
@@ -3565,8 +3730,8 @@ fn classify_config_readiness(runtime_root: &Path) -> Option<LauncherSetupReadine
     if !conflicts.is_empty() {
         return Some(setup_readiness_summary(
             "config_conflict",
-            "Config conflict found. Current local setup requires Local via Ollama.",
-            "Repair config so AI_BACKEND=ollama and LLM_PROVIDER=local.",
+            "Config conflict found. Current local setup requires the canonical local provider lane.",
+            "Repair config so legacy AI_BACKEND=ollama and canonical LLM_PROVIDER=local.",
             Some(format!("conflicts={}", conflicts.join("; "))),
         ));
     }
@@ -3590,7 +3755,9 @@ fn packaged_runtime_images_detail(runtime: &BootstrapRuntime) -> String {
         .unwrap_or_else(|| "<unavailable>".to_string());
 
     match read_packaged_runtime_image_state(runtime) {
-        Ok(Some(actual)) if actual.image_registry == expected_registry && actual.image_tag == expected_tag => {
+        Ok(Some(actual))
+            if actual.image_registry == expected_registry && actual.image_tag == expected_tag =>
+        {
             join_lines(vec![
                 "runtime image state=matched".to_string(),
                 format!("distributionMode={}", runtime_distribution_mode(runtime)),
@@ -3639,10 +3806,13 @@ fn run_simple_command(command: &mut Command) -> (bool, String) {
     match command.output() {
         Ok(output) => {
             let detail = join_lines(
-                [normalize_output(&output.stdout), normalize_output(&output.stderr)]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
+                [
+                    normalize_output(&output.stdout),
+                    normalize_output(&output.stderr),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
             );
             (output.status.success(), truncate_chars(&detail, 1200))
         }
@@ -3713,59 +3883,63 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         }
     }
 
-    let (ollama_cli_ok, ollama_cli_detail) =
-        run_simple_command(Command::new("ollama").arg("--version"));
-    if !ollama_cli_ok {
+    let setup_env_values = read_env_file_ordered(&runtime_env_file_path(runtime_root))
+        .map(|(_order, values)| values)
+        .unwrap_or_default();
+    let provider_label = setup_env_values
+        .get("LOCAL_PROVIDER_DISPLAY_NAME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("local inference runtime");
+    let (local_runtime_ok, local_runtime_detail, local_models, inventory_url) =
+        probe_local_runtime_inventory(&setup_env_values);
+    if !local_runtime_ok {
         return setup_readiness_summary(
-            "ollama_missing",
-            "Ollama is not installed or could not be found.",
-            "Install Ollama, then retry.",
-            Some(ollama_cli_detail),
+            "local_inference_not_running",
+            "Configured local inference runtime is not reachable.",
+            &format!("Start {provider_label} or update LOCAL_BASE_URL, then retry."),
+            Some(if local_runtime_detail.is_empty() {
+                "No configured local inventory endpoint responded.".to_string()
+            } else {
+                local_runtime_detail
+            }),
         );
     }
 
-    let (ollama_check, ollama_body) =
-        probe_http_endpoint_with_body("http://127.0.0.1:11434/api/tags", false);
-    if !ollama_check.ok {
-        return setup_readiness_summary(
-            "ollama_not_running",
-            "Ollama is installed, but it is not running.",
-            "Start Ollama, then retry.",
-            Some(ollama_check.detail.unwrap_or_else(|| "Ollama API did not respond.".to_string())),
-        );
-    }
-
-    if let Ok((_order, values)) = read_env_file_ordered(&runtime_env_file_path(runtime_root)) {
-        if let Some(model) = values.get("LOCAL_CHAT_MODEL").map(|value| value.trim()) {
-            let installed = ollama_body
-                .as_deref()
-                .and_then(parse_json_body)
-                .and_then(|payload| payload.get("models").cloned())
-                .and_then(|models| models.as_array().cloned())
-                .map(|models| {
-                    models.iter().any(|entry| {
-                        entry
-                            .get("name")
-                            .or_else(|| entry.get("model"))
-                            .and_then(|value| value.as_str())
-                            .map(|name| name == model)
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false);
-            if !installed {
-                return setup_readiness_summary(
-                    "model_missing",
-                    &format!("The selected Ollama model is not installed: {model}."),
-                    &format!("Install the model with `ollama pull {model}`, then retry."),
-                    None,
-                );
-            }
+    if let Some(model) = setup_env_values
+        .get("LOCAL_CHAT_MODEL")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        if !local_models.contains(model) {
+            let mut advertised = local_models.iter().cloned().collect::<Vec<_>>();
+            advertised.sort();
+            let advertised_models = if advertised.is_empty() {
+                "none advertised".to_string()
+            } else {
+                advertised.join(",")
+            };
+            return setup_readiness_summary(
+                "model_missing",
+                &format!(
+                    "The selected local model is not advertised by {provider_label}: {model}."
+                ),
+                &format!("Install or select an advertised {provider_label} model, then retry."),
+                Some(format!(
+                    "inventoryUrl={}; advertisedModels={}",
+                    inventory_url.unwrap_or_else(|| "unknown".to_string()),
+                    advertised_models
+                )),
+            );
         }
     }
 
-    let (config_ok, config_detail) =
-        run_simple_command(&mut spawn_compose_command(&docker, runtime, runtime_root, &["config"]));
+    let (config_ok, config_detail) = run_simple_command(&mut spawn_compose_command(
+        &docker,
+        runtime,
+        runtime_root,
+        &["config"],
+    ));
     if !config_ok {
         return setup_readiness_summary(
             "compose_config_invalid",
@@ -3856,7 +4030,7 @@ fn launcher_setup_readiness_snapshot(runtime: &BootstrapRuntime) -> LauncherSetu
         "ready",
         "Codexify local runtime is ready.",
         "Open Codexify.",
-        Some("provider=Local via Ollama".to_string()),
+        Some(format!("provider=Local via {provider_label}")),
     )
 }
 
@@ -4834,7 +5008,8 @@ pub fn desktop_compose_up(runtime: tauri::State<'_, BootstrapRuntime>) -> Bootst
             )
         }
     };
-    let command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["up", "-d"]);
+    let command_display =
+        build_compose_command_display(&docker, &runtime, &runtime_root, &["up", "-d"]);
 
     match spawn_compose_command(&docker, &runtime, &runtime_root, &["up", "-d"]).output() {
         Ok(output) => {
@@ -4978,7 +5153,8 @@ pub fn desktop_pull_registry_runtime_images(
         }
     };
 
-    let command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["pull"]);
+    let command_display =
+        build_compose_command_display(&docker, &runtime, &runtime_root, &["pull"]);
     match spawn_compose_command(&docker, &runtime, &runtime_root, &["pull"]).output() {
         Ok(output) => {
             let stdout = normalize_output(&output.stdout);
@@ -5358,7 +5534,12 @@ pub fn desktop_restart_runtime_services(
         }
     };
 
-    let restart_command_display = build_compose_command_display(&docker, &runtime, &runtime_root, &["restart", "db", "redis", "backend", "worker-chat"]);
+    let restart_command_display = build_compose_command_display(
+        &docker,
+        &runtime,
+        &runtime_root,
+        &["restart", "db", "redis", "backend", "worker-chat"],
+    );
     let up_command_display = build_compose_command_display(
         &docker,
         &runtime,
@@ -5555,10 +5736,11 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
     let llm_ready = match llm_signals.ready {
-        Some(ready) if llm_provider
-            .as_deref()
-            .map(|provider| provider.eq_ignore_ascii_case("local"))
-            .unwrap_or(true) =>
+        Some(ready)
+            if llm_provider
+                .as_deref()
+                .map(|provider| provider.eq_ignore_ascii_case("local"))
+                .unwrap_or(true) =>
         {
             Some(ready && llm_check.ok)
         }
@@ -5589,15 +5771,9 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
             format!("llmStatus={llm_status}"),
             format!(
                 "llmDetailsStatus={}",
-                llm_signals
-                    .details_status
-                    .as_deref()
-                    .unwrap_or("unknown")
+                llm_signals.details_status.as_deref().unwrap_or("unknown")
             ),
-            format!(
-                "llmDetailsOk={}",
-                option_bool_label(llm_signals.details_ok)
-            ),
+            format!("llmDetailsOk={}", option_bool_label(llm_signals.details_ok)),
             format!(
                 "llmModel={}",
                 llm_signals.model.as_deref().unwrap_or("unknown")
@@ -5616,10 +5792,7 @@ fn runtime_readiness_snapshot(runtime: Option<&BootstrapRuntime>) -> RuntimeRead
             format!("llmReady={}", option_bool_label(llm_ready)),
             format!(
                 "llmFailureReason={}",
-                llm_signals
-                    .failure_reason
-                    .as_deref()
-                    .unwrap_or("none")
+                llm_signals.failure_reason.as_deref().unwrap_or("none")
             ),
             format!("ready={}", bool_label(ready)),
         ];
@@ -5719,9 +5892,9 @@ pub fn desktop_runtime_health_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use serde_json::json;
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -5765,12 +5938,9 @@ mod tests {
             .expect("failed to write sentinel");
 
         let bootstrap_runtime = test_runtime(true, runtime_root.clone(), None);
-        let err = materialize_packaged_runtime_assets(
-            &bootstrap_runtime,
-            &resource_root,
-            &runtime_root,
-        )
-            .expect_err("expected unmanaged runtime root to be rejected");
+        let err =
+            materialize_packaged_runtime_assets(&bootstrap_runtime, &resource_root, &runtime_root)
+                .expect_err("expected unmanaged runtime root to be rejected");
 
         assert_eq!(
             err.failure_kind,
@@ -5940,12 +6110,12 @@ mod tests {
         let runtime_root_display = runtime_root.display().to_string();
 
         assert!(config.api_key_present);
-        assert_eq!(
-            config.api_key.as_deref(),
-            Some("packaged-runtime-secret")
-        );
+        assert_eq!(config.api_key.as_deref(), Some("packaged-runtime-secret"));
         assert_eq!(config.env_path.as_deref(), Some(env_path_display.as_str()));
-        assert_eq!(config.runtime_root.as_deref(), Some(runtime_root_display.as_str()));
+        assert_eq!(
+            config.runtime_root.as_deref(),
+            Some(runtime_root_display.as_str())
+        );
         assert_eq!(config.failure_kind, None);
         let diagnostics = redact_setup_diagnostics(
             "GUARDIAN_API_KEY=packaged-runtime-secret\nruntimeRoot=/tmp/Codexify",
@@ -6090,7 +6260,10 @@ mod tests {
         let signals = llm_readiness_signals(Some(&payload));
 
         assert_eq!(signals.ready, Some(false));
-        assert_eq!(signals.failure_reason.as_deref(), Some("provider_runtime.available=false"));
+        assert_eq!(
+            signals.failure_reason.as_deref(),
+            Some("provider_runtime.available=false")
+        );
         assert_eq!(signals.details_status.as_deref(), Some("offline"));
         assert_eq!(signals.details_ok, Some(false));
         assert_eq!(signals.provider_runtime_available, Some(false));

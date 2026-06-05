@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
 _GUARDIAN_API_ENV_KEYS = (
     "GUARDIAN_API_KEY",
     "ENABLE_CONNECTOR_WORKER",
@@ -16,8 +18,12 @@ _GUARDIAN_API_ENV_KEYS = (
     "ALLOW_CLOUD_PROVIDERS",
     "CODEXIFY_LOCAL_ONLY_MODE",
     "CODEXIFY_EGRESS_ALLOWLIST",
+    "LOCAL_RUNTIME_PRESET",
     "LOCAL_BASE_URL",
     "LOCAL_API_KEY",
+    "LOCAL_COMPAT_FIRST",
+    "LOCAL_PROVIDER_DISPLAY_NAME",
+    "LOCAL_PROVIDER_VENDOR",
     "LOCAL_LLM_MODEL",
     "LOCAL_CHAT_MODEL",
 )
@@ -60,21 +66,36 @@ def _load_guardian_api(monkeypatch, **env_overrides):
         env_overrides.pop("CODEXIFY_EGRESS_ALLOWLIST", ""),
     )
     monkeypatch.setenv(
+        "LOCAL_RUNTIME_PRESET",
+        env_overrides.pop("LOCAL_RUNTIME_PRESET", "whooshd-mlx"),
+    )
+    monkeypatch.setenv(
         "LOCAL_BASE_URL",
         env_overrides.pop(
-            "LOCAL_BASE_URL", "http://host.docker.internal:11434/v1"
+            "LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"
         ),
     )
     monkeypatch.setenv(
         "LOCAL_API_KEY", env_overrides.pop("LOCAL_API_KEY", "local")
     )
     monkeypatch.setenv(
+        "LOCAL_COMPAT_FIRST", env_overrides.pop("LOCAL_COMPAT_FIRST", "true")
+    )
+    monkeypatch.setenv(
+        "LOCAL_PROVIDER_DISPLAY_NAME",
+        env_overrides.pop("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
+    )
+    monkeypatch.setenv(
+        "LOCAL_PROVIDER_VENDOR",
+        env_overrides.pop("LOCAL_PROVIDER_VENDOR", "whooshd"),
+    )
+    monkeypatch.setenv(
         "LOCAL_LLM_MODEL",
-        env_overrides.pop("LOCAL_LLM_MODEL", "library2/ministral-3:8b"),
+        env_overrides.pop("LOCAL_LLM_MODEL", _WHOOSHD_MODEL),
     )
     monkeypatch.setenv(
         "LOCAL_CHAT_MODEL",
-        env_overrides.pop("LOCAL_CHAT_MODEL", "library2/ministral-3:8b"),
+        env_overrides.pop("LOCAL_CHAT_MODEL", _WHOOSHD_MODEL),
     )
     for key, value in env_overrides.items():
         monkeypatch.setenv(key, value)
@@ -115,15 +136,25 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     settings.CODEXIFY_EGRESS_ALLOWLIST = os.getenv(
         "CODEXIFY_EGRESS_ALLOWLIST", ""
     )
+    settings.LOCAL_RUNTIME_PRESET = os.getenv(
+        "LOCAL_RUNTIME_PRESET", "whooshd-mlx"
+    )
     settings.LOCAL_BASE_URL = os.getenv(
-        "LOCAL_BASE_URL", "http://host.docker.internal:11434/v1"
+        "LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"
     )
     settings.LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "local")
+    settings.LOCAL_COMPAT_FIRST = (
+        os.getenv("LOCAL_COMPAT_FIRST", "true").strip().lower() == "true"
+    )
+    settings.LOCAL_PROVIDER_DISPLAY_NAME = os.getenv(
+        "LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"
+    )
+    settings.LOCAL_PROVIDER_VENDOR = os.getenv("LOCAL_PROVIDER_VENDOR", "whooshd")
     settings.LOCAL_LLM_MODEL = os.getenv(
-        "LOCAL_LLM_MODEL", "library2/ministral-3:8b"
+        "LOCAL_LLM_MODEL", _WHOOSHD_MODEL
     )
     settings.LOCAL_CHAT_MODEL = os.getenv(
-        "LOCAL_CHAT_MODEL", "library2/ministral-3:8b"
+        "LOCAL_CHAT_MODEL", _WHOOSHD_MODEL
     )
     return guardian_api
 
