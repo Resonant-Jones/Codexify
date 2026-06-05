@@ -254,11 +254,23 @@ def supported_profile_actual_provider_contract(
         "CODEXIFY_EGRESS_ALLOWLIST": str(
             getattr(settings, "CODEXIFY_EGRESS_ALLOWLIST", "") or ""
         ).strip(),
+        "LOCAL_RUNTIME_PRESET": str(
+            getattr(settings, "LOCAL_RUNTIME_PRESET", "") or ""
+        ).strip(),
         "LOCAL_BASE_URL": str(
             getattr(settings, "LOCAL_BASE_URL", "") or ""
         ).strip(),
         "LOCAL_API_KEY": str(
             getattr(settings, "LOCAL_API_KEY", "") or ""
+        ).strip(),
+        "LOCAL_COMPAT_FIRST": bool(
+            getattr(settings, "LOCAL_COMPAT_FIRST", False)
+        ),
+        "LOCAL_PROVIDER_DISPLAY_NAME": str(
+            getattr(settings, "LOCAL_PROVIDER_DISPLAY_NAME", "") or ""
+        ).strip(),
+        "LOCAL_PROVIDER_VENDOR": str(
+            getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
         ).strip(),
         "LOCAL_LLM_MODEL": str(
             getattr(settings, "LOCAL_LLM_MODEL", "") or ""

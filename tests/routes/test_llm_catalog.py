@@ -407,6 +407,7 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
 
     settings = get_settings()
     snapshot = {
+        "LOCAL_RUNTIME_PRESET": settings.LOCAL_RUNTIME_PRESET,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "CODEXIFY_LOCAL_ENDPOINT_CHAIN": settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN,
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
@@ -420,6 +421,7 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
         "LLM_MODEL": settings.LLM_MODEL,
     }
     try:
+        settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
         settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
         settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN = (
             "http://host.docker.internal:8000/v1"
@@ -450,6 +452,7 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
             "http://host.docker.internal:8000/v1"
         )
         assert local["source"]["vendor"] == "whooshd"
+        assert local["source"]["runtimePreset"] == "whooshd-mlx"
         assert local["models"][0]["id"] == (
             "mlx-community/Llama-3.2-3B-Instruct-4bit"
         )

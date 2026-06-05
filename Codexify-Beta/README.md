@@ -15,7 +15,7 @@ The browser-side beta auth key is localhost/dev only and must match the backend 
 ## Prerequisites
 
 - Docker Desktop, or Docker Engine with Compose
-- A local Ollama or compatible host model setup if you want the default local model path
+- A local inference runtime if you want the local model path. The default bundle targets Whoosh'd/MLX; set `LOCAL_RUNTIME_PRESET=ollama` or `LOCAL_RUNTIME_PRESET=lmstudio` and update the local URL/model fields for Ollama or LM Studio.
 - Read [AUTHORIZATION.md](./AUTHORIZATION.md) before first launch if you need to set or recover the beta API key.
 
 ## Setup

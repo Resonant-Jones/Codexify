@@ -1,7 +1,10 @@
 #syntax=docker/dockerfile:1
 
+ARG PYTHON_BUILDER_IMAGE=python:3.11.14-bookworm
+ARG PYTHON_RUNTIME_IMAGE=python:3.11.14-slim-bookworm
+
 # === Build stage: compile dependencies only (no source yet) ===
-FROM python:3.11.14-slim AS builder
+FROM ${PYTHON_BUILDER_IMAGE} AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -76,7 +79,7 @@ PY
 
 
 # === Runtime stage: minimal image with only production deps ===
-FROM python:3.11.14-slim
+FROM ${PYTHON_RUNTIME_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

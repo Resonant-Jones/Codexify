@@ -588,6 +588,11 @@ def _provider_source(
     vendor = str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip()
     if vendor:
         source["vendor"] = vendor
+    runtime_preset = str(
+        getattr(settings, "LOCAL_RUNTIME_PRESET", "") or ""
+    ).strip()
+    if runtime_preset:
+        source["runtimePreset"] = runtime_preset
     return source
 
 

@@ -157,7 +157,7 @@ function resolveDesktopStartupRoutingDetail(
       "desktop launcher is configured, but the local runtime is not ready",
     "ready-handoff": "desktop launcher handoff is ready",
     "launcher-unavailable":
-      "Codexify could not read or refresh launcher setup readiness yet. Retry setup checks from the desktop launcher and review Docker, Ollama, config, backend, and frontend readiness.",
+      "Codexify could not read or refresh launcher setup readiness yet. Retry setup checks from the desktop launcher and review Docker, Whoosh'd, config, backend, and frontend readiness.",
   };
 
   return (
