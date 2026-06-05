@@ -10,6 +10,16 @@ Inputs:
 - Repo root: <REPO_ROOT>
 - Stage-A audit JSON: <PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>
 
+Intention packet:
+- Stage B may use the intention packet only to interpret and filter Stage-A findings.
+- Stage B must not invent campaigns or tasks unsupported by Stage-A evidence.
+- Stage B must preserve independently mergeable task scope.
+- Stage B must prefer discovery tasks over speculative implementation when evidence is insufficient.
+- Stage B must not widen release claims or runtime support claims.
+- Stage B must not treat the intention packet as runtime proof.
+
+<INTENTION_PACKET>
+
 Hard constraints:
 1. `audit_id` must be copied exactly from Stage-A JSON.
 2. Emit `campaigns` as 0..N entries.
