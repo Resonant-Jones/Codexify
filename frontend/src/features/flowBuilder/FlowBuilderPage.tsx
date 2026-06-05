@@ -272,15 +272,16 @@ export default function FlowBuilderPage({
                 color: "var(--muted)",
               }}
             >
-              Spec first
+              Automation spec draft
             </div>
             <div className="max-w-3xl space-y-3">
               <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
                 Flow Builder
               </h1>
               <p className="max-w-2xl text-sm leading-6 sm:text-[15px]" style={{ color: "var(--muted)" }}>
-                Authoring, inspection, validation, and draft shaping happen here before anything
-                becomes runnable. The builder keeps that boundary visible on purpose.
+                Build draft automation specifications from a known process or Assistant-guided
+                elicitation. Authoring, inspection, validation, and draft shaping happen here before
+                anything becomes runnable.
               </p>
             </div>
             <code
@@ -299,15 +300,15 @@ export default function FlowBuilderPage({
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <ModeButton
               active={view.mode === "process"}
-              description="Start from the steps you already know."
-              label="Process"
+              description="Start from explicit steps you already know and shape them into a draft automation spec."
+              label="Manual process"
               onClick={() => handleSelectMode("process")}
               testId="flow-builder-mode-process"
             />
             <ModeButton
               active={view.mode === "expertise"}
-              description="Start from the outcome and constraints."
-              label="Expertise"
+              description="Start from an outcome, constraints, or rough intent; Assistant support helps shape a draft spec."
+              label="Assistant-guided"
               onClick={() => handleSelectMode("expertise")}
               testId="flow-builder-mode-expertise"
             />
@@ -334,7 +335,11 @@ export default function FlowBuilderPage({
           <FlowBuilderGraphCanvas
             currentSelection={currentSelection}
             graphVisibleNodes={graphVisibleNodes}
-            modeLabel={view.mode === "expertise" ? "Expertise" : "Process"}
+            modeLabel={
+              view.mode === "expertise"
+                ? "Assistant-guided draft seed"
+                : "Manual process draft seed"
+            }
             onMoveNode={handleMoveNode}
             onSelectNode={handleSelectNode}
             validationSummary={validationSummary}
@@ -385,11 +390,12 @@ export default function FlowBuilderPage({
 
             <div className="mt-3 max-w-2xl space-y-2">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">
-                {draft.meta.title}
+                Assistant-guided automation specification draft
               </h2>
               <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                This stub keeps the expertise lane honest: it makes the specification visible and
-                editable without claiming compile or execution support.
+                This local draft keeps Assistant-guided elicitation honest: notes can seed and shape
+                an automation specification without backend chat transport, compile, scheduling, or
+                execution support.
               </p>
             </div>
 
@@ -398,7 +404,7 @@ export default function FlowBuilderPage({
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
                   Source
                 </div>
-                <div className="mt-2 text-sm font-medium">Build from expertise</div>
+                <div className="mt-2 text-sm font-medium">Assistant-guided draft seed</div>
               </div>
               <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
