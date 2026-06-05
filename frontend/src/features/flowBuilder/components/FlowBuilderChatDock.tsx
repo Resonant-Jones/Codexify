@@ -10,10 +10,14 @@ type FlowBuilderChatDockProps = {
 };
 
 const ASSISTANT_NOTES = [
-  "Keep the plan readable before anything is treated as final.",
-  "Mark the gaps, assumptions, and validation gates explicitly.",
-  "This dock is a sidecar for review notes, not a chat transport.",
+  "Use this dock to review an automation specification draft from a known process or rough intent.",
+  "Mark missing steps, assumptions, constraints, and validation gates before runnable claims.",
+  "Sidecar notes only: no backend chat integration, persistence, thread binding, or automation execution is wired here.",
 ];
+
+function getVisibleDraftModeLabel(modeLabel: string): string {
+  return modeLabel.toLowerCase() === "expertise" ? "Assistant-guided" : "manual process";
+}
 
 export default function FlowBuilderChatDock({
   onToggleOpen,
@@ -21,6 +25,8 @@ export default function FlowBuilderChatDock({
   supportChatContext,
   validationSummary,
 }: FlowBuilderChatDockProps) {
+  const visibleDraftModeLabel = getVisibleDraftModeLabel(supportChatContext.modeLabel);
+
   if (!open) {
     return (
       <aside
@@ -42,7 +48,9 @@ export default function FlowBuilderChatDock({
             <span className="block text-[11px] uppercase tracking-[0.24em]" style={{ color: "var(--muted)" }}>
               Assistant dock hidden
             </span>
-            <span className="mt-1 block text-sm font-medium">Reopen to inspect sidecar notes.</span>
+            <span className="mt-1 block text-sm font-medium">
+              Reopen to inspect Assistant-guided sidecar notes.
+            </span>
           </span>
           <span
             className="rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.2em]"
@@ -79,11 +87,12 @@ export default function FlowBuilderChatDock({
           <div className="flex items-center gap-2">
             <MessageSquareMore className="h-4 w-4" style={{ color: "var(--accent-weak)" }} />
             <div className="text-[11px] uppercase tracking-[0.24em]" style={{ color: "var(--muted)" }}>
-              Assistant
+              Assistant-guided draft support
             </div>
           </div>
           <p className="mt-2 text-sm leading-6" style={{ color: "var(--muted)" }}>
-            Embedded Guardian review space for {supportChatContext.modeLabel.toLowerCase()} drafting.
+            Local review support for {visibleDraftModeLabel} automation-spec drafting. It can help
+            frame questions and notes, but it is not a live chat transport.
           </p>
         </div>
         <button
@@ -145,7 +154,9 @@ export default function FlowBuilderChatDock({
             color: "var(--muted)",
           }}
         >
-          {supportChatContext.provenanceLabel}. Validation {validationSummary.label}. Sidecar notes only. No backend chat integration is wired here.
+          {supportChatContext.provenanceLabel}. Validation {validationSummary.label}. Sidecar
+          notes only. No backend chat integration is wired here. No automation execution is
+          triggered here.
         </div>
       </div>
     </aside>

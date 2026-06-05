@@ -15,25 +15,52 @@ describe("FlowBuilderPage layout", () => {
     cleanup();
   });
 
-  it("renders the graph-first layout and keeps the spec-first copy truthful", async () => {
+  it("renders the graph-first layout and describes automation-spec authoring", async () => {
     render(<FlowBuilderPage />);
 
     await waitFor(() => {
       expect(window.location.search).toBe("?mode=process");
     });
 
-    expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
-      "data-flow-builder-mode",
-      "process"
-    );
+    const page = screen.getByTestId("flow-builder-page");
+    expect(page).toHaveAttribute("data-flow-builder-mode", "process");
     expect(screen.getByTestId("flow-builder-parameter-rail")).toBeVisible();
     expect(screen.getByTestId("flow-builder-graph-canvas")).toBeVisible();
     expect(screen.getByTestId("flow-builder-chat-dock")).toBeVisible();
-    expect(
-      screen.getByText(/authoring, inspection, validation, and draft shaping/i)
-    ).toBeVisible();
-    expect(screen.getByText(/before anything becomes runnable/i)).toBeVisible();
+    expect(page).toHaveTextContent(/Build draft automation specifications/i);
+    expect(page).toHaveTextContent(/known process/i);
+    expect(page).toHaveTextContent(/Assistant-guided elicitation/i);
+    expect(page).toHaveTextContent(/before anything becomes runnable/i);
     expect(screen.getByTestId("flow-builder-route")).toHaveTextContent("/flow-builder?mode=process");
+  });
+
+  it("shows the manual process and Assistant-guided draft paths without adding execution claims", async () => {
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?mode=process");
+    });
+
+    expect(screen.getByTestId("flow-builder-mode-process")).toHaveTextContent(/Manual process/i);
+    expect(screen.getByTestId("flow-builder-mode-process")).toHaveTextContent(
+      /explicit steps you already know/i
+    );
+    expect(screen.getByTestId("flow-builder-mode-expertise")).toHaveTextContent(
+      /Assistant-guided/i
+    );
+    expect(screen.getByTestId("flow-builder-mode-expertise")).toHaveTextContent(
+      /outcome, constraints, or rough intent/i
+    );
+
+    const parameterRail = screen.getByTestId("flow-builder-parameter-rail");
+    expect(parameterRail).toHaveTextContent(/Manual\/process starts from known steps/i);
+    expect(parameterRail).toHaveTextContent(/Assistant-guided starts from an outcome/i);
+
+    const graphCanvas = screen.getByTestId("flow-builder-graph-canvas");
+    expect(graphCanvas).toHaveTextContent(/Manual process draft seed/i);
+    expect(graphCanvas).toHaveTextContent(/drafting surface, not an execution surface/i);
+    expect(graphCanvas).toHaveTextContent(/Automation spec draft/i);
+    expect(graphCanvas).toHaveTextContent(/Draft only/i);
   });
 
   it("keeps the parameter rail, graph, and support dock aligned on the same shared selection", async () => {
@@ -58,7 +85,7 @@ describe("FlowBuilderPage layout", () => {
       );
     });
 
-    expect(graphCanvas).toHaveTextContent(/Seeded from Define Constraints/i);
+    expect(graphCanvas).toHaveTextContent(/seeded from Define Constraints/i);
     expect(within(chatDock).getByTestId("flow-builder-support-context")).toHaveTextContent(
       /Stage: Define Constraints/i
     );
@@ -157,7 +184,7 @@ describe("FlowBuilderPage layout", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("flow-builder-chat-dock")).toHaveTextContent(
-        /Embedded Guardian review space/i
+        /Local review support/i
       );
     });
 
@@ -168,8 +195,23 @@ describe("FlowBuilderPage layout", () => {
     expect(within(draftSpec).getByText(/non-runtime/i)).toBeVisible();
     expect(within(draftSpec).getByText(/draft only/i)).toBeVisible();
     expect(
-      within(draftSpec).getByText(/without claiming compile or execution support/i)
+      within(draftSpec).getByText(/without backend chat transport, compile, scheduling, or execution support/i)
     ).toBeVisible();
+  });
+
+  it("keeps the assistant dock sidecar-only with no backend chat or execution boundary", async () => {
+    render(<FlowBuilderPage />);
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?mode=process");
+    });
+
+    const dock = screen.getByTestId("flow-builder-chat-dock");
+    expect(dock).toHaveTextContent(/Assistant-guided draft support/i);
+    expect(dock).toHaveTextContent(/automation-spec drafting/i);
+    expect(dock).toHaveTextContent(/Sidecar notes only/i);
+    expect(dock).toHaveTextContent(/No backend chat integration is wired here/i);
+    expect(dock).toHaveTextContent(/No automation execution is triggered here/i);
   });
 
   it("canonicalizes the route and keeps the selected mode in sync with history", async () => {
