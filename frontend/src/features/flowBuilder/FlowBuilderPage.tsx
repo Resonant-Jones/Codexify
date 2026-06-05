@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import Textarea from "@/components/ui/textarea";
+import "./FlowBuilderPage.css";
 
 import FlowBuilderChatDock from "./components/FlowBuilderChatDock";
 import FlowBuilderGraphCanvas from "./components/FlowBuilderGraphCanvas";
@@ -327,7 +328,7 @@ export default function FlowBuilderPage({
 
         <div
           data-testid="flow-builder-panel-grid"
-          className="grid gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]"
+          className="flow-builder-panel-grid grid gap-4 p-4 sm:p-6"
         >
           <FlowBuilderParameterRail
             currentSelection={currentSelection}

@@ -1,0 +1,21 @@
+.flow-builder-panel-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .flow-builder-panel-grid {
+    grid-template-columns:
+      minmax(220px, 260px)
+      minmax(0, 1fr)
+      minmax(250px, 320px);
+  }
+}
+
+@media (min-width: 1536px) {
+  .flow-builder-panel-grid {
+    grid-template-columns:
+      minmax(240px, 280px)
+      minmax(0, 1fr)
+      minmax(280px, 340px);
+  }
+}
