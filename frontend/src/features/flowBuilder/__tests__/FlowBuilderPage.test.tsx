@@ -54,6 +54,7 @@ describe("FlowBuilderPage layout", () => {
     expect(surface).not.toHaveClass("overflow-hidden");
     expect(surface).not.toHaveClass("flex-1");
     expect(panelGrid).not.toHaveClass("flex-1");
+    expect(panelGrid).toHaveClass("flow-builder-panel-grid");
   });
 
   it("shows the manual process and Assistant-guided draft paths without adding execution claims", async () => {
