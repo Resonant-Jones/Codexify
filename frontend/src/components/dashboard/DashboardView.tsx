@@ -307,10 +307,10 @@ export default function DashboardView({
   const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
   const dashboardSurfaceClassName = isPhoneShell
     ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex min-h-full gap-[var(--shell-gap)]";
+    : "flex h-full min-h-0 gap-[var(--shell-gap)]";
   const dashboardOuterClassName = isPhoneShell
     ? "flex-1 min-h-0 overflow-auto p-[var(--board-edge)]"
-    : "flex-1 min-h-0 overflow-auto p-[var(--board-edge)]";
+    : "flex-1 min-h-0 p-[var(--board-edge)]";
   const primaryColumnClassName = isPhoneShell
     ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
     : "flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)]";
@@ -344,7 +344,7 @@ export default function DashboardView({
       data-dashboard-layout={dashboardLayoutMode}
       data-testid="dashboard-layout"
     >
-      <div className={dashboardOuterClassName} data-testid="dashboard-scroll-body">
+      <div className={dashboardOuterClassName}>
         <div
           className={dashboardSurfaceClassName}
           data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}

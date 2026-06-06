@@ -139,7 +139,7 @@ describe("DashboardView beta contract", () => {
   });
 
   it("keeps the gallery empty state honest when no saved images exist", () => {
-    const { container } = render(
+    render(
       <DashboardView
         extColors={EXT_COLORS}
         gallery={[]}
@@ -153,13 +153,6 @@ describe("DashboardView beta contract", () => {
     );
 
     expect(screen.getByText("Codexify Design Tokens.pdf")).toBeInTheDocument();
-    expect(screen.getByTestId("dashboard-scroll-body")).toHaveClass("overflow-auto");
-    expect(container.querySelector('[data-layout-mode="desktop-split"]')).toHaveClass(
-      "min-h-full"
-    );
-    expect(container.querySelector('[data-layout-mode="desktop-split"]')).not.toHaveClass(
-      "h-full"
-    );
     expect(screen.getByText("No gallery images yet. Generate or upload to get started.")).toBeInTheDocument();
     expect(screen.queryByText("Demo: Warm Gradient")).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
