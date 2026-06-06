@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import Textarea from "@/components/ui/textarea";
-import "./FlowBuilderPage.css";
 
 import FlowBuilderChatDock from "./components/FlowBuilderChatDock";
 import FlowBuilderGraphCanvas from "./components/FlowBuilderGraphCanvas";
@@ -24,6 +23,8 @@ import {
 import type { FlowDraftContent, FlowDraftStageId } from "./model/flowDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
+const FLOW_BUILDER_THREE_PANE_QUERY = "(min-width: 1024px)";
+const FLOW_BUILDER_WIDE_QUERY = "(min-width: 1536px)";
 
 type FlowBuilderPageProps = {
   onReturnToGuardian?: () => void;
@@ -81,6 +82,59 @@ function canonicalizeFlowBuilderLocation(nextMode: FlowBuilderMode): void {
   }
 
   window.history.replaceState({}, "", nextPath);
+}
+
+function useFlowBuilderGridTemplate(): string {
+  const [viewportState, setViewportState] = React.useState(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return { threePane: true, wide: false };
+    }
+
+    return {
+      threePane: window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY).matches,
+      wide: window.matchMedia(FLOW_BUILDER_WIDE_QUERY).matches,
+    };
+  });
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return undefined;
+    }
+
+    const threePaneQuery = window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY);
+    const wideQuery = window.matchMedia(FLOW_BUILDER_WIDE_QUERY);
+    const sync = () => {
+      setViewportState({
+        threePane: threePaneQuery.matches,
+        wide: wideQuery.matches,
+      });
+    };
+
+    sync();
+    threePaneQuery.addEventListener("change", sync);
+    wideQuery.addEventListener("change", sync);
+
+    return () => {
+      threePaneQuery.removeEventListener("change", sync);
+      wideQuery.removeEventListener("change", sync);
+    };
+  }, []);
+
+  if (!viewportState.threePane) {
+    return "minmax(0, 1fr)";
+  }
+
+  if (viewportState.wide) {
+    return "minmax(240px, 280px) minmax(0, 1fr) minmax(280px, 340px)";
+  }
+
+  return "minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px)";
 }
 
 function ModeButton({
@@ -198,6 +252,7 @@ export default function FlowBuilderPage({
     () => getSupportChatContextSummary(draft, view),
     [draft, view]
   );
+  const panelGridTemplate = useFlowBuilderGridTemplate();
 
   const handleSelectMode = useCallback(
     (nextMode: FlowBuilderMode) => {
@@ -328,7 +383,8 @@ export default function FlowBuilderPage({
 
         <div
           data-testid="flow-builder-panel-grid"
-          className="flow-builder-panel-grid grid gap-4 p-4 sm:p-6"
+          className="grid gap-4 p-4 sm:p-6"
+          style={{ gridTemplateColumns: panelGridTemplate }}
         >
           <FlowBuilderParameterRail
             currentSelection={currentSelection}
