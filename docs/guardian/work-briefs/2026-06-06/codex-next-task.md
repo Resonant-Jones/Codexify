@@ -1,4 +1,4 @@
-# Codex Next Task - 2026-06-07
+# Codex Next Task - 2026-06-06
 
 ## Goal
 Classify local changes before starting a new implementation slice.

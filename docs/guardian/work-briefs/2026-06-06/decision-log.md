@@ -1,4 +1,4 @@
-# Guardian Decision Log - 2026-06-07
+# Guardian Decision Log - 2026-06-06
 
 ## Decision
 Classify local changes before starting a new implementation slice.
