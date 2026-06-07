@@ -1,5 +1,5 @@
 {
-  "brief_date": "2026-06-07",
+  "brief_date": "2026-06-06",
   "decision": {
     "drift_count": 3,
     "focus": "Classify local changes before starting a new implementation slice.",
@@ -9,7 +9,7 @@
   "drift": [
     {
       "kind": "dirty_worktree",
-      "signal": "81 changed file(s) are present.",
+      "signal": "77 changed file(s) are present.",
       "why_it_matters": "Unclassified local changes can blur what is proven."
     },
     {
@@ -23,7 +23,7 @@
       "why_it_matters": "Draft packets are alignment inputs, not release proof."
     }
   ],
-  "generated_at": "2026-06-07T12:31:34.731653+00:00",
+  "generated_at": "2026-06-06T12:31:01.400396+00:00",
   "human_closeout": {
     "axis_kb_note": "",
     "blocked": "",
@@ -227,17 +227,13 @@
       "docs/guardian/work-briefs/2026-06-05/codex-next-task-packet.md",
       "docs/guardian/work-briefs/2026-06-05/decision-log.md",
       "docs/guardian/work-briefs/2026-06-05/truth-ledger.md",
-      "docs/guardian/work-briefs/latest-axis-brief.md",
-      "docs/guardian/work-briefs/latest-codex-next-task.md",
-      "docs/guardian/work-briefs/latest-decision-log.md",
       "docs/guardian/work-briefs/latest-truth-ledger.json",
       "docs/site-export/developer-guide/export-manifest.json",
       "docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-extraction.json",
       "docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-job-profile-draft.json",
       "docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-review-packet.json",
       "docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/manual-extraction-output-v0.json",
-      "package.json",
-      "docs/guardian/work-briefs/2026-06-06/"
+      "package.json"
     ],
     "head": "2bcd31c00",
     "status_error": "",
@@ -313,17 +309,13 @@
       "A  docs/guardian/work-briefs/2026-06-05/codex-next-task-packet.md",
       "A  docs/guardian/work-briefs/2026-06-05/decision-log.md",
       "A  docs/guardian/work-briefs/2026-06-05/truth-ledger.md",
-      " M docs/guardian/work-briefs/latest-axis-brief.md",
-      " M docs/guardian/work-briefs/latest-codex-next-task.md",
-      " M docs/guardian/work-briefs/latest-decision-log.md",
       " M docs/guardian/work-briefs/latest-truth-ledger.json",
       " M docs/site-export/developer-guide/export-manifest.json",
       " M docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-extraction.json",
       " M docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-job-profile-draft.json",
       " M docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/expected-review-packet.json",
       " M docs/specs/job-intelligence-layer/fixtures/plumbing-three-handle-drip/manual-extraction-output-v0.json",
-      " M package.json",
-      "?? docs/guardian/work-briefs/2026-06-06/"
+      " M package.json"
     ]
   },
   "risk": {

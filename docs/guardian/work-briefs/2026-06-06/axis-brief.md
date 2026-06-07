@@ -1,4 +1,4 @@
-# Guardian Work Brief - 2026-06-07
+# Guardian Work Brief - 2026-06-06
 
 Purpose: manual transfer packet for Axis and steering packet for the next Codex task.
 
@@ -22,7 +22,7 @@ Purpose: manual transfer packet for Axis and steering packet for the next Codex 
 - Provider timeout and slow-path failures are classified and presented more accurately in the UI.
 
 ## Drift
-- 81 changed file(s) are present.
+- 77 changed file(s) are present.
 - Do not assume cloud-provider beta support.
 - 5 recent marketing/history run(s) are draft.
 
