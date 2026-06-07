@@ -96,6 +96,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Execution Ledger Token Domain Proposal](./execution-ledger-token-domain-proposal.md): docs-only proposal for candidate Execution Ledger token domains, semantics, and registry placement guidance before runtime tokenization.
 - [Workspace Surface Spec v1](./codexify_workspace_surface_spec_v_1.md): UI/design-canon contract for Workspace as Shelf + Scratchpad + Inspector across Dashboard, Guardian, and Documents; not first-pass runtime topology truth.
 - [Persona Studio Architecture](./persona-studio.md): shell-integrated persona/profile configuration surface, local draft state, diagnostics preview, and boundary rules; complements the broader product spec.
+- [Local TTS Adapter Contract](./local-tts-adapter-contract.md): canonical local TTS backend-island contract for Qwen3-TTS default posture, headless voiceover rendering, and Persona Studio voice-boundary interpretation.
 - [Guardian Intent Spine and Cross-Surface Control Plane](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md): canonical cross-surface intent envelope and dispatch contract for chat, voice, automations, CLI, and future plugin surfaces.
 - [Context Command and Active Connector Semantics](./adr/024-context-command-active-connector-semantics.md): governing contract for slash-command connector invocation, active connector semantics, and turn-scoped connector/tool boundaries.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
