@@ -65,6 +65,11 @@ from guardian.protocol_tokens import (
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
 )
+from guardian.tts.contracts import (
+    TTS_LOCAL_BACKEND_IDS,
+    TTS_OUTPUT_FORMATS,
+    TTS_VOICE_MODES,
+)
 
 
 class Base(DeclarativeBase):
@@ -120,6 +125,16 @@ CAMPAIGN_EXECUTION_ATTEMPT_STATUS_VALUES_SQL = "','".join(
 )
 CAMPAIGN_EXECUTION_ATTEMPT_STATUS_CHECK = (
     "status IN " f"('{CAMPAIGN_EXECUTION_ATTEMPT_STATUS_VALUES_SQL}')"
+)
+TTS_LOCAL_BACKEND_IDS_VALUES_SQL = "','".join(TTS_LOCAL_BACKEND_IDS)
+TTS_LOCAL_BACKEND_ID_CHECK = (
+    f"backend_id IN ('{TTS_LOCAL_BACKEND_IDS_VALUES_SQL}')"
+)
+TTS_VOICE_MODE_VALUES_SQL = "','".join(TTS_VOICE_MODES)
+TTS_VOICE_MODE_CHECK = f"voice_mode IN ('{TTS_VOICE_MODE_VALUES_SQL}')"
+TTS_OUTPUT_FORMAT_VALUES_SQL = "','".join(TTS_OUTPUT_FORMATS)
+TTS_OUTPUT_FORMAT_CHECK = (
+    f"output_format IN ('{TTS_OUTPUT_FORMAT_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
@@ -2045,6 +2060,103 @@ class MessageAudioAsset(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class TTSVoiceProfile(Base):
+    """Persistent local TTS voice profile consumed by the TTS adapter."""
+
+    __tablename__ = "tts_voice_profiles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    backend_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    voice_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="preset"
+    )
+    speaker: Mapped[str | None] = mapped_column(String(128))
+    voice_prompt: Mapped[str | None] = mapped_column(Text)
+    style_instructions: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(String(64))
+    speed: Mapped[float | None] = mapped_column(Float)
+    temperature: Mapped[float | None] = mapped_column(Float)
+    top_k: Mapped[int | None] = mapped_column(Integer)
+    top_p: Mapped[float | None] = mapped_column(Float)
+    repetition_penalty: Mapped[float | None] = mapped_column(Float)
+    max_new_tokens: Mapped[int | None] = mapped_column(Integer)
+    do_sample: Mapped[bool | None] = mapped_column(Boolean)
+    backend_params: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+    )
+    reference_audio_asset_id: Mapped[str | None] = mapped_column(String(128))
+    reference_text: Mapped[str | None] = mapped_column(Text)
+    x_vector_only_mode: Mapped[bool | None] = mapped_column(Boolean)
+    sample_rate: Mapped[int | None] = mapped_column(Integer)
+    output_format: Mapped[str | None] = mapped_column(
+        String(16), server_default="wav"
+    )
+    loudness_normalization: Mapped[bool | None] = mapped_column(Boolean)
+    pause_profile: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            TTS_LOCAL_BACKEND_ID_CHECK,
+            name="tts_voice_profiles_backend_id_check",
+        ),
+        CheckConstraint(
+            TTS_VOICE_MODE_CHECK,
+            name="tts_voice_profiles_voice_mode_check",
+        ),
+        CheckConstraint(
+            TTS_OUTPUT_FORMAT_CHECK,
+            name="tts_voice_profiles_output_format_check",
+        ),
+        CheckConstraint(
+            "speed IS NULL OR (speed > 0.0 AND speed <= 4.0)",
+            name="tts_voice_profiles_speed_check",
+        ),
+        CheckConstraint(
+            "temperature IS NULL OR (temperature >= 0.0 AND temperature <= 2.0)",
+            name="tts_voice_profiles_temperature_check",
+        ),
+        CheckConstraint(
+            "top_k IS NULL OR top_k >= 0",
+            name="tts_voice_profiles_top_k_check",
+        ),
+        CheckConstraint(
+            "top_p IS NULL OR (top_p >= 0.0 AND top_p <= 1.0)",
+            name="tts_voice_profiles_top_p_check",
+        ),
+        CheckConstraint(
+            "repetition_penalty IS NULL OR repetition_penalty > 0.0",
+            name="tts_voice_profiles_repetition_penalty_check",
+        ),
+        CheckConstraint(
+            "max_new_tokens IS NULL OR max_new_tokens > 0",
+            name="tts_voice_profiles_max_new_tokens_check",
+        ),
+        CheckConstraint(
+            "sample_rate IS NULL OR sample_rate > 0",
+            name="tts_voice_profiles_sample_rate_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Document Linkage
 # =========================
@@ -3610,6 +3722,9 @@ Index(
     MessageAudioAsset.voice,
     MessageAudioAsset.created_at.desc(),
 )
+Index("ix_tts_voice_profiles_backend", TTSVoiceProfile.backend_id)
+Index("ix_tts_voice_profiles_default", TTSVoiceProfile.is_default)
+Index("ix_tts_voice_profiles_updated", TTSVoiceProfile.updated_at.desc())
 
 
 class SharedLink(Base):
