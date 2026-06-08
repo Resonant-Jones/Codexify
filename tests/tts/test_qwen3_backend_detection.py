@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 from guardian.tts.backends.qwen3 import Qwen3TTSBackend
 from guardian.tts.config import LocalTTSConfig
@@ -14,7 +15,7 @@ def _cfg(
         backend_id="qwen3_tts",
         local_only=True,
         qwen3_model_path=model_path,
-        qwen3_python="python",
+        qwen3_python=sys.executable,
         qwen3_render_script=render_script,
         output_dir=tmp_path,
         default_voice="default",

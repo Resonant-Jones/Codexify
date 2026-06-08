@@ -134,19 +134,32 @@ def render_voiceover(
     with tempfile.TemporaryDirectory(prefix="codexify-tts-") as tmp_dir_raw:
         tmp_dir = Path(tmp_dir_raw)
         wav_segments: list[Path] = []
-        speech_index = 0
+        speech_requests: list[TTSRenderRequest] = []
         for index, chunk in enumerate(plan.chunks):
             if chunk.kind == VoiceoverChunkKind.SPEECH:
-                chunk_path = tmp_dir / f"chunk-{speech_index:04d}.wav"
-                result = backend.render(
+                speech_requests.append(
                     TTSRenderRequest(
                         text=chunk.text,
-                        output_path=chunk_path,
+                        output_path=tmp_dir / f"chunk-{len(speech_requests):04d}.wav",
                         backend_id=plan.backend_id,
                         output_format="wav",
                         voice_id=plan.voice_id,
                     )
                 )
+        speech_results = backend.render_many(speech_requests)
+        if len(speech_results) != len(speech_requests):
+            return VoiceoverRenderResult(
+                plan=plan,
+                dry_run=False,
+                render_succeeded=False,
+                failure_reason="tts_batch_result_count_mismatch",
+                chunk_results=speech_results,
+            )
+
+        speech_index = 0
+        for index, chunk in enumerate(plan.chunks):
+            if chunk.kind == VoiceoverChunkKind.SPEECH:
+                result = speech_results[speech_index]
                 chunk_results.append(result)
                 if not result.render_succeeded or result.output_path is None:
                     return VoiceoverRenderResult(
