@@ -7,6 +7,9 @@ import pytest
 import runner
 
 
+PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
+
+
 def _write_required_runner_files(tmp_path: Path) -> dict[str, Path]:
     paths = {
         "audit_prompt": tmp_path / "audit.md",
@@ -39,6 +42,55 @@ def test_prompt_assembly_without_intention_packet_uses_fallback() -> None:
         "No explicit intention packet was provided. Use the default "
         "repository-grounded audit posture and do not infer a narrower target."
     )
+
+
+def test_stage_a_prompt_doctrine_interprets_canonical_packet_sections() -> None:
+    prompt_template = (PROMPT_DIR / "mega_audit.md").read_text(
+        encoding="utf-8"
+    )
+
+    rendered = runner.render_audit_prompt(
+        prompt_template,
+        Path("/repo"),
+        "AUDIT_abc123def456",
+        "abc123def456",
+    )
+
+    assert (
+        "separate repo-grounded findings, unsupported intention claims, "
+        "and unknowns requiring discovery"
+    ) in rendered
+    for section_name in (
+        "`Objective`",
+        "`Scope`",
+        "`Evidence Requirements`",
+        "`Failure / Stop Conditions`",
+    ):
+        assert section_name in rendered
+
+
+def test_stage_b_prompt_doctrine_interprets_canonical_packet_sections() -> None:
+    prompt_template = (
+        PROMPT_DIR / "audit_report_to_campaign_runner.md"
+    ).read_text(encoding="utf-8")
+
+    rendered = runner.render_compiler_prompt(
+        prompt_template,
+        Path("/repo"),
+        {"audit_id": "AUDIT_abc123def456", "findings": []},
+    )
+
+    assert (
+        "Stage B must not invent campaigns or tasks unsupported by "
+        "Stage-A evidence"
+    ) in rendered
+    assert "Do not invent tasks from packet intent alone" in rendered
+    for section_name in (
+        "`Stage B Campaign Posture`",
+        "`Task-Lane Expectations`",
+        "`Release-Truth Constraints`",
+    ):
+        assert section_name in rendered
 
 
 def test_prompt_assembly_injects_intention_packet_into_both_stages(
