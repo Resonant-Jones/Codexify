@@ -513,6 +513,7 @@ from guardian.routes import (
 )
 from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
+from guardian.routes import tts as tts_routes
 from guardian.routes import neo as neo_routes
 from guardian.routes import obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
@@ -1135,6 +1136,12 @@ _include_router(
     label="voice",
     flag_name="CODEXIFY_VOICE_ROUTES_ENABLED",
     include_fn=lambda: app.include_router(voice_router),
+    core_surface=True,
+)
+_include_router(
+    label="tts",
+    flag_name="CODEXIFY_ENABLE_MEDIA_TTS_ROUTES",
+    include_fn=lambda: app.include_router(tts_routes.router),
     core_surface=True,
 )
 _include_router(

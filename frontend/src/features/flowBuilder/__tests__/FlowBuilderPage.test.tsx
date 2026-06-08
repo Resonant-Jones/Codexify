@@ -34,6 +34,48 @@ describe("FlowBuilderPage layout", () => {
     expect(screen.getByTestId("flow-builder-route")).toHaveTextContent("/flow-builder?mode=process");
   });
 
+  it("keeps Flow Builder vertically scrollable inside the viewport shell", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(min-width: 1024px)",
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+
+    window.history.pushState({}, "", "/flow-builder?mode=expertise");
+
+    try {
+      render(<FlowBuilderPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("flow-builder-page")).toHaveAttribute(
+          "data-flow-builder-mode",
+          "expertise"
+        );
+      });
+
+      const page = screen.getByTestId("flow-builder-page");
+      const surface = screen.getByTestId("flow-builder-surface");
+      const panelGrid = screen.getByTestId("flow-builder-panel-grid");
+
+      expect(page).toHaveClass("overflow-y-auto");
+      expect(page).toHaveClass("overflow-x-hidden");
+      expect(surface).not.toHaveClass("overflow-hidden");
+      expect(surface).not.toHaveClass("flex-1");
+      expect(panelGrid).not.toHaveClass("flex-1");
+      expect((panelGrid as HTMLElement).style.gridTemplateColumns).toBe(
+        "minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px)"
+      );
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("shows the manual process and Assistant-guided draft paths without adding execution claims", async () => {
     render(<FlowBuilderPage />);
 

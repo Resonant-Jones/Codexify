@@ -9,9 +9,14 @@ const IS_TAURI_BUILD =
   Boolean(process.env.TAURI_ENV_PLATFORM) ||
   Boolean(process.env.TAURI_ENV_ARCH) ||
   Boolean(process.env.TAURI_ENV_TARGET_TRIPLE);
-const DEV_API_KEY = IS_DEV
-  ? (process.env.VITE_GUARDIAN_DEV_API_KEY ?? '').trim()
-  : '';
+
+function readDevApiKey() {
+  const explicitDevKey = (process.env.VITE_GUARDIAN_DEV_API_KEY ?? '').trim();
+  if (explicitDevKey) return explicitDevKey;
+  return (process.env.VITE_GUARDIAN_API_KEY ?? '').trim();
+}
+
+const DEV_API_KEY = IS_DEV ? readDevApiKey() : '';
 const DEV_API_HEADERS = DEV_API_KEY ? { 'X-API-Key': DEV_API_KEY } : {};
 const PROXY_TARGET =
   process.env.VITE_PROXY_TARGET ||
