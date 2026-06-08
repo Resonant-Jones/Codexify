@@ -97,6 +97,18 @@ def render_voiceover(
     backend_id: str | None = None,
     output_format: str = "wav",
     voice_id: str | None = None,
+    profile_id: str | None = None,
+    voice_prompt: str | None = None,
+    style_instructions: str | None = None,
+    language: str | None = None,
+    speed: float | None = None,
+    temperature: float | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    repetition_penalty: float | None = None,
+    max_new_tokens: int | None = None,
+    do_sample: bool | None = None,
+    backend_params: dict[str, object] | None = None,
     dry_run: bool = False,
     config: LocalTTSConfig | None = None,
 ) -> VoiceoverRenderResult:
@@ -128,7 +140,9 @@ def render_voiceover(
 
     backend = Qwen3TTSBackend(cfg)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    target_wav = output_path if plan.output_format == "wav" else output_path.with_suffix(".wav")
+    target_wav = (
+        output_path if plan.output_format == "wav" else output_path.with_suffix(".wav")
+    )
 
     chunk_results: list[TTSRenderResult] = []
     with tempfile.TemporaryDirectory(prefix="codexify-tts-") as tmp_dir_raw:
@@ -144,6 +158,18 @@ def render_voiceover(
                         backend_id=plan.backend_id,
                         output_format="wav",
                         voice_id=plan.voice_id,
+                        profile_id=profile_id,
+                        voice_prompt=voice_prompt,
+                        style_instructions=style_instructions,
+                        language=language,
+                        speed=speed,
+                        temperature=temperature,
+                        top_k=top_k,
+                        top_p=top_p,
+                        repetition_penalty=repetition_penalty,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=do_sample,
+                        backend_params=dict(backend_params or {}),
                     )
                 )
         speech_results = backend.render_many(speech_requests)

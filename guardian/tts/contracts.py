@@ -24,6 +24,22 @@ TTS_OUTPUT_FORMATS = ("wav", "mp3")
 TTS_BACKEND_QWEN3 = "qwen3_tts"
 TTS_BACKEND_LOCAL_OPENAI_COMPATIBLE = "local_openai_compatible"
 TTS_BACKEND_LOCAL_MOCK = "local"
+TTS_LOCAL_BACKEND_IDS = (
+    TTS_BACKEND_QWEN3,
+    TTS_BACKEND_LOCAL_OPENAI_COMPATIBLE,
+    TTS_BACKEND_LOCAL_MOCK,
+)
+
+TTS_VOICE_MODE_PRESET = "preset"
+TTS_VOICE_MODE_PROMPT = "prompt"
+TTS_VOICE_MODE_REFERENCE = "reference_audio"
+TTS_VOICE_MODE_CUSTOM = "custom"
+TTS_VOICE_MODES = (
+    TTS_VOICE_MODE_PRESET,
+    TTS_VOICE_MODE_PROMPT,
+    TTS_VOICE_MODE_REFERENCE,
+    TTS_VOICE_MODE_CUSTOM,
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +79,18 @@ class TTSRenderRequest:
     backend_id: str = TTS_BACKEND_QWEN3
     output_format: Literal["wav", "mp3"] = "wav"
     voice_id: str = "default"
+    profile_id: str | None = None
+    voice_prompt: str | None = None
+    style_instructions: str | None = None
+    language: str | None = None
+    speed: float | None = None
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    repetition_penalty: float | None = None
+    max_new_tokens: int | None = None
+    do_sample: bool | None = None
+    backend_params: dict[str, Any] = field(default_factory=dict)
     voice_sample_path: Path | None = None
     dry_run: bool = False
 

@@ -245,7 +245,11 @@ class Qwen3TTSBackend(TTSBackend):
 
         results: list[TTSRenderResult] = []
         for request in requests:
-            size = request.output_path.stat().st_size if request.output_path.exists() else 0
+            size = (
+                request.output_path.stat().st_size
+                if request.output_path.exists()
+                else 0
+            )
             if size <= 0:
                 results.append(
                     TTSRenderResult(
@@ -359,7 +363,9 @@ raise SystemExit(1)
     def _render_with_importable_module(self, request: TTSRenderRequest) -> None:
         self._render_many_with_importable_module([request])
 
-    def _render_many_with_importable_module(self, requests: list[TTSRenderRequest]) -> None:
+    def _render_many_with_importable_module(
+        self, requests: list[TTSRenderRequest]
+    ) -> None:
         code = _module_render_code()
         payload = {
             "model_path": str(self.config.qwen3_model_path),
@@ -368,6 +374,18 @@ raise SystemExit(1)
                     "text": request.text,
                     "output_path": str(request.output_path),
                     "voice": request.voice_id,
+                    "profile_id": request.profile_id,
+                    "voice_prompt": request.voice_prompt,
+                    "style_instructions": request.style_instructions,
+                    "language": request.language,
+                    "speed": request.speed,
+                    "temperature": request.temperature,
+                    "top_k": request.top_k,
+                    "top_p": request.top_p,
+                    "repetition_penalty": request.repetition_penalty,
+                    "max_new_tokens": request.max_new_tokens,
+                    "do_sample": request.do_sample,
+                    "backend_params": request.backend_params,
                     "voice_sample_path": (
                         str(request.voice_sample_path)
                         if request.voice_sample_path
@@ -408,7 +426,7 @@ raise SystemExit(1)
 
 
 def _module_render_code() -> str:
-    return r'''
+    return r"""
 import importlib
 import json
 import os
@@ -465,14 +483,20 @@ def _render_with_official_qwen_tts(module):
         load_kwargs["dtype"] = dtype
 
     model = model_cls.from_pretrained(payload["model_path"], **load_kwargs)
-    language = os.getenv("CODEXIFY_TTS_QWEN3_LANGUAGE", "english").strip() or "english"
+    default_language = (
+        os.getenv("CODEXIFY_TTS_QWEN3_LANGUAGE", "english").strip() or "english"
+    )
     default_speaker = (
         os.getenv("CODEXIFY_TTS_QWEN3_DEFAULT_SPEAKER", "ryan").strip() or "ryan"
     )
     speakers = []
+    languages = []
+    instructions = []
     for request in requests:
         requested_voice = (request.get("voice") or "default").strip()
         speakers.append(default_speaker if requested_voice == "default" else requested_voice)
+        languages.append((request.get("language") or default_language).strip())
+        instructions.append(_request_instruction(request))
     supported_speakers = model.get_supported_speakers()
     if supported_speakers:
         normalized = {str(item).lower(): str(item) for item in supported_speakers}
@@ -487,10 +511,7 @@ def _render_with_official_qwen_tts(module):
             resolved_speakers.append(normalized[lookup])
         speakers = resolved_speakers
 
-    gen_kwargs = {}
-    max_new_tokens = os.getenv("CODEXIFY_TTS_QWEN3_MAX_NEW_TOKENS")
-    if max_new_tokens:
-        gen_kwargs["max_new_tokens"] = int(max_new_tokens)
+    gen_kwargs = _request_generation_kwargs(requests[0])
 
     if hasattr(model, "generate_custom_voice"):
         batch_size = max(int(os.getenv("CODEXIFY_TTS_QWEN3_BATCH_SIZE", "4")), 1)
@@ -498,14 +519,71 @@ def _render_with_official_qwen_tts(module):
             batch = requests[start : start + batch_size]
             wavs, sample_rate = model.generate_custom_voice(
                 text=[request["text"] for request in batch],
-                language=[language] * len(batch),
+                language=languages[start : start + batch_size],
                 speaker=speakers[start : start + batch_size],
+                instruct=instructions[start : start + batch_size],
+                non_streaming_mode=_request_non_streaming_mode(batch[0]),
                 **gen_kwargs,
             )
             for request, wav in zip(batch, wavs):
                 sf.write(request["output_path"], wav, sample_rate)
         return True
     return False
+
+
+def _request_instruction(request):
+    parts = []
+    for key in ("voice_prompt", "style_instructions"):
+        value = request.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    return "\n\n".join(parts) if parts else None
+
+
+def _request_backend_params(request):
+    params = request.get("backend_params")
+    return params if isinstance(params, dict) else {}
+
+
+def _request_non_streaming_mode(request):
+    params = _request_backend_params(request)
+    value = params.get("non_streaming_mode")
+    if value is None:
+        return True
+    return bool(value)
+
+
+def _request_generation_kwargs(request):
+    params = _request_backend_params(request)
+    kwargs = {}
+    for key in (
+        "temperature",
+        "top_k",
+        "top_p",
+        "repetition_penalty",
+        "max_new_tokens",
+        "do_sample",
+    ):
+        value = request.get(key)
+        if value is not None:
+            kwargs[key] = value
+
+    if "max_new_tokens" not in kwargs:
+        max_new_tokens = os.getenv("CODEXIFY_TTS_QWEN3_MAX_NEW_TOKENS")
+        if max_new_tokens:
+            kwargs["max_new_tokens"] = int(max_new_tokens)
+
+    for key in (
+        "subtalker_dosample",
+        "subtalker_top_k",
+        "subtalker_top_p",
+        "subtalker_temperature",
+        "x_vector_only_mode",
+    ):
+        value = params.get(key)
+        if value is not None:
+            kwargs[key] = value
+    return kwargs
 
 
 _disable_transformers_mlx_probe()
@@ -558,4 +636,4 @@ if cls is not None:
 raise SystemExit(
     "Importable Qwen3-TTS module did not expose synthesize_to_file/render_to_file"
 )
-'''
+"""
