@@ -17,6 +17,17 @@ Intention packet:
 - Stage B must prefer discovery tasks over speculative implementation when evidence is insufficient.
 - Stage B must not widen release claims or runtime support claims.
 - Stage B must not treat the intention packet as runtime proof.
+- Interpret canonical packet sections this way when present:
+  - `Objective`: use to select relevant Stage-A findings; do not create campaigns unsupported by Stage-A evidence.
+  - `Why This Matters`: use to prioritize among supported campaign candidates; do not turn motivation into implementation scope.
+  - `Scope`: use to keep tasks bounded to relevant files and subsystems.
+  - `Out of Scope`: treat as hard exclusions for campaign generation.
+  - `Evidence Requirements`: require campaigns and tasks to cite or derive from Stage-A evidence that satisfies these requirements where possible.
+  - `Stage B Campaign Posture`: use to shape number of campaigns, task count, and sequencing.
+  - `Task-Lane Expectations`: recognize and preserve operator expectations, but do not implement full Codexify task-lane classification unless already supported by the current schema.
+  - `Release-Truth Constraints`: prevent release claim widening.
+  - `Failure / Stop Conditions`: prefer discovery tasks or no campaign when evidence is insufficient.
+- Do not invent tasks from packet intent alone, convert unsupported claims into executable work, bypass independently mergeable task boundaries, or widen release support.
 
 <INTENTION_PACKET>
 

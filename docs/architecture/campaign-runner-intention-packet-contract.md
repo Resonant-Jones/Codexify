@@ -135,6 +135,24 @@ Examples are planning artifacts only. They are not proof that a campaign has run
 
 A completed packet must still be read under this contract's invariants, including schema authority, runner-owned constraints, provider governance, Guardian ownership, Pi broker boundaries, and `00-current-state.md`.
 
+## Stage Interpretation Rules
+
+Stage A audits against the packet but must distinguish:
+
+- repo-grounded evidence and findings
+- unsupported intention claims
+- unknowns requiring discovery
+
+Stage B compiles only from Stage-A evidence. It uses the same packet to filter, prioritize, and constrain campaign synthesis, but the packet cannot create implementation authority by itself.
+
+Discovery-only output is preferred when the packet objective is not repo-supported or when required evidence is missing, contradictory, or only aspirational.
+
+Existing schemas remain authoritative for both stages:
+
+- Stage A must conform to `mega_audit_output.schema.json`.
+- Stage B must conform to `campaign_set.schema.json`.
+- Packet sections may guide interpretation, but they do not add schema fields, bypass validation, or override runner-owned constraints.
+
 ## Example Intention Packet
 
 ```markdown
