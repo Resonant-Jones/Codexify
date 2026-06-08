@@ -23,6 +23,8 @@ import {
 import type { FlowDraftContent, FlowDraftStageId } from "./model/flowDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
+const FLOW_BUILDER_THREE_PANE_QUERY = "(min-width: 1024px)";
+const FLOW_BUILDER_WIDE_QUERY = "(min-width: 1536px)";
 
 type FlowBuilderPageProps = {
   onReturnToGuardian?: () => void;
@@ -80,6 +82,59 @@ function canonicalizeFlowBuilderLocation(nextMode: FlowBuilderMode): void {
   }
 
   window.history.replaceState({}, "", nextPath);
+}
+
+function useFlowBuilderGridTemplate(): string {
+  const [viewportState, setViewportState] = React.useState(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return { threePane: true, wide: false };
+    }
+
+    return {
+      threePane: window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY).matches,
+      wide: window.matchMedia(FLOW_BUILDER_WIDE_QUERY).matches,
+    };
+  });
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return undefined;
+    }
+
+    const threePaneQuery = window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY);
+    const wideQuery = window.matchMedia(FLOW_BUILDER_WIDE_QUERY);
+    const sync = () => {
+      setViewportState({
+        threePane: threePaneQuery.matches,
+        wide: wideQuery.matches,
+      });
+    };
+
+    sync();
+    threePaneQuery.addEventListener("change", sync);
+    wideQuery.addEventListener("change", sync);
+
+    return () => {
+      threePaneQuery.removeEventListener("change", sync);
+      wideQuery.removeEventListener("change", sync);
+    };
+  }, []);
+
+  if (!viewportState.threePane) {
+    return "minmax(0, 1fr)";
+  }
+
+  if (viewportState.wide) {
+    return "minmax(240px, 280px) minmax(0, 1fr) minmax(280px, 340px)";
+  }
+
+  return "minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px)";
 }
 
 function ModeButton({
@@ -197,6 +252,7 @@ export default function FlowBuilderPage({
     () => getSupportChatContextSummary(draft, view),
     [draft, view]
   );
+  const panelGridTemplate = useFlowBuilderGridTemplate();
 
   const handleSelectMode = useCallback(
     (nextMode: FlowBuilderMode) => {
@@ -250,10 +306,11 @@ export default function FlowBuilderPage({
     <div
       data-testid="flow-builder-page"
       data-flow-builder-mode={view.mode}
-      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-auto p-[var(--card-pad)]"
+      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-x-hidden overflow-y-auto p-[var(--card-pad)]"
     >
       <div
-        className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-hidden rounded-[var(--tile-radius,19px)] border"
+        data-testid="flow-builder-surface"
+        className="mx-auto flex w-full max-w-[1680px] flex-col rounded-[var(--tile-radius,19px)] border"
         style={{
           borderColor: "var(--panel-border)",
           background:
@@ -324,7 +381,11 @@ export default function FlowBuilderPage({
           </div>
         </header>
 
-        <div className="grid flex-1 gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]">
+        <div
+          data-testid="flow-builder-panel-grid"
+          className="grid gap-4 p-4 sm:p-6"
+          style={{ gridTemplateColumns: panelGridTemplate }}
+        >
           <FlowBuilderParameterRail
             currentSelection={currentSelection}
             onSelectStage={handleSelectStage}
