@@ -121,6 +121,20 @@ The packet cannot override runner-owned placeholders such as:
 
 The runner replaces placeholders only in the prompt template, not inside inserted packet text or pasted Stage-A JSON.
 
+## Canonical Template and Example
+
+The default operator-facing shape for intention packets is the canonical template:
+
+- [`Campaign Runner Intention Packet Template`](../Campaign/templates/campaign-runner-intention-packet-template.md)
+
+The repo also includes one illustrative example packet:
+
+- [`Provider Readiness Intention Packet Example`](../Campaign/examples/campaign-runner-intention-packet-provider-readiness.md)
+
+Examples are planning artifacts only. They are not proof that a campaign has run, that provider-broker readiness has been validated, or that runtime support exists.
+
+A completed packet must still be read under this contract's invariants, including schema authority, runner-owned constraints, provider governance, Guardian ownership, Pi broker boundaries, and `00-current-state.md`.
+
 ## Example Intention Packet
 
 ```markdown

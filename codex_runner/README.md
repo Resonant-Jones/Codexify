@@ -146,6 +146,24 @@ python codex_runner/runner.py \
   --campaign-set-schema-file /path/to/campaign_set.schema.json
 ```
 
+### Intention packet seam
+
+Use `--intention-packet-file` to provide an operator-authored Markdown packet that narrows Stage A audit posture and Stage B campaign compilation without editing the base prompt templates for one-off targeting.
+
+Minimal example:
+
+```bash
+python codex_runner/runner.py \
+  --repo-root /absolute/path/to/repo \
+  --audit-prompt-file codex_runner/prompts/mega_audit.md \
+  --audit-schema-file codex_runner/schemas/mega_audit_output.schema.json \
+  --compiler-prompt-file codex_runner/prompts/audit_report_to_campaign_runner.md \
+  --campaign-set-schema-file codex_runner/schemas/campaign_set.schema.json \
+  --intention-packet-file docs/Campaign/templates/campaign-runner-intention-packet-template.md
+```
+
+The packet is planning input only. It can narrow the audit/campaign posture, but it does not prove runtime support, provider support, execution readiness, or release scope. Prefer a completed packet over prompt-template edits whenever the target is a one-off planning objective.
+
 General flags:
 - `--provider pi`
 - `--passes N` (default: `1`)
