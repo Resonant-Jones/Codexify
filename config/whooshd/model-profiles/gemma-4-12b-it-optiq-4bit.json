@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "gemma-4-e2b-it-4bit",
-  "display_name": "Gemma 4 E2B Instruct 4-bit",
+  "id": "gemma-4-12b-it-optiq-4bit",
+  "display_name": "Gemma 4 12B Instruct OptiQ 4-bit",
   "family": "gemma4",
   "provider_id": "local",
   "display_vendor": "Whoosh'd",
@@ -13,17 +13,17 @@
     "startup_command": [
       "mlx_vlm.server",
       "--model",
-      "mlx-community/gemma-4-e2b-it-4bit",
+      "mlx-community/gemma-4-12B-it-OptiQ-4bit",
       "--port",
       "8000"
     ]
   },
   "model": {
-    "repo": "mlx-community/gemma-4-e2b-it-4bit",
-    "upstream_family": "google/gemma-4-E2B-it",
-    "quantization": "4bit",
+    "repo": "mlx-community/gemma-4-12B-it-OptiQ-4bit",
+    "upstream_family": "google/gemma-4-12B-it",
+    "quantization": "OptiQ-4bit mixed-precision",
     "instruction_tuned": true,
-    "effective_size": "E2B"
+    "effective_size": "12B"
   },
   "weights": {
     "storage_root": "/Volumes/Dev_SSD/whooshd/model-weights",
@@ -32,7 +32,7 @@
   },
   "capabilities": {
     "chat": true,
-    "vision": true,
+    "vision": false,
     "audio_input": false,
     "tool_calling": false,
     "coding": "candidate",
