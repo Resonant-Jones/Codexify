@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "gemma-4-e2b-it-4bit",
+  "display_name": "Gemma 4 E2B Instruct 4-bit",
+  "family": "gemma4",
+  "provider_id": "local",
+  "display_vendor": "Whoosh'd",
+  "runtime": {
+    "kind": "mlx",
+    "server": "mlx_vlm.server",
+    "openai_compatible": true,
+    "default_base_url": "http://host.docker.internal:8000/v1",
+    "startup_command": [
+      "mlx_vlm.server",
+      "--model",
+      "mlx-community/gemma-4-e2b-it-4bit",
+      "--port",
+      "8000"
+    ]
+  },
+  "model": {
+    "repo": "mlx-community/gemma-4-e2b-it-4bit",
+    "upstream_family": "google/gemma-4-E2B-it",
+    "quantization": "4bit",
+    "instruction_tuned": true,
+    "effective_size": "E2B"
+  },
+  "weights": {
+    "storage_root": "/Volumes/Dev_SSD/whooshd/model-weights",
+    "repo_local": false,
+    "download_required": true
+  },
+  "capabilities": {
+    "chat": true,
+    "vision": true,
+    "audio_input": false,
+    "tool_calling": false,
+    "coding": "candidate",
+    "long_context": "candidate"
+  },
+  "guardian_defaults": {
+    "mode": "chat",
+    "thinking_default": false,
+    "history_policy": "final_answer_only",
+    "requires_final_answer_extraction": true,
+    "reject_thought_channel_leaks": true,
+    "provider_id_must_remain": "local"
+  },
+  "acceptance_checks": [
+    {
+      "id": "health_ready",
+      "kind": "runtime",
+      "description": "Runtime exposes OpenAI-compatible health/readiness or model-list evidence."
+    },
+    {
+      "id": "no_prompt_echo",
+      "kind": "transcript",
+      "description": "Assistant response must not echo the full prompt or chat template."
+    },
+    {
+      "id": "no_thought_channel_leak",
+      "kind": "transcript",
+      "description": "Assistant response must not expose <think>, <|channel>thought, analysis, hidden process text, or prompt-internal channel markers."
+    },
+    {
+      "id": "greeting_baseline",
+      "kind": "quality",
+      "description": "A simple greeting should produce a short direct assistant response."
+    },
+    {
+      "id": "code_generation_baseline",
+      "kind": "quality",
+      "description": "A small programming request should produce usable code without refusal boilerplate or hidden-channel leakage."
+    },
+    {
+      "id": "guardian_completion_smoke",
+      "kind": "codexify",
+      "description": "A later live proof task must verify one Guardian chat completion persists back into the source thread."
+    }
+  ],
+  "release_posture": {
+    "status": "candidate",
+    "release_supported": false,
+    "proof_required": true,
+    "notes": "Profile metadata only. This does not widen the supported release surface."
+  }
+}
