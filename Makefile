@@ -206,9 +206,7 @@ evening-audit:
 
 # Generate a solo-builder Guardian Work Brief for Axis and the next Codex task
 guardian-brief:
-	@PY="$(PYTHON)"; \
-	if ! command -v "$$PY" >/dev/null 2>&1; then PY=python3; fi; \
-	"$$PY" scripts/guardian_work_brief.py
+	python3 scripts/guardian/generate_work_brief.py
 
 # Generate the Unity Audit coherence scaffold
 audit-unity:
