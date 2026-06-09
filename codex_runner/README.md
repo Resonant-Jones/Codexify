@@ -166,6 +166,8 @@ The packet is planning input only. It can narrow the audit/campaign posture, but
 
 Stage A uses the packet to guide audit posture. Stage B uses the same packet to filter and shape campaign synthesis. Both stages must preserve schema validation and release-truth boundaries. Use the canonical template in `docs/Campaign/templates/campaign-runner-intention-packet-template.md` for best results.
 
+Stage B campaign tasks include `task_lane` metadata (`standard`, `architecture_impact`, `discovery`, `docs_only`, or `proof_runbook`). The lane helps reviewers and future artifact generation choose the correct Codexify workflow, but it does not execute anything, approve work, or widen release support. Use `discovery` when the packet objective is not sufficiently supported by repository evidence.
+
 General flags:
 - `--provider pi`
 - `--passes N` (default: `1`)

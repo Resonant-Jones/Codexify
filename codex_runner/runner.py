@@ -49,6 +49,13 @@ CAMPAIGN_ID_PATTERN = re.compile(
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_:\-]+$")
 TASK_SLUG_PATTERN = re.compile(r"^[a-z0-9_]+$")
 RISK_VALUES = {"HIGH", "MED", "LOW"}
+TASK_LANE_VALUES = {
+    "standard",
+    "architecture_impact",
+    "discovery",
+    "docs_only",
+    "proof_runbook",
+}
 TASK_STATUS_VALUES = {"pending", "success", "failed", "blocked"}
 TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 
@@ -449,6 +456,12 @@ def normalize_task(task: dict[str, Any], campaign_slug: str) -> dict[str, Any]:
     if not task_slug or not TASK_SLUG_PATTERN.fullmatch(task_slug):
         raise RunnerError(f"Invalid task.slug: {task_slug}")
 
+    task_lane = str(task.get("task_lane") or "").strip()
+    if task_lane and task_lane not in TASK_LANE_VALUES:
+        raise RunnerError(
+            f"Invalid task.task_lane for task {task_id}: {task_lane}"
+        )
+
     risk = str(task["risk"]).strip().upper()
     if risk not in RISK_VALUES:
         raise RunnerError(f"Invalid task.risk for task {task_id}: {risk}")
@@ -481,6 +494,8 @@ def normalize_task(task: dict[str, Any], campaign_slug: str) -> dict[str, Any]:
         "dependencies": dependencies,
         "campaign_slug": campaign_slug,
     }
+    if task_lane:
+        normalized["task_lane"] = task_lane
     if not normalized["commit_message"]:
         raise RunnerError(f"Task commit_message cannot be empty: {task_id}")
 
@@ -500,6 +515,8 @@ def task_hash(task: dict[str, Any]) -> str:
         "activation_prompt": task["activation_prompt"],
         "dependencies": task["dependencies"],
     }
+    if "task_lane" in task:
+        payload["task_lane"] = task["task_lane"]
     return sha256_text(canonical_json(payload))
 
 
@@ -1657,6 +1674,7 @@ def run_pass(
                 discovery_task = {
                     "id": discovery_task_id,
                     "slug": "discovery",
+                    "task_lane": "discovery",
                     "area": "docs",
                     "risk": "LOW",
                     "files": [],

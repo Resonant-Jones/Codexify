@@ -85,6 +85,18 @@ def test_stage_b_prompt_doctrine_interprets_canonical_packet_sections() -> None:
         "Stage-A evidence"
     ) in rendered
     assert "Do not invent tasks from packet intent alone" in rendered
+    for lane in (
+        "`standard`",
+        "`architecture_impact`",
+        "`discovery`",
+        "`docs_only`",
+        "`proof_runbook`",
+    ):
+        assert lane in rendered
+    assert (
+        "When uncertain between `standard` and `architecture_impact`, "
+        "choose `architecture_impact`"
+    ) in rendered
     for section_name in (
         "`Stage B Campaign Posture`",
         "`Task-Lane Expectations`",
