@@ -190,6 +190,52 @@ describe("ProviderSelect catalog routing", () => {
     });
   });
 
+  it("does not treat proof-required local model profiles as selectable chat models", async () => {
+    (api.get as any).mockResolvedValue({
+      data: {
+        providers: [
+          {
+            id: "local",
+            displayName: "Whoosh'd",
+            enabled: true,
+            authorized: true,
+            available: true,
+            source: {
+              kind: "local",
+              baseUrl: "http://host.docker.internal:11434/v1",
+              label: "host.docker.internal:11434",
+            },
+            models: [
+              {
+                id: "mlx-community/gemma-4-12B-it-OptiQ-4bit",
+                displayName: "Gemma 4 12B Instruct OptiQ 4-bit",
+                supports_chat: true,
+                model_kind: "chat",
+                release_supported: false,
+                release_posture: {
+                  status: "candidate",
+                  release_supported: false,
+                  proof_required: true,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    render(<ProviderSelect value="default" onChange={vi.fn()} openSignal={1} />);
+
+    const localProvider = await screen.findByRole("button", {
+      name: "Whoosh'd",
+    });
+    expect(localProvider).toBeDisabled();
+    expect(screen.getByText("No chat models")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Gemma 4 12B Instruct OptiQ 4-bit")
+    ).not.toBeInTheDocument();
+  });
+
   it("shows a visible error when the provider catalog request fails", async () => {
     (api.get as any).mockRejectedValueOnce(new Error("network down"));
 
