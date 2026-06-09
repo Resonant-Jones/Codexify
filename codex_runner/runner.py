@@ -61,6 +61,10 @@ TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 
 MAPPING_START = "<!-- RUNNER_TASK_MAP -->"
 MAPPING_END = "<!-- /RUNNER_TASK_MAP -->"
+TASK_PROMPT_DISCLAIMER = (
+    "This is a reviewable Campaign Runner task prompt artifact. "
+    "It does not authorize execution by itself."
+)
 SUPPORTED_PROVIDER = "pi"
 LEGACY_UNSUPPORTED_PROVIDERS = {"codex", "claude"}
 UNSUPPORTED_DIRECT_PROVIDER_MESSAGE = (
@@ -655,6 +659,7 @@ def merge_campaign_set(
                 "materialized": {
                     "campaign_doc_path": None,
                     "task_artifact_paths": {},
+                    "task_prompt_artifact_paths": {},
                 },
             }
             state["campaigns"][campaign_id] = existing
@@ -839,6 +844,228 @@ def ensure_mapping_block(text: str) -> str:
     return f"{base}\n\n{MAPPING_START}\n{MAPPING_END}\n"
 
 
+def markdown_bullets(items: list[str], empty_line: str) -> list[str]:
+    if not items:
+        return [f"- {empty_line}"]
+    return [f"- {item}" for item in items]
+
+
+def task_prompt_lane(task: dict[str, Any]) -> tuple[str, list[str]]:
+    raw_lane = str(task.get("task_lane") or "").strip()
+    if raw_lane in TASK_LANE_VALUES:
+        return raw_lane, []
+    if not raw_lane:
+        return (
+            "discovery",
+            [
+                "TODO(operator): task_lane was missing; defaulted to "
+                "discovery conservatively."
+            ],
+        )
+    raise RunnerError(f"Invalid task.task_lane for task {task['id']}: {raw_lane}")
+
+
+def prompt_shape_title(task_lane: str) -> str:
+    return {
+        "standard": "Standard Codexify Task",
+        "architecture_impact": "Architecture-Impact Codexify Task",
+        "discovery": "Discovery Codexify Task",
+        "docs_only": "Docs-Only Codexify Task",
+        "proof_runbook": "Proof/Runbook Codexify Task",
+    }[task_lane]
+
+
+def task_prompt_git_add_command(
+    task: dict[str, Any],
+    *,
+    task_artifact_path: str,
+    prompt_artifact_path: str,
+) -> str:
+    paths = [
+        str(path).strip()
+        for path in task.get("files", [])
+        if str(path).strip()
+    ]
+    paths.extend([task_artifact_path, prompt_artifact_path])
+    if not paths:
+        return "git add TODO(operator): add changed file or artifact paths"
+    return "git add " + " ".join(paths)
+
+
+def render_task_prompt_artifact(
+    task: dict[str, Any],
+    campaign: dict[str, Any],
+    *,
+    task_artifact_path: str,
+    prompt_artifact_path: str,
+) -> str:
+    task_lane, lane_notes = task_prompt_lane(task)
+    shape_title = prompt_shape_title(task_lane)
+    files = [
+        str(path).strip()
+        for path in task.get("files", [])
+        if str(path).strip()
+    ]
+    tests = [
+        str(command).strip()
+        for command in task.get("tests", [])
+        if str(command).strip()
+    ]
+    commit_message = str(task.get("commit_message") or "").strip()
+    if not commit_message:
+        commit_message = "TODO(operator): choose a commit message"
+
+    body: list[str] = [
+        TASK_PROMPT_DISCLAIMER,
+        "",
+        f"Prompt shape: {shape_title}",
+        f"Task lane: {task_lane}",
+        "",
+        "Context:",
+        "- You are operating on the local Codexify repo.",
+        "- Each task must be self-contained, testable, and committed individually.",
+        "- This prompt is generated from Campaign Runner task metadata for operator review.",
+        f"- Campaign: {campaign['campaign_id']}",
+        f"- Task id: {task['id']}",
+        f"- Task slug: {task['slug']}",
+        f"- Task artifact: {task_artifact_path}",
+        f"- Prompt artifact: {prompt_artifact_path}",
+    ]
+    body.extend(f"- {note}" for note in lane_notes)
+
+    optional_sections = [
+        ("Task title", task.get("title")),
+        ("Task summary", task.get("summary")),
+        ("Task evidence", task.get("evidence")),
+    ]
+    for label, value in optional_sections:
+        if value:
+            body.append(f"- {label}: {value}")
+
+    body.extend(
+        [
+            "",
+            "Task:",
+            str(task.get("activation_prompt") or "").strip()
+            or "TODO(operator): write the task objective before execution.",
+            "",
+            "File paths to inspect:",
+        ]
+    )
+    body.extend(
+        markdown_bullets(
+            files,
+            "TODO(operator): task did not provide explicit file paths to inspect.",
+        )
+    )
+
+    body.extend(
+        [
+            "",
+            "Invariants / constraints:",
+            "- Do not treat this prompt artifact as execution approval.",
+            "- Preserve Campaign Runner schema validation and runner-owned constraints.",
+            "- Do not add provider behavior, direct Codex or Claude execution, Pi broker changes, queue or worker changes, route changes, database changes, or UI changes unless a reviewed task explicitly authorizes them.",
+            "- Do not widen release claims; docs/architecture/00-current-state.md remains authoritative.",
+        ]
+    )
+
+    if task_lane == "architecture_impact":
+        body.extend(
+            [
+                "",
+                "Required pre-read:",
+                "1. docs/architecture/00-current-state.md",
+                "2. docs/architecture/adr/adr-index.md",
+                "3. docs/architecture/README.md",
+                "4. docs/architecture/agent-protocol-operations.md",
+                "5. Relevant contracts for the files being changed",
+                "",
+                "ADR impact:",
+                "- Classification: TODO(operator): classify as No ADR impact, Aligned with existing ADR(s), Requires new ADR, or Supersedes existing ADR.",
+                "- Governing ADRs/contracts: TODO(operator): list governing ADRs and contracts.",
+                "- Reason: TODO(operator): explain the architecture impact in one to three sentences.",
+                "",
+                "Current-truth anchors:",
+                "- docs/architecture/00-current-state.md remains authoritative for current release truth.",
+                "- TODO(operator): list what is true now, what is not yet true, and what this task may assume.",
+                "",
+                "Proof surface:",
+                "- TODO(operator): identify targeted tests, docs validation, live proof, or inspection evidence required for this change.",
+                "",
+                "Documentation follow-through:",
+                "- TODO(operator): update relevant contracts/docs or explicitly state why no docs update applies.",
+            ]
+        )
+    elif task_lane == "discovery":
+        body.extend(
+            [
+                "",
+                "Discovery posture:",
+                "- Read-only investigation first.",
+                "- Do not modify files unless a follow-up implementation task is created.",
+                "- No automated tests apply unless the discovery task includes a validation script.",
+                "- Do not commit if no files change.",
+            ]
+        )
+    elif task_lane == "docs_only":
+        body.extend(
+            [
+                "",
+                "Docs-only posture:",
+                "- No runtime behavior changes.",
+                "- No release claim widening.",
+                "- Run docs validation if available.",
+                "- Otherwise state No automated tests apply.",
+            ]
+        )
+    elif task_lane == "proof_runbook":
+        body.extend(
+            [
+                "",
+                "Proof/runbook posture:",
+                "- Capture proof for an existing path only.",
+                "- Do not change runtime behavior.",
+                "- Evidence must distinguish acceptance, completion, and UI/operator visibility where relevant.",
+                "- Commit only proof/runbook artifacts if files are produced.",
+            ]
+        )
+
+    body.extend(["", "Validation commands:"])
+    body.extend(
+        markdown_bullets(
+            tests,
+            "TODO(operator): add validation commands or state No automated tests apply.",
+        )
+    )
+
+    git_add_command = task_prompt_git_add_command(
+        task,
+        task_artifact_path=task_artifact_path,
+        prompt_artifact_path=prompt_artifact_path,
+    )
+    body.extend(
+        [
+            "",
+            "Git add command:",
+            git_add_command,
+            "",
+            "Git commit command:",
+            f'git commit -m "{commit_message}"',
+            "",
+            "Required output contract:",
+            "- Summary of changes",
+            "- ADR impact, when applicable",
+            "- Validation results",
+            "- Documentation follow-through, when applicable",
+            "- Git commit hash",
+            "- Known limitations or deferred work",
+        ]
+    )
+
+    return "```text\n" + "\n".join(body).rstrip() + "\n```\n"
+
+
 def parse_mapping_entries(block: str) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     for line in block.splitlines():
@@ -908,6 +1135,12 @@ def materialize_campaign_artifacts(
     campaign["materialized"]["campaign_doc_path"] = str(
         (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
     )
+    task_artifact_paths = campaign["materialized"].setdefault(
+        "task_artifact_paths", {}
+    )
+    task_prompt_paths = campaign["materialized"].setdefault(
+        "task_prompt_artifact_paths", {}
+    )
 
     task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}_{seq}"
     task_dir_abs = repo_root / task_dir_rel
@@ -915,10 +1148,9 @@ def materialize_campaign_artifacts(
 
     task_path_owners: dict[Path, str] = {}
     for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
-        task_file_name = (
-            f"TASK_{to_lower_snake(task['slug'])}_{date_underscore}.md"
-        )
-        task_rel = task_dir_rel / task_file_name
+        task_stem = f"{to_lower_snake(task['slug'])}_{date_underscore}"
+        task_rel = task_dir_rel / f"TASK_{task_stem}.md"
+        prompt_rel = task_dir_rel / f"PROMPT_{task_stem}.md"
         previous_owner = task_path_owners.get(task_rel)
         if previous_owner is not None and previous_owner != task["id"]:
             raise RunnerError(
@@ -933,9 +1165,19 @@ def materialize_campaign_artifacts(
             content = task["task_artifact_markdown"].rstrip() + "\n"
             text_write(task_abs, content)
             touched.append(str(task_rel.as_posix()))
-        campaign["materialized"]["task_artifact_paths"][task["id"]] = str(
-            task_rel.as_posix()
-        )
+        task_artifact_paths[task["id"]] = str(task_rel.as_posix())
+
+        prompt_abs = repo_root / prompt_rel
+        if not prompt_abs.exists():
+            content = render_task_prompt_artifact(
+                task,
+                campaign,
+                task_artifact_path=str(task_rel.as_posix()),
+                prompt_artifact_path=str(prompt_rel.as_posix()),
+            )
+            text_write(prompt_abs, content)
+            touched.append(str(prompt_rel.as_posix()))
+        task_prompt_paths[task["id"]] = str(prompt_rel.as_posix())
 
     return touched
 

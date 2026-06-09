@@ -168,6 +168,12 @@ Stage A uses the packet to guide audit posture. Stage B uses the same packet to 
 
 Stage B campaign tasks include `task_lane` metadata (`standard`, `architecture_impact`, `discovery`, `docs_only`, or `proof_runbook`). The lane helps reviewers and future artifact generation choose the correct Codexify workflow, but it does not execute anything, approve work, or widen release support. Use `discovery` when the packet objective is not sufficiently supported by repository evidence.
 
+### Reviewable task prompt artifacts
+
+Campaign materialization writes reviewable `PROMPT_<task_slug>.md` artifacts beside generated task artifacts under `docs/tasks/`. These prompt artifacts are derived from `task_lane` and provide standard, architecture-impact, discovery, docs-only, or proof/runbook handoff shapes for operator review and later coding-agent use.
+
+Prompt artifacts are review-only. They do not execute tasks, approve work, call providers, change Pi broker behavior, or widen release support. Existing release-truth boundaries still apply.
+
 General flags:
 - `--provider pi`
 - `--passes N` (default: `1`)
