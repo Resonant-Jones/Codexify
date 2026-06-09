@@ -171,6 +171,42 @@ def json_read(path: Path) -> dict[str, Any]:
     return data
 
 
+def validate_json_schema(
+    payload: dict[str, Any], schema_path: Path, label: str
+) -> None:
+    try:
+        from jsonschema import Draft202012Validator, FormatChecker
+    except ImportError as exc:
+        raise RunnerError(
+            "jsonschema is required for fixture materialization validation"
+        ) from exc
+
+    schema = json_read(schema_path)
+    validator = Draft202012Validator(
+        schema,
+        format_checker=FormatChecker(),
+    )
+    errors = sorted(validator.iter_errors(payload), key=lambda error: error.path)
+    if not errors:
+        return
+
+    first = errors[0]
+    path = "$"
+    if first.path:
+        path += "." + ".".join(str(part) for part in first.path)
+    raise RunnerError(
+        f"Schema validation failed for {label}: {path}: {first.message}"
+    )
+
+
+def read_schema_validated_json(
+    json_path: Path, schema_path: Path, label: str
+) -> dict[str, Any]:
+    payload = json_read(json_path)
+    validate_json_schema(payload, schema_path, label)
+    return payload
+
+
 def json_write(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -1596,6 +1632,37 @@ def run_inputs_payload(
     return payload
 
 
+def fixture_run_inputs_payload(
+    *,
+    repo_root: Path,
+    base_ref_sha: str,
+    audit_schema_file: Path,
+    campaign_set_schema_file: Path,
+    audit_json_file: Path,
+    campaign_json_file: Path,
+    intention_packet_sha256: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "repo_root": str(repo_root.resolve()),
+        "base_ref": base_ref_sha,
+        "provider": "fixture",
+        "execute_mode": "fixture-materialization",
+        "materialization_mode": "fixtures",
+        "provider_invocation": "skipped",
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "audit_schema_sha256": sha256_file(audit_schema_file),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "campaign_set_schema_sha256": sha256_file(campaign_set_schema_file),
+        "audit_json_file": str(audit_json_file.resolve()),
+        "audit_json_sha256": sha256_file(audit_json_file),
+        "campaign_json_file": str(campaign_json_file.resolve()),
+        "campaign_json_sha256": sha256_file(campaign_json_file),
+    }
+    if intention_packet_sha256 is not None:
+        payload["intention_packet_sha256"] = intention_packet_sha256
+    return payload
+
+
 def write_run_meta(
     path: Path,
     *,
@@ -1651,6 +1718,75 @@ def write_run_meta(
             "name": provider,
             "models": provider_models,
             "settings": provider_settings_sanitized,
+        },
+        "termination_reason": termination_reason,
+    }
+    json_write(path, payload)
+
+
+def write_fixture_run_meta(
+    path: Path,
+    *,
+    run_id: str,
+    audit_id: str,
+    base_ref_sha: str,
+    audit_schema_file: Path,
+    campaign_set_schema_file: Path,
+    audit_json_file: Path,
+    campaign_json_file: Path,
+    cli_args: list[str],
+    preflight_clean: bool,
+    selected_campaign: str | None,
+    selection_rationale: dict[str, Any] | None,
+    termination_reason: str,
+    run_inputs: dict[str, Any],
+    intention_packet_file: Path | None = None,
+    intention_packet_sha256: str | None = None,
+) -> None:
+    inputs: dict[str, Any] = {
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "audit_schema_sha256": sha256_file(audit_schema_file),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "campaign_set_schema_sha256": sha256_file(campaign_set_schema_file),
+        "audit_json_file": str(audit_json_file.resolve()),
+        "audit_json_sha256": sha256_file(audit_json_file),
+        "campaign_json_file": str(campaign_json_file.resolve()),
+        "campaign_json_sha256": sha256_file(campaign_json_file),
+    }
+    if intention_packet_file is not None:
+        inputs["intention_packet_file"] = str(intention_packet_file.resolve())
+    if intention_packet_sha256 is not None:
+        inputs["intention_packet_sha256"] = intention_packet_sha256
+
+    payload = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "generated_at": now_iso(),
+        "resolved_base_ref_sha": base_ref_sha,
+        "inputs": inputs,
+        "run_inputs": run_inputs,
+        "cli_args": cli_args,
+        "preflight": {
+            "git_clean": preflight_clean,
+        },
+        "selection": {
+            "selected_campaign": selected_campaign,
+            "rationale": selection_rationale,
+        },
+        "provider": {
+            "name": "fixture",
+            "invocation_skipped": True,
+            "models": {},
+            "settings": [],
+        },
+        "fixture_materialization": {
+            "enabled": True,
+            "provider_invocation_skipped": True,
+            "audit_json_file": str(audit_json_file.resolve()),
+            "campaign_json_file": str(campaign_json_file.resolve()),
+            "intention_packet_file": str(intention_packet_file.resolve())
+            if intention_packet_file is not None
+            else None,
         },
         "termination_reason": termination_reason,
     }
@@ -1718,6 +1854,162 @@ def update_campaign_completion(campaign: dict[str, Any]) -> None:
     campaign["status"] = (
         "completed" if campaign_is_completed(campaign) else "open"
     )
+
+
+def run_fixture_materialization(
+    args: argparse.Namespace,
+    *,
+    base_ref_sha: str,
+    cli_args: list[str],
+) -> dict[str, Any]:
+    repo_root = args.repo_root
+    preflight_clean = git_is_clean(repo_root, args.debug)
+    if not preflight_clean:
+        raise RunnerError("preflight failed: git tree is not clean")
+
+    intention_packet_sha256 = None
+    if args.intention_packet_file is not None:
+        intention_packet_sha256 = sha256_text(
+            load_intention_packet(args.intention_packet_file)
+        )
+
+    audit_payload = read_schema_validated_json(
+        args.audit_json_file,
+        args.audit_schema_file,
+        "audit JSON",
+    )
+    campaign_set_payload = read_schema_validated_json(
+        args.campaign_json_file,
+        args.campaign_set_schema_file,
+        "campaign JSON",
+    )
+
+    audit_id = str(audit_payload.get("audit_id") or "").strip()
+    stage_b_audit_id = str(campaign_set_payload.get("audit_id") or "").strip()
+    if stage_b_audit_id != audit_id:
+        raise RunnerError(
+            "Fixture audit_id mismatch. "
+            f"audit_json={audit_id} campaign_json={stage_b_audit_id}"
+        )
+    run_id = audit_id.removeprefix("AUDIT_")
+
+    run_inputs = fixture_run_inputs_payload(
+        repo_root=repo_root,
+        base_ref_sha=base_ref_sha,
+        audit_schema_file=args.audit_schema_file,
+        campaign_set_schema_file=args.campaign_set_schema_file,
+        audit_json_file=args.audit_json_file,
+        campaign_json_file=args.campaign_json_file,
+        intention_packet_sha256=intention_packet_sha256,
+    )
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    audit_dir_rel = DEFAULT_AUDITS_DIR / today_iso / audit_id
+    audit_dir_abs = repo_root / audit_dir_rel
+    audit_dir_abs.mkdir(parents=True, exist_ok=True)
+    json_write(audit_dir_abs / "run_inputs.json", run_inputs)
+    json_write(audit_dir_abs / "audit_output.json", audit_payload)
+    json_write(audit_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    state = load_state(repo_root)
+    previous_sha = state_hash(state)
+    merge_stats = merge_campaign_set(
+        state, campaign_set_payload, audit_id=audit_id
+    )
+
+    selection = select_campaign(state)
+    selected_campaign_slug = selection.campaign_slug if selection else "none"
+    selected_campaign_id = selection.campaign_id if selection else None
+    selection_reason = selection.reason if selection else None
+
+    run_dir_rel = DEFAULT_RUNS_DIR / today_iso / selected_campaign_slug / run_id
+    run_dir_abs = repo_root / run_dir_rel
+    run_dir_abs.mkdir(parents=True, exist_ok=True)
+    json_write(run_dir_abs / "run_inputs.json", run_inputs)
+    json_write(run_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    materialized_paths: list[str] = []
+    termination_reason = "fixture_materialization_no_campaign_selected"
+    if selection is None:
+        if merge_stats["campaigns"] == 0 and merge_stats["tasks"] == 0:
+            termination_reason = "fixture_materialization_no_campaigns"
+        else:
+            termination_reason = "fixture_materialization_no_eligible_campaigns"
+    else:
+        campaign = state["campaigns"][selection.campaign_id]
+        materialized_paths = materialize_campaign_artifacts(repo_root, campaign)
+        update_campaign_completion(campaign)
+        termination_reason = "fixture_materialization_selected_campaign_materialized"
+
+    post_state_sha = state_hash(state)
+    save_state(repo_root, state)
+    append_transition(
+        repo_root,
+        run_id=run_id,
+        pass_index=1,
+        reason="fixture_materialization_complete",
+        previous_state_sha=previous_sha,
+        post_state_sha=post_state_sha,
+    )
+
+    run_trace = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "pass_index": 1,
+        "base_ref_sha": base_ref_sha,
+        "generated_at": now_iso(),
+        "merge_stats": merge_stats,
+        "selection": {
+            "campaign_id": selected_campaign_id,
+            "campaign_slug": selected_campaign_slug,
+            "reason": selection_reason,
+        },
+        "events": [
+            {
+                "type": "fixture_materialization",
+                "provider_invocation_skipped": True,
+                "materialized_paths": materialized_paths,
+            }
+        ],
+        "termination_reason": termination_reason,
+    }
+    json_write(run_dir_abs / "execution_trace.json", run_trace)
+
+    meta_kwargs = dict(
+        run_id=run_id,
+        audit_id=audit_id,
+        base_ref_sha=base_ref_sha,
+        audit_schema_file=args.audit_schema_file,
+        campaign_set_schema_file=args.campaign_set_schema_file,
+        audit_json_file=args.audit_json_file,
+        campaign_json_file=args.campaign_json_file,
+        cli_args=cli_args,
+        preflight_clean=preflight_clean,
+        selected_campaign=selected_campaign_id,
+        selection_rationale=selection_reason,
+        termination_reason=termination_reason,
+        run_inputs=run_inputs,
+        intention_packet_file=args.intention_packet_file,
+        intention_packet_sha256=intention_packet_sha256,
+    )
+    write_fixture_run_meta(audit_dir_abs / "run_meta.json", **meta_kwargs)
+    write_fixture_run_meta(run_dir_abs / "run_meta.json", **meta_kwargs)
+
+    summary = {
+        "mode": "fixture_materialization",
+        "provider_invocation_skipped": True,
+        "audit_id": audit_id,
+        "run_id": run_id,
+        "selected_campaign": selected_campaign_id,
+        "materialized_paths": materialized_paths,
+        "termination_reason": termination_reason,
+    }
+    log(
+        "Fixture materialization complete; provider invocation was skipped "
+        "because --materialize-from-fixtures was used."
+    )
+    log(json.dumps(summary, indent=2, ensure_ascii=False))
+    return summary
 
 
 def run_pass(
@@ -2203,10 +2495,10 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Absolute path to repo root",
     )
-    parser.add_argument("--audit-prompt-file", type=Path, required=True)
-    parser.add_argument("--audit-schema-file", type=Path, required=True)
-    parser.add_argument("--compiler-prompt-file", type=Path, required=True)
-    parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
+    parser.add_argument("--audit-prompt-file", type=Path)
+    parser.add_argument("--audit-schema-file", type=Path)
+    parser.add_argument("--compiler-prompt-file", type=Path)
+    parser.add_argument("--campaign-set-schema-file", type=Path)
     parser.add_argument(
         "--intention-packet-file",
         type=Path,
@@ -2218,6 +2510,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_TASK_RESULT_SCHEMA_PATH,
     )
+    parser.add_argument("--materialize-from-fixtures", action="store_true")
+    parser.add_argument("--audit-json-file", type=Path, default=None)
+    parser.add_argument("--campaign-json-file", type=Path, default=None)
 
     parser.add_argument("--passes", type=int, default=1)
     parser.add_argument("--base-ref", default="HEAD")
@@ -2272,12 +2567,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
 
     args.repo_root = args.repo_root.expanduser().resolve()
-    args.audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
-    args.audit_schema_file = args.audit_schema_file.expanduser().resolve()
-    args.compiler_prompt_file = args.compiler_prompt_file.expanduser().resolve()
-    args.campaign_set_schema_file = (
-        args.campaign_set_schema_file.expanduser().resolve()
-    )
+    if args.audit_prompt_file is not None:
+        args.audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
+    if args.audit_schema_file is not None:
+        args.audit_schema_file = args.audit_schema_file.expanduser().resolve()
+    if args.compiler_prompt_file is not None:
+        args.compiler_prompt_file = (
+            args.compiler_prompt_file.expanduser().resolve()
+        )
+    if args.campaign_set_schema_file is not None:
+        args.campaign_set_schema_file = (
+            args.campaign_set_schema_file.expanduser().resolve()
+        )
     if args.intention_packet_file is not None:
         args.intention_packet_file = (
             args.intention_packet_file.expanduser().resolve()
@@ -2285,6 +2586,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.task_result_schema_file = (
         args.task_result_schema_file.expanduser().resolve()
     )
+    if args.audit_json_file is not None:
+        args.audit_json_file = args.audit_json_file.expanduser().resolve()
+    if args.campaign_json_file is not None:
+        args.campaign_json_file = args.campaign_json_file.expanduser().resolve()
 
     if args.passes < 1:
         raise RunnerError("--passes must be >= 1")
@@ -2298,22 +2603,59 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.verify is None:
         args.verify = default_verify(os.environ.get("CI"))
 
-    if not args.auto_commit:
+    if not args.auto_commit and not args.materialize_from_fixtures:
         raise RunnerError(
             "--no-auto-commit is not supported in deterministic mode. "
             "Use --auto-commit to preserve clean-tree invariants."
         )
 
-    required_paths = [
-        args.audit_prompt_file,
-        args.audit_schema_file,
-        args.compiler_prompt_file,
-        args.campaign_set_schema_file,
-        args.task_result_schema_file,
-    ]
+    if getattr(args, "materialize_from_fixtures", False):
+        if args.audit_json_file is None:
+            raise RunnerError(
+                "--materialize-from-fixtures requires --audit-json-file"
+            )
+        if args.campaign_json_file is None:
+            raise RunnerError(
+                "--materialize-from-fixtures requires --campaign-json-file"
+            )
+        if args.audit_schema_file is None:
+            args.audit_schema_file = DEFAULT_MEGA_AUDIT_SCHEMA_PATH.resolve()
+        if args.campaign_set_schema_file is None:
+            args.campaign_set_schema_file = (
+                DEFAULT_CAMPAIGN_SET_SCHEMA_PATH.resolve()
+            )
+        required_paths = [
+            args.audit_schema_file,
+            args.campaign_set_schema_file,
+            args.audit_json_file,
+            args.campaign_json_file,
+        ]
+    else:
+        missing_flags = []
+        if args.audit_prompt_file is None:
+            missing_flags.append("--audit-prompt-file")
+        if args.audit_schema_file is None:
+            missing_flags.append("--audit-schema-file")
+        if args.compiler_prompt_file is None:
+            missing_flags.append("--compiler-prompt-file")
+        if args.campaign_set_schema_file is None:
+            missing_flags.append("--campaign-set-schema-file")
+        if missing_flags:
+            raise RunnerError(
+                "Missing required CLI flags: " + ", ".join(missing_flags)
+            )
+        required_paths = [
+            args.audit_prompt_file,
+            args.audit_schema_file,
+            args.compiler_prompt_file,
+            args.campaign_set_schema_file,
+            args.task_result_schema_file,
+        ]
     for path in required_paths:
         if not path.exists():
             raise RunnerError(f"Required file not found: {path}")
+        if path.is_dir():
+            raise RunnerError(f"Required file is a directory: {path}")
     if args.intention_packet_file is not None:
         validate_intention_packet_file(args.intention_packet_file)
 
@@ -2376,10 +2718,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(resolved_argv)
 
     ensure_repo_root(args.repo_root, args.debug)
-    ensure_provider_available(args.provider)
 
     base_ref_sha = git_resolve_ref(args.repo_root, args.base_ref, args.debug)
     cli_args = sanitize_cli_args(resolved_argv)
+
+    if getattr(args, "materialize_from_fixtures", False):
+        run_fixture_materialization(
+            args,
+            base_ref_sha=base_ref_sha,
+            cli_args=cli_args,
+        )
+        return 0
+
+    ensure_provider_available(args.provider)
 
     for pass_index in range(1, args.passes + 1):
         run_pass(
