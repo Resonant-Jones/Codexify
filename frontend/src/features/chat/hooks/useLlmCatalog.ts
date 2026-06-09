@@ -42,6 +42,13 @@ export type LlmCatalogModel = {
     tools?: boolean;
     streaming?: boolean;
   };
+  releaseSupported?: boolean;
+  releasePosture?: {
+    status?: string;
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
+    notes?: string;
+  };
   runtime?: {
     reasoning?: CatalogReasoningRuntime;
   };
@@ -97,9 +104,17 @@ function normalizeModelKind(value: unknown): "chat" | "vision_chat" | "utility" 
 export function isChatSelectableModel(model: {
   supportsChat?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
+  releaseSupported?: boolean;
+  releasePosture?: {
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
+  };
 } | null | undefined): boolean {
   if (!model) return false;
   if (model.supportsChat === false) return false;
+  if (model.releaseSupported === false) return false;
+  if (model.releasePosture?.releaseSupported === false) return false;
+  if (model.releasePosture?.proofRequired === true) return false;
   return model.modelKind !== "utility";
 }
 
@@ -149,6 +164,10 @@ function normalizeModel(
   const capabilities =
     model.capabilities && typeof model.capabilities === "object"
       ? (model.capabilities as Record<string, unknown>)
+      : null;
+  const releasePosture =
+    model.release_posture && typeof model.release_posture === "object"
+      ? (model.release_posture as Record<string, unknown>)
       : null;
   const supportsChat =
     normalizeBoolean(model.supports_chat) ??
@@ -226,6 +245,16 @@ function normalizeModel(
             streaming: Boolean(capabilities.streaming),
           }
         : undefined,
+    releaseSupported: normalizeBoolean(model.release_supported),
+    releasePosture: releasePosture
+      ? {
+          status: normalizeString(releasePosture.status) ?? undefined,
+          releaseSupported:
+            normalizeBoolean(releasePosture.release_supported),
+          proofRequired: normalizeBoolean(releasePosture.proof_required),
+          notes: normalizeString(releasePosture.notes) ?? undefined,
+        }
+      : undefined,
     runtime:
       reasoning && typeof reasoning === "object"
         ? {

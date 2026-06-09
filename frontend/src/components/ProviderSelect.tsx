@@ -47,6 +47,11 @@ type CatalogModel = {
     tools?: boolean;
     streaming?: boolean;
   };
+  releaseSupported?: boolean;
+  releasePosture?: {
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
+  };
 };
 
 type CatalogProvider = {
@@ -206,6 +211,38 @@ export function ProviderSelect({
                           streaming: Boolean((model as any).capabilities.streaming),
                         }
                       : undefined,
+                  releaseSupported:
+                    typeof (model as any).release_supported === "boolean"
+                      ? (model as any).release_supported
+                      : typeof (model as any).releaseSupported === "boolean"
+                        ? (model as any).releaseSupported
+                        : undefined,
+                  releasePosture:
+                    typeof (model as any).release_posture === "object"
+                    && (model as any).release_posture
+                      ? {
+                          releaseSupported:
+                            typeof (model as any).release_posture.release_supported === "boolean"
+                              ? (model as any).release_posture.release_supported
+                              : undefined,
+                          proofRequired:
+                            typeof (model as any).release_posture.proof_required === "boolean"
+                              ? (model as any).release_posture.proof_required
+                              : undefined,
+                        }
+                      : typeof (model as any).releasePosture === "object"
+                        && (model as any).releasePosture
+                        ? {
+                            releaseSupported:
+                              typeof (model as any).releasePosture.releaseSupported === "boolean"
+                                ? (model as any).releasePosture.releaseSupported
+                                : undefined,
+                            proofRequired:
+                              typeof (model as any).releasePosture.proofRequired === "boolean"
+                                ? (model as any).releasePosture.proofRequired
+                                : undefined,
+                          }
+                        : undefined,
                 }))
                 .filter((model) => model.id.length > 0)
             : [],
