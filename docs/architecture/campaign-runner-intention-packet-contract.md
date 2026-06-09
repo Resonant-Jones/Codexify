@@ -153,6 +153,24 @@ Existing schemas remain authoritative for both stages:
 - Stage B must conform to `campaign_set.schema.json`.
 - Packet sections may guide interpretation, but they do not add schema fields, bypass validation, or override runner-owned constraints.
 
+## Task-Lane Classification
+
+Stage B campaign tasks include a required `task_lane` field so reviewers and later artifact-generation work can distinguish the kind of Codexify task being proposed.
+
+Canonical lane values:
+
+- `standard`: ordinary implementation work that does not alter architecture meaning.
+- `architecture_impact`: work that affects contracts, runtime semantics, retrieval or routing behavior, queue or worker or acceptance semantics, identity boundaries, operator truth surfaces, canonical token domains, provider governance, Pi boundaries, or anything dangerous to forget in three months.
+- `discovery`: read-only or investigation-first work where evidence is insufficient for implementation.
+- `docs_only`: documentation edits that do not change architecture meaning or runtime behavior.
+- `proof_runbook`: validation, proof capture, operator runbook, smoke-test, or evidence-generation work that proves an existing path without changing runtime behavior.
+
+The lane is campaign-planning metadata only. It is not execution authority, task approval, provider permission, Pi invocation authority, merge permission, or release proof.
+
+When Stage B is uncertain between `standard` and `architecture_impact`, it must choose `architecture_impact`. When Stage-A evidence is insufficient for safe implementation, Stage B must choose `discovery` instead of converting intent into executable work.
+
+No lane widens current release support. `docs/architecture/00-current-state.md` remains authoritative for what is currently supported, proven, blocked, or outside the release promise.
+
 ## Example Intention Packet
 
 ```markdown
