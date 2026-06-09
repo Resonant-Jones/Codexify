@@ -60,6 +60,7 @@
               "required": [
                 "id",
                 "slug",
+                "task_lane",
                 "area",
                 "risk",
                 "files",
@@ -77,6 +78,17 @@
                 "slug": {
                   "type": "string",
                   "pattern": "^[a-z0-9_]+$"
+                },
+                "task_lane": {
+                  "type": "string",
+                  "description": "Campaign Runner planning lane for the generated task; metadata only and not execution authority.",
+                  "enum": [
+                    "standard",
+                    "architecture_impact",
+                    "discovery",
+                    "docs_only",
+                    "proof_runbook"
+                  ]
                 },
                 "area": {
                   "type": "string",

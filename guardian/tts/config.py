@@ -10,6 +10,36 @@ from pathlib import Path
 from guardian.tts.contracts import TTS_BACKEND_QWEN3
 
 _TRUTHY = {"1", "true", "yes", "on"}
+_ENV_LOADED = False
+
+
+def _load_local_env_files() -> None:
+    """Load operator-local TTS config for headless CLI use.
+
+    The Guardian API already has its own dotenv loading path. The standalone
+    voiceover CLI reaches this config module directly, so it needs a tiny
+    local-only loader that does not override an explicitly exported environment.
+    """
+
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return
+    _ENV_LOADED = True
+
+    repo_root = Path(__file__).resolve().parents[2]
+    for env_path in (repo_root / ".env.local", repo_root / ".env"):
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            cleaned = value.strip().strip('"').strip("'")
+            os.environ[key] = cleaned
 
 
 @dataclass(frozen=True)
@@ -52,6 +82,8 @@ def _path_or_none(value: str | None) -> Path | None:
 
 def get_local_tts_config() -> LocalTTSConfig:
     """Resolve local TTS configuration without touching LLM provider routing."""
+
+    _load_local_env_files()
 
     backend_id = (
         os.getenv("CODEXIFY_TTS_BACKEND")

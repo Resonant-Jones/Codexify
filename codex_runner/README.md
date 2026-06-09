@@ -146,6 +146,40 @@ python codex_runner/runner.py \
   --campaign-set-schema-file /path/to/campaign_set.schema.json
 ```
 
+### Intention packet seam
+
+Use `--intention-packet-file` to provide an operator-authored Markdown packet that narrows Stage A audit posture and Stage B campaign compilation without editing the base prompt templates for one-off targeting.
+
+Minimal example:
+
+```bash
+python codex_runner/runner.py \
+  --repo-root /absolute/path/to/repo \
+  --audit-prompt-file codex_runner/prompts/mega_audit.md \
+  --audit-schema-file codex_runner/schemas/mega_audit_output.schema.json \
+  --compiler-prompt-file codex_runner/prompts/audit_report_to_campaign_runner.md \
+  --campaign-set-schema-file codex_runner/schemas/campaign_set.schema.json \
+  --intention-packet-file docs/Campaign/templates/campaign-runner-intention-packet-template.md
+```
+
+The packet is planning input only. It can narrow the audit/campaign posture, but it does not prove runtime support, provider support, execution readiness, or release scope. Prefer a completed packet over prompt-template edits whenever the target is a one-off planning objective.
+
+Stage A uses the packet to guide audit posture. Stage B uses the same packet to filter and shape campaign synthesis. Both stages must preserve schema validation and release-truth boundaries. Use the canonical template in `docs/Campaign/templates/campaign-runner-intention-packet-template.md` for best results.
+
+Stage B campaign tasks include `task_lane` metadata (`standard`, `architecture_impact`, `discovery`, `docs_only`, or `proof_runbook`). The lane helps reviewers and future artifact generation choose the correct Codexify workflow, but it does not execute anything, approve work, or widen release support. Use `discovery` when the packet objective is not sufficiently supported by repository evidence.
+
+### Reviewable task prompt artifacts
+
+Campaign materialization writes reviewable `PROMPT_<task_slug>.md` artifacts beside generated task artifacts under `docs/tasks/`. These prompt artifacts are derived from `task_lane` and provide standard, architecture-impact, discovery, docs-only, or proof/runbook handoff shapes for operator review and later coding-agent use.
+
+Prompt artifacts are review-only. They do not execute tasks, approve work, call providers, change Pi broker behavior, or widen release support. Existing release-truth boundaries still apply.
+
+### Dry-run boundary
+
+`--dry-run` prevents generated task execution after Stage A audit and Stage B campaign compilation, but it still uses the configured provider lane for those planning stages. It is not a provider-free proof mode.
+
+For no-provider checks, use the focused prompt-rendering and materialization tests until a separate fixture-backed proof command exists.
+
 General flags:
 - `--provider pi`
 - `--passes N` (default: `1`)

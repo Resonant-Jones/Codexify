@@ -635,8 +635,9 @@ async def app_lifespan(app: FastAPI):
         command_bus_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         guardian_delegations.configure_db(guardian_db)
+        tts_routes.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations/guardian_delegations routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations/guardian_delegations/tts routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
