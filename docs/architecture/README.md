@@ -122,6 +122,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Verified Personal Facts Context Injection ADR](./adr/013-verified-personal-facts-context-injection.md): bounded backend injection of verified active personal facts into provider-ready chat context.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
+- [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only model profile registry for local Whoosh'd/MLX descriptors; this does not change runtime routing or release support by itself.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
 - [Bounded Tool-Augmented Completion Live Proof](./2026-04-20-bounded-tool-augmented-completion-live-proof.md): fresh supported-path live proof for the one-turn command-bus tool slice on the current `main` tip.
 - [Tool Jobs Cleanup Live Proof](./2026-04-28-tool-jobs-cleanup-live-proof.md): supported Compose schema proof that the dedicated `tool_jobs` cleanup migration restores downgrade shape, removes the table again on upgrade, and leaves `command_runs` / `command_run_events` intact.
