@@ -174,6 +174,12 @@ Campaign materialization writes reviewable `PROMPT_<task_slug>.md` artifacts bes
 
 Prompt artifacts are review-only. They do not execute tasks, approve work, call providers, change Pi broker behavior, or widen release support. Existing release-truth boundaries still apply.
 
+### Dry-run boundary
+
+`--dry-run` prevents generated task execution after Stage A audit and Stage B campaign compilation, but it still uses the configured provider lane for those planning stages. It is not a provider-free proof mode.
+
+For no-provider checks, use the focused prompt-rendering and materialization tests until a separate fixture-backed proof command exists.
+
 General flags:
 - `--provider pi`
 - `--passes N` (default: `1`)
