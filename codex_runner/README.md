@@ -178,7 +178,31 @@ Prompt artifacts are review-only. They do not execute tasks, approve work, call 
 
 `--dry-run` prevents generated task execution after Stage A audit and Stage B campaign compilation, but it still uses the configured provider lane for those planning stages. It is not a provider-free proof mode.
 
-For no-provider checks, use the focused prompt-rendering and materialization tests until a separate fixture-backed proof command exists.
+For no-provider artifact checks, use provider-free fixture materialization.
+
+### Provider-free fixture materialization
+
+Use `--materialize-from-fixtures` when Stage A audit JSON and Stage B campaign JSON already exist and you need to validate/materialize Campaign Runner artifacts without invoking Stage A or Stage B providers.
+
+Required inputs:
+- `--audit-json-file`: prevalidated Stage A audit JSON
+- `--campaign-json-file`: prevalidated Stage B campaign JSON
+- existing schemas, either through `--audit-schema-file` / `--campaign-set-schema-file` or the runner defaults
+
+Example:
+
+```bash
+python codex_runner/runner.py \
+  --repo-root /absolute/path/to/repo \
+  --materialize-from-fixtures \
+  --audit-json-file /path/to/audit_output.json \
+  --campaign-json-file /path/to/campaign_set_output.json \
+  --intention-packet-file docs/Campaign/examples/campaign-runner-intention-packet-provider-readiness.md
+```
+
+This mode validates both JSON files against the existing schemas, merges the campaign set, and writes the same review artifact families used by normal materialization: campaign docs, task artifacts, `PROMPT_<task_slug>.md` prompt artifacts, state, run metadata, and execution trace.
+
+Fixture materialization skips Stage A/B provider calls, does not render Stage A/B prompts, does not execute generated tasks, and does not prove runtime, provider, Pi, or release support. It is a proof/materialization lane for operator review.
 
 General flags:
 - `--provider pi`
@@ -187,7 +211,7 @@ General flags:
 - `--execute` or `--dry-run`
 - `--branch-per-campaign` / `--no-branch-per-campaign`
 - `--allow-discovery-fallback`
-- `--auto-commit` / `--no-auto-commit` (`--no-auto-commit` currently hard-fails by design)
+- `--auto-commit` / `--no-auto-commit` (`--no-auto-commit` hard-fails outside fixture materialization by design)
 - `--verify` / `--no-verify`
 - `--debug`
 
