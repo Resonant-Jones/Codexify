@@ -1399,7 +1399,7 @@ export default function PersonaStudioPage() {
     <div className="flex h-full flex-col overflow-hidden" data-testid="persona-studio-page" style={{ background: "var(--bg)" }}>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pt-6 pb-6">
         <section
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--card-radius)] border p-[var(--card-pad)]"
+          className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto rounded-[var(--card-radius)] border p-[var(--card-pad)]"
           data-testid="persona-studio-shell"
           style={{
             background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
