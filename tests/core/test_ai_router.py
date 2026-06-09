@@ -217,6 +217,50 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
     )
 
 
+def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
+    monkeypatch,
+):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, stream, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, stream, timeout)
+        return _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"Whoosh"}}]}',
+                b'data: {"choices":[{"delta":{"content":"d"}}]}',
+                b"data: [DONE]",
+            ]
+        )
+
+    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="library2/ministral-3:8b",
+    )
+
+    tokens = list(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "gemma-4-12b-it-optiq-4bit",
+            settings=settings,
+        )
+    )
+
+    assert tokens == ["Whoosh", "d"]
+    assert captured["json"]["model"] == (
+        "mlx-community/gemma-4-12B-it-OptiQ-4bit"
+    )
+    assert captured["url"] == (
+        "http://host.docker.internal:8000/v1/chat/completions"
+    )
+
+
 def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
     _disable_supported_profile(monkeypatch)
 

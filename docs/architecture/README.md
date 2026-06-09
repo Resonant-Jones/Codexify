@@ -101,7 +101,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Context Command and Active Connector Semantics](./adr/024-context-command-active-connector-semantics.md): governing contract for slash-command connector invocation, active connector semantics, and turn-scoped connector/tool boundaries.
 - [System Overview](./system-overview.md): current runtime components, topology, and critical paths.
 - [Critical Flows](./flows.md): current trigger-to-output runtime flows with failure modes.
-- [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only model profile registry for local Whoosh'd/MLX descriptors; does not change runtime routing or release support by itself.
+- [Whoosh'd Model Profiles](./whooshd-model-profiles.md): local Whoosh'd/MLX profile registry and profile-backed local model selection seam; does not create a new provider id or release support by itself.
 - [Flow Builder Elicitation Lane ADR](./adr/006-flow-builder-elicitation-lane.md): upstream spec-building lane for tacit-knowledge extraction, workflow authoring semantics, and validation-before-execution doctrine.
 - [Flow Builder Thread, Draft, and Receipts Contract ADR](./adr/014-flow-builder-thread-draft-and-receipts-contract.md): canonical Guardian-thread, FlowDraft, Builder-view, and run-receipt contract for flow authoring semantics.
 - [Flow Builder Typed Surface and Run Receipt Contract ADR](./adr/027-flow-builder-typed-surface-and-run-receipt-contract.md): typed vocabulary, validation issue taxonomy, semantic step contract, test/activation distinction, and complete RunReceipt field contract for future implementation planning.

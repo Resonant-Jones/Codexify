@@ -25,6 +25,7 @@ from guardian.core.provider_registry import (
     provider_routing_requires_discovered_inventory,
     validate_provider_model_selection,
 )
+from guardian.core.whooshd_model_profiles import whooshd_runtime_model_id
 from guardian.protocol_tokens import (
     ErrorCode,
     GuardianProviderFailureKind,
@@ -1123,8 +1124,13 @@ def _local_execution_model_candidates(
     requested_model: str | None = None,
 ) -> tuple[list[tuple[str, str]], bool]:
     strict = _local_chat_model_is_authoritative(settings)
+    requested_whooshd_model = whooshd_runtime_model_id(requested_model)
     raw_candidates: tuple[tuple[str, Any], ...]
-    if strict:
+    if strict and requested_whooshd_model:
+        raw_candidates = (
+            ("whooshd_model_profile", requested_whooshd_model),
+        )
+    elif strict:
         raw_candidates = (
             ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
