@@ -218,7 +218,10 @@ def test_task_artifact_paths_do_not_collide_across_campaigns(
     tmp_path: runner.Path,
 ) -> None:
     task_a = _sample_task("TASK-001-A", "alpha")
-    task_b = _sample_task("TASK-001-B", "alpha")
+    task_b = {
+        **_sample_task("TASK-001-B", "alpha"),
+        "task_artifact_markdown": "# Task B",
+    }
     campaign_a = _sample_campaign(
         date="2026-03-12", slug="alpha", seq="001", tasks=[task_a]
     )
@@ -237,6 +240,21 @@ def test_task_artifact_paths_do_not_collide_across_campaigns(
     assert "alpha_2026_03_12_002" in path_b
     assert (tmp_path / path_a).exists()
     assert (tmp_path / path_b).exists()
+    assert (tmp_path / path_a).read_text(encoding="utf-8") == "# Task\n"
+    assert (tmp_path / path_b).read_text(encoding="utf-8") == "# Task B\n"
+
+
+def test_task_artifact_path_collision_fails_clearly(
+    tmp_path: runner.Path,
+) -> None:
+    task_a = _sample_task("TASK-001-A", "alpha")
+    task_b = _sample_task("TASK-001-B", "alpha")
+    campaign = _sample_campaign(tasks=[task_a, task_b])
+
+    with pytest.raises(
+        runner.RunnerError, match="task artifact path collision"
+    ):
+        runner.materialize_campaign_artifacts(tmp_path, campaign)
 
 
 def test_task_artifact_paths_stable_when_tasks_reordered(

@@ -909,15 +909,25 @@ def materialize_campaign_artifacts(
         (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
     )
 
-    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}"
+    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}_{seq}"
     task_dir_abs = repo_root / task_dir_rel
     task_dir_abs.mkdir(parents=True, exist_ok=True)
 
+    task_path_owners: dict[Path, str] = {}
     for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
         task_file_name = (
             f"TASK_{to_lower_snake(task['slug'])}_{date_underscore}.md"
         )
         task_rel = task_dir_rel / task_file_name
+        previous_owner = task_path_owners.get(task_rel)
+        if previous_owner is not None and previous_owner != task["id"]:
+            raise RunnerError(
+                "task artifact path collision: "
+                f"{previous_owner} and {task['id']} both map to "
+                f"{task_rel.as_posix()}"
+            )
+        task_path_owners[task_rel] = task["id"]
+
         task_abs = repo_root / task_rel
         if not task_abs.exists():
             content = task["task_artifact_markdown"].rstrip() + "\n"
