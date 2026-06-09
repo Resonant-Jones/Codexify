@@ -121,6 +121,70 @@ The packet cannot override runner-owned placeholders such as:
 
 The runner replaces placeholders only in the prompt template, not inside inserted packet text or pasted Stage-A JSON.
 
+## Canonical Template and Example
+
+The default operator-facing shape for intention packets is the canonical template:
+
+- [`Campaign Runner Intention Packet Template`](../Campaign/templates/campaign-runner-intention-packet-template.md)
+
+The repo also includes one illustrative example packet:
+
+- [`Provider Readiness Intention Packet Example`](../Campaign/examples/campaign-runner-intention-packet-provider-readiness.md)
+
+Examples are planning artifacts only. They are not proof that a campaign has run, that provider-broker readiness has been validated, or that runtime support exists.
+
+A completed packet must still be read under this contract's invariants, including schema authority, runner-owned constraints, provider governance, Guardian ownership, Pi broker boundaries, and `00-current-state.md`.
+
+## Stage Interpretation Rules
+
+Stage A audits against the packet but must distinguish:
+
+- repo-grounded evidence and findings
+- unsupported intention claims
+- unknowns requiring discovery
+
+Stage B compiles only from Stage-A evidence. It uses the same packet to filter, prioritize, and constrain campaign synthesis, but the packet cannot create implementation authority by itself.
+
+Discovery-only output is preferred when the packet objective is not repo-supported or when required evidence is missing, contradictory, or only aspirational.
+
+Existing schemas remain authoritative for both stages:
+
+- Stage A must conform to `mega_audit_output.schema.json`.
+- Stage B must conform to `campaign_set.schema.json`.
+- Packet sections may guide interpretation, but they do not add schema fields, bypass validation, or override runner-owned constraints.
+
+## Task-Lane Classification
+
+Stage B campaign tasks include a required `task_lane` field so reviewers and later artifact-generation work can distinguish the kind of Codexify task being proposed.
+
+Canonical lane values:
+
+- `standard`: ordinary implementation work that does not alter architecture meaning.
+- `architecture_impact`: work that affects contracts, runtime semantics, retrieval or routing behavior, queue or worker or acceptance semantics, identity boundaries, operator truth surfaces, canonical token domains, provider governance, Pi boundaries, or anything dangerous to forget in three months.
+- `discovery`: read-only or investigation-first work where evidence is insufficient for implementation.
+- `docs_only`: documentation edits that do not change architecture meaning or runtime behavior.
+- `proof_runbook`: validation, proof capture, operator runbook, smoke-test, or evidence-generation work that proves an existing path without changing runtime behavior.
+
+The lane is campaign-planning metadata only. It is not execution authority, task approval, provider permission, Pi invocation authority, merge permission, or release proof.
+
+When Stage B is uncertain between `standard` and `architecture_impact`, it must choose `architecture_impact`. When Stage-A evidence is insufficient for safe implementation, Stage B must choose `discovery` instead of converting intent into executable work.
+
+No lane widens current release support. `docs/architecture/00-current-state.md` remains authoritative for what is currently supported, proven, blocked, or outside the release promise.
+
+## Reviewable Task Prompt Artifacts
+
+Campaign Runner may materialize reviewable Markdown prompt artifacts for generated campaign tasks. These artifacts are derived from the task object and its `task_lane` value.
+
+Prompt artifacts are not execution authority. They do not approve a task, dispatch a provider, invoke Pi, allocate a lease, merge code, or prove runtime support.
+
+Each generated prompt artifact must remain fenced as a single self-contained task prompt so an operator can review the exact handoff text before any later coding-agent use.
+
+Architecture-impact prompt artifacts must preserve required pre-read, ADR impact, current-truth anchors, invariants, proof surface, and documentation follow-through sections.
+
+Discovery prompt artifacts are preferred when Stage-A evidence is insufficient or when a task lacks enough metadata for safe implementation. Missing metadata should produce explicit `TODO(operator):` placeholders rather than invented claims.
+
+No generated prompt can widen release truth. `docs/architecture/00-current-state.md` remains authoritative for current support and proof claims.
+
 ## Example Intention Packet
 
 ```markdown

@@ -17,6 +17,17 @@ Intention packet:
 - Stage B must prefer discovery tasks over speculative implementation when evidence is insufficient.
 - Stage B must not widen release claims or runtime support claims.
 - Stage B must not treat the intention packet as runtime proof.
+- Interpret canonical packet sections this way when present:
+  - `Objective`: use to select relevant Stage-A findings; do not create campaigns unsupported by Stage-A evidence.
+  - `Why This Matters`: use to prioritize among supported campaign candidates; do not turn motivation into implementation scope.
+  - `Scope`: use to keep tasks bounded to relevant files and subsystems.
+  - `Out of Scope`: treat as hard exclusions for campaign generation.
+  - `Evidence Requirements`: require campaigns and tasks to cite or derive from Stage-A evidence that satisfies these requirements where possible.
+  - `Stage B Campaign Posture`: use to shape number of campaigns, task count, and sequencing.
+  - `Task-Lane Expectations`: recognize and preserve operator expectations through the required task-level `task_lane` field.
+  - `Release-Truth Constraints`: prevent release claim widening.
+  - `Failure / Stop Conditions`: prefer discovery tasks or no campaign when evidence is insufficient.
+- Do not invent tasks from packet intent alone, convert unsupported claims into executable work, bypass independently mergeable task boundaries, or widen release support.
 
 <INTENTION_PACKET>
 
@@ -30,6 +41,12 @@ Hard constraints:
    - `campaign_markdown` must be complete markdown content.
 4. For each task:
    - Include required fields only.
+   - Assign `task_lane` as one of:
+     - `standard`
+     - `architecture_impact`
+     - `discovery`
+     - `docs_only`
+     - `proof_runbook`
    - `risk` must be `HIGH|MED|LOW`.
    - `files[]` must be repo-relative (no absolute paths, no `..`).
    - Do not include any artifact path fields.
@@ -42,5 +59,17 @@ Policy:
 - Do not include git commit instructions.
 - Do not include model instructions to edit campaign/task mapping files.
 - Keep tasks independently mergeable and deterministic.
+
+Task-lane classification:
+- Every generated task must include `task_lane`.
+- Use `architecture_impact` when the task changes or documents a contract or invariant, provider governance, Pi boundary, acceptance semantics, queue or worker semantics, identity, persona, or memory boundaries, retrieval or routing behavior, operator truth surfaces, or canonical token domains.
+- Use `standard` for narrow implementation tasks with no architecture meaning change.
+- Use `discovery` when Stage-A evidence is insufficient to safely implement.
+- Use `docs_only` only when the task is purely documentation and does not change architecture meaning.
+- Use `proof_runbook` when the task is about validation, runtime proof, smoke testing, operator procedure, or evidence generation without implementation changes.
+- Derive the lane from Stage-A evidence plus the Intention Packet, not from ambition.
+- When uncertain between `standard` and `architecture_impact`, choose `architecture_impact`.
+- When evidence is insufficient, choose `discovery` instead of inventing implementation.
+- The lane does not authorize execution or widen release support.
 
 Return one valid JSON object for `campaign_set.schema.json`.

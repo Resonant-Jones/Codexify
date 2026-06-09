@@ -124,12 +124,73 @@ alter thread state.
 Existing media-backed TTS routes remain in place for DB-linked media assets.
 Existing `tts_outputs` and `message_audio_assets` tables are preserved.
 
+## TTS Console And Voice Profiles
+
+The TTS Console is the only voice-profile editing surface. Codexify may expose
+a launcher inside the main shell, and the main runtime may select saved profile
+ids, but chat, Dashboard, Documents, Guardian, and Persona Studio must not grow
+inline voice tuning controls.
+
+Persistent profile state lives in `tts_voice_profiles` and is consumed through
+the TTS adapter. The profile contract includes:
+
+- stable profile id and name
+- backend id
+- unique default flag
+- voice mode, speaker, voice prompt, style instructions, and language
+- Codexify delivery controls such as speed
+- generation controls such as temperature, top-k, top-p, repetition penalty,
+  max-new-tokens, and sampling flag
+- `backend_params` for backend-specific controls
+- optional future-safe reference audio/text, sample-rate, output-format,
+  loudness, and pause-profile fields
+
+`guardian/tts/profiles.py::resolve_tts_profile(...)` resolves a named or
+default profile without running synthesis. Resolution must not mutate chat,
+memory, retrieval, persona, thread, queue, command bus, or LLM provider state.
+
+The TTS profile routes are:
+
+- `GET /api/tts/backends`
+- `GET /api/tts/profiles`
+- `POST /api/tts/profiles`
+- `GET /api/tts/profiles/{profile_id}`
+- `PATCH /api/tts/profiles/{profile_id}`
+- `DELETE /api/tts/profiles/{profile_id}`
+- `POST /api/tts/profiles/{profile_id}/set-default`
+- `POST /api/tts/profiles/{profile_id}/preview`
+
+Preview uses the existing local renderer and writes local preview artifacts
+under the configured TTS output directory. It does not create chat messages,
+write memory, run retrieval, execute persona, alter thread state, enqueue work,
+or touch LLM provider routing.
+
+## Backend-Specific Controls
+
+Backends expose controls through a backend-aware schema. Qwen3-TTS currently
+advertises common controls for `speaker`, `voice_prompt`,
+`style_instructions`, `language`, `speed`, `temperature`, `top_k`, `top_p`,
+`repetition_penalty`, `max_new_tokens`, and `do_sample`.
+
+Qwen3 conditional controls include `subtalker_dosample`, `subtalker_top_k`,
+`subtalker_top_p`, `subtalker_temperature`, `x_vector_only_mode`,
+`reference_audio`, `reference_text`, and `non_streaming_mode`.
+
+`speed` is persisted as a Codexify delivery/post-processing control. It is not
+advertised as a native Qwen3 generation parameter unless the active backend
+explicitly exposes native speed support. Qwen3-specific controls that do not
+belong in the shared profile shape remain in `backend_params`.
+
 ## Persona Studio Relationship
 
 Persona Studio may configure voice settings, but it is a configuration surface.
 It is not chat history, not memory, and not a voiceover execution pipeline. This
 adapter gives Persona Studio and runtime voice paths a backend id to point at;
 it does not make Persona Studio persist audio or execute conversation turns.
+
+Persona Studio can consume saved profile ids later, but profile editing belongs
+to the TTS Console. This keeps persona identity/configuration separate from TTS
+backend tuning.
 
 ## Privacy Constraints
 
@@ -146,7 +207,9 @@ it does not make Persona Studio persist audio or execute conversation turns.
 - A generalized TTS backend marketplace.
 - Cloud TTS support.
 - Automatic Qwen3-TTS install or model download.
-- New storage tables or release claims.
+- Detached OS/browser plugin-window support beyond the modal-style console.
+- Additional storage tables beyond `tts_voice_profiles`.
+- Release claims for end-to-end voice UX.
 
 ## ADR Impact
 
@@ -161,6 +224,8 @@ provider state machine.
 
 ```bash
 python -m pytest -q tests/tts
+python -m pytest -q tests/routes/test_tts_profiles_routes.py
+pnpm test
 python scripts/tts/render_voiceover.py --help
 python scripts/tts/render_voiceover.py \
   --input /tmp/codexify-tts-small.txt \
