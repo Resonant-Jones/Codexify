@@ -171,6 +171,20 @@ When Stage B is uncertain between `standard` and `architecture_impact`, it must 
 
 No lane widens current release support. `docs/architecture/00-current-state.md` remains authoritative for what is currently supported, proven, blocked, or outside the release promise.
 
+## Reviewable Task Prompt Artifacts
+
+Campaign Runner may materialize reviewable Markdown prompt artifacts for generated campaign tasks. These artifacts are derived from the task object and its `task_lane` value.
+
+Prompt artifacts are not execution authority. They do not approve a task, dispatch a provider, invoke Pi, allocate a lease, merge code, or prove runtime support.
+
+Each generated prompt artifact must remain fenced as a single self-contained task prompt so an operator can review the exact handoff text before any later coding-agent use.
+
+Architecture-impact prompt artifacts must preserve required pre-read, ADR impact, current-truth anchors, invariants, proof surface, and documentation follow-through sections.
+
+Discovery prompt artifacts are preferred when Stage-A evidence is insufficient or when a task lacks enough metadata for safe implementation. Missing metadata should produce explicit `TODO(operator):` placeholders rather than invented claims.
+
+No generated prompt can widen release truth. `docs/architecture/00-current-state.md` remains authoritative for current support and proof claims.
+
 ## Example Intention Packet
 
 ```markdown

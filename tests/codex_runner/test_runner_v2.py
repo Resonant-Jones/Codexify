@@ -56,6 +56,21 @@ def _sample_campaign(
     }
 
 
+def _prompt_content(
+    tmp_path: runner.Path, campaign: dict, task_id: str
+) -> tuple[str, str]:
+    prompt_path = campaign["materialized"]["task_prompt_artifact_paths"][
+        task_id
+    ]
+    return prompt_path, (tmp_path / prompt_path).read_text(encoding="utf-8")
+
+
+def _assert_single_fenced_prompt(content: str) -> None:
+    assert content.startswith("```text\n")
+    assert content.endswith("\n```\n")
+    assert content.count("```") == 2
+
+
 def test_run_id_determinism() -> None:
     hashes = runner.StageHashes(
         audit_prompt_sha256="a" * 64,
@@ -234,12 +249,23 @@ def test_task_artifact_paths_do_not_collide_across_campaigns(
 
     path_a = campaign_a["materialized"]["task_artifact_paths"][task_a["id"]]
     path_b = campaign_b["materialized"]["task_artifact_paths"][task_b["id"]]
+    prompt_a = campaign_a["materialized"]["task_prompt_artifact_paths"][
+        task_a["id"]
+    ]
+    prompt_b = campaign_b["materialized"]["task_prompt_artifact_paths"][
+        task_b["id"]
+    ]
 
     assert path_a != path_b
+    assert prompt_a != prompt_b
     assert "alpha_2026_03_12_001" in path_a
     assert "alpha_2026_03_12_002" in path_b
+    assert "alpha_2026_03_12_001" in prompt_a
+    assert "alpha_2026_03_12_002" in prompt_b
     assert (tmp_path / path_a).exists()
     assert (tmp_path / path_b).exists()
+    assert (tmp_path / prompt_a).exists()
+    assert (tmp_path / prompt_b).exists()
     assert (tmp_path / path_a).read_text(encoding="utf-8") == "# Task\n"
     assert (tmp_path / path_b).read_text(encoding="utf-8") == "# Task B\n"
 
@@ -278,3 +304,131 @@ def test_task_artifact_paths_stable_when_tasks_reordered(
 
     assert path_before == path_after
     assert (tmp_path / path_before).exists()
+
+
+def test_materialize_creates_standard_task_prompt_artifact(
+    tmp_path: runner.Path,
+) -> None:
+    task = {**_sample_task("TASK-STANDARD", "alpha"), "task_lane": "standard"}
+    campaign = _sample_campaign(tasks=[task])
+
+    touched = runner.materialize_campaign_artifacts(tmp_path, campaign)
+
+    prompt_path, content = _prompt_content(tmp_path, campaign, task["id"])
+    assert prompt_path.endswith("PROMPT_alpha_2026_03_12.md")
+    assert prompt_path in touched
+    assert "This is a reviewable Campaign Runner task prompt artifact" in content
+    assert "Prompt shape: Standard Codexify Task" in content
+    assert "Context:" in content
+    assert "Task:" in content
+    assert "File paths to inspect:" in content
+    assert "Invariants / constraints:" in content
+    assert "Validation commands:" in content
+    assert "Git add command:" in content
+    assert "Git commit command:" in content
+    assert "Required output contract:" in content
+    _assert_single_fenced_prompt(content)
+
+
+def test_architecture_impact_prompt_contains_required_sections(
+    tmp_path: runner.Path,
+) -> None:
+    task = {
+        **_sample_task("TASK-ARCH", "arch"),
+        "task_lane": "architecture_impact",
+    }
+    campaign = _sample_campaign(tasks=[task])
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+
+    _prompt_path, content = _prompt_content(tmp_path, campaign, task["id"])
+    assert "Prompt shape: Architecture-Impact Codexify Task" in content
+    for required in (
+        "Required pre-read:",
+        "ADR impact:",
+        "Current-truth anchors:",
+        "Invariants / constraints:",
+        "Proof surface:",
+        "Documentation follow-through:",
+    ):
+        assert required in content
+    _assert_single_fenced_prompt(content)
+
+
+def test_discovery_prompt_is_read_only_and_commit_optional(
+    tmp_path: runner.Path,
+) -> None:
+    task = {
+        **_sample_task("TASK-DISCOVERY", "discovery"),
+        "task_lane": "discovery",
+        "files": [],
+        "tests": [],
+    }
+    campaign = _sample_campaign(tasks=[task])
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+
+    _prompt_path, content = _prompt_content(tmp_path, campaign, task["id"])
+    assert "Read-only investigation first." in content
+    assert (
+        "Do not modify files unless a follow-up implementation task is created."
+        in content
+    )
+    assert (
+        "No automated tests apply unless the discovery task includes a validation script."
+        in content
+    )
+    assert "Do not commit if no files change." in content
+    _assert_single_fenced_prompt(content)
+
+
+@pytest.mark.parametrize(
+    ("task_lane", "expected"),
+    [
+        ("docs_only", "No runtime behavior changes."),
+        ("docs_only", "No release claim widening."),
+        ("docs_only", "Run docs validation if available."),
+        ("proof_runbook", "Capture proof for an existing path only."),
+        ("proof_runbook", "Do not change runtime behavior."),
+        (
+            "proof_runbook",
+            "Evidence must distinguish acceptance, completion, and UI/operator visibility where relevant.",
+        ),
+        (
+            "proof_runbook",
+            "Commit only proof/runbook artifacts if files are produced.",
+        ),
+    ],
+)
+def test_lane_specific_prompt_language(
+    tmp_path: runner.Path, task_lane: str, expected: str
+) -> None:
+    task = {
+        **_sample_task(f"TASK-{task_lane}", task_lane),
+        "task_lane": task_lane,
+    }
+    campaign = _sample_campaign(tasks=[task])
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+
+    _prompt_path, content = _prompt_content(tmp_path, campaign, task["id"])
+    assert expected in content
+    _assert_single_fenced_prompt(content)
+
+
+def test_missing_task_lane_defaults_prompt_to_discovery(
+    tmp_path: runner.Path,
+) -> None:
+    task = _sample_task("TASK-LEGACY", "legacy")
+    campaign = _sample_campaign(tasks=[task])
+
+    runner.materialize_campaign_artifacts(tmp_path, campaign)
+
+    _prompt_path, content = _prompt_content(tmp_path, campaign, task["id"])
+    assert "Task lane: discovery" in content
+    assert (
+        "TODO(operator): task_lane was missing; defaulted to discovery conservatively."
+        in content
+    )
+    assert "Read-only investigation first." in content
+    _assert_single_fenced_prompt(content)
