@@ -20,6 +20,10 @@ export type LlmCatalogModel = {
   alias?: string;
   namespace?: string;
   source?: string;
+  profileId?: string;
+  profileSource?: string;
+  displayVendor?: string;
+  releaseSupported?: boolean;
   contextWindow?: number;
   supportsChat?: boolean;
   supportsVision?: boolean;
@@ -202,6 +206,16 @@ function normalizeModel(
     alias,
     namespace: normalizeString(model.namespace) ?? undefined,
     source: normalizeString(model.source) ?? undefined,
+    profileId:
+      normalizeString(model.profile_id ?? model.profileId) ?? undefined,
+    profileSource:
+      normalizeString(model.profile_source ?? model.profileSource) ??
+      undefined,
+    displayVendor:
+      normalizeString(model.display_vendor ?? model.displayVendor) ??
+      undefined,
+    releaseSupported:
+      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow

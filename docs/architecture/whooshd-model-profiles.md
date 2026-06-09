@@ -14,7 +14,7 @@ Source anchors:
 
 Whoosh'd model profiles are data-only local runtime descriptors for MLX-backed local models.
 
-The registry gives future local model work a small file-backed place to record model identity, runtime hints, transcript safety defaults, acceptance checks, and release posture before any runtime routing or catalog exposure is changed.
+The registry gives future local model work a small file-backed place to record model identity, runtime hints, transcript safety defaults, acceptance checks, and release posture. It also gives the existing local model selector a bounded source for Whoosh'd profile-backed choices without creating a new provider id.
 
 ## Scope
 
@@ -29,26 +29,36 @@ Profiles may describe:
 
 Profiles may also note where a future live proof should store model weights. For this first profile, the operator requirement is to keep downloaded weights off the repo and under `/Volumes/Dev_SSD/` during a separate runtime-proof task. This metadata task does not download or verify those weights.
 
+Profiles may be surfaced in the UI as local model choices. The UI-facing selection value is the runtime model repo that the Whoosh'd/MLX server expects, while the profile id remains metadata for governance, acceptance checks, and release posture.
+
 ## Non-Goals
 
 - No new provider id.
-- No runtime routing changes.
-- No catalog changes.
+- No new provider routing lane.
+- No new provider catalog lane.
 - No health semantics changes.
 - No release claim expansion.
 - No custom proxy restoration.
 
-## Current First Profile
+## Current Profiles
 
 - Profile id: `gemma-4-e2b-it-4bit`
 - Model repo: `mlx-community/gemma-4-e2b-it-4bit`
 - Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
 - Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
+
+- Profile id: `gemma-4-12b-it-optiq-4bit`
+- Model repo: `mlx-community/gemma-4-12B-it-OptiQ-4bit`
+- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-12B-it-OptiQ-4bit --port 8000`
+- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
 
 ## Invariants
 
 - Provider id remains `local`.
 - Whoosh'd is display/vendor metadata unless a future ADR changes provider routing.
+- UI selection between Whoosh'd profiles remains local model selection, not provider selection.
 - A model profile is not proof of model quality.
 - A model profile is not release support.
 - Model-family hidden/thinking channel leakage must be blocked before Guardian-facing use.
@@ -57,9 +67,9 @@ Profiles may also note where a future live proof should store model weights. For
 
 ## Follow-Up Path
 
-Later tasks may add live smoke proof, profile selection UI, catalog exposure, or additional model profiles, but those must be separate tasks.
+Later tasks may add live smoke proof, richer profile management UI, supported-profile updates, or additional model profiles, but those must be separate tasks.
 
-The next live-proof task should verify the selected MLX runtime, keep model weights under `/Volumes/Dev_SSD/`, compare health/catalog/supported-profile posture, confirm queue and worker health, and prove one Guardian chat completion persists back into the source thread without prompt echo or hidden-channel leakage.
+The next live-proof task should verify the selected MLX runtime, keep model weights under `/Volumes/Dev_SSD/whooshd/model-weights`, compare health/catalog/supported-profile posture, confirm queue and worker health, and prove one Guardian chat completion persists back into the source thread without prompt echo or hidden-channel leakage.
 
 ## ADR Impact
 
@@ -73,4 +83,4 @@ Governing anchors:
 - `docs/architecture/runtime-protocol-token-contract.md`
 - provider governance and supported-profile doctrine
 
-Reason: this creates a bounded data-only registry for local model profiles. It preserves provider id `local`, keeps Whoosh'd as display/vendor metadata, and does not alter runtime semantics, provider routing, catalog exposure, or release support.
+Reason: this creates a bounded registry for local model profiles and exposes those profiles through the existing local model-selection seam. It preserves provider id `local`, keeps Whoosh'd as display/vendor metadata, and does not alter provider routing, health semantics, or release support.
