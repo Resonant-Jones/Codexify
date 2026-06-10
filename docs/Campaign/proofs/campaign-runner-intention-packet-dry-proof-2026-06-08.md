@@ -270,3 +270,13 @@ The blocker is precise: Campaign Runner does not currently expose a provider-fre
 - Add documentation for that provider-free proof mode once implemented.
 - Capture a passing dry proof artifact after that safe mode exists.
 - Capture wet execution proof only as a separate operator-approved task with explicit provider and Pi boundaries.
+
+## Follow-Up Resolution
+
+The original proof stopped because `--dry-run` still invoked the configured provider lanes for Stage A audit and Stage B campaign compilation before materialization.
+
+The follow-up implementation task adds the missing provider-free fixture/materialization mode through `--materialize-from-fixtures`, `--audit-json-file`, and `--campaign-json-file`.
+
+The original proof remains historically accurate. It documented the missing safe-mode seam before this follow-up existed.
+
+A future proof should rerun with fixture Stage A and Stage B JSON using the new mode, confirm schema validation, and inventory the generated campaign, task, and review-only prompt artifacts without claiming wet provider, Pi, runtime, or release support.
