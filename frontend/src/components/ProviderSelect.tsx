@@ -40,6 +40,7 @@ type CatalogModel = {
   supportsVision?: boolean;
   supportsTextInput?: boolean;
   profileId?: string;
+  profileSource?: string;
   displayVendor?: string;
   releaseSupported?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
@@ -195,6 +196,12 @@ export function ProviderSelect({
                       ? (model as any).profile_id
                       : typeof (model as any).profileId === "string"
                         ? (model as any).profileId
+                        : undefined,
+                  profileSource:
+                    typeof (model as any).profile_source === "string"
+                      ? (model as any).profile_source
+                      : typeof (model as any).profileSource === "string"
+                        ? (model as any).profileSource
                         : undefined,
                   displayVendor:
                     typeof (model as any).display_vendor === "string"

@@ -36,33 +36,23 @@ Profiles are file-backed JSON manifests under
 
 The current profiles are:
 
-- `gemma-4-e2b-it-4bit`
-  - Model repo: `mlx-community/gemma-4-e2b-it-4bit`
-  - Multimodal intent: `capabilities.multimodal = true`
-  - Image input: `capabilities.image_input = true`
-  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
-  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
-  - Runtime hint:
-    `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
-  - Offline probe hint:
-    `python -m mlx_vlm.generate --model mlx-community/gemma-4-e2b-it-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
-  - Local OpenAI-compatible base URL hint:
-    `http://host.docker.internal:8000/v1`
-- `gemma-4-12b-it-qat-4bit`
-  - Model repo: `mlx-community/gemma-4-12B-it-qat-4bit`
-  - Multimodal intent: `capabilities.multimodal = true`
-  - Image input: `capabilities.image_input = true`
-  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
-  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
-  - Runtime hint:
-    `mlx_vlm.server --model mlx-community/gemma-4-12B-it-qat-4bit --port 8000`
-  - Offline probe hint:
-    `python -m mlx_vlm.generate --model mlx-community/gemma-4-12B-it-qat-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
-  - Local OpenAI-compatible base URL hint:
-    `http://host.docker.internal:8000/v1`
+- Profile id: `gemma-4-e4b-it-4bit`
+- Model repo: `mlx-community/gemma-4-e4b-it-4bit`
+- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-e4b-it-4bit --port 8000`
+- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
 
-These profiles are candidate metadata only. They are not wired into provider
-routing or catalog exposure and are not supported release models.
+- Profile id: `gemma-4-12b-it-optiq-4bit`
+- Model repo: `mlx-community/gemma-4-12B-it-OptiQ-4bit`
+- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-12B-it-OptiQ-4bit --port 8000`
+- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
+
+- Profile id: `gemma-4-12b-it-qat-4bit`
+- Model repo: `mlx-community/gemma-4-12B-it-qat-4bit`
+- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-12B-it-qat-4bit --port 8000`
+- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
 
 ## Invariants
 
