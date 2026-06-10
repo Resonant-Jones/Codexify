@@ -1,11 +1,11 @@
-# Guardian Work Brief - Decision Log - 2026-06-09
+# Guardian Work Brief - Decision Log - 2026-06-10
 
 ## Decisions
 
 ### D1: Generated packet through repeatable automation
 - Decision: Generate the Guardian Work Brief through `make guardian-brief`.
 - Reason: Repeatable local reporting is safer than manual packet reconstruction.
-- Result: Four markdown reporting artifacts were written for `2026-06-09`.
+- Result: Four markdown reporting artifacts were written for `2026-06-10`.
 
 ### D2: Preserve branch state
 - Decision: Report branch, upstream, and dirty state without fixing it.
