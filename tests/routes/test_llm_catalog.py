@@ -529,6 +529,9 @@ def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
 
         e2b = models_by_id["mlx-community/gemma-4-e2b-it-4bit"]
         e4b = models_by_id["mlx-community/gemma-4-e4b-it-4bit"]
+        e4b_optiq = models_by_id[
+            "mlx-community/gemma-4-e4b-it-OptiQ-4bit"
+        ]
         optiq = models_by_id[
             "mlx-community/gemma-4-12B-it-OptiQ-4bit"
         ]
@@ -544,6 +547,12 @@ def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
         assert e4b["displayName"] == "Gemma 4 E4B Instruct 4-bit"
         assert e4b["release_supported"] is False
         assert e4b["supports_vision"] is True
+        assert e4b_optiq["profile_id"] == "gemma-4-e4b-it-optiq-4bit"
+        assert e4b_optiq["displayName"] == (
+            "Gemma 4 E4B Instruct OptiQ 4-bit"
+        )
+        assert e4b_optiq["release_supported"] is False
+        assert e4b_optiq["supports_vision"] is False
         assert optiq["profile_id"] == "gemma-4-12b-it-optiq-4bit"
         assert optiq["displayName"] == "Gemma 4 12B Instruct OptiQ 4-bit"
         assert optiq["release_supported"] is False
