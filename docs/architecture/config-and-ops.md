@@ -86,6 +86,19 @@ Source anchors:
 - Operator views such as `?include=all` may still show unsupported providers for diagnosis, but that inspection surface does not widen release support.
 - Default catalog and health truth should keep discovered inventory, configured provider, egress-allowed provider, supported-profile-approved provider, and executable provider distinct so operators can see exactly where posture diverges.
 
+### Whoosh'd runtime-family selection contract
+
+- Whoosh'd is the local inference control plane display/vendor layer over `providerId: local`.
+- `mlx` and `gguf` are runtime-family values beneath Whoosh'd.
+- The preferred UX is a two-level selection:
+  - Provider: Whoosh'd
+  - Runtime family: MLX or GGUF
+  - Model: filtered model list for the selected runtime family
+- Model rows may also display a compact runtime-family badge such as `[MLX]` or `[GGUF]`.
+- Runtime-family selection must not create provider ids named `mlx`, `gguf`, or `whooshd`.
+- Runtime-family selection must not imply model availability until the relevant local endpoint inventory proves the model exists.
+- Runtime-family selection is a contract/planning slice only unless code changes in a future task wire catalog, config, and UI behavior.
+
 ### Current operator limits without a full Command Center / Observability Deck
 
 - Operators can currently infer whether the selected provider is configured, credentialed, egress-allowed, and reachable enough for the active runtime path.
