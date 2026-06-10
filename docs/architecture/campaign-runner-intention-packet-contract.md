@@ -185,6 +185,25 @@ Discovery prompt artifacts are preferred when Stage-A evidence is insufficient o
 
 No generated prompt can widen release truth. `docs/architecture/00-current-state.md` remains authoritative for current support and proof claims.
 
+## Provider-Free Fixture Materialization
+
+Provider-free fixture materialization begins after Stage A audit JSON and Stage B campaign JSON already exist.
+
+This mode validates the supplied audit and campaign JSON against the existing Campaign Runner schemas, then materializes review artifacts using the same deterministic campaign/task/prompt artifact machinery as normal materialization.
+
+This is a proof/materialization lane only. It is not execution authority, task approval, provider permission, Pi invocation authority, merge permission, or release proof.
+
+Provider-free fixture materialization must not:
+
+- invoke Stage A or Stage B providers
+- render Stage A or Stage B prompts
+- execute generated task prompts
+- call Pi, Codex, Claude, DeepSeek, Minimax, OpenAI, or any external provider
+- change provider behavior, Pi broker behavior, queues, workers, routes, databases, or UI behavior
+- prove provider support, Pi execution, runtime readiness, or release readiness
+
+The mode exists so operators can safely prove artifact generation from already-produced fixture JSON while preserving schema authority, runner-owned artifact paths, task-lane metadata, collision guards, and `00-current-state.md` release truth.
+
 ## Example Intention Packet
 
 ```markdown
