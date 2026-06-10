@@ -1,4 +1,4 @@
-# Guardian Work Brief - Truth Ledger - 2026-06-09
+# Guardian Work Brief - Truth Ledger - 2026-06-10
 
 ## Evidence Gathered
 - Generator command path: `make guardian-brief` -> `python3 scripts/guardian/generate_work_brief.py`.
@@ -15,6 +15,9 @@ Status snapshot:
 
 ```text
 ## main...origin/main [behind 11]
+ M docs/guardian/work-briefs/2026-06-09/axis-brief.md
+ M docs/guardian/work-briefs/2026-06-09/decision-log.md
+ M docs/guardian/work-briefs/2026-06-09/truth-ledger.md
 ```
 
 Architecture file presence:
@@ -28,7 +31,7 @@ Architecture file presence:
 ## Proven
 - The generator resolved a local git checkout.
 - The generator captured branch, HEAD, upstream, ahead/behind when available, dirty state, and expected architecture file presence before writing.
-- The generator wrote the four canonical Guardian Work Brief markdown files for `2026-06-09`.
+- The generator wrote the four canonical Guardian Work Brief markdown files for `2026-06-10`.
 - The current-state document remains the release-truth boundary for interpreting this packet.
 
 Current supported reality copied only as documentary context:
@@ -59,7 +62,7 @@ Current supported reality copied only as documentary context:
 - Docs-heavy merged work does not remove the need to recheck runtime proof on the supported path.
 
 ## Changed Files From This Run
-- docs/guardian/work-briefs/2026-06-09/axis-brief.md
-- docs/guardian/work-briefs/2026-06-09/codex-next-task-packet.md
-- docs/guardian/work-briefs/2026-06-09/truth-ledger.md
-- docs/guardian/work-briefs/2026-06-09/decision-log.md
+- docs/guardian/work-briefs/2026-06-10/axis-brief.md
+- docs/guardian/work-briefs/2026-06-10/codex-next-task-packet.md
+- docs/guardian/work-briefs/2026-06-10/truth-ledger.md
+- docs/guardian/work-briefs/2026-06-10/decision-log.md

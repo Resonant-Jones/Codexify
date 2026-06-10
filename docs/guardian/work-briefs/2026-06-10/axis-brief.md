@@ -1,7 +1,7 @@
-# Guardian Work Brief - Axis Brief - 2026-06-09
+# Guardian Work Brief - Axis Brief - 2026-06-10
 
 ## Scope
-Restore and use the repeatable Guardian Work Brief generation path for 2026-06-09. This packet is reporting-only. It does not generate marketing packets, daily audits, heartbeat bundles, public exports, release claims, or runtime proof.
+Restore and use the repeatable Guardian Work Brief generation path for 2026-06-10. This packet is reporting-only. It does not generate marketing packets, daily audits, heartbeat bundles, public exports, release claims, or runtime proof.
 
 ## Current Workspace State
 - Repo root: `/Users/username/.codex/worktrees/5ab6/Codexify-main`
@@ -12,6 +12,9 @@ Restore and use the repeatable Guardian Work Brief generation path for 2026-06-0
 
 ```text
 ## main...origin/main [behind 11]
+ M docs/guardian/work-briefs/2026-06-09/axis-brief.md
+ M docs/guardian/work-briefs/2026-06-09/decision-log.md
+ M docs/guardian/work-briefs/2026-06-09/truth-ledger.md
 ```
 
 Expected architecture files:
