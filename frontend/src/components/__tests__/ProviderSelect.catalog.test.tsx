@@ -169,6 +169,22 @@ describe("ProviderSelect catalog routing", () => {
                 release_supported: false,
               },
               {
+                id: "mlx-community/gemma-4-e4b-it-OptiQ-4bit",
+                displayName: "Gemma 4 E4B Instruct OptiQ 4-bit",
+                profile_id: "gemma-4-e4b-it-optiq-4bit",
+                profile_source: "whooshd_model_profile",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: false,
+                model_kind: "chat",
+                release_supported: false,
+                release_posture: {
+                  status: "candidate",
+                  release_supported: false,
+                  proof_required: true,
+                },
+              },
+              {
                 id: "mlx-community/gemma-4-12B-it-qat-4bit",
                 displayName: "Gemma 4 12B Instruct QAT 4-bit",
                 profile_id: "gemma-4-12b-it-qat-4bit",
@@ -201,11 +217,12 @@ describe("ProviderSelect catalog routing", () => {
     expect(await screen.findByText("Gemma 4 E2B Instruct 4-bit")).toBeInTheDocument();
     expect(screen.getByText("Gemma 4 12B Instruct OptiQ 4-bit")).toBeInTheDocument();
     expect(screen.getByText("Gemma 4 E4B Instruct 4-bit")).toBeInTheDocument();
+    expect(screen.getByText("Gemma 4 E4B Instruct OptiQ 4-bit")).toBeInTheDocument();
     expect(screen.getByText("Gemma 4 12B Instruct QAT 4-bit")).toBeInTheDocument();
 
-    fireEvent.click(providerButton("Gemma 4 E4B Instruct 4-bit"));
+    fireEvent.click(providerButton("Gemma 4 E4B Instruct OptiQ 4-bit"));
     expect(onChange).toHaveBeenCalledWith(
-      "mlx-community/gemma-4-e4b-it-4bit"
+      "mlx-community/gemma-4-e4b-it-OptiQ-4bit"
     );
   });
 
@@ -297,6 +314,9 @@ describe("ProviderSelect catalog routing", () => {
               {
                 id: "mlx-community/gemma-4-12B-it-OptiQ-4bit",
                 displayName: "Gemma 4 12B Instruct OptiQ 4-bit",
+                profile_id: "gemma-4-12b-it-optiq-4bit",
+                profile_source: "whooshd_model_profile",
+                display_vendor: "Whoosh'd",
                 supports_chat: true,
                 model_kind: "chat",
                 release_supported: false,

@@ -241,8 +241,6 @@ function normalizeModel(
     displayVendor:
       normalizeString(model.display_vendor ?? model.displayVendor) ??
       undefined,
-    releaseSupported:
-      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow

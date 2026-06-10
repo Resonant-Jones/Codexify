@@ -42,6 +42,12 @@ The current profiles are:
 - Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
 - Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
 
+- Profile id: `gemma-4-e4b-it-optiq-4bit`
+- Model repo: `mlx-community/gemma-4-e4b-it-OptiQ-4bit`
+- Runtime hint: `mlx_vlm.server --host 127.0.0.1 --model mlx-community/gemma-4-e4b-it-OptiQ-4bit --port 8000`
+- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
+- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
+
 - Profile id: `gemma-4-12b-it-optiq-4bit`
 - Model repo: `mlx-community/gemma-4-12B-it-OptiQ-4bit`
 - Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-12B-it-OptiQ-4bit --port 8000`
