@@ -14,6 +14,10 @@ Profiles do not prove runtime support by existing. Live proof still requires
 health, catalog, supported-profile, queue/worker, and Guardian completion
 evidence before a model can be treated as release-supported.
 
+Profiles intended for travel or offline use should include local probe commands
+and must still assume the model artifacts were downloaded before the machine
+lost network access.
+
 New profiles must include thought/final-answer leakage policy when the model
 family supports hidden, reasoning, thinking, or channelized output. Guardian-facing
 transcripts must reject hidden process text, prompt-internal channel markers, and
