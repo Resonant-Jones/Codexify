@@ -32,18 +32,27 @@ Profiles are file-backed JSON manifests under
 - No release claim expansion.
 - No custom proxy restoration.
 
-## Current First Profile
+## Current Profiles
 
-The first profile is `gemma-4-e2b-it-4bit`.
+The current profiles are:
 
-- Model repo: `mlx-community/gemma-4-e2b-it-4bit`
-- Runtime hint:
-  `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
-- Local OpenAI-compatible base URL hint:
-  `http://host.docker.internal:8000/v1`
+- `gemma-4-e2b-it-4bit`
+  - Model repo: `mlx-community/gemma-4-e2b-it-4bit`
+  - Runtime hint:
+    `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
+  - Local OpenAI-compatible base URL hint:
+    `http://host.docker.internal:8000/v1`
+- `gemma-4-12b-it-qat-4bit`
+  - Model repo: `mlx-community/gemma-4-12B-it-qat-4bit`
+  - Runtime hint:
+    `mlx_vlm.server --model mlx-community/gemma-4-12B-it-qat-4bit --port 8000`
+  - Offline probe hint:
+    `python -m mlx_vlm.generate --model mlx-community/gemma-4-12B-it-qat-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
+  - Local OpenAI-compatible base URL hint:
+    `http://host.docker.internal:8000/v1`
 
-This profile is candidate metadata only. It is not wired into provider routing
-or catalog exposure and is not a supported release model.
+These profiles are candidate metadata only. They are not wired into provider
+routing or catalog exposure and are not supported release models.
 
 ## Invariants
 
@@ -52,6 +61,8 @@ or catalog exposure and is not a supported release model.
   routing.
 - A model profile is not proof of model quality.
 - A model profile is not release support.
+- Offline use requires local cached model artifacts before network loss; the
+  profile does not download or prove those artifacts.
 - Model-family hidden/thinking channel leakage must be blocked before
   Guardian-facing use.
 - Acceptance checks must include no prompt echo, no thought/channel leakage, and
