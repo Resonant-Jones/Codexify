@@ -9,6 +9,8 @@
     "kind": "mlx",
     "server": "mlx_vlm.server",
     "openai_compatible": true,
+    "preferred_local_invocation_path": "mlx-vlm",
+    "mlx_vlm_compatible": true,
     "default_base_url": "http://host.docker.internal:8000/v1",
     "startup_command": [
       "mlx_vlm.server",
@@ -16,6 +18,21 @@
       "mlx-community/gemma-4-e2b-it-4bit",
       "--port",
       "8000"
+    ],
+    "offline_probe_command": [
+      "python",
+      "-m",
+      "mlx_vlm.generate",
+      "--model",
+      "mlx-community/gemma-4-e2b-it-4bit",
+      "--max-tokens",
+      "100",
+      "--temperature",
+      "0.0",
+      "--prompt",
+      "Describe this image.",
+      "--image",
+      "<path_to_image>"
     ]
   },
   "model": {
@@ -27,6 +44,8 @@
   },
   "capabilities": {
     "chat": true,
+    "multimodal": true,
+    "image_input": true,
     "vision": true,
     "audio_input": false,
     "tool_calling": false,
