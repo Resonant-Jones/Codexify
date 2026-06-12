@@ -38,12 +38,22 @@ The current profiles are:
 
 - `gemma-4-e2b-it-4bit`
   - Model repo: `mlx-community/gemma-4-e2b-it-4bit`
+  - Multimodal intent: `capabilities.multimodal = true`
+  - Image input: `capabilities.image_input = true`
+  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
+  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
   - Runtime hint:
     `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
+  - Offline probe hint:
+    `python -m mlx_vlm.generate --model mlx-community/gemma-4-e2b-it-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
   - Local OpenAI-compatible base URL hint:
     `http://host.docker.internal:8000/v1`
 - `gemma-4-12b-it-qat-4bit`
   - Model repo: `mlx-community/gemma-4-12B-it-qat-4bit`
+  - Multimodal intent: `capabilities.multimodal = true`
+  - Image input: `capabilities.image_input = true`
+  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
+  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
   - Runtime hint:
     `mlx_vlm.server --model mlx-community/gemma-4-12B-it-qat-4bit --port 8000`
   - Offline probe hint:
@@ -63,6 +73,11 @@ routing or catalog exposure and are not supported release models.
 - A model profile is not release support.
 - Offline use requires local cached model artifacts before network loss; the
   profile does not download or prove those artifacts.
+- `runtime.offline_probe_command` is an operator hint for local cached-model
+  checks, not routing logic, and it can still be overridden by explicit routing
+  or task metadata.
+- `mlx-vlm` here is a preferred multimodal local runtime hint, not a provider
+  replacement and not a routing change by itself.
 - Model-family hidden/thinking channel leakage must be blocked before
   Guardian-facing use.
 - Acceptance checks must include no prompt echo, no thought/channel leakage, and

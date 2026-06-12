@@ -31,6 +31,17 @@ REQUIRED_ACCEPTANCE_CHECK_IDS = {
     "guardian_completion_smoke",
 }
 
+GEMMA4_REQUIRED_CAPABILITY_KEYS = {
+    "multimodal",
+    "image_input",
+}
+
+GEMMA4_REQUIRED_RUNTIME_KEYS = {
+    "preferred_local_invocation_path",
+    "mlx_vlm_compatible",
+    "offline_probe_command",
+}
+
 
 def _load_profile(path: Path) -> dict[str, Any]:
     try:
@@ -51,6 +62,14 @@ def _require_mapping(profile: dict[str, Any], key: str, path: Path) -> dict[str,
     if not isinstance(value, dict):
         raise ValueError(f"{path}: {key} must be an object")
     return value
+
+
+def _require_keys(
+    mapping: dict[str, Any], keys: set[str], path: Path, label: str
+) -> None:
+    missing = sorted(keys - mapping.keys())
+    if missing:
+        raise ValueError(f"{path}: missing {label}: {', '.join(missing)}")
 
 
 def _validate_profile(path: Path) -> None:
@@ -81,6 +100,43 @@ def _validate_profile(path: Path) -> None:
         raise ValueError(
             f"{path}: guardian_defaults.history_policy must be 'final_answer_only'"
         )
+
+    capabilities = _require_mapping(profile, "capabilities", path)
+    runtime = _require_mapping(profile, "runtime", path)
+
+    if profile.get("family") == "gemma4":
+        _require_keys(
+            capabilities,
+            GEMMA4_REQUIRED_CAPABILITY_KEYS,
+            path,
+            "gemma4 capabilities",
+        )
+        _require_keys(
+            runtime,
+            GEMMA4_REQUIRED_RUNTIME_KEYS,
+            path,
+            "gemma4 runtime keys",
+        )
+
+        if capabilities.get("multimodal") is not True:
+            raise ValueError(
+                f"{path}: capabilities.multimodal must be true for gemma4 profiles"
+            )
+
+        if capabilities.get("image_input") is not True:
+            raise ValueError(
+                f"{path}: capabilities.image_input must be true for gemma4 profiles"
+            )
+
+        if runtime.get("preferred_local_invocation_path") != "mlx-vlm":
+            raise ValueError(
+                f"{path}: runtime.preferred_local_invocation_path must be 'mlx-vlm' for gemma4 profiles"
+            )
+
+        if runtime.get("mlx_vlm_compatible") is not True:
+            raise ValueError(
+                f"{path}: runtime.mlx_vlm_compatible must be true for gemma4 profiles"
+            )
 
     acceptance_checks = profile.get("acceptance_checks")
     if not isinstance(acceptance_checks, list):
