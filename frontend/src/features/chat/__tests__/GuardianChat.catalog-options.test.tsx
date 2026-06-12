@@ -214,6 +214,78 @@ describe("GuardianChat catalog-backed model options", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shortens local filesystem model labels in the composer selector", async () => {
+    (api.get as any).mockImplementation(async (url: string) => {
+      if (url === "/llm/catalog") {
+        return {
+          data: {
+            providers: [
+              {
+                id: "local",
+                displayName: "Local",
+                enabled: true,
+                authorized: true,
+                available: true,
+                source: {
+                  kind: "local",
+                  baseUrl: "http://127.0.0.1:11434/v1",
+                  label: "127.0.0.1:11434",
+                },
+                models: [
+                  {
+                    id: "/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit",
+                    canonical_id: "/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit",
+                    display_label:
+                      "/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit",
+                    namespace: "local",
+                    source: "local",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url === "/health/llm") {
+        return {
+          data: {
+            ok: true,
+            status: "online",
+            provider: "local",
+            model: "/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit",
+            error: null,
+          },
+        };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "draft", title: "Draft" } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "Tab 1",
+            providerId: "local",
+            modelId: "/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    const modelOptions = await screen.findByTestId("model-options");
+    expect(modelOptions).toHaveTextContent("Gemma 4 12B QAT");
+    expect(screen.queryByText("/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit")).not.toBeInTheDocument();
+  });
+
   it("adds muted differentiators only when normalized model labels collide", async () => {
     (api.get as any).mockImplementation(async (url: string) => {
       if (url === "/llm/catalog") {
