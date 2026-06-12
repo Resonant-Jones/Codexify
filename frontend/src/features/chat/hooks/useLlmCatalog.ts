@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api, { buildLlmCatalogPath } from "@/lib/api";
+import { resolveModelDisplayLabel } from "@/lib/modelLabels";
 import { logOnce } from "@/lib/logging/logOnce";
 import type { ComposerInferenceMode } from "@/types/inference";
 
@@ -35,6 +36,10 @@ export type LlmCatalogModel = {
     notes?: string | null;
     updatedAt?: string | null;
   };
+  profileDisplayName?: string;
+  profile_display_name?: string;
+  modelProfileDisplayName?: string;
+  model_profile_display_name?: string;
   capabilities?: {
     chat?: boolean;
     vision?: boolean;
@@ -124,23 +129,34 @@ function normalizeModel(
     normalizeString(model.canonical_id) ?? normalizeString(model.id);
   if (!canonicalId) return null;
 
-  const displayLabel =
-    normalizeString(model.display_label) ??
-    normalizeString(model.displayName) ??
-    normalizeString(model.label) ??
-    canonicalId;
-  const pickerLabel =
-    normalizeString(model.picker_label) ??
-    normalizeString(model.pickerLabel) ??
-    displayLabel ??
-    canonicalId;
+  const profileDisplayName =
+    normalizeString(model.profileDisplayName) ??
+    normalizeString(model.profile_display_name) ??
+    normalizeString(model.modelProfileDisplayName) ??
+    normalizeString(model.model_profile_display_name) ??
+    null;
+  const displayLabel = resolveModelDisplayLabel({
+    profileDisplayName,
+    catalogDisplayName:
+      normalizeString(model.display_label) ??
+      normalizeString(model.displayName) ??
+      normalizeString(model.label),
+    modelId: canonicalId,
+  });
+  const pickerLabel = resolveModelDisplayLabel({
+    profileDisplayName,
+    catalogDisplayName:
+      normalizeString(model.picker_label) ??
+      normalizeString(model.pickerLabel),
+    modelId: canonicalId,
+  });
   const alias = normalizeString(model.alias) ?? undefined;
   const override =
     model.override && typeof model.override === "object"
       ? (model.override as Record<string, unknown>)
       : null;
   const displayName =
-    displayLabel ?? pickerLabel ?? alias ?? canonicalId;
+    displayLabel || pickerLabel || alias || canonicalId;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"
