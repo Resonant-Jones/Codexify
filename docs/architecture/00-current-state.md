@@ -1,5 +1,5 @@
 ## Purpose
-This file is Codexify's canonical short-form source of truth for the current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
+This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
 2026-06-12
@@ -13,30 +13,30 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. The newest shipped change on `main` wires the Whoosh'd local provider preset through env, Compose, the AI router, config, and setup wizard; that expands supported local setup options, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work expands local-provider setup and operator-facing docs, but it does not widen the release promise.
 
 ## What changed recently
-- `main` wired the Whoosh'd provider preset across env, Compose, `ai_router`, config, and setup wizard.
-- `main` restored the Guardian work brief generator.
-- `main` added Guardian work brief docs for 2026-06-05 through 2026-06-07.
-- The supported profile and local-only posture remain intact on `main`.
-- No release promise expansion is proven on `main` from these merges alone.
+- `main` added Whoosh'd profile switching and the first Whoosh'd local model profile.
+- `main` documented the Whoosh'd local runtime install path and local inference provider setup.
+- `main` added Campaign Runner intention-packet, prompt-artifact, and fixture-materialization scaffolding.
+- `main` added TTS console voice profiles and the local Qwen3 TTS adapter.
+- The supported local-only posture remains intact on `main`.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- Whoosh'd is now a supported local runtime preset on Apple Silicon paths.
+- Whoosh'd is a supported local runtime preset on Apple Silicon paths.
 - `LOCAL_RUNTIME_PRESET` can select between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` while staying under `LLM_PROVIDER=local`.
 - Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
 - Health surfaces still report LLM availability and chat queue/worker status.
-- Chat completion, upload -> embed -> readback, and workspace-local Obsidian retrieval remain the supported beta paths.
+- Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - Graph writes remain default-off on the supported Compose path.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume docs-only exports, scaffolds, or brief-generation artifacts prove runtime support.
+- Do not assume docs-only exports, scaffolds, prompt artifacts, or brief-generation output prove runtime support.
 - Do not assume Whoosh'd setup equals live provider reachability without endpoint/model inventory proof.
 - Do not infer a wider beta claim from the new local preset wiring alone.
 
