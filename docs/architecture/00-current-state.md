@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-12
+2026-06-13
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,7 +13,7 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` work expands local-provider setup and operator-facing docs, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work expands local-provider setup and operator-facing docs, but it does not widen the release promise.
 
 ## What changed recently
 - `main` added Whoosh'd profile switching and the first Whoosh'd local model profile.
