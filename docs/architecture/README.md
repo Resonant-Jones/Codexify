@@ -22,6 +22,8 @@ Source anchors:
 
 # Codexify Architecture KB
 
+Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
+
 Start here: if you need current-state interpretation rather than structural architecture, read [`00-current-state.md`](./00-current-state.md) first.
 Use it first for live release/readiness interpretation, supported install path, active blockers, and short-horizon priorities.
 If you need the live weekly interpretation of `main`, start with [`00-current-state.md`](./00-current-state.md).
