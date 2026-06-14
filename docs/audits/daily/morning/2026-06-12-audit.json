@@ -67,23 +67,21 @@
     "commits": [
       {
         "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/README.md"
+          "docs/architecture/00-current-state.md"
         ],
-        "sha": "3ee11ea5a3cd5bbd5d6920c3991761c0a4fcf503",
+        "sha": "56381fbebd9f0d180d33fd9064f22789621c2f21",
         "subject": "docs: refresh weekly current-state override"
       }
     ],
     "files_changed": [
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/README.md"
+      "docs/architecture/00-current-state.md"
     ],
-    "window_end": "2026-06-13T05:01:22.319580-07:00",
+    "window_end": "2026-06-12T05:01:32.430446-07:00",
     "window_hours": 24,
-    "window_start": "2026-06-12T05:01:22.319580-07:00"
+    "window_start": "2026-06-11T05:01:32.430446-07:00"
   },
-  "date": "2026-06-13",
-  "generated_at": "2026-06-13T05:01:22.319580-07:00",
+  "date": "2026-06-12",
+  "generated_at": "2026-06-12T05:01:32.430446-07:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
@@ -92,9 +90,9 @@
   "phase": "morning",
   "repo": {
     "branch": "main",
-    "date": "2026-06-13",
+    "date": "2026-06-12",
     "dirty": true,
-    "head": "3ee11ea5a3cd5bbd5d6920c3991761c0a4fcf503",
+    "head": "56381fbebd9f0d180d33fd9064f22789621c2f21",
     "status_error": "",
     "status_lines": [
       " M CHANGELOG.beta.md",
@@ -105,8 +103,6 @@
       " M docs/audits/daily/morning/latest.md",
       " M docs/audits/latest.json",
       " M docs/audits/latest.md",
-      " M guardian/routes/chat.py",
-      " M guardian/routes/personal_facts.py",
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md",
@@ -116,23 +112,10 @@
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md",
       "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json",
       "?? docs/audits/daily/evening/2026-06-11-audit.json",
       "?? docs/audits/daily/evening/2026-06-11-audit.md",
-      "?? docs/audits/daily/evening/2026-06-12-audit.json",
-      "?? docs/audits/daily/evening/2026-06-12-audit.md",
       "?? docs/audits/daily/morning/2026-06-12-audit.json",
-      "?? docs/audits/daily/morning/2026-06-12-audit.md",
-      "?? guardian/fact_candidate_pipeline.py",
-      "?? tests/test_fact_candidate_pipeline.py"
+      "?? docs/audits/daily/morning/2026-06-12-audit.md"
     ]
   },
   "risk_flags": [
@@ -190,10 +173,9 @@
   ],
   "subsystems_touched": {
     "docs": {
-      "count": 2,
+      "count": 1,
       "files": [
-        "docs/architecture/00-current-state.md",
-        "docs/architecture/README.md"
+        "docs/architecture/00-current-state.md"
       ]
     }
   }

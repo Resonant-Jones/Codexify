@@ -67,73 +67,48 @@
     "commits": [
       {
         "files": [
-          "docs/architecture/00-current-state.md",
-          "docs/architecture/README.md"
+          ".env.example",
+          ".env.template",
+          "config/supported_profiles/v1-local-core-web-mcp.yaml",
+          "docker-compose.runtime.yml",
+          "docker-compose.yml",
+          "guardian/core/ai_router.py",
+          "guardian/core/config.py",
+          "guardian/ops/setup_wizard.py"
         ],
-        "sha": "3ee11ea5a3cd5bbd5d6920c3991761c0a4fcf503",
-        "subject": "docs: refresh weekly current-state override"
+        "sha": "eeb39d9ed2a2d20f5f81e990ce0472f3b48c4270",
+        "subject": "feat: wire whooshd provider config across env, compose, ai_router, config, and setup_wizard"
       }
     ],
     "files_changed": [
-      "docs/architecture/00-current-state.md",
-      "docs/architecture/README.md"
+      ".env.example",
+      ".env.template",
+      "config/supported_profiles/v1-local-core-web-mcp.yaml",
+      "docker-compose.runtime.yml",
+      "docker-compose.yml",
+      "guardian/core/ai_router.py",
+      "guardian/core/config.py",
+      "guardian/ops/setup_wizard.py"
     ],
-    "window_end": "2026-06-13T05:01:22.319580-07:00",
+    "window_end": "2026-06-11T18:02:49.044978-07:00",
     "window_hours": 24,
-    "window_start": "2026-06-12T05:01:22.319580-07:00"
+    "window_start": "2026-06-10T18:02:49.044978-07:00"
   },
-  "date": "2026-06-13",
-  "generated_at": "2026-06-13T05:01:22.319580-07:00",
+  "date": "2026-06-11",
+  "generated_at": "2026-06-11T18:02:49.044978-07:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
     "next_priority": ""
   },
-  "phase": "morning",
+  "phase": "evening",
   "repo": {
     "branch": "main",
-    "date": "2026-06-13",
-    "dirty": true,
-    "head": "3ee11ea5a3cd5bbd5d6920c3991761c0a4fcf503",
+    "date": "2026-06-11",
+    "dirty": false,
+    "head": "eeb39d9ed2a2d20f5f81e990ce0472f3b48c4270",
     "status_error": "",
-    "status_lines": [
-      " M CHANGELOG.beta.md",
-      " M docs/Marketing/generated/history/run-history.jsonl",
-      " M docs/audits/daily/evening/latest.json",
-      " M docs/audits/daily/evening/latest.md",
-      " M docs/audits/daily/morning/latest.json",
-      " M docs/audits/daily/morning/latest.md",
-      " M docs/audits/latest.json",
-      " M docs/audits/latest.md",
-      " M guardian/routes/chat.py",
-      " M guardian/routes/personal_facts.py",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-website.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/core-brief.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/evidence-ledger.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md",
-      "?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json",
-      "?? docs/audits/daily/evening/2026-06-11-audit.json",
-      "?? docs/audits/daily/evening/2026-06-11-audit.md",
-      "?? docs/audits/daily/evening/2026-06-12-audit.json",
-      "?? docs/audits/daily/evening/2026-06-12-audit.md",
-      "?? docs/audits/daily/morning/2026-06-12-audit.json",
-      "?? docs/audits/daily/morning/2026-06-12-audit.md",
-      "?? guardian/fact_candidate_pipeline.py",
-      "?? tests/test_fact_candidate_pipeline.py"
-    ]
+    "status_lines": []
   },
   "risk_flags": [
     {
@@ -189,11 +164,32 @@
     }
   ],
   "subsystems_touched": {
-    "docs": {
+    "config": {
+      "count": 3,
+      "files": [
+        ".env.example",
+        ".env.template",
+        "guardian/core/config.py"
+      ]
+    },
+    "infra": {
       "count": 2,
       "files": [
-        "docs/architecture/00-current-state.md",
-        "docs/architecture/README.md"
+        "docker-compose.runtime.yml",
+        "docker-compose.yml"
+      ]
+    },
+    "providers": {
+      "count": 2,
+      "files": [
+        "config/supported_profiles/v1-local-core-web-mcp.yaml",
+        "guardian/core/ai_router.py"
+      ]
+    },
+    "unknown": {
+      "count": 1,
+      "files": [
+        "guardian/ops/setup_wizard.py"
       ]
     }
   }

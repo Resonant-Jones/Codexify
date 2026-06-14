@@ -1,41 +1,48 @@
-# Daily Audit — 2026-06-02
+# Daily Audit — 2026-06-13
 
 ## Repo Status
-- Date: 2026-06-02
+- Date: 2026-06-13
 - Phase: `morning`
-- Branch: `codex/add-whooshd-provider`
-- HEAD: `4c4cb9d364f8ab3ef14a8d154346b9b9fbc17efc`
+- Branch: `main`
+- HEAD: `3ee11ea5a3cd5bbd5d6920c3991761c0a4fcf503`
 - Worktree: dirty
 - Status lines:
+  - ` M CHANGELOG.beta.md`
   - ` M docs/Marketing/generated/history/run-history.jsonl`
   - ` M docs/audits/daily/evening/latest.json`
   - ` M docs/audits/daily/evening/latest.md`
+  - ` M docs/audits/daily/morning/latest.json`
+  - ` M docs/audits/daily/morning/latest.md`
   - ` M docs/audits/latest.json`
   - ` M docs/audits/latest.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/run-metadata.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/run-metadata.json`
-  - `?? docs/audits/daily/evening/2026-05-31-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-31-audit.md`
-  - `?? docs/audits/daily/evening/2026-06-01-audit.json`
-  - `?? docs/audits/daily/evening/2026-06-01-audit.md`
-  - `?? docs/audits/daily/morning/2026-06-01-audit.json`
-  - `?? docs/audits/daily/morning/2026-06-01-audit.md`
+  - ` M guardian/routes/chat.py`
+  - ` M guardian/routes/personal_facts.py`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json`
+  - `?? docs/audits/daily/evening/2026-06-11-audit.json`
+  - `?? docs/audits/daily/evening/2026-06-11-audit.md`
+  - `?? docs/audits/daily/evening/2026-06-12-audit.json`
+  - `?? docs/audits/daily/evening/2026-06-12-audit.md`
+  - `?? docs/audits/daily/morning/2026-06-12-audit.json`
+  - `?? docs/audits/daily/morning/2026-06-12-audit.md`
+  - `?? guardian/fact_candidate_pipeline.py`
+  - `?? tests/test_fact_candidate_pipeline.py`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
@@ -81,7 +88,7 @@
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `4c4cb9d364f8` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `3ee11ea5a3cd` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
