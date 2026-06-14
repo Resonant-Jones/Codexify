@@ -79,6 +79,59 @@ logger.info("🔑 OPENAI_API_KEY: %s", os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
+
+# ── Whoosh'd managed sidecar startup/shutdown ──────────────────────────
+
+@app.on_event("startup")
+async def _startup_whooshd_sidecar():
+    """Launch Whoosh'd as a managed sidecar if configured (non-blocking)."""
+    import asyncio as _asyncio
+    from guardian.core.config import get_settings
+    from guardian.providers.whooshd_sidecar import get_sidecar
+
+    async def _launch():
+        try:
+            s = get_settings()
+            vendor = str(getattr(s, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
+            if vendor == "whooshd" and s.WHOOSHD_MANAGED:
+                logger.info("whooshd_sidecar: managed mode enabled, detecting...")
+                sidecar = get_sidecar(s)
+                status = await sidecar.detect()
+                if status.state.value == "offline":
+                    logger.info("whooshd_sidecar: not reachable, launching...")
+                    status = await sidecar.launch()
+                    logger.info(
+                        "whooshd_sidecar: launched state=%s pid=%s session=%s",
+                        status.state.value, status.pid, status.session_id,
+                    )
+                else:
+                    logger.info(
+                        "whooshd_sidecar: already reachable state=%s ownership=%s",
+                        status.state.value,
+                        sidecar.determine_ownership(status).value,
+                    )
+        except Exception as exc:
+            logger.warning("whooshd_sidecar: startup error (non-fatal): %s", exc)
+
+    _asyncio.create_task(_launch())
+
+
+@app.on_event("shutdown")
+async def _shutdown_whooshd_sidecar():
+    """Stop the Whoosh'd sidecar if Codexify launched it."""
+    from guardian.core.config import get_settings
+    from guardian.providers.whooshd_sidecar import get_sidecar
+
+    try:
+        s = get_settings()
+        if s.WHOOSHD_STOP_ON_EXIT:
+            sidecar = get_sidecar(s)
+            stopped = await sidecar.stop()
+            if stopped:
+                logger.info("whooshd_sidecar: stopped managed process")
+    except Exception as exc:
+        logger.warning("whooshd_sidecar: shutdown error (non-fatal): %s", exc)
+
 # Map action strings to their corresponding agent functions for cleaner, scalable routing.
 AGENT_ACTIONS = {
     "get_health_summary": get_health_summary,
@@ -309,6 +362,20 @@ async def orchestrate_endpoint(command: OrchestrateCommand, request: Request):
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "orchestrator": "alive"}
+
+
+@app.get("/health/whooshd")
+async def whooshd_health():
+    """Whoosh'd sidecar provider health status."""
+    from guardian.core.config import get_settings
+    from guardian.providers.whooshd_sidecar import get_sidecar
+
+    try:
+        s = get_settings()
+        sidecar = get_sidecar(s)
+        return await sidecar.status_dict()
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
 
 
 # To run: uvicorn guardian.core.orchestrator.pulse_orchestrator:app --reload

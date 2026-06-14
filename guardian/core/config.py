@@ -250,6 +250,46 @@ class Settings(BaseSettings):
             "provider source metadata, e.g. whooshd."
         ),
     )
+    WHOOSHD_MANAGED: bool = Field(
+        default=False,
+        description="When true, Codexify may auto-start Whoosh'd as a managed sidecar process.",
+    )
+    WHOOSHD_HOST: str = Field(
+        default="127.0.0.1",
+        description="Host for the Whoosh'd sidecar process.",
+    )
+    WHOOSHD_PORT: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+        description="Port for the Whoosh'd sidecar process.",
+    )
+    WHOOSHD_COMMAND: str = Field(
+        default="python -m uvicorn whooshd.app:app",
+        description="Launch command for the Whoosh'd sidecar (development). Use 'whooshd serve' when CLI is available.",
+    )
+    WHOOSHD_WORKING_DIR: str | None = Field(
+        default=None,
+        description="Working directory for the Whoosh'd sidecar process. Defaults to the Whoosh'd project root.",
+    )
+    WHOOSHD_MODEL_REGISTRY_PATH: str | None = Field(
+        default=None,
+        description="Path to Whoosh'd model registry YAML for clean model aliases.",
+    )
+    WHOOSHD_STARTUP_TIMEOUT_SECONDS: float = Field(
+        default=90.0,
+        ge=5.0,
+        description="Maximum seconds to wait for Whoosh'd to become ready after launch.",
+    )
+    WHOOSHD_HEALTH_POLL_INTERVAL_SECONDS: float = Field(
+        default=1.0,
+        ge=0.25,
+        description="Polling interval for Whoosh'd readiness checks.",
+    )
+    WHOOSHD_STOP_ON_EXIT: bool = Field(
+        default=True,
+        description="When true, stop the Whoosh'd sidecar process when Codexify exits.",
+    )
     LOCAL_LLM_MODEL: str = Field(
         default="library2/ministral-3:8b",
         description="Local chat model identifier for Ollama.",
@@ -257,6 +297,14 @@ class Settings(BaseSettings):
     LOCAL_CHAT_MODEL: str = Field(
         default="library2/ministral-3:8b",
         description="Local chat model identifier used by supported profile validation.",
+    )
+    LOCAL_VISION_MODEL: str | None = Field(
+        default=None,
+        description="Local vision model identifier for multimodal image requests. Falls back to qwen2-vl-2b-mlx when not set.",
+    )
+    LOCAL_GGUF_MODEL: str | None = Field(
+        default=None,
+        description="Local GGUF model identifier for llama_cpp inference. No default; must be explicitly configured.",
     )
     LOCAL_EMBEDDING_MODEL: str | None = Field(
         default=None,

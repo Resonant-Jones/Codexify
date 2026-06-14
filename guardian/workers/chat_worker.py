@@ -1573,6 +1573,43 @@ def _run_chat_completion_task_compat(
         bundle,
         trace,
     ) = _coerce_build_messages_result(build_result)
+
+    # Inject structured multimodal content from task payload.
+    # Must run BEFORE model resolution below so vision model is selected.
+    latest_turn_msgs = getattr(task, "latest_turn_messages", None)
+    has_structured_image = False
+    if isinstance(latest_turn_msgs, list) and len(latest_turn_msgs) > 0:
+        if isinstance(bundle, dict):
+            bundle["latest_turn_messages"] = latest_turn_msgs
+        for part in latest_turn_msgs:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                has_structured_image = True
+                break
+        # Replace last user message content with structured array
+        for i in range(len(messages_for_llm) - 1, -1, -1):
+            if str(messages_for_llm[i].get("role", "")).strip().lower() == "user":
+                messages_for_llm[i] = dict(messages_for_llm[i])
+                messages_for_llm[i]["content"] = latest_turn_msgs
+                break
+        logger.info(
+            "structured_inject: has_image=%s parts=%d task_id=%s",
+            has_structured_image,
+            len(latest_turn_msgs),
+            task.task_id,
+        )
+
+    # If structured content has images, override model to LOCAL_VISION_MODEL.
+    if has_structured_image:
+        vision_model = getattr(get_settings(), "LOCAL_VISION_MODEL", None)
+        if vision_model:
+            model = vision_model
+            task.model = model
+            logger.info(
+                "structured_vision_override: model=%s task_id=%s",
+                model,
+                task.task_id,
+            )
+
     payload_summary = _chat_completion_service.build_sanitized_payload_summary(
         messages_for_llm,
         bundle,

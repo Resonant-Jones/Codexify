@@ -77,6 +77,21 @@ def _coerce_optional_text(raw: Any) -> str | None:
     return value or None
 
 
+def _coerce_structured_messages(raw: Any) -> list[dict[str, Any]] | None:
+    """Coerce a value to a list of structured message parts, or None."""
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    if len(raw) == 0:
+        return None
+    # Validate that items look like structured content parts
+    for item in raw:
+        if isinstance(item, dict) and item.get("type") in ("text", "image_url"):
+            return raw
+    return None
+
+
 def _coerce_optional_raw_text(raw: Any) -> str | None:
     if raw is None:
         return None
@@ -637,6 +652,7 @@ class ChatCompletionTask(BaseTask):
     user_id: str
     thread_id: int = 0
     latest_turn_message_id: int | None = None
+    latest_turn_messages: list[dict[str, Any]] | None = None  # structured multimodal content for latest turn
     model: str | None = None
     provider: str | None = None
     temperature: float | None = None
@@ -677,6 +693,9 @@ class ChatCompletionTask(BaseTask):
             thread_id=int(payload.get("thread_id") or 0),
             latest_turn_message_id=_coerce_optional_positive_int(
                 payload.get("latest_turn_message_id")
+            ),
+            latest_turn_messages=_coerce_structured_messages(
+                payload.get("latest_turn_messages")
             ),
             model=payload.get("model"),
             provider=payload.get("provider"),

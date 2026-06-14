@@ -7,7 +7,10 @@ using the injected memory client.
 import logging
 from typing import Optional
 
-from memoryos.memoryos import Memoryos
+try:
+    from memoryos.memoryos import Memoryos
+except ImportError:
+    Memoryos = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
