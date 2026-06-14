@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+_WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 
 _GUARDIAN_API_ENV_KEYS = (
     "GUARDIAN_API_KEY",

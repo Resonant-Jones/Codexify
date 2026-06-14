@@ -33,7 +33,10 @@ services:
       LOCAL_API_KEY: "local"
 
       # ── Model aliases (must exist in Whoosh'd registry) ──
-      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+      LOCAL_CHAT_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LOCAL_LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      DEFAULT_LOCAL_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
       LOCAL_VISION_MODEL: "qwen2-vl-2b-mlx"
       LOCAL_GGUF_MODEL: "qwen2.5-0.5b-gguf"
 
@@ -55,7 +58,10 @@ services:
       LOCAL_API_KEY: "local"
 
       # ── Model aliases ──
-      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+      LOCAL_CHAT_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LOCAL_LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      DEFAULT_LOCAL_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
       LOCAL_VISION_MODEL: "qwen2-vl-2b-mlx"
       LOCAL_GGUF_MODEL: "qwen2.5-0.5b-gguf"
 
@@ -75,7 +81,10 @@ services:
       ALLOW_CLOUD_PROVIDERS: "false"
       CODEXIFY_EGRESS_ALLOWLIST: ""
       CODEXIFY_LOCAL_ONLY_MODE: "true"
-      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+      LOCAL_CHAT_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LOCAL_LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      LLM_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
+      DEFAULT_LOCAL_MODEL: "mlx-community/gemma-4-e2b-it-4bit"
 
   worker-chat-embed:
     environment:

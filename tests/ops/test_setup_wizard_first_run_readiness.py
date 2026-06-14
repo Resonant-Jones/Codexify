@@ -8,7 +8,7 @@ from typing import Any
 from guardian.ops import setup_wizard
 
 
-_WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+_WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 
 
 def _write_env(path: Path, **values: str) -> None:
@@ -256,7 +256,7 @@ def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> 
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
+        return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
@@ -281,7 +281,7 @@ def test_classifies_frontend_not_running(tmp_path: Path, monkeypatch: Any) -> No
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/v1/models"):
-            return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
+            return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
         if "5173" in url:
             raise ConnectionError("frontend stopped")
         return 200, '{"status":"ok"}'
@@ -308,7 +308,7 @@ def test_classifies_ready(tmp_path: Path, monkeypatch: Any) -> None:
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/v1/models"):
-            return 200, '{"data":[{"id":"mlx-community/Llama-3.2-3B-Instruct-4bit"}]}'
+            return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
