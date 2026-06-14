@@ -4,8 +4,8 @@ import platform
 from dataclasses import dataclass
 
 
-WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-WHOOSHD_ALIAS_MODEL = "llama-3.2-3b-mlx"
+WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+WHOOSHD_ALIAS_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 WHOOSHD_GGUF_MODEL = "qwen2.5-0.5b-gguf"
 WHOOSHD_VISION_MODEL = "qwen2-vl-2b-mlx"
 OLLAMA_MODEL = "llama3.2:latest"

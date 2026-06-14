@@ -66,6 +66,8 @@ def test_chat_model_still_uses_local_chat_env():
     """Text turns should still use LOCAL_CHAT_MODEL (not vision model)."""
     config = _load_smoke_compose()
     backend_env = config["services"]["backend"]["environment"]
-    assert backend_env["LOCAL_CHAT_MODEL"] == "llama-3.2-3b-mlx"
+    assert backend_env["LOCAL_CHAT_MODEL"] == (
+        "mlx-community/gemma-4-e2b-it-4bit"
+    )
     # Text and vision models are different
     assert backend_env["LOCAL_CHAT_MODEL"] != backend_env["LOCAL_VISION_MODEL"]

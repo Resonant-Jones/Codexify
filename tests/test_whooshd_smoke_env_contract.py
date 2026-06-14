@@ -44,7 +44,7 @@ def _mock_settings(**overrides):
     s.LOCAL_API_KEY = "local"
     s.LOCAL_PROVIDER_VENDOR = "whooshd"
     s.WHOOSHD_HEALTH_BASE_URL = "http://host.docker.internal:8000"
-    s.LOCAL_CHAT_MODEL = "llama-3.2-3b-mlx"
+    s.LOCAL_CHAT_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
     s.LOCAL_VISION_MODEL = "qwen2-vl-2b-mlx"
     s.LOCAL_GGUF_MODEL = "qwen2.5-0.5b-gguf"
 
@@ -121,7 +121,18 @@ class TestSmokeComposeOverrideExists:
             config = yaml.safe_load(f)
 
         backend_env = config["services"]["backend"]["environment"]
-        assert backend_env["LOCAL_CHAT_MODEL"] == "llama-3.2-3b-mlx"
+        assert backend_env["LOCAL_CHAT_MODEL"] == (
+            "mlx-community/gemma-4-e2b-it-4bit"
+        )
+        assert backend_env["LOCAL_LLM_MODEL"] == (
+            "mlx-community/gemma-4-e2b-it-4bit"
+        )
+        assert backend_env["LLM_MODEL"] == (
+            "mlx-community/gemma-4-e2b-it-4bit"
+        )
+        assert backend_env["DEFAULT_LOCAL_MODEL"] == (
+            "mlx-community/gemma-4-e2b-it-4bit"
+        )
         assert backend_env["LOCAL_VISION_MODEL"] == "qwen2-vl-2b-mlx"
         assert backend_env["LOCAL_GGUF_MODEL"] == "qwen2.5-0.5b-gguf"
 
@@ -266,7 +277,9 @@ class TestModelPropagation:
             config = yaml.safe_load(f)
 
         backend_env = config["services"]["backend"]["environment"]
-        assert backend_env["LOCAL_CHAT_MODEL"] == "llama-3.2-3b-mlx"
+        assert backend_env["LOCAL_CHAT_MODEL"] == (
+            "mlx-community/gemma-4-e2b-it-4bit"
+        )
 
     def test_vision_model_propagated(self):
         override_path = Path("docker-compose.whooshd-smoke.yml")
