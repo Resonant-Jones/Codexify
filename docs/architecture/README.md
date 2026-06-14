@@ -22,6 +22,8 @@ Source anchors:
 
 # Codexify Architecture KB
 
+Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture.
+
 Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
 
 Start here: if you need current-state interpretation rather than structural architecture, read [`00-current-state.md`](./00-current-state.md) first.

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-13
+2026-06-14
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work expands local-provider setup and operator-facing docs, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is the local Docker Compose stack with local-only provider posture. Recent merged work improved local-provider selection, local inference wiring, and operator-facing release docs, but it does not widen the release promise.
 
 ## What changed recently
+- `main` wired Codexify to Whoosh'd local inference.
 - `main` added Whoosh'd profile switching and the first Whoosh'd local model profile.
 - `main` documented the Whoosh'd local runtime install path and local inference provider setup.
 - `main` added Campaign Runner intention-packet, prompt-artifact, and fixture-materialization scaffolding.
 - `main` added TTS console voice profiles and the local Qwen3 TTS adapter.
-- The supported local-only posture remains intact on `main`.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
