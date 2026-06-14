@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────
+# Docker Compose override for Whoosh'd local inference smoke
+# ─────────────────────────────────────────────────────────────
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.whooshd-smoke.yml up --build
+#
+#   # Minimal smoke stack only:
+#   docker compose -f docker-compose.yml -f docker-compose.whooshd-smoke.yml up --build \
+#     db redis migrator backend worker-chat
+#
+# This file explicitly sets the blessed Whoosh'd gateway contract for
+# backend and worker-chat, overriding any conflicting values from the
+# default .env file.  It encodes the exact contract expected by the
+# v1-local-core-web-mcp supported profile.
+#
+# Why an override instead of patching .env?
+#   .env is the default development configuration that may point at
+#   Ollama, Tailscale hosts, or include cloud provider allowlists for
+#   general development.  Tearing those apart every smoke cycle is
+#   fragile.  The override is the single source of truth for Whoosh'd
+#   smoke and survives .env churn.
+# ─────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    environment:
+      # ── Blessed Whoosh'd local gateway contract ──
+      LLM_PROVIDER: "local"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
+      LOCAL_API_KEY: "local"
+
+      # ── Model aliases (must exist in Whoosh'd registry) ──
+      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+      LOCAL_VISION_MODEL: "qwen2-vl-2b-mlx"
+      LOCAL_GGUF_MODEL: "qwen2.5-0.5b-gguf"
+
+      # ── Security: local-only mode ──
+      ALLOW_CLOUD_PROVIDERS: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: ""
+      CODEXIFY_LOCAL_ONLY_MODE: "true"
+
+      # ── Supported profile (explicit) ──
+      CODEXIFY_SUPPORTED_PROFILE: "v1-local-core-web-mcp"
+
+  worker-chat:
+    environment:
+      # ── Blessed Whoosh'd local gateway contract ──
+      LLM_PROVIDER: "local"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
+      LOCAL_API_KEY: "local"
+
+      # ── Model aliases ──
+      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+      LOCAL_VISION_MODEL: "qwen2-vl-2b-mlx"
+      LOCAL_GGUF_MODEL: "qwen2.5-0.5b-gguf"
+
+      # ── Security: local-only mode ──
+      ALLOW_CLOUD_PROVIDERS: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: ""
+      CODEXIFY_LOCAL_ONLY_MODE: "true"
+
+      # ── Supported profile ──
+      CODEXIFY_SUPPORTED_PROFILE: "v1-local-core-web-mcp"
+
+  worker-warmup:
+    environment:
+      LLM_PROVIDER: "local"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      ALLOW_CLOUD_PROVIDERS: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: ""
+      CODEXIFY_LOCAL_ONLY_MODE: "true"
+      LOCAL_CHAT_MODEL: "llama-3.2-3b-mlx"
+
+  worker-chat-embed:
+    environment:
+      LLM_PROVIDER: "local"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      ALLOW_CLOUD_PROVIDERS: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: ""
+      CODEXIFY_LOCAL_ONLY_MODE: "true"

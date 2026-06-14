@@ -1132,8 +1132,13 @@ def _local_execution_model_candidates(
         )
     elif strict:
         raw_candidates = (
+            ("requested_model", requested_model),
             ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
+        # Include LOCAL_VISION_MODEL only when the requested model matches it
+        vision_model = getattr(settings, "LOCAL_VISION_MODEL", None)
+        if vision_model and normalize_model_id(requested_model) == normalize_model_id(vision_model):
+            raw_candidates += (("LOCAL_VISION_MODEL", vision_model),)
     else:
         raw_candidates = (
             ("requested_model", requested_model),

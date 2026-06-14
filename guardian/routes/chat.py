@@ -45,6 +45,9 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
+from guardian.fact_candidate_pipeline import (
+    process_user_message as _process_fact_candidates,
+)
 from guardian.context.context_directive_resolver import (
     resolve_context_request_plans,
     serialize_context_request_plans,
@@ -851,7 +854,7 @@ class ChatMessageCreateRequest(BaseModel):
     thread_id: Optional[int] = None
     draft_tab_id: Optional[str] = None
     role: str
-    content: str
+    content: str | list[dict[str, Any]]  # plain text or structured multimodal content
     user_id: Optional[str] = "default"
     title: Optional[str] = None
     summary: Optional[str] = None
@@ -1276,14 +1279,75 @@ def _sync_live_ingest_message_to_neo4j(
     )
 
 
+def _detect_structured_latest_turn(
+    latest_turn: dict[str, Any] | None,
+) -> list[dict[str, Any]] | None:
+    """Extract structured multimodal content from the latest turn's extra_meta.
+
+    Returns the original structured content array if present, or None.
+    """
+    if not isinstance(latest_turn, dict):
+        logger.debug("structured_turn_detect: latest_turn is not dict")
+        return None
+    extra_meta = latest_turn.get("extra_meta")
+    if not isinstance(extra_meta, dict):
+        logger.debug("structured_turn_detect: extra_meta missing type=%s", type(extra_meta).__name__)
+        return None
+    original = extra_meta.get("original_content")
+    if isinstance(original, list) and len(original) > 0:
+        # Verify it looks like structured content (has text or image_url parts)
+        for part in original:
+            if isinstance(part, dict) and part.get("type") in ("text", "image_url"):
+                logger.info("structured_turn_detect: found structured content with %d parts", len(original))
+                return original
+    logger.debug("structured_turn_detect: no structured content found, original type=%s", type(original).__name__)
+    return None
+
+
+def _normalize_message_content_for_persistence(
+    content: str | list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]] | None]:
+    """Flatten structured content for DB storage, preserving the original.
+
+    Returns (db_text, original_content_or_None).
+    When content is a plain string, original_content is None.
+    When content is a structured array, db_text is extracted from text parts.
+    """
+    if isinstance(content, str):
+        return content, None
+    if not isinstance(content, list):
+        return str(content), None
+
+    # Extract text parts for DB storage
+    text_parts: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            text = str(part.get("text", "")).strip()
+            if text:
+                text_parts.append(text)
+        elif part.get("type") == "image_url":
+            text_parts.append("[Image attached]")
+    db_text = " ".join(text_parts) if text_parts else "[Multimodal message]"
+    return db_text, content
+
+
 def _persist_message_to_thread(
     *,
     thread_id: int,
     role: str,
-    content: str,
+    content: str | list[dict[str, Any]],
     owner: str,
     message_metadata: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    # Normalize content: flatten structured arrays for DB, preserve original for worker
+    db_content, original_content = _normalize_message_content_for_persistence(content)
+    merged_meta = dict(message_metadata or {})
+    if original_content is not None:
+        merged_meta["original_content"] = original_content
+        merged_meta["has_structured_content"] = True
+
     lock_probe_owner = "api:chat.messages:user_probe"
     lock_probe_acquired = False
     try:
@@ -1341,7 +1405,7 @@ def _persist_message_to_thread(
         )
 
     try:
-        mid = chatlog_db.create_message(thread_id, role, content)
+        mid = chatlog_db.create_message(thread_id, role, db_content)
     except Exception as exc:
         logger.exception(
             "[chat] create_message failed thread_id=%s: %s", thread_id, exc
@@ -1356,8 +1420,41 @@ def _persist_message_to_thread(
     _persist_message_extra_meta(
         thread_id=thread_id,
         message_id=mid,
-        extra_meta=message_metadata,
+        extra_meta=merged_meta if merged_meta else None,
     )
+
+    # ── Fact candidate extraction (fire-and-forget, non-blocking) ──
+    if role == "user" and db_content:
+        try:
+            refreshed_thread_for_facts = chatlog_db.get_chat_thread(thread_id)
+        except Exception:
+            refreshed_thread_for_facts = None
+        _project_id_for_facts = (
+            _coerce_project_id(
+                refreshed_thread_for_facts.get("project_id")
+                if isinstance(refreshed_thread_for_facts, dict)
+                else None
+            )
+            if refreshed_thread_for_facts
+            else None
+        )
+        _persona_id_for_facts = (
+            str(refreshed_thread_for_facts.get("active_profile_id") or "").strip()
+            if isinstance(refreshed_thread_for_facts, dict)
+            else None
+        ) or None
+
+        _process_fact_candidates(
+            chatlog_db=chatlog_db,
+            user_id=str(owner),
+            thread_id=thread_id,
+            message_id=mid,
+            persona_id=_persona_id_for_facts,
+            project_id=_project_id_for_facts,
+            text=db_content,
+        )
+        # Fire-and-forget: errors are logged inside the pipeline.
+    # ── end fact candidate extraction ──
 
     try:
         refreshed_thread = chatlog_db.get_chat_thread(thread_id)
@@ -1370,7 +1467,7 @@ def _persist_message_to_thread(
             "thread_id": thread_id,
             "message_id": mid,
             "role": role,
-            "content": content,
+            "content": db_content,
         },
     )
     _emit_thread_update_event(
@@ -1389,7 +1486,7 @@ def _persist_message_to_thread(
         },
     )
 
-    _embed_message(thread_id, role, content, mid)
+    _embed_message(thread_id, role, db_content, mid)
 
     # Best-effort auto-title on first user message.
     try:
@@ -1401,7 +1498,7 @@ def _persist_message_to_thread(
             except Exception:
                 total = 1
             if total == 1:
-                candidate = _derive_thread_title_from_content(content)
+                candidate = _derive_thread_title_from_content(db_content)
                 if candidate:
                     try:
                         chatlog_db.update_thread(thread_id, title=candidate)
@@ -2542,8 +2639,9 @@ def chat_post_message(
 ):
     """Post a new message to a chat thread."""
     role = body.get("role")
-    content = body.get("content", "").strip()
-    if not role or not content:
+    raw_content = body.get("content", "")
+    content = raw_content.strip() if isinstance(raw_content, str) else raw_content
+    if not role or not (isinstance(content, str) and content.strip() or isinstance(content, list) and len(content) > 0):
         return JSONResponse(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
@@ -2591,8 +2689,12 @@ def chat_post_message_create_on_send(
     - when `thread_id` is null, it creates a thread and persists the first message
     """
     role = (body.role or "").strip()
-    content = (body.content or "").strip()
-    if not role or not content:
+    raw_body_content = body.content or ""
+    content = raw_body_content.strip() if isinstance(raw_body_content, str) else raw_body_content
+    if not role or not (
+        (isinstance(content, str) and content.strip())
+        or (isinstance(content, list) and len(content) > 0)
+    ):
         return JSONResponse(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
@@ -2850,13 +2952,23 @@ async def chat_complete(
     context: List[Dict[str, str]] = []
     for msg in items:
         role = str(msg.get("role") or "").strip()
-        content = msg.get("content")
-        if (
-            isinstance(content, str)
-            and content.strip()
-            and content.strip().lower() != "null"
+        msg_content = msg.get("content")
+        if isinstance(msg_content, list):
+            # Structured content (multimodal): extract text for context check
+            text_parts = [
+                str(p.get("text", "")).strip()
+                for p in msg_content
+                if isinstance(p, dict) and p.get("type") == "text"
+            ]
+            text_content = " ".join(t for t in text_parts if t)
+            if text_content:
+                context.append({"role": role, "content": text_content})
+        elif (
+            isinstance(msg_content, str)
+            and msg_content.strip()
+            and msg_content.strip().lower() != "null"
         ):
-            context.append({"role": role, "content": content})
+            context.append({"role": role, "content": msg_content})
     if not context:
         raise HTTPException(
             status_code=400, detail="Thread has no usable context"
@@ -3029,6 +3141,7 @@ async def chat_complete(
         user_id=account_id,
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
+        latest_turn_messages=_detect_structured_latest_turn(latest_turn),
         provider=provider,
         model=requested_model,
         requested_provider=requested_provider,
@@ -3765,9 +3878,11 @@ def create_thread(
 
 
 class ChatRequest(BaseModel):
-    prompt: str
+    prompt: Optional[str] = None
+    messages: Optional[list[dict]] = None
     provider: Optional[str] = None
     model: Optional[str] = None
+    stream: bool = False
 
 
 simple_chat_router = APIRouter(prefix="", tags=["Chat"])
@@ -3777,52 +3892,110 @@ simple_chat_router = APIRouter(prefix="", tags=["Chat"])
 async def simple_chat_entrypoint(
     body: ChatRequest, api_key: str = Depends(verify_api_key)
 ):
-    """Minimal chat endpoint used by auth/tests.
+    """Chat endpoint supporting text and multimodal (vision) requests.
 
-    - Requires X-API-Key via require_api_key.
-    - Accepts a simple {"prompt", "provider", "model"} payload.
+    - Accepts {"prompt": "..."} (backward-compatible) or
+      {"messages": [{"role":"user","content":[...]}]} (multimodal).
+    - Routes image turns to LOCAL_VISION_MODEL when configured.
     - Returns {"reply": ..., "model": ..., "provider": ...}.
-    - Uses Groq when configured; falls back to echo-on-failure to keep tests stable
-      even when upstream credentials/models are misconfigured.
     """
-    messages: List[Dict[str, str]] = [
-        {"role": "user", "content": body.prompt},
-    ]
+    # Build messages from prompt or messages field.
+    if body.messages:
+        messages: List[Dict[str, Any]] = body.messages
+    elif body.prompt:
+        messages = [{"role": "user", "content": body.prompt}]
+    else:
+        raise HTTPException(status_code=400, detail="prompt or messages required")
+
+    # Detect image content for vision model selection.
+    has_image = _messages_have_image(messages)
 
     provider = (
         body.provider
         or (llm_settings.LLM_PROVIDER if llm_settings else CHAT_PROVIDER)
     ).lower()
-    model = body.model or DEFAULT_MODEL
+
+    # Select model: explicit model wins, else vision-aware default, else LOCAL_CHAT_MODEL.
+    if body.model:
+        model = body.model
+        model_source = "explicit"
+    elif has_image:
+        vision_model = getattr(llm_settings, "LOCAL_VISION_MODEL", None) if llm_settings else None
+        model = vision_model or "qwen2-vl-2b-mlx"
+        model_source = "local_vision_env" if vision_model else "fallback"
+    elif provider == "local":
+        chat_model = getattr(llm_settings, "LOCAL_CHAT_MODEL", None) if llm_settings else None
+        model = chat_model or DEFAULT_MODEL
+        model_source = "local_chat_env" if chat_model else "fallback"
+    else:
+        model = DEFAULT_MODEL
+        model_source = "default"
+
+    logger.info(
+        "whooshd_chat model=%s source=%s has_image=%s provider=%s",
+        model, model_source, has_image, provider,
+    )
 
     reply_text: str
     try:
-        if validate_llm_config and llm_settings:
+        # Local Whoosh'd path: call Whoosh'd directly for both text and vision.
+        if provider == "local":
+            reply_text = await _whooshd_chat(messages, model=model)
+        elif provider == "groq" and validate_llm_config and llm_settings:
             validate_llm_config(llm_settings, provider_override=provider)
-        if provider == "groq":
             reply_text = _groq_complete(messages, model=model)
         elif chat_with_ai is not None:
-            # Optional generic backend, if wired
             reply_text = str(chat_with_ai(messages))
         else:
-            # Safe local echo fallback
-            reply_text = f"Echo: {body.prompt}"
+            reply_text = f"Echo: {str(messages)[:100]}"
     except HTTPException as exc:
-        # For auth tests and offline environments, degrade to an echo reply
-        # instead of surfacing upstream LLM errors.
-        logger.warning(
-            "/chat backend HTTPException, using echo fallback: %s", exc
-        )
-        reply_text = f"Echo: {body.prompt}"
-    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning("/chat backend HTTPException, using echo fallback: %s", exc)
+        reply_text = f"Echo: {str(messages)[:100]}"
+    except Exception as exc:
         logger.warning("/chat backend failed, using echo fallback: %s", exc)
-        reply_text = f"Echo: {body.prompt}"
+        reply_text = f"Echo: {str(messages)[:100]}"
 
     return {
         "reply": reply_text,
         "model": model,
         "provider": provider,
     }
+
+
+def _messages_have_image(messages: list[dict]) -> bool:
+    """Return True if any message contains image_url content."""
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+        # Also check if content is a string containing base64 image.
+        if isinstance(content, str) and "data:image/" in content:
+            return True
+    return False
+
+
+async def _whooshd_chat(messages: list[dict], model: str) -> str:
+    """Call Whoosh'd /v1/chat/completions for a multimodal request."""
+    import os
+    import httpx
+
+    base_url = os.environ.get("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1")
+    url = f"{base_url.rstrip('/')}/chat/completions"
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(url, json={
+            "model": model,
+            "messages": messages,
+            "stream": False,
+        })
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+        raise RuntimeError(f"Whoosh'd returned {resp.status_code}: {resp.text[:200]}")
 
 
 def _get_task_completed_payload(
