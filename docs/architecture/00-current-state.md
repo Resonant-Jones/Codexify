@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-14
+2026-06-15
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path is the local Docker Compose stack with local-only provider posture. Recent merged work improved local-provider selection, local inference wiring, and operator-facing release docs, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work tightened Whoosh'd smoke defaults and local-provider wiring, but it does not widen the release promise.
 
 ## What changed recently
-- `main` wired Codexify to Whoosh'd local inference.
-- `main` added Whoosh'd profile switching and the first Whoosh'd local model profile.
-- `main` documented the Whoosh'd local runtime install path and local inference provider setup.
-- `main` added Campaign Runner intention-packet, prompt-artifact, and fixture-materialization scaffolding.
-- `main` added TTS console voice profiles and the local Qwen3 TTS adapter.
+- `main` switched Whoosh'd smoke defaults to Gemma E2B aliases.
+- `main` propagated the Gemma E2B local model alias through provider selection and smoke-compose envs.
+- `main` kept the supported-profile checks aligned with the local provider contract.
+- `main` preserved the current-state docs refresh and doc-map ordering.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -31,6 +30,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Health surfaces still report LLM availability and chat queue/worker status.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - Graph writes remain default-off on the supported Compose path.
+- Whoosh'd smoke configs now default to the Gemma E2B local model alias.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -39,6 +39,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is the l
 - Do not assume docs-only exports, scaffolds, prompt artifacts, or brief-generation output prove runtime support.
 - Do not assume Whoosh'd setup equals live provider reachability without endpoint/model inventory proof.
 - Do not infer a wider beta claim from the new local preset wiring alone.
+- Do not assume the Gemma E2B smoke default is itself live-model proof.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
