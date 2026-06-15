@@ -41,9 +41,50 @@ The `v1-local-core-web-mcp` supported profile requires these exact values:
 | `ALLOW_CLOUD_PROVIDERS` | `false` |
 | `CODEXIFY_EGRESS_ALLOWLIST` | `""` (empty) |
 | `CODEXIFY_LOCAL_ONLY_MODE` | `true` |
-| `LOCAL_CHAT_MODEL` | `llama-3.2-3b-mlx` |
+
+Model names are intentionally not enforced by the supported profile. The
+Whoosh'd smoke override currently sets:
+
+| Variable | Smoke Default |
+|----------|---------------|
+| `LOCAL_CHAT_MODEL` | `mlx-community/gemma-4-e2b-it-4bit` |
 | `LOCAL_VISION_MODEL` | `qwen2-vl-2b-mlx` |
 | `LOCAL_GGUF_MODEL` | `qwen2.5-0.5b-gguf` |
+
+Those defaults are configuration, not live-model proof.
+
+## Live Inventory Truth
+
+Codexify treats Whoosh'd live inventory as proven only by Whoosh'd HTTP
+inventory surfaces:
+
+```bash
+curl http://localhost:8000/v1/models
+curl http://localhost:8000/api/tags
+```
+
+Inside the Docker backend container, use the host bridge instead of host
+localhost:
+
+```bash
+curl http://host.docker.internal:8000/v1/models
+curl http://host.docker.internal:8000/api/tags
+```
+
+If `LOCAL_CHAT_MODEL` is set to Gemma E2B but Whoosh'd advertises only
+models such as `llama-3.2-3b-mlx`, `qwen2-vl-2b-mlx`, and
+`qwen2.5-0.5b-gguf`, Codexify must not claim Gemma execution. Catalog and
+health surfaces should keep the advertised models visible while marking the
+configured model unavailable with:
+
+```txt
+configured_model_not_advertised_by_whooshd
+```
+
+Interpretation: the local Whoosh'd endpoint was reachable and returned live
+inventory, but the configured chat default was not in that inventory. This is
+a catalog/configuration mismatch, not proof that Whoosh'd inference is broken
+for every advertised model.
 
 ## Why Not Patch .env?
 
@@ -95,6 +136,11 @@ curl http://localhost:8888/api/health/llm
 
 Expected: `provider: "local"`, `models_available: true` (if Whoosh'd is running).
 
+If the configured chat model is not advertised by Whoosh'd, expect
+`models_available: false` for the selected model plus advertised-model evidence
+in `model_resolution`. That degraded health does not hide the live inventory
+from `/api/llm/catalog`.
+
 ### Text Smoke
 ```bash
 curl -X POST http://localhost:8888/api/chat \
@@ -103,7 +149,10 @@ curl -X POST http://localhost:8888/api/chat \
   -d '{"prompt": "Reply with exactly: Whooshd text smoke ok."}'
 ```
 
-Verify: `provider=local`, `model=llama-3.2-3b-mlx`, no cloud fallback.
+Verify: `provider=local`, the final model is the configured chat model only
+when Whoosh'd advertises it, and no cloud fallback occurs. If Gemma E2B is the
+configured default but absent from `/v1/models` and `/api/tags`, this smoke is
+blocked by inventory mismatch rather than counted as Gemma live proof.
 
 ### Vision Smoke (synchronous)
 Use the `tests/fixtures/vision/color_shapes.png` fixture with a multimodal

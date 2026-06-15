@@ -37,6 +37,16 @@ def test_validate_llm_config_accepts_supported_profile_local_contract(
     validate_llm_config(settings)
 
 
+def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
+    settings = _supported_profile_settings(
+        LOCAL_CHAT_MODEL="mlx-community/gemma-4-e2b-it-4bit",
+        LOCAL_LLM_MODEL="llama-3.2-3b-mlx",
+        LLM_MODEL="llama-3.2-3b-mlx",
+    )
+
+    validate_llm_config(settings)
+
+
 def test_validate_llm_config_rejects_supported_profile_provider_drift(
     monkeypatch,
 ):

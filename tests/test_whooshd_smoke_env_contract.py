@@ -17,6 +17,10 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from guardian.core.ai_router import (
+    WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON,
+)
+
 # ── Helpers ──
 
 
@@ -135,6 +139,16 @@ class TestSmokeComposeOverrideExists:
         )
         assert backend_env["LOCAL_VISION_MODEL"] == "qwen2-vl-2b-mlx"
         assert backend_env["LOCAL_GGUF_MODEL"] == "qwen2.5-0.5b-gguf"
+
+    def test_gemma_default_is_not_live_inventory_proof(self):
+        profile = _load_supported_profile()
+        contract = profile["provider_contract"]
+
+        assert "LOCAL_CHAT_MODEL" not in contract
+        assert contract["LOCAL_BASE_URL"] == "http://host.docker.internal:8000/v1"
+        assert WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON == (
+            "configured_model_not_advertised_by_whooshd"
+        )
 
     def test_override_covers_worker_warmup_and_embed(self):
         override_path = Path("docker-compose.whooshd-smoke.yml")
