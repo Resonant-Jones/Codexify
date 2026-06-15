@@ -50,7 +50,6 @@ type CatalogModel = {
     tools?: boolean;
     streaming?: boolean;
   };
-  releaseSupported?: boolean;
   releasePosture?: {
     releaseSupported?: boolean;
     proofRequired?: boolean;
@@ -232,12 +231,6 @@ export function ProviderSelect({
                           streaming: Boolean((model as any).capabilities.streaming),
                         }
                       : undefined,
-                  releaseSupported:
-                    typeof (model as any).release_supported === "boolean"
-                      ? (model as any).release_supported
-                      : typeof (model as any).releaseSupported === "boolean"
-                        ? (model as any).releaseSupported
-                        : undefined,
                   releasePosture:
                     typeof (model as any).release_posture === "object"
                     && (model as any).release_posture

@@ -46,7 +46,6 @@ export type LlmCatalogModel = {
     tools?: boolean;
     streaming?: boolean;
   };
-  releaseSupported?: boolean;
   releasePosture?: {
     status?: string;
     releaseSupported?: boolean;
@@ -116,8 +115,6 @@ export function isChatSelectableModel(model: {
 } | null | undefined): boolean {
   if (!model) return false;
   if (model.supportsChat === false) return false;
-  if (model.releaseSupported === false) return false;
-  if (model.releasePosture?.releaseSupported === false) return false;
   if (model.releasePosture?.proofRequired === true) return false;
   return model.modelKind !== "utility";
 }
@@ -259,7 +256,6 @@ function normalizeModel(
             streaming: Boolean(capabilities.streaming),
           }
         : undefined,
-    releaseSupported: normalizeBoolean(model.release_supported),
     releasePosture: releasePosture
       ? {
           status: normalizeString(releasePosture.status) ?? undefined,

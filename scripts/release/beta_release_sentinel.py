@@ -332,7 +332,8 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():
         output_dir = REPO_ROOT / output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if not (args.json_only or args.markdown_only):
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     changelog_path = Path(args.changelog)
     if not changelog_path.is_absolute():
@@ -398,17 +399,19 @@ def main(argv: list[str] | None = None) -> int:
         Path(_display_path(json_path)),
     )
 
+    if args.json_only:
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True))
+        sys.stdout.write("\n")
+        return 0
+    if args.markdown_only:
+        sys.stdout.write(md)
+        return 0
+
     json_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     md_path.write_text(md, encoding="utf-8")
     update_changelog(changelog_path, date_str, commits, blockers, warnings)
-
-    if args.json_only:
-        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True))
-        sys.stdout.write("\n")
-    elif args.markdown_only:
-        sys.stdout.write(md)
 
     return 0
 
