@@ -618,7 +618,20 @@ def health_llm():
         "release_hold": release_hold,
     }
     if local_model_resolution is not None:
-        payload["model_resolution"] = local_model_resolution.as_dict()
+        model_resolution = local_model_resolution.as_dict()
+        payload["model_resolution"] = model_resolution
+        payload["configured_model"] = local_model_resolution.model
+        payload["configured_model_available"] = local_model_resolution.ok
+        if model_resolution.get("availability_reason"):
+            payload["availability_reason"] = model_resolution[
+                "availability_reason"
+            ]
+        if model_resolution.get("advertised_models") is not None:
+            payload["advertised_models"] = model_resolution[
+                "advertised_models"
+            ]
+        if model_resolution.get("inventory_source"):
+            payload["inventory_source"] = model_resolution["inventory_source"]
     if provider == "local" and model:
         payload["runtime"] = describe_local_runtime(model, settings=settings)
 
@@ -1029,7 +1042,20 @@ def health_chat():
     if worker_detail:
         payload["worker"]["detail"] = worker_detail
     if local_model_resolution is not None:
-        payload["model_resolution"] = local_model_resolution.as_dict()
+        model_resolution = local_model_resolution.as_dict()
+        payload["model_resolution"] = model_resolution
+        payload["configured_model"] = local_model_resolution.model
+        payload["configured_model_available"] = local_model_resolution.ok
+        if model_resolution.get("availability_reason"):
+            payload["availability_reason"] = model_resolution[
+                "availability_reason"
+            ]
+        if model_resolution.get("advertised_models") is not None:
+            payload["advertised_models"] = model_resolution[
+                "advertised_models"
+            ]
+        if model_resolution.get("inventory_source"):
+            payload["inventory_source"] = model_resolution["inventory_source"]
     if provider == "local" and model:
         payload["runtime"] = describe_local_runtime(model, settings=settings)
     if redis_dependency_unavailable:

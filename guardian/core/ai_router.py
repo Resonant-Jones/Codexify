@@ -43,6 +43,9 @@ _LOCAL_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 LOCAL_MODEL_RESOLUTION_ERROR = "local_model_resolution_error"
 LOCAL_MODEL_MISSING_FAILURE_KIND = "local_model_missing"
 LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND = "local_model_unavailable"
+WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON = (
+    "configured_model_not_advertised_by_whooshd"
+)
 
 
 @dataclass(frozen=True)
@@ -478,6 +481,9 @@ class LocalModelResolution:
     failure_kind: str | None = None
     message: str | None = None
     endpoint_resolution: dict[str, Any] | None = None
+    advertised_models: list[str] | None = None
+    inventory_source: str | None = None
+    availability_reason: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -498,6 +504,13 @@ class LocalModelResolution:
             payload["message"] = self.message
         if self.endpoint_resolution is not None:
             payload["endpoint_resolution"] = dict(self.endpoint_resolution)
+        if self.advertised_models is not None:
+            payload["advertised_models"] = list(self.advertised_models)
+        if self.inventory_source:
+            payload["inventory_source"] = self.inventory_source
+        if self.availability_reason:
+            payload["availability_reason"] = self.availability_reason
+            payload["configured_model_available"] = False
         return payload
 
     def error_detail(
@@ -526,6 +539,13 @@ class LocalModelResolution:
             detail["configured_source"] = self.source
         if self.requested_model:
             detail["requested_model"] = self.requested_model
+        if self.advertised_models is not None:
+            detail["advertised_models"] = list(self.advertised_models)
+        if self.inventory_source:
+            detail["inventory_source"] = self.inventory_source
+        if self.availability_reason:
+            detail["availability_reason"] = self.availability_reason
+            detail["configured_model_available"] = False
         resolved_endpoint = endpoint_resolution or self.endpoint_resolution
         if resolved_endpoint is not None:
             detail["endpoint_resolution"] = dict(resolved_endpoint)
@@ -1234,6 +1254,17 @@ def resolve_local_execution_model(
             if normalized
         }
         if strict and configured_model not in available_models:
+            vendor = str(
+                getattr(resolved, "LOCAL_PROVIDER_VENDOR", "") or ""
+            ).strip().lower()
+            inventory_source = str(
+                resolved_endpoint.get("inventory_source") or ""
+            ).strip() or None
+            availability_reason = (
+                WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON
+                if vendor == "whooshd"
+                else LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
+            )
             message = (
                 f"Configured local chat model '{configured_model}' from "
                 f"{source} is not advertised by the reachable local runtime"
@@ -1245,9 +1276,12 @@ def resolve_local_execution_model(
                 source=source,
                 strict=strict,
                 requested_model=requested or None,
-                failure_kind=LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+                failure_kind=availability_reason,
                 message=message,
                 endpoint_resolution=resolved_endpoint,
+                advertised_models=list(names or []),
+                inventory_source=inventory_source,
+                availability_reason=availability_reason,
             )
         if not strict:
             for candidate_model, candidate_source in candidates:
@@ -1888,6 +1922,8 @@ def discover_local_model_inventory(
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
     selected_base_url: str | None = None
+    selected_inventory_url: str | None = None
+    selected_inventory_endpoint: str | None = None
     failure_kind: str | None = None
 
     for candidate in _resolve_local_endpoint_candidates(settings):
@@ -1930,6 +1966,10 @@ def discover_local_model_inventory(
                 continue
             candidate_names.extend(_parse_local_catalog_payload(payload))
             if candidate_names:
+                selected_inventory_url = url
+                selected_inventory_endpoint = (
+                    "/v1/models" if url.endswith("/v1/models") else "/api/tags"
+                )
                 break
         if candidate_names:
             names.extend(candidate_names)
@@ -1972,6 +2012,17 @@ def discover_local_model_inventory(
         if attempt_failures
         else None,
     )
+    if selected_inventory_url:
+        resolution["inventory_url"] = selected_inventory_url
+    if selected_inventory_endpoint:
+        resolution["inventory_endpoint"] = selected_inventory_endpoint
+        vendor = str(
+            getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+        ).strip().lower()
+        if vendor:
+            resolution["inventory_source"] = (
+                f"{vendor}:{selected_inventory_endpoint}"
+            )
     return deduped, resolution
 
 

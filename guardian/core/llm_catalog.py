@@ -395,24 +395,28 @@ def _fetch_local_models(
         settings, timeout_seconds=timeout, request_get=requests.get
     )
 
-    deduped: list[str] = []
+    live_deduped: list[str] = []
     seen: set[str] = set()
     for model_name in names:
         key = model_name.strip()
         if not key or key in seen:
             continue
         seen.add(key)
-        deduped.append(key)
-    for model_name in whooshd_profile_model_repos():
-        key = model_name.strip()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        deduped.append(key)
+        live_deduped.append(key)
+
+    inventory_state = str(endpoint_resolution.get("state") or "").strip()
+    deduped = list(live_deduped)
+    if inventory_state != "available":
+        for model_name in whooshd_profile_model_repos():
+            key = model_name.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(key)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         validate_availability=True,
-        discovered_model_names=deduped,
+        discovered_model_names=live_deduped,
         endpoint_resolution=endpoint_resolution,
     )
     effective_model = normalize_model_id(local_model_resolution.model)
@@ -782,7 +786,18 @@ def _provider_entry(
         entry["endpoint_resolution"] = endpoint_resolution
     if local_model_resolution is not None:
         entry["default_model"] = local_model_resolution.model
-        entry["model_resolution"] = local_model_resolution.as_dict()
+        model_resolution = local_model_resolution.as_dict()
+        entry["model_resolution"] = model_resolution
+        entry["configured_model"] = local_model_resolution.model
+        entry["configured_model_available"] = local_model_resolution.ok
+        if model_resolution.get("availability_reason"):
+            entry["availability_reason"] = model_resolution[
+                "availability_reason"
+            ]
+        if model_resolution.get("advertised_models") is not None:
+            entry["advertised_models"] = model_resolution["advertised_models"]
+        if model_resolution.get("inventory_source"):
+            entry["inventory_source"] = model_resolution["inventory_source"]
     if disabled_reason:
         entry["disabled_reason"] = disabled_reason
     return entry
