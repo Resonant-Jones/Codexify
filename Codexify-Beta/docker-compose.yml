@@ -137,7 +137,6 @@ services:
       EMBEDDER_PROVIDER: "local"
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       CODEXIFY_USE_OPENAI: "0"
     restart: "no"
     command: ["migrator"]
@@ -193,7 +192,6 @@ services:
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-legacy}"
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       STORAGE_BASE_PATH: /app/data/media
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
@@ -270,7 +268,6 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
       LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
@@ -324,7 +321,6 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
       LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
@@ -378,7 +374,6 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
       LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
@@ -434,7 +429,6 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      AI_BACKEND: "${AI_BACKEND:-ollama}"
       VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
       VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
       LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"

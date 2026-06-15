@@ -5,7 +5,6 @@
 The supported beta profile uses one canonical provider lane:
 
 - `LLM_PROVIDER=local`
-- `AI_BACKEND=ollama` as the legacy compatibility alias
 - `ALLOW_CLOUD_PROVIDERS=false`
 - `CODEXIFY_LOCAL_ONLY_MODE=true`
 - `LOCAL_COMPAT_FIRST=1`
@@ -13,6 +12,15 @@ The supported beta profile uses one canonical provider lane:
 `LOCAL_RUNTIME_PRESET` is a setup/catalog preset, not a provider id. It selects
 default local endpoint, model, display, and health-probe values while preserving
 the same `local` provider trust boundary.
+
+`AI_BACKEND`, if present in a legacy `.env`, is a legacy compatibility surface only.
+It must not be treated as the canonical source of runtime truth for the supported
+Whoosh'd path. The canonical local provider identity is:
+
+- provider class: `local`
+- runtime preset: `whooshd-mlx` (Apple Silicon) or `ollama` (non-Mac)
+
+Operators should not use `AI_BACKEND=ollama` to mean Whoosh'd.
 
 | Preset | Default base URL in Docker | Display/vendor | Default model |
 | --- | --- | --- | --- |
