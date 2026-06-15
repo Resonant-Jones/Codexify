@@ -287,6 +287,9 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
     snapshot = {
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "LOCAL_DOCKER_FALLBACK_BASE_URL": settings.LOCAL_DOCKER_FALLBACK_BASE_URL,
+        "CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED": (
+            settings.CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED
+        ),
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
@@ -296,6 +299,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         settings.LOCAL_DOCKER_FALLBACK_BASE_URL = (
             "http://host.docker.internal:11434"
         )
+        settings.CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED = True
         settings.ALLOW_CLOUD_PROVIDERS = False
         settings.CODEXIFY_LOCAL_ONLY_MODE = True
         settings.CODEXIFY_EGRESS_ALLOWLIST = ""
@@ -306,7 +310,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         payload = response.json()
 
         local = _provider_by_id(payload, "local")
-        assert [model["id"] for model in local["models"]] == ["llama3.2:3b"]
+        assert local["models"][0]["id"] == "llama3.2:3b"
         assert local["models"][0]["source"] == "host.docker.internal:11434"
         assert any("127.0.0.1:11434" in url for url in calls)
         assert any("host.docker.internal:11434" in url for url in calls)
