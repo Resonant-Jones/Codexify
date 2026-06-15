@@ -12,6 +12,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping
 
+from guardian.core.local_runtime_presets import (
+    default_local_runtime_preset_id,
+    local_runtime_env_defaults,
+    normalize_local_runtime_preset,
+)
+
 
 @dataclass(frozen=True)
 class DepStatus:
@@ -37,7 +43,6 @@ MACOS_FALLBACK_BINARIES: dict[str, tuple[str, ...]] = {
 
 REQUIRED_LOCAL_CONFIG_KEYS = (
     "GUARDIAN_API_KEY",
-    "AI_BACKEND",
     "LLM_PROVIDER",
     "LOCAL_BASE_URL",
     "LOCAL_CHAT_MODEL",
@@ -46,11 +51,9 @@ REQUIRED_LOCAL_CONFIG_KEYS = (
 )
 
 LOCAL_BETA_DEFAULTS = {
-    "AI_BACKEND": "ollama",
     "LLM_PROVIDER": "local",
     "CODEXIFY_LOCAL_ONLY_MODE": "true",
     "ALLOW_CLOUD_PROVIDERS": "false",
-    "LOCAL_BASE_URL": "http://host.docker.internal:8000",
     "NEO4J_USER": "neo4j",
 }
 
@@ -437,17 +440,22 @@ def normalize_local_beta_config_values(
             values[key] = value
             repaired.append(key)
 
-    if str(values.get("AI_BACKEND", "")).strip().lower() != "ollama":
-        if str(values.get("AI_BACKEND", "")).strip():
-            conflicts.append("AI_BACKEND")
-        values["AI_BACKEND"] = "ollama"
-        repaired.append("AI_BACKEND")
-
     if str(values.get("LLM_PROVIDER", "")).strip().lower() != "local":
         if str(values.get("LLM_PROVIDER", "")).strip():
             conflicts.append("LLM_PROVIDER")
         values["LLM_PROVIDER"] = "local"
         repaired.append("LLM_PROVIDER")
+
+    # Apply canonical local runtime preset env defaults.
+    preset_id = normalize_local_runtime_preset(
+        values.get("LOCAL_RUNTIME_PRESET")
+    )
+    preset_env = local_runtime_env_defaults(preset_id, docker=True)
+    for key, value in preset_env.items():
+        existing = values.get(key)
+        if is_placeholder_config_value(existing):
+            values[key] = value
+            repaired.append(key)
 
     if is_placeholder_config_value(values.get("NEO4J_PASS")):
         values["NEO4J_PASS"] = secrets.token_urlsafe(24)
@@ -461,8 +469,8 @@ def normalize_local_beta_config_values(
         required_order=(
             "GUARDIAN_API_KEY",
             "VITE_GUARDIAN_API_KEY",
-            "AI_BACKEND",
             "LLM_PROVIDER",
+            "LOCAL_RUNTIME_PRESET",
             "CODEXIFY_LOCAL_ONLY_MODE",
             "ALLOW_CLOUD_PROVIDERS",
             "LOCAL_BASE_URL",
@@ -732,7 +740,7 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         return _summary(
             SetupReadinessState.MISSING_CONFIG,
             "Local config is missing. Codexify needs to create your runtime config.",
-            "Run the setup wizard to create .env for Local via Ollama.",
+            "Run the setup wizard to create .env for the supported local runtime preset.",
             f"env_path={env_path}",
         )
 
@@ -747,19 +755,15 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         )
 
     conflicts: list[str] = []
-    if env.get("AI_BACKEND", "").strip().lower() == "local":
-        conflicts.append("AI_BACKEND=local")
     if env.get("LLM_PROVIDER", "").strip().lower() == "ollama":
-        conflicts.append("LLM_PROVIDER=ollama")
-    if env.get("AI_BACKEND", "").strip().lower() != "ollama":
-        conflicts.append("AI_BACKEND must be ollama")
+        conflicts.append("LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local")
     if env.get("LLM_PROVIDER", "").strip().lower() != "local":
         conflicts.append("LLM_PROVIDER must be local")
     if conflicts:
         return _summary(
             SetupReadinessState.CONFIG_CONFLICT,
-            "Config conflict found. Current local setup requires Local via Ollama.",
-            "Repair config so AI_BACKEND=ollama and LLM_PROVIDER=local.",
+            "Config conflict found. Current local setup requires LLM_PROVIDER=local.",
+            "Repair config so LLM_PROVIDER=local.",
             "conflicts=" + "; ".join(conflicts),
         )
 
@@ -947,5 +951,5 @@ def classify_setup_readiness(
         SetupReadinessState.READY,
         "Codexify local runtime is ready.",
         "Open Codexify.",
-        "provider=Local via Ollama",
+        "provider=" + env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
     )

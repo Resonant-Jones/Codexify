@@ -21,7 +21,6 @@ def _write_env(path: Path, **values: str) -> None:
 def _valid_env() -> dict[str, str]:
     return {
         "GUARDIAN_API_KEY": "a" * 64,
-        "AI_BACKEND": "ollama",
         "LLM_PROVIDER": "local",
         "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
         "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
@@ -49,7 +48,6 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(
     env = setup_wizard.read_env_file(env_path)
 
     assert len(env["GUARDIAN_API_KEY"]) == 64
-    assert env["AI_BACKEND"] == "ollama"
     assert env["LLM_PROVIDER"] == "local"
     assert env["CODEXIFY_LOCAL_ONLY_MODE"] == "true"
     assert env["ALLOW_CLOUD_PROVIDERS"] == "false"
@@ -60,7 +58,7 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(
     assert env["LOCAL_CHAT_MODEL"] == _WHOOSHD_MODEL
     assert env["LOCAL_COMPAT_FIRST"] == "1"
     assert env["VAULTNODE_BASE_URL"] == "http://host.docker.internal:8000"
-    assert env["VAULTNODE_HEALTH_ENDPOINTS"] == "/v1/models,/api/tags"
+    assert env["VAULTNODE_HEALTH_ENDPOINTS"] == "/health,/health/runtime,/ready,/v1/models,/api/tags"
     assert env["NEO4J_USER"] == "neo4j"
     assert env["NEO4J_PASS"]
 
@@ -100,17 +98,15 @@ def test_placeholder_guardian_api_key_is_replaced(tmp_path: Path) -> None:
 
 
 def test_invalid_local_provider_split_is_normalized() -> None:
+    """LLM_PROVIDER=ollama is normalized to local (the canonical provider)."""
     result = setup_wizard.normalize_local_beta_config_values(
         {
             **_valid_env(),
-            "AI_BACKEND": "local",
             "LLM_PROVIDER": "ollama",
         }
     )
 
-    assert result.values["AI_BACKEND"] == "ollama"
     assert result.values["LLM_PROVIDER"] == "local"
-    assert "AI_BACKEND" in result.conflict_keys
     assert "LLM_PROVIDER" in result.conflict_keys
 
 
@@ -204,15 +200,15 @@ def test_classifies_local_inference_unavailable(tmp_path: Path, monkeypatch: Any
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if "8000" in url:
-            raise ConnectionError("local runtime stopped")
+        if "11434" in url:
+            raise ConnectionError("ollama stopped")
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
     )
 
-    assert summary.state == setup_wizard.SetupReadinessState.LOCAL_INFERENCE_NOT_RUNNING
+    assert summary.state == setup_wizard.SetupReadinessState.OLLAMA_NOT_RUNNING
 
 
 def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> None:
@@ -229,8 +225,8 @@ def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> 
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if url.endswith("/v1/models"):
-            return 200, '{"data":[{"id":"other:latest"}]}'
+        if url.endswith("/api/tags"):
+            return 200, '{"models":[{"name":"other:latest"}]}'
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -256,7 +252,9 @@ def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> 
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+        if url.endswith("/api/tags"):
+            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+        return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
@@ -280,8 +278,8 @@ def test_classifies_frontend_not_running(tmp_path: Path, monkeypatch: Any) -> No
         return subprocess.CompletedProcess(args, 0, "", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if url.endswith("/v1/models"):
-            return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+        if url.endswith("/api/tags"):
+            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
         if "5173" in url:
             raise ConnectionError("frontend stopped")
         return 200, '{"status":"ok"}'
@@ -307,8 +305,8 @@ def test_classifies_ready(tmp_path: Path, monkeypatch: Any) -> None:
         return subprocess.CompletedProcess(args, 0, "", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
-        if url.endswith("/v1/models"):
-            return 200, '{"data":[{"id":"mlx-community/gemma-4-e2b-it-4bit"}]}'
+        if url.endswith("/api/tags"):
+            return 200, '{"models":[{"name":"mlx-community/gemma-4-e2b-it-4bit"}]}'
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
