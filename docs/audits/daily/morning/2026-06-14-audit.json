@@ -212,25 +212,32 @@
       "tests/test_whooshd_smoke_env_contract.py",
       "tests/test_whooshd_vision_model_source.py"
     ],
-    "window_end": "2026-06-14T09:04:37.118312-07:00",
+    "window_end": "2026-06-14T09:05:15.017491-07:00",
     "window_hours": 24,
-    "window_start": "2026-06-13T09:04:37.118312-07:00"
+    "window_start": "2026-06-13T09:05:15.017491-07:00"
   },
   "date": "2026-06-14",
-  "generated_at": "2026-06-14T09:04:37.118312-07:00",
+  "generated_at": "2026-06-14T09:05:15.017491-07:00",
   "manual_notes": {
     "blocked": "",
     "finished_today": "",
     "next_priority": ""
   },
-  "phase": "evening",
+  "phase": "morning",
   "repo": {
     "branch": "main",
     "date": "2026-06-14",
-    "dirty": false,
+    "dirty": true,
     "head": "2dd6e26d8b43eb14459b1c5541f57ea497ce5239",
     "status_error": "",
-    "status_lines": []
+    "status_lines": [
+      " M docs/audits/daily/evening/latest.json",
+      " M docs/audits/daily/evening/latest.md",
+      " M docs/audits/latest.json",
+      " M docs/audits/latest.md",
+      "?? docs/audits/daily/evening/2026-06-14-audit.json",
+      "?? docs/audits/daily/evening/2026-06-14-audit.md"
+    ]
   },
   "risk_flags": [
     {
