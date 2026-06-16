@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-15
+2026-06-16
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,17 +13,18 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work tightened Whoosh'd smoke defaults and local-provider wiring, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work standardized Whoosh'd local runtime config and reduced legacy config breakage, but it does not widen the release promise.
 
 ## What changed recently
-- `main` switched Whoosh'd smoke defaults to Gemma E2B aliases.
-- `main` propagated the Gemma E2B local model alias through provider selection and smoke-compose envs.
-- `main` kept the supported-profile checks aligned with the local provider contract.
-- `main` preserved the current-state docs refresh and doc-map ordering.
+- `main` standardized Whoosh'd local runtime config.
+- `main` made `AI_BACKEND=local` legacy-compatible instead of startup-breaking.
+- `main` moved Whoosh'd smoke defaults onto the Gemma E2B local alias.
+- `main` kept the current-state docs override in place.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
+- `AI_BACKEND=local` is accepted as legacy compatibility, but `LLM_PROVIDER=local` is the canonical control.
 - Whoosh'd is a supported local runtime preset on Apple Silicon paths.
 - `LOCAL_RUNTIME_PRESET` can select between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` while staying under `LLM_PROVIDER=local`.
 - Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
@@ -40,6 +41,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume Whoosh'd setup equals live provider reachability without endpoint/model inventory proof.
 - Do not infer a wider beta claim from the new local preset wiring alone.
 - Do not assume the Gemma E2B smoke default is itself live-model proof.
+- Do not assume legacy `AI_BACKEND` config is the preferred runtime contract.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
@@ -50,10 +52,10 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
-2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
-3. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
-4. Keep the release-truth docs synced with the live `main` posture.
-5. Avoid widening supported beta claims until a new merged capability is proven end to end.
+2. Keep legacy config compatibility narrow and clearly labeled.
+3. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
+4. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
+5. Keep the release-truth docs synced with the live `main` posture.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
@@ -61,6 +63,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] Fresh live evidence exists on the current `main` tip for the supported path.
 - [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are in the supported claim set.
 - [ ] Queue, config, delegation, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
+- [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
