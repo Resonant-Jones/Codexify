@@ -984,3 +984,401 @@ export function describeCommandCenterTraceListSelection(
     .filter(Boolean)
     .join(" · ");
 }
+
+// ── Guardian Operator Run Verdict Classifier ─────────────────────────────
+
+import type {
+  CommandCenterHealthItem,
+  CommandCenterRunVerdict,
+  CommandCenterRunVerdictValue,
+} from "@/features/commandCenter/types";
+import {
+  COMMAND_CENTER_HEALTH_STATES,
+  COMMAND_CENTER_RUN_VERDICTS,
+  describeCommandCenterRunVerdictPresentation,
+} from "@/features/commandCenter/types";
+
+export interface GuardianRunVerdictInput {
+  healthItems: CommandCenterHealthItem[];
+  catalogAvailable?: boolean;
+  modelInventoryAvailable?: boolean;
+}
+
+function findHealthItem(
+  items: CommandCenterHealthItem[],
+  key: CommandCenterHealthItem["key"]
+): CommandCenterHealthItem | undefined {
+  return items.find((item) => item.key === key);
+}
+
+function detailField(
+  item: CommandCenterHealthItem | undefined,
+  path: string[]
+): unknown {
+  if (!item?.details) return undefined;
+  let current: unknown = item.details;
+  for (const key of path) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+function detailString(
+  item: CommandCenterHealthItem | undefined,
+  path: string[]
+): string | null {
+  const value = detailField(item, path);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  return null;
+}
+
+function detailBoolean(
+  item: CommandCenterHealthItem | undefined,
+  path: string[]
+): boolean | null {
+  const value = detailField(item, path);
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
+function detailStringArray(
+  item: CommandCenterHealthItem | undefined,
+  path: string[]
+): string[] {
+  const value = detailField(item, path);
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (typeof v === "string" ? v.trim() : ""))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function buildVerdict(
+  verdict: CommandCenterRunVerdictValue,
+  reason: string,
+  evidence: string[],
+  blockers: string[],
+  recommendedAction: string,
+  sourceSurfaces: string[]
+): CommandCenterRunVerdict {
+  const presentation = describeCommandCenterRunVerdictPresentation(verdict);
+  return {
+    verdict,
+    label: presentation.label,
+    tone: presentation.tone,
+    reason,
+    evidence,
+    blockers,
+    recommendedAction,
+    sourceSurfaces,
+  };
+}
+
+/**
+ * Derive a Guardian operator run verdict from existing Command Center health,
+ * catalog, and model-inventory observability shapes.
+ *
+ * Pure function — no fetch, no mutation, no globals, no React.
+ */
+export function deriveGuardianRunVerdict(
+  input: GuardianRunVerdictInput
+): CommandCenterRunVerdict {
+  const { healthItems, catalogAvailable, modelInventoryAvailable } = input;
+  const sourceSurfaces: string[] = [];
+  const evidence: string[] = [];
+  const blockers: string[] = [];
+
+  const coreItem = findHealthItem(healthItems, "core");
+  const llmItem = findHealthItem(healthItems, "llm");
+
+  // ── Surface availability ──────────────────────────────────────────────
+
+  const hasHealth = healthItems.length > 0;
+  const hasCore = coreItem != null;
+  const hasLlm = llmItem != null;
+  const hasCatalog = catalogAvailable === true;
+  const hasModelInventory = modelInventoryAvailable === true;
+
+  if (hasCore) sourceSurfaces.push("/health");
+  if (hasLlm) sourceSurfaces.push("/health/llm");
+  if (hasCatalog) sourceSurfaces.push("/api/llm/catalog");
+  if (hasModelInventory) sourceSurfaces.push("model inventory");
+
+  // Missing essential surfaces → proof_needed
+  if (!hasHealth) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      "No health surfaces are available.",
+      [],
+      ["Health endpoints unreachable or not polled"],
+      "Verify the backend is running and health polling is active.",
+      []
+    );
+  }
+
+  if (!hasCore) {
+    blockers.push("Core health (/health) is missing or unreachable");
+  }
+  if (!hasLlm) {
+    blockers.push("LLM health (/health/llm) is missing or unreachable");
+  }
+
+  if (blockers.length > 0) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      "Required health surfaces are missing or unreachable.",
+      evidence,
+      blockers,
+      "Verify backend health polling is active and endpoints are reachable.",
+      sourceSurfaces
+    );
+  }
+
+  // Catalog and model inventory are required for a full go verdict.
+  // They are not health blockers but their absence means proof is incomplete.
+  if (!hasCatalog || !hasModelInventory) {
+    const missing: string[] = [];
+    if (!hasCatalog) missing.push("LLM catalog (/api/llm/catalog)");
+    if (!hasModelInventory) missing.push("model inventory");
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      `Required evidence is missing: ${missing.join(", ")}.`,
+      evidence,
+      missing.map((m) => `${m} evidence is missing`),
+      "Collect catalog and model inventory evidence before evaluating run readiness.",
+      sourceSurfaces
+    );
+  }
+
+  // ── Core health ───────────────────────────────────────────────────────
+
+  const coreStatus = coreItem!.status;
+  const coreOk = coreStatus === COMMAND_CENTER_HEALTH_STATES.OK;
+  const coreDown = coreStatus === COMMAND_CENTER_HEALTH_STATES.DOWN;
+
+  if (coreDown) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.HOLD,
+      "Core health is down.",
+      [`/health status: ${coreStatus}`],
+      ["Core health endpoint returned down status"],
+      "Inspect the core health endpoint for dependency failures.",
+      sourceSurfaces
+    );
+  }
+
+  // Supported profile check
+  const profileValid = detailBoolean(coreItem, [
+    "supported_profile",
+    "valid",
+  ]);
+  const profileName = detailString(coreItem, [
+    "supported_profile",
+    "name",
+  ]);
+  const releaseHold = detailBoolean(coreItem, ["release_hold"]);
+
+  if (profileValid === false) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.HOLD,
+      `Supported profile ${profileName ?? "unknown"} is invalid.`,
+      [`Supported profile valid: false`],
+      ["Supported profile is invalid — runtime posture contradicts release contract"],
+      "Inspect supported profile mismatches and resolve configuration drift.",
+      sourceSurfaces
+    );
+  }
+
+  if (releaseHold === true) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.HOLD,
+      "Release hold is active.",
+      [`Release hold: true`],
+      ["The runtime has an active release hold"],
+      "Investigate the release hold reason before proceeding.",
+      sourceSurfaces
+    );
+  }
+
+  if (profileValid === true) {
+    evidence.push(
+      `Supported profile ${profileName ?? "unknown"} is valid`
+    );
+  }
+
+  // ── Provider truth ────────────────────────────────────────────────────
+
+  const providerTruthAvailable =
+    detailField(llmItem, ["provider_truth"]) != null;
+  const providerConfigured = detailBoolean(llmItem, [
+    "provider_truth",
+    "configured",
+  ]);
+  const providerAuthorized = detailBoolean(llmItem, [
+    "provider_truth",
+    "authorized",
+  ]);
+  const providerSelectable = detailBoolean(llmItem, [
+    "provider_truth",
+    "selectable",
+  ]);
+  const providerExecutable = detailBoolean(llmItem, [
+    "provider_truth",
+    "executable",
+  ]);
+  const profileApproved = detailBoolean(llmItem, [
+    "provider_truth",
+    "supported_profile_approved",
+  ]);
+
+  const cloudCapable = detailBoolean(llmItem, [
+    "provider_truth",
+    "cloud_capable_configuration_present",
+  ]);
+
+  if (!providerTruthAvailable) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      "Provider truth evidence is not available.",
+      evidence,
+      ["LLM health response does not include provider_truth"],
+      "Verify the LLM health endpoint returns provider truth data.",
+      sourceSurfaces
+    );
+  }
+
+  if (providerConfigured === false) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      "Provider is not configured.",
+      evidence,
+      ["Provider truth reports configured: false"],
+      "Configure a provider before evaluating run readiness.",
+      sourceSurfaces
+    );
+  }
+
+  if (profileApproved === false) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.HOLD,
+      "Selected provider is not approved by the supported profile.",
+      evidence,
+      ["Provider truth reports supported_profile_approved: false"],
+      "Align the selected provider with the supported profile or update the profile.",
+      sourceSurfaces
+    );
+  }
+
+  // Cloud-capable in local-only posture is not a failure — record as evidence
+  if (cloudCapable === true) {
+    evidence.push(
+      "Cloud-capable configuration detected (not a failure under local-only posture)"
+    );
+  }
+
+  if (providerConfigured && providerAuthorized) {
+    evidence.push("Provider is configured and authorized");
+  }
+
+  // ── Model resolution ─────────────────────────────────────────────────
+
+  const configuredModelAvailable = detailBoolean(llmItem, [
+    "configured_model_available",
+  ]);
+  const modelResolutionFailureKind = detailString(llmItem, [
+    "model_resolution",
+    "failure_kind",
+  ]);
+  const advertisedModels = detailStringArray(llmItem, [
+    "model_resolution",
+    "advertised_models",
+  ]);
+  const configuredModel = detailString(llmItem, ["configured_model"]);
+
+  if (configuredModelAvailable === false) {
+    const mismatchKind = modelResolutionFailureKind ?? "model mismatch";
+    const availableList =
+      advertisedModels.length > 0
+        ? advertisedModels.join(", ")
+        : "none advertised";
+
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      `Configured model '${configuredModel ?? "unknown"}' is not available from the live runtime.`,
+      [
+        ...evidence,
+        `Failure kind: ${mismatchKind}`,
+        `Advertised models: ${availableList}`,
+      ],
+      [
+        `Configured chat model '${configuredModel ?? "unknown"}' is not advertised by the reachable local runtime`,
+      ],
+      "Load the configured model in the local runtime or update LOCAL_CHAT_MODEL to match an available model.",
+      sourceSurfaces
+    );
+  }
+
+  // ── LLM health status ────────────────────────────────────────────────
+
+  const llmStatus = llmItem!.status;
+  const llmOk = llmStatus === COMMAND_CENTER_HEALTH_STATES.OK;
+  const llmDown = llmStatus === COMMAND_CENTER_HEALTH_STATES.DOWN;
+
+  if (llmDown) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.HOLD,
+      "LLM health is down.",
+      evidence,
+      [`/health/llm status: ${llmStatus}`],
+      "Inspect the LLM health endpoint for failure details.",
+      sourceSurfaces
+    );
+  }
+
+  // ── Provider executability ────────────────────────────────────────────
+
+  if (providerSelectable === false && providerExecutable === false) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED,
+      "Provider is not selectable or executable.",
+      evidence,
+      [
+        `Provider selectable: ${providerSelectable ?? "unknown"}`,
+        `Provider executable: ${providerExecutable ?? "unknown"}`,
+      ],
+      "Verify provider configuration and model availability.",
+      sourceSurfaces
+    );
+  }
+
+  // ── Final verdict: all surfaces agree ────────────────────────────────
+
+  // LLM status degraded but provider truth healthy → degraded
+  if (!llmOk && !llmDown) {
+    return buildVerdict(
+      COMMAND_CENTER_RUN_VERDICTS.DEGRADED,
+      "LLM health is degraded but provider truth and model availability are healthy.",
+      evidence,
+      [],
+      "Inspect LLM health details for non-critical degradation cause.",
+      sourceSurfaces
+    );
+  }
+
+  // All surfaces agree: go
+  evidence.push("All required surfaces agree");
+
+  return buildVerdict(
+    COMMAND_CENTER_RUN_VERDICTS.GO,
+    "All required surfaces agree. The runtime is ready.",
+    evidence,
+    [],
+    "No action required.",
+    sourceSurfaces
+  );
+}
