@@ -7,14 +7,20 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 
 import {
   buildCommandCenterHealthViewModel,
+  deriveGuardianRunVerdict,
 } from "@/features/commandCenter/commandCenterObservability";
-import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
+import type {
+  CommandCenterHealthItem,
+  CommandCenterRunVerdict,
+} from "@/features/commandCenter/types";
 
 type HealthOverviewProps = {
   healthItems: CommandCenterHealthItem[];
   lastCheckedAt: number | null;
   loading: boolean;
   onRefresh: () => Promise<void>;
+  catalogAvailable?: boolean;
+  modelInventoryAvailable?: boolean;
 };
 
 function formatTimestamp(value: number | null): string {
@@ -108,6 +114,8 @@ export default function HealthOverview({
   lastCheckedAt,
   loading,
   onRefresh,
+  catalogAvailable,
+  modelInventoryAvailable,
 }: HealthOverviewProps) {
   const [selectedKey, setSelectedKey] = React.useState<CommandCenterHealthItem["key"] | null>(
     null
@@ -122,6 +130,16 @@ export default function HealthOverview({
       setSelectedKey(healthItems[0]?.key ?? null);
     }
   }, [healthItems, selectedKey]);
+
+  const verdict: CommandCenterRunVerdict = React.useMemo(
+    () =>
+      deriveGuardianRunVerdict({
+        healthItems,
+        catalogAvailable,
+        modelInventoryAvailable,
+      }),
+    [healthItems, catalogAvailable, modelInventoryAvailable]
+  );
 
   return (
     <Card
@@ -217,6 +235,54 @@ export default function HealthOverview({
             </button>
           );
         })}
+      </CardContent>
+
+      {/* ── Operator Run Verdict ─────────────────────────────────────── */}
+      <CardContent
+        className="p-[var(--card-pad)]"
+        role="status"
+        aria-label={`Run verdict: ${verdict.label}`}
+        data-testid="command-center-run-verdict"
+      >
+        <div
+          className="rounded-[var(--tile-radius)] border p-3"
+          style={{
+            background: "var(--surface-soft)",
+            borderColor: "var(--panel-border)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+              Can I run?
+            </div>
+            <Badge
+              aria-label={`Run verdict ${verdict.label}`}
+              className="border text-[11px] font-medium leading-none"
+              style={toneStyle(verdict.tone)}
+            >
+              {verdict.label}
+            </Badge>
+          </div>
+
+          <div className="text-xs leading-5" style={{ color: "var(--text)" }}>
+            {verdict.reason}
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]" style={{ color: "var(--muted)" }}>
+            <span data-testid="run-verdict-evidence">
+              Evidence: {verdict.evidence.length}
+            </span>
+            {verdict.blockers.length > 0 && (
+              <span data-testid="run-verdict-blockers" style={{ color: "var(--danger-text)" }}>
+                Blockers: {verdict.blockers.length}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
+            {verdict.recommendedAction}
+          </div>
+        </div>
       </CardContent>
 
       <Sheet
