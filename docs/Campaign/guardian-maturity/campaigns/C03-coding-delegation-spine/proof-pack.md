@@ -604,3 +604,78 @@ None.
 ### Recommended Next Task
 
 **Register a safe read-only command in the command bus manifest.** The smallest step: add command metadata to an existing read-only FastAPI route (e.g., `/health` or `/api/llm/catalog`) so the manifest returns at least one command. This unlocks invocation proof without adding mutating behavior.
+
+---
+
+## C03-T005: Command Bus Manifest Discovery + Safe Invocation Proof (2026-06-17 23:27 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `2aa77d41c` — docs: verify Guardian command bus delegation boundary
+- **Worktree**: Clean
+- **Runtime**: Backend healthy, command_bus internal_only
+
+### Root Cause of "Empty Manifest"
+
+**Path discovery error — no code bug.** The C03-T004 audit probed `/api/command-bus/manifest` and `/command-bus/manifest` (returns 404) and an earlier probe returned `{"commands":[]}` from an unidentified path. The correct command bus route prefix is `/api/guardian/commands` (set in `guardian/routes/command_bus.py:38`). Probing the correct path `/api/guardian/commands/manifest` returns **106 commands** including 12 health commands.
+
+The manifest builder (`guardian/command_bus/manifest.py`) works correctly — it auto-discovers commands from FastAPI OpenAPI operationIds with no manual registration needed. No code change was required.
+
+### Files Inspected (No Modifications Needed)
+
+- `guardian/routes/command_bus.py:38` — router prefix `/api/guardian/commands`
+- `guardian/command_bus/manifest.py` — `build_manifest(app)` auto-discovery from OpenAPI
+- `guardian/command_bus/contracts.py` — `InvokeRequest`, `ActorSpec`, `InvokeArguments`
+
+### Manifest Proof
+
+| Metric | Before (C03-T004) | After (C03-T005) |
+|--------|-------------------|-------------------|
+| Path probed | Wrong paths (404) | `/api/guardian/commands/manifest` ✅ |
+| Commands | 0 (probed wrong path) | **106** |
+| Health commands | 0 | **12** (all read_only, safe) |
+| `op::health_health_get` | Not found | **Found** — `GET /health`, risk=read_only, idemp=safe, approval=none |
+
+### Invocation Proof
+
+**Command**: `op::health_health_get` (GET /health)
+
+| Field | Value |
+|-------|-------|
+| `run_id` | `run_e9b7b4e4d3f44271` |
+| `status` | `completed` |
+| Health result | `status: ok, service: core` |
+| `events_url` | `/api/guardian/commands/runs/{run_id}/events?after_seq=0` |
+| `policy_warnings` | `[]` (no policy violations) |
+
+### CommandRun Persistence
+
+Invocation creates a durable `CommandRun` record (proven by `run_id` returned and events stream responding). Run events show lifecycle: `run.created` → `run.started` → `run.completed`.
+
+### Idempotency
+
+Idempotency key support exists in `InvokeRequest` schema (`idempotency_key` field) and `CommandRun` model (`uq_command_idempotency_key` unique constraint). Not tested in this proof pass (read-only command has no side effects to dedup).
+
+### Actor/Auth Subject
+
+Actor spec `{"kind": "system", "id": "local"}` accepted. `auth_subject: "local"` captured in policy enforcement (confirmed in error response when mismatched actor was attempted).
+
+### Exclusion Proof
+
+| Check | Result |
+|-------|--------|
+| Shell execution | **None** — health command is FastAPI route loopback, no subprocess |
+| Pi/Coder invocation | **None** — zero Pi references in command bus module |
+| Repository mutation | **None** — health is read-only GET |
+| Work-order linkage mutation | **None** — no work-order fields touched |
+| Release boundary | **Preserved** — command bus remains internal_only |
+
+### C03-T005 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Manifest discovery works correctly — 106 commands auto-discovered from OpenAPI with no manual registration. Safe health command invocation proven end-to-end: run_id returned, status completed, health result ok, events stream confirmed, no shell/Pi/Coder/repository mutation. The "empty manifest" was a path discovery error in the probe URL, not a code bug. No code changes were needed.
+
+### Recommended Next Task
+
+**C03-T006: Prove work-order-to-command-run linkage.** With command invocation proven, the next step is to populate `latest_run_id` on a coding work order when a command run is created, establishing the link between work orders and execution records.
