@@ -11,6 +11,7 @@
 | C03-D005 | 2026-06-17 | `next-proof-needed` — command bus boundary classified; 0 commands registered, invocation unprovable | active |
 | C03-D006 | 2026-06-17 | `go` — manifest discovery works (106 commands); health invocation proven; path probe error, not code bug | active |
 | C03-D007 | 2026-06-17 | `go` — work-order-to-command-run linkage runtime-proven; `latest_run_id` populated | active |
+| C03-D008 | 2026-06-17 | `go` — fail-closed linkage repair; invalid work_order_id blocks command execution | active |
 
 ---
 
@@ -244,3 +245,34 @@
   - Work order status should be updated alongside `latest_run_id` (e.g., to `running` after dispatch).
   - `latest_receipt_id` or `latest_lease_id` linkage is added.
   - Linkage failure should produce a structured warning instead of silent skip.
+
+---
+
+### Decision: C03-D008
+
+- **Decision ID**: C03-D008
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. Fail-closed linkage repaired. Invalid `work_order_id` (nonexistent or malformed) now blocks command execution with structured error before run creation. Valid linkage and no-link invocation preserved.
+- **Reason**:
+  - Moved work-order validation BEFORE `store.create_run()` in `execute_invoke()`.
+  - Added `_is_valid_work_order_id_format()` with regex `^wo_[a-f0-9]{16}$` for format validation.
+  - Format failure → 422 `work_order_id_malformed`.
+  - DB lookup failure → 404 `work_order_not_found`.
+  - Store unavailable → 400 `work_order_linkage_unavailable`.
+  - All failures halt before command execution.
+  - Valid linkage preserved (`latest_run_id` populated).
+  - No-link invocation preserved.
+- **Evidence**:
+  - `guardian/command_bus/invoke.py:393-418` — validation before run creation.
+  - `guardian/command_bus/invoke.py:108-113` — `_is_valid_work_order_id_format()`.
+  - Runtime: nonexistent `wo_ffffffffffffffff` → `work_order_not_found`, no run.
+  - Runtime: malformed `not-a-valid-wo-id` → `work_order_id_malformed`, no run.
+  - Runtime: valid linkage → run_id populated, status draft.
+- **Consequence**:
+  - C03-T006-R1 advances to `go`. Fail-closed behavior proven.
+  - C03-T007 (result-return proof) can proceed with safe linkage contract.
+  - No command execution occurs for invalid work_order_id.
+- **Revisit Trigger**:
+  - Work order ownership/auth validation is added (currently only existence + format checked).
+  - Archived/deleted work orders should be rejected by the DB lookup.
+  - Idempotency across different work_order_ids should be explicitly tested.
