@@ -978,3 +978,56 @@ Total                                18 passed
 
 - **Decision**: `go`
 - **Reason**: CommandRun readback route works. Durable `result_json` and `error_text` are inspectable. Missing run fails closed (404). No raw args exposed. Linked work-order `latest_run_id` can resolve to CommandRun readback. No receipt, artifact, or work-order status change. Route remains internal-only.
+
+---
+
+## C03-T009: Work-Order Latest-Run Readback Route (2026-06-18 01:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `7850b39d9` — feat: expose Guardian command run readback
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/routes/coding_work_orders.py` — added `_command_bus_store` singleton, `GET /{work_order_id}/latest-run` route (+55 lines)
+- `tests/routes/test_coding_work_order_latest_run_readback.py` — 6 tests (new file)
+
+### Route Added
+
+`GET /api/coding/work-orders/{work_order_id}/latest-run` — resolves work-order `latest_run_id` to durable CommandRun readback.
+
+### Response Shape
+
+```json
+{
+  "work_order_id": "wo_...",
+  "latest_run_id": "run_...",
+  "run": { /* full CommandRun from C03-T008 */ }
+}
+```
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| Linked WO → latest-run | `run_id: run_fbf5ab373d8a46c0`, health status: ok |
+| Nonexistent WO | `WORK_ORDER_NOT_FOUND` |
+| WO with no run | `work_order_latest_run_not_found` |
+| WO status unchanged | `draft` |
+| No raw args | `raw_args_exposed: False` |
+
+### Test Results
+
+```
+test_coding_work_order_latest_run  6 passed
+test_command_bus_run_readback      5 passed
+test_command_bus_work_order_link  13 passed
+Total                             24 passed
+```
+
+### C03-T009 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Work-order latest-run readback route works. Operator can now resolve `work_order_id` → `latest_run_id` → full CommandRun in one API call. Missing WO, no-run, and broken pointer all fail closed. No raw args exposed. Work-order status unchanged. Route remains internal-only.

@@ -15,6 +15,7 @@
 | C03-D009 | 2026-06-18 | `go` — 13 focused backend tests pass; linkage contract regression-proven | active |
 | C03-D010 | 2026-06-18 | `next-proof-needed` — result-return seam classified; no CommandRun readback route | active |
 | C03-D011 | 2026-06-18 | `go` — CommandRun readback route added; durable result inspectable | active |
+| C03-D012 | 2026-06-18 | `go` — work-order latest-run readback bridge added; 24 tests pass | active |
 
 ---
 
@@ -374,3 +375,26 @@
   - Work-order readback is enhanced to include joined command result.
   - `latest_receipt_id` is populated.
   - Result artifacts are created from command-run results.
+
+---
+
+### Decision: C03-D012
+
+- **Decision ID**: C03-D012
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Work-order latest-run readback bridge added at `GET /api/coding/work-orders/{id}/latest-run`. 6 focused tests pass; 24 total with existing suites.
+- **Reason**:
+  - Returns `work_order_id`, `latest_run_id`, and full `run` object from C03-T008.
+  - Missing WO → `WORK_ORDER_NOT_FOUND`. No latest run → `work_order_latest_run_not_found`. Broken pointer → `work_order_latest_run_missing`.
+  - Route reuses C03-T008 readback shape. No raw args. Work-order status unchanged.
+- **Evidence**:
+  - `guardian/routes/coding_work_orders.py:410-454` — `get_work_order_latest_run()`.
+  - `tests/routes/test_coding_work_order_latest_run_readback.py` — 6 tests.
+  - Runtime: `GET /api/coding/work-orders/wo_74f7a0533deb4f22/latest-run` → CommandRun with health result.
+- **Consequence**:
+  - C03-T009 advances to `go`. Work-order-to-result bridge complete.
+  - Operator workflow: create WO → invoke command → read latest-run in one call.
+- **Revisit Trigger**:
+  - Work-order readback enhanced to include joined command result inline.
+  - `latest_receipt_id` populated.
+  - Result artifacts created from command-run results.
