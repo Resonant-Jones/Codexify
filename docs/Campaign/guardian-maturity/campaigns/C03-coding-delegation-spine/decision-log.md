@@ -14,6 +14,7 @@
 | C03-D008 | 2026-06-17 | `go` — fail-closed linkage repair; invalid work_order_id blocks command execution | active |
 | C03-D009 | 2026-06-18 | `go` — 13 focused backend tests pass; linkage contract regression-proven | active |
 | C03-D010 | 2026-06-18 | `next-proof-needed` — result-return seam classified; no CommandRun readback route | active |
+| C03-D011 | 2026-06-18 | `go` — CommandRun readback route added; durable result inspectable | active |
 
 ---
 
@@ -342,4 +343,34 @@
 - **Revisit Trigger**:
   - `GET /api/guardian/commands/runs/{run_id}` route is added.
   - `latest_receipt_id` is populated by a runtime code path.
+  - Result artifacts are created from command-run results.
+
+---
+
+### Decision: C03-D011
+
+- **Decision ID**: C03-D011
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. CommandRun readback route added at `GET /api/guardian/commands/runs/{run_id}`. Durable `result_json` and `error_text` are API-inspectable. 5 focused tests pass. Linked work-order `latest_run_id` can resolve to CommandRun readback.
+- **Reason**:
+  - Added `GET /api/guardian/commands/runs/{run_id}` route returning 17 fields from `_row_to_dict()`.
+  - Response includes `result_json` (JSONB), `error_text`, status, actor/auth metadata, args_hash, args_redacted, timestamps, events_url.
+  - Runtime proof: `result_json` shows health `{"status":"ok","service":"core"}`.
+  - Nonexistent run returns 404 `command_run_not_found`.
+  - No raw args exposed — `args_redacted` is the redacted form.
+  - Route remains internal-only under the existing command bus posture.
+  - Linked work-order `latest_run_id` resolves to CommandRun readback.
+  - 5 new tests pass; 18 total with existing linkage tests.
+- **Evidence**:
+  - `guardian/routes/command_bus.py:246-261` — `get_run()` route.
+  - `tests/routes/test_command_bus_run_readback.py` — 5 tests passing.
+  - Runtime: `GET /api/guardian/commands/runs/run_352b0f1a734c4e81` → full readback.
+- **Consequence**:
+  - C03-T008 advances to `go`. Command results are now permanently inspectable.
+  - C03-T007 result-return gap is resolved.
+  - Operators can read command results without capturing the transient invoke response.
+  - Work-order-to-result linkage is now two-step: work order → `latest_run_id` → CommandRun readback.
+- **Revisit Trigger**:
+  - Work-order readback is enhanced to include joined command result.
+  - `latest_receipt_id` is populated.
   - Result artifacts are created from command-run results.
