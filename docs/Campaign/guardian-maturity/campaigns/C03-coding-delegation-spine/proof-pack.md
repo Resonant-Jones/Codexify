@@ -166,3 +166,78 @@ None. All findings are gaps between code presence and runtime proof, not contrad
 ## Recommended Next Implementation Task
 
 **C03-T001: Verify coding work-order routes are runtime-available.** Confirm that `CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES` is enabled (or can be enabled safely) and that `POST /api/coding/work-orders` responds with structured data. This single verification unlocks the entire C03 spine.
+
+---
+
+## C03-T001: Coding Work-Order Route Runtime Verification (2026-06-17 22:35 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `740cce37b` — docs: record Guardian Maturity C03 coding delegation proof
+- **Worktree**: Clean
+
+### Commands Run
+
+- `docker compose exec backend printenv` — checked runtime environment
+- `grep` on `guardian/guardian_api.py` — located feature gate and router inclusion
+- `grep` on `config/supported_profiles/v1-local-core-web-mcp.yaml` — inspected route posture
+- `curl openapi.json` — checked for coding/delegation routes
+
+### Feature-Gate Discovery
+
+| Check | Evidence | Result | Notes |
+|---|---|---|---|
+| Feature flag located | `guardian/guardian_api.py:1224` — `flag_name="CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES"` | **Located** | Flag name confirmed |
+| Feature flag default classified | `_include_router()` uses `default_enabled=True` (default parameter) | **default_enabled=True** | Route would be included if no other gate blocks it |
+| Active runtime value observed | `docker compose exec backend printenv` — no `CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES` set | **Not set** | Default applies (True) |
+| Route source anchor located | `guardian/routes/coding_work_orders.py` — `router = APIRouter(...)`, POST/GET/cancel + orchestrator + campaign_runner | **Located** | 3 routers: main, orchestrator, campaign_runner |
+| Router inclusion condition located | `guardian/guardian_api.py:1223-1228` — `_include_router(label="coding_work_orders", flag_name="CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES", include_fn=...)` | **Located** | Three-gate check: profile posture, BETA_CORE_ONLY, feature flag |
+| OpenAPI route presence checked | `curl localhost:8888/openapi.json` — no coding/work-order/delegation paths | **Not in OpenAPI** | Routes are gated out |
+| Auth boundary identified | Same X-API-Key mechanism as all chat routes (proven in C02) | **Identified** | No separate delegation auth |
+| Payload schema identified | `CommandCenterWorkOrderCreateInput` in `frontend/src/features/commandCenter/types.ts` | **Identified** | title, objective, scope, status, priority, source_thread_id, source_message_id, etc. |
+| Safe POST attempted or explicitly skipped | **Skipped** — route not mounted; no endpoint to POST to | N/A | Route is gated at the supported profile level |
+| Readback/list proof attempted or explicitly skipped | **Skipped** — route not mounted | N/A | 同上 |
+| No command execution triggered | N/A — no request sent | **Confirmed** | No mutation risk |
+| No Pi/Coder invocation triggered | N/A — no request sent | **Confirmed** | No invocation risk |
+
+### Root Cause: CODEXIFY_BETA_CORE_ONLY Blocks coding_work_orders
+
+The `_include_router()` function in `guardian/guardian_api.py:240-310` applies three sequential gates:
+
+1. **Supported profile route posture** — `coding_work_orders` is NOT listed in `enabled`, `internal_only`, or `quarantined`. Status is absent (not explicitly blocked).
+2. **`CODEXIFY_BETA_CORE_ONLY`** — Currently `true` in the runtime environment. When set, non-core (`core_surface=False`) and non-internal routes are blocked. `coding_work_orders` has `core_surface=False` and is not `internal_only`, so it is blocked.
+3. **Feature flag** — `CODEXIFY_ENABLE_CODING_WORK_ORDERS_ROUTES` defaults to `true` and is not overridden in the environment. This gate would pass.
+
+The effective blocker is gate #2: `CODEXIFY_BETA_CORE_ONLY=true` combined with `coding_work_orders` not being in the supported profile's `enabled` or `internal_only` lists.
+
+### Route Availability Classification
+
+**`source_present_but_feature_gated_off`**
+
+The coding work-order CRUD surface exists in source code (`guardian/routes/coding_work_orders.py`, 307 lines) and is wired in `guardian/guardian_api.py` with `default_enabled=True`. The route is blocked at runtime by the supported profile's `CODEXIFY_BETA_CORE_ONLY` posture, which gates non-core, non-internal routes out of the active OpenAPI surface. The feature flag itself is not the blocker — the supported profile posture is.
+
+### Resolution Options
+
+1. **Add `coding_work_orders` to the supported profile's `enabled` list** in `v1-local-core-web-mcp.yaml`. This is the cleanest approach — coding work orders become a core surface under the supported profile.
+2. **Set `CODEXIFY_BETA_CORE_ONLY=false`** — This would ungates all non-core routes, which is too broad for this task.
+3. **Move `coding_work_orders` to `internal_only`** in the route posture — Routes would be hidden from OpenAPI but still accessible. This is the safest path if full enablement is premature.
+
+### Contradictions
+
+None. The behavior is consistent with the documented supported profile posture.
+
+### Gaps
+
+1. **coding_work_orders not in supported profile**: The route is absent from the `enabled` and `internal_only` lists. It must be explicitly added before it can be runtime-verified.
+2. **No safe POST possible**: The route is not mounted, so no endpoint verification can be performed until the posture is updated.
+3. **Frontend panel targets unproven backend**: `CodingWorkOrdersPanel` calls `/api/coding/work-orders` which returns errors when the route is gated.
+
+### C03-T001 Gate Decision
+
+- **Decision**: `next-proof-needed`
+- **Reason**: The route is classified (`source_present_but_feature_gated_off`), the exact blocker is identified (`CODEXIFY_BETA_CORE_ONLY=true` + coding_work_orders not in supported profile route posture), and resolution options are documented. However, the route has not been runtime-verified because it is not mounted. C03-T001 cannot advance to `go` until the supported profile posture is updated to include `coding_work_orders` and the route is confirmed reachable.
+
+### Recommended Next Task
+
+**Add `coding_work_orders` to the supported profile's `internal_only` route posture.** This is the safest first step — it makes the route accessible (hidden from OpenAPI but functional) without widening the public beta surface. Once the route is reachable, C03-T001 can complete the runtime verification (safe POST, readback, auth confirmation).
