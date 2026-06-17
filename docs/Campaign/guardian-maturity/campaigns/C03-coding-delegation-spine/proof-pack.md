@@ -798,3 +798,127 @@ tests/routes/test_command_bus_work_order_linkage.py .............  13 passed
 
 - **Decision**: `go`
 - **Reason**: 13 focused backend tests pass, covering valid linkage, no-link, nonexistent fail-closed, malformed fail-closed, store-unavailable, idempotency, and safety exclusions. All invalid linkage cases are regression-proven.
+
+---
+
+## C03-T007: Result-Return Seam Audit (2026-06-18 00:20 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `01cd0fa17` — test: prove Guardian work-order command-run linkage
+- **Worktree**: Clean
+- **Runtime**: Backend healthy, 11 services running
+
+### Commands Run
+
+- `grep` source searches for `result_json`, `error_text`, `latest_receipt_id`, artifact, receipt
+- `curl` invoke with `op::health_health_get` — captured `inline_result` shape
+- `curl` GET run — confirmed 404 (no run readback route)
+- `grep` CommandBusStore — confirmed `get_run()`, `update_run()` exist but no route
+- `grep` Pi contracts — confirmed `PiInvocationReceipt`, `PiInvocationArtifact` exist in Pi module
+
+### Result-Return Seam Table
+
+| # | Seam Dimension | Evidence | Classification | Notes |
+|---|---------------|----------|----------------|-------|
+| 1 | CommandRun durable result field | `CommandRun.result_json` (JSONB) in `guardian/db/models.py:3967` | **present_not_runtime_verified** | Populated by loopback adapter; no readback route |
+| 2 | CommandRun durable error field | `CommandRun.error_text` (Text) in `guardian/db/models.py:3968` | **present_not_runtime_verified** | Nullable; no readback route |
+| 3 | CommandRun readback route | `GET /api/guardian/commands/runs/{run_id}` → 404 | **absent** | Store has `get_run()` but no route exposes it |
+| 4 | CommandRun events route | `GET /api/guardian/commands/runs/{run_id}/events` — SSE stream | **proven** | C03-T005 confirmed `run.created`/`started`/`completed` events |
+| 5 | CommandRun result body shape | Invoke response `inline_result.body` — HTTP response from target | **proven** | Health returns `{"status":"ok","service":"core"}` |
+| 6 | CommandRun actor/auth metadata | `CommandRun` stores `actor_kind`, `actor_id`, `auth_subject`, `delegated_by` | **present_not_runtime_verified** | Stored in DB; no readback route |
+| 7 | Work-order `latest_run_id` | `CodingWorkOrder.latest_run_id` — string, nullable, no FK | **proven** | C03-T006 proven via runtime and tests |
+| 8 | Work-order readback includes `latest_run_id` | `GET /api/coding/work-orders/{id}` returns `latest_run_id` | **proven** | C03-T006 confirmed |
+| 9 | Work-order readback includes command result | Not included | **absent** | Only `latest_run_id` pointer; no embedded result |
+| 10 | Work-order readback includes command events | Not included | **absent** | No joined readback |
+| 11 | Work-order `latest_receipt_id` | `CodingWorkOrder.latest_receipt_id` — string, nullable | **present_not_runtime_verified** | Field exists; never populated at runtime |
+| 12 | Receipt model | `PiInvocationReceipt` in `guardian/pi/contracts.py:519` | **source_only** | Pi module only; not linked to work orders |
+| 13 | Receipt route | Not present | **absent** | No receipt creation or readback route |
+| 14 | Receipt creation path | `WorkOrderStore.mark_latest_run()` can set `receipt_id` | **source_only** | Method exists; never called with receipt_id at runtime |
+| 15 | Artifact model | `PiInvocationArtifact` in `guardian/pi/contracts.py:303` | **source_only** | Pi module only; not linked to work orders |
+| 16 | Artifact route | Not present | **absent** | No artifact creation or readback route |
+| 17 | Artifact creation path | Not present | **absent** | No code path creates artifacts |
+| 18 | Result artifact linkage | Not present | **absent** | No field or route links artifacts to work orders |
+| 19 | Status history | Not present as dedicated surface | **absent** | Work order has single `status` field with transition rules; no history log |
+| 20 | Execution history | `latest_run_id` provides single-run pointer | **partial** | No run listing per work order; no multi-run history |
+| 21 | Frontend result display | `CodingWorkOrdersPanel` renders work orders with status badges | **frontend_only** | No command-run result display in work order panel |
+| 22 | Release-boundary risk | Work orders are internal_only; no result-return in public beta | **low** | Release boundary intact |
+
+### Result Semantics Table
+
+| Operation | What It Proves | What It Does Not Prove | Evidence |
+|---|---|---|---|
+| Create draft work order | Durable task-board record created | Execution, result, completion | C03-T003 proven |
+| Invoke health with `work_order_id` | Command runs, result returned inline, `latest_run_id` populated | Work-order completion, result artifact, receipt | C03-T006 + this audit |
+| Read back work order | `latest_run_id` pointer + work-order fields | Command result, events, status change | C03-T006 confirmed |
+| Read back CommandRun | Not possible via API | N/A | `GET /api/guardian/commands/runs/{id}` → 404 |
+| Read back CommandRunEvents | SSE stream with lifecycle events | Detailed result body (result is in invoke response, not events) | C03-T005 confirmed |
+| Inspect receipt/artifact fields | Fields exist on DB model, never populated | Receipt/artifact creation, result return | `latest_receipt_id` is `None` |
+| Confirm status preservation | Work order status unchanged after invoke | N/A | `draft` persists through invoke |
+
+### Audit Answers
+
+1. **Where is command-run result stored?**
+   Durable: `CommandRun.result_json` (JSONB column in `command_runs` table). Transient: `inline_result` field in the invoke HTTP response. The durable result is populated by the loopback adapter after command execution.
+
+2. **Is command-run result durable?**
+   Yes — stored in Postgres via `CommandRun.result_json`. But **not readable** via any API route today.
+
+3. **Can command-run result be read back by API today?**
+   **No.** `GET /api/guardian/commands/runs/{run_id}` returns 404. Only the original invoke response contains the result. `CommandBusStore.get_run()` exists internally but has no route.
+
+4. **Can command-run events be read back by API today?**
+   **Yes.** `GET /api/guardian/commands/runs/{run_id}/events` provides SSE stream with lifecycle events (`run.created`, `run.started`, `run.completed`). Events include `status_code` in `run.completed` but not the full result body.
+
+5. **Does work-order readback include command-run result?**
+   **No.** Only `latest_run_id` pointer. No joined result, no embedded `result_json`.
+
+6. **Does work-order readback include command-run events?**
+   **No.** No joined events.
+
+7. **Does `latest_run_id` create a result-return contract or only a pointer?**
+   **Only a pointer.** It's a loose string field with no FK, no joined readback, and no automated result population. The operator must manually correlate `latest_run_id` with the original invoke response or events stream.
+
+8. **Does CommandRun completion mean the work order completed?**
+   **No.** Work-order status is unchanged (remains `draft`). CommandRun is an execution record; work order is a task-board record. They are linked but semantically independent.
+
+9. **Does CommandRun result become a work-order artifact automatically?**
+   **No.** No code path creates artifacts from command results. No artifact model linked to work orders.
+
+10. **Does any receipt get created today?**
+    **No.** `PiInvocationReceipt` exists in the Pi module but is not used by work-order or command-bus flows.
+
+11. **Does any artifact get created today?**
+    **No.** `PiInvocationArtifact` exists in the Pi module but is not used by work-order or command-bus flows.
+
+12. **Does `latest_receipt_id` get populated today?**
+    **No.** Field exists on `CodingWorkOrder` but is never populated at runtime.
+
+13. **Does frontend imply result-return beyond backend proof?**
+    **No.** `CodingWorkOrdersPanel` renders work orders with status badges. It does not display command-run results or imply execution completion.
+
+14. **What is the smallest safe next implementation task?**
+    **Add a `GET /api/guardian/commands/runs/{run_id}` route** that exposes the durable `CommandRun` record (including `result_json`, `error_text`, `status`, timestamps). This is a read-only route that makes the already-stored result inspectable. It does not create receipts, artifacts, or change work-order status.
+
+### Contradictions
+
+None.
+
+### Gaps
+
+1. **No CommandRun readback route**: `CommandRun.result_json` is durably stored but has no API readback. Operators must capture the invoke response.
+2. **Work-order result is pointer-only**: `latest_run_id` links to a run but provides no joined result.
+3. **No receipt creation**: `latest_receipt_id` field exists but is never populated.
+4. **No artifact creation**: No code path creates artifacts from command results.
+5. **No execution history**: Single `latest_run_id` — no multi-run history per work order.
+6. **Pi artifacts/receipts are isolated**: Exist in `guardian/pi/` module but not linked to work-order or command-bus flows.
+
+### C03-T007 Gate Decision
+
+- **Decision**: `next-proof-needed`
+- **Reason**: The result-return seam is fully classified across 22 dimensions. CommandRun results are durably stored but have no API readback route. Work-order result linkage is pointer-only (`latest_run_id`). No receipts or artifacts are created. The gap is specific and implementable: add a read-only `GET /api/guardian/commands/runs/{run_id}` route to expose the already-stored durable result.
+
+### Recommended Next Task
+
+**Add a `GET /api/guardian/commands/runs/{run_id}` route.** Expose the durable `CommandRun` record (including `result_json`, `error_text`, `status`, timestamps, actor metadata) as a read-only API endpoint. This makes command results inspectable without creating receipts, artifacts, or changing work-order status.
