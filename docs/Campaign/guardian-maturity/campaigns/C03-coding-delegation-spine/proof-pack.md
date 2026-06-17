@@ -310,3 +310,143 @@ None. Behavior matches `internal_only` posture expectations exactly.
 ### Recommended Next Task
 
 **C03-T003: Work-order artifact contract audit.** With the route surface confirmed runtime-available, audit the work-order payload shape against ADR-020's coding-task envelope fields (codingTaskId, threadId, sourceMessageId, permission policy, adapter kind, etc.). Identify which ADR-020 fields are represented in the current work-order schema and which are missing.
+
+---
+
+## C03-T003: Work-Order Artifact Contract Audit (2026-06-17 22:50 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `fbb17ace7` — config: mark coding work orders as internal supported route
+- **Worktree**: Clean
+- **Runtime**: Backend healthy, route mounted as internal_only
+
+### Source Files Inspected
+
+- `guardian/agents/work_orders.py` — `WorkOrderCreate`, `WorkOrderContract`, `WORK_ORDER_STATUSES`, status transitions
+- `guardian/routes/coding_work_orders.py` — `WorkOrderCreateRequest` (Pydantic), create/list/get/cancel routes
+- `guardian/db/models.py:4267-4333` — `CodingWorkOrder` SQLAlchemy model
+- `guardian/db/migrations/versions/9d4e1c7b2a6f_add_coding_work_orders.py` — migration
+- `frontend/src/features/commandCenter/types.ts:161-268` — `CommandCenterCodingWorkOrder`, `CommandCenterWorkOrderCreateInput`
+
+### Artifact Contract Table
+
+| # | Artifact Dimension | Current Evidence | Classification | Notes |
+|---|-------------------|-----------------|----------------|-------|
+| 1 | Durable work-order id | `work_order_id: str(64)` — format `wo_{uuid_hex}`, primary key in `coding_work_orders` table | **proven** | Auto-generated; verified in C03-T002 POST response |
+| 2 | Storage table/model | `CodingWorkOrder` SQLAlchemy model in `guardian/db/models.py:4267`; migration `9d4e1c7b2a6f` | **proven** | Durable Postgres table with 20+ columns |
+| 3 | Create payload | `WorkOrderCreateRequest` (Pydantic) — 20 fields; routes to `WorkOrderCreate` dataclass | **proven** | No execution fields populated on create; `status` defaults to `"ready"` if not supplied |
+| 4 | Read payload | `WorkOrderContract` dataclass — 27 fields including `latest_run_id`, `latest_lease_id`, `latest_receipt_id`, timestamps | **proven** | Full shape returned by GET /{id} and list |
+| 5 | List payload | `{"ok":true,"items":[...],"count":N,"limit":50,"offset":0}` | **proven** | Paginated; C03-T002 verified count:1 |
+| 6 | Status vocabulary | 15 statuses: draft, ready, leased, running, validating, retrying, passed, failed, blocked, escalated, merge_ready, merged, archived, cancelled | **proven** | Defined in `agents/work_orders.py:31-58` |
+| 7 | Status transition semantics | `WORK_ORDER_ALLOWED_TRANSITIONS` — strict DAG of allowed state changes (e.g., draft→ready/cancelled, running→validating/failed/blocked/etc.) | **proven** | Enforced by `_is_terminal_work_order_status()` in route |
+| 8 | Draft/storage acceptance | POST creates a durable row; status defaults to `"ready"`; no enqueue, no worker dispatch | **proven** | Pure CRUD — storage acceptance only |
+| 9 | Execution acceptance | **Not present** — POST does not enqueue, call command bus, invoke Pi/Coder, or dispatch workers | **proven (absent)** | No execution path in create route |
+| 10 | Queue/worker binding | `coding_work_orders.py` does not enqueue; agent_worker and delegation_worker exist separately | **absent from work-order CRUD** | Workers are separate infrastructure; work orders are task-board records |
+| 11 | Command bus binding | No command bus invocation in work-order CRUD | **absent** | Command bus is adjacent via `guardian/routes/command_bus.py` |
+| 12 | Pi/Coder binding | No Pi/Coder references in work-order code | **absent** | Pi contracts are in `guardian/pi/` — separate module |
+| 13 | Source thread id | `source_thread_id: str(128)` — optional, nullable in DB | **present_not_runtime_verified** | Field exists; C03-T002 POST did not supply it |
+| 14 | Source message id | `source_message_id: str(128)` — optional, nullable in DB | **present_not_runtime_verified** | Field exists; not populated in C03-T002 |
+| 15 | Project id | Not present in work-order schema | **absent** | Not a field on `WorkOrderCreate` or `WorkOrderContract` |
+| 16 | User/actor id | `created_by: str(255)` — optional | **present_not_runtime_verified** | Field exists; not populated in C03-T002 |
+| 17 | Audit/provenance record | `created_at`, `updated_at`, `archived_at` timestamps on `CodingWorkOrder` | **proven** | C03-T002 verified `created_at` returned |
+| 18 | Receipt field/model/route | `latest_receipt_id: str(64)` — optional, nullable | **present_not_runtime_verified** | Field exists but no receipt route or creation logic |
+| 19 | Artifact field/model/route | No artifact field on work order | **absent** | `PiInvocationArtifact` exists in Pi contracts but not linked to work orders |
+| 20 | Result-return path | No result-return route or logic in work-order CRUD | **absent** | Result return exists in delegation worker (events) but not linked |
+| 21 | Frontend route usage | `useCodingWorkOrders` hook calls `GET /api/coding/work-orders`, `POST /api/coding/work-orders`, `POST /api/coding/work-orders/{id}/cancel` | **present_not_runtime_verified** | Frontend targets now-reachable backend routes |
+| 22 | Frontend user-facing wording | "Coding Work Orders" panel; status badges for draft/ready/running/etc.; create form with title/objective/scope | **frontend_only** | UI implies task-board semantics, not live execution |
+| 23 | Release-boundary risk | Work-order CRUD is internal-only; no public beta claim | **low** | `00-current-state.md` delegation exclusion intact |
+
+### Acceptance Semantics Table
+
+| Operation | What It Proves | What It Does Not Prove | Evidence |
+|---|---|---|---|
+| `GET /api/coding/work-orders` | Durable storage of work-order rows; paginated readback | Execution, enqueue, worker dispatch | C03-T002: count:1, items with full WorkOrderContract shape |
+| `POST /api/coding/work-orders` | Durable creation of a coding task-board record with 20 fields | Guardian acceptance of execution, command dispatch, Pi/Coder invocation, repository mutation | C03-T002: ok:True, work_order_id returned, status:draft |
+| `GET /api/coding/work-orders/{id}` | Full readback of a single work order with timestamps, run/lease/receipt IDs | Execution status, receipt existence | C03-T002: full WorkOrderContract returned |
+| Update route | Not present in current routes | N/A | Only create/list/get/cancel routes exist |
+| Delete/archive route | Not present as dedicated route | N/A | `archived` is a terminal status, not a delete |
+| Status transition route | Not present as dedicated route | N/A | Status transitions happen through worker/orchestrator, not direct API |
+| Result/receipt/artifact route | Not present | N/A | `latest_receipt_id` field exists but no dedicated result route |
+
+### Audit Answers
+
+1. **What is the current canonical coding work-order artifact?**
+   A durable task-board record stored in the `coding_work_orders` Postgres table with 20+ typed fields. It captures operator intent (title, objective, scope), execution parameters (adapter_kind, validation_command, file_scope), lineage anchors (source_thread_id, source_message_id), and execution references (latest_run_id, latest_lease_id, latest_receipt_id). Status follows a 15-state DAG with strict transitions.
+
+2. **Is the artifact durable?**
+   Yes. Stored in Postgres via SQLAlchemy `CodingWorkOrder` model. Migration `9d4e1c7b2a6f` created the table. C03-T002 confirmed reads survive across requests.
+
+3. **What does `status: draft` mean?**
+   "Draft" means the work order is created but not ready for dispatch. Transition rules: draft → ready or cancelled. It is storage-only — no enqueue, no worker, no execution.
+
+4. **Does creating a work order enqueue anything?**
+   No. `create_work_order()` calls `store.create_work_order()` which persists to DB only. No Redis enqueue, no task dispatch.
+
+5. **Does creating a work order invoke command bus?**
+   No. No command bus references in `coding_work_orders.py`.
+
+6. **Does creating a work order invoke Pi/Coder?**
+   No. Pi contracts are in a separate module (`guardian/pi/`) with zero route registration.
+
+7. **Does creating a work order mutate repositories?**
+   No. No git operations, file writes, or shell execution in the create path.
+
+8. **Does the artifact bind to source thread/message lineage?**
+   Partially. Fields `source_thread_id` and `source_message_id` exist on the model, DB, create payload, and response. They are optional — not validated for existence against the chat DB. C03-T002 did not populate them.
+
+9. **Does the artifact bind to project/user identity?**
+   Partially. `created_by` field exists for actor identity. No `project_id` field on work orders. Campaign runner has separate goal/campaign hierarchy with project scoping.
+
+10. **Does the artifact create or reference receipts?**
+   Partially. `latest_receipt_id` field exists on the response model and DB. No receipt creation logic in work-order CRUD. Receipts are populated by the delegation/agent workers.
+
+11. **Does the artifact create or reference result artifacts?**
+   No. No artifact field on work orders. `PiInvocationArtifact` exists in Pi contracts but is not linked to work orders.
+
+12. **Does the frontend imply execution beyond what backend proves?**
+   The frontend `CodingWorkOrdersPanel` renders work orders as a task board with status badges. It offers a create form and cancel action. It does not imply live execution — the UI shows status labels but no "Run" or "Execute" button in the current panel. Orchestrator recommendations are polled separately.
+
+13. **What is the smallest safe next implementation or proof task?**
+   **C03-T004: Verify command bus adjacency and invocation boundary.** The work-order artifact is a task-board record. The command bus is the adjacent execution mechanism. Proving that command bus invoke does not bypass Guardian authority and that command runs link to work orders (via `latest_run_id`) is the next seam.
+
+### ADR-020 Field Mapping
+
+| ADR-020 Required Field | Work Order Field | Status |
+|---|---|---|
+| `codingTaskId` | `work_order_id` | **present** — maps to durable work order identity |
+| `threadId` | `source_thread_id` | **present** — optional, not validated |
+| `sourceMessageId` | `source_message_id` | **present** — optional, not validated |
+| `requestId` / `attemptId` | Not present | **absent** — no attempt-level identity on work order |
+| `userId` / actor subject | `created_by` | **present** — optional |
+| `projectId` | Not present | **absent** |
+| `workspace scope` / `repo root` | `scope` (text) + `file_scope` (string list) | **present** — scope is free text; file_scope is path list |
+| `allowed paths` | `file_scope` | **present** — explicit path list |
+| `instructions` | `objective` + `title` | **present** — title + objective capture instructions |
+| `context bundle summary` | Not present | **absent** — no context summary field |
+| `permission policy` | Not present | **absent** — no permission/capability policy on work order |
+| `adapter kind` | `adapter_kind` | **present** — optional string |
+
+### Contradictions
+
+None.
+
+### Gaps
+
+1. **No permission policy field** — ADR-020 requires `permission policy` for adapter-bound scope. Work orders have no permission/capability policy.
+2. **No request/attempt identity** — ADR-020 requires `requestId`/`attemptId` for execution attempt tracking. Work orders have no attempt-level identity.
+3. **No project scoping** — ADR-020 requires `projectId`. Work orders have no project field.
+4. **No context bundle summary** — ADR-020 requires `context bundle summary` sent to adapter.
+5. **Source lineage not validated** — `source_thread_id`/`source_message_id` are stored but not validated against chat DB.
+6. **No result artifact linkage** — Work orders have no field for result artifacts.
+7. **Receipts are reference-only** — `latest_receipt_id` is a string field with no creation/readback route.
+
+### C03-T003 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: The coding work-order artifact contract is fully classified. The artifact is a durable task-board record with 20+ typed fields, 15-state status DAG, and strict transition rules. It captures operator intent and execution parameters but does NOT execute, enqueue, invoke command bus, or call Pi/Coder. ADR-020 field mapping identifies 7 present fields, 5 absent fields. All gaps are explicit and non-blocking for the next seam (command bus adjacency).
+
+### Recommended Next Task
+
+**C03-T004: Verify command bus adjacency and invocation boundary.** Prove that command bus invocation is adjacent to (not equivalent to) coding-agent execution, that command runs can link to work orders via `latest_run_id`, and that invocation does not bypass Guardian authority.

@@ -7,6 +7,7 @@
 | C03-D001 | 2026-06-17 | `next-proof-needed` — spine mapped; coding work-order runtime availability unproven | active |
 | C03-D002 | 2026-06-17 | `next-proof-needed` — route is `source_present_but_feature_gated_off`; blocked by supported profile posture | active |
 | C03-D003 | 2026-06-17 | `go` — coding work-order CRUD runtime-available under internal-only posture | active |
+| C03-D004 | 2026-06-17 | `go` — work-order artifact contract fully classified; 7 ADR-020 fields present, 5 absent | active |
 
 ---
 
@@ -114,3 +115,34 @@
   - Supported profile is changed to remove `coding_work_orders` from internal_only.
   - `CODEXIFY_BETA_CORE_ONLY` is changed to `false` — re-verify route posture.
   - Work-order creation triggers unexpected side effects.
+
+---
+
+### Decision: C03-D004
+
+- **Decision ID**: C03-D004
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. The coding work-order artifact contract is fully classified across 23 dimensions and 13 audit questions. The artifact is a durable task-board record — it captures operator intent and execution parameters but does NOT execute, enqueue, or invoke command bus/Pi/Coder. ADR-020 field mapping identifies 7 present fields, 5 absent fields. All gaps are explicit and non-blocking.
+- **Reason**:
+  - `WorkOrderCreate` dataclass defines 20 create fields; `WorkOrderContract` defines 27 response fields.
+  - `CodingWorkOrder` SQLAlchemy model provides durable Postgres storage with migration `9d4e1c7b2a6f`.
+  - 15 statuses with strict transition DAG (`WORK_ORDER_ALLOWED_TRANSITIONS`).
+  - `POST /api/coding/work-orders` creates a durable row only — no enqueue, no command bus, no Pi/Coder, no repository mutation.
+  - ADR-020 mapping: `work_order_id` ↔ `codingTaskId`, `source_thread_id` ↔ `threadId`, `source_message_id` ↔ `sourceMessageId`, `adapter_kind` ↔ `adapter kind`, `file_scope` ↔ `allowed paths`, `objective`+`title` ↔ `instructions`, `created_by` ↔ `userId`.
+  - ADR-020 gaps: no `permission policy`, no `requestId`/`attemptId`, no `projectId`, no `context bundle summary`, no result artifact linkage.
+  - Frontend `CodingWorkOrdersPanel` renders task-board semantics — no live execution buttons.
+- **Evidence**:
+  - `guardian/agents/work_orders.py:91-170` — `WorkOrderCreate` and `WorkOrderContract` dataclasses.
+  - `guardian/db/models.py:4267-4333` — `CodingWorkOrder` SQLAlchemy model.
+  - `guardian/routes/coding_work_orders.py:75-100` — `WorkOrderCreateRequest` Pydantic model.
+  - C03-T002 runtime proof — create/readback/list verified.
+  - `frontend/src/features/commandCenter/types.ts:181-268` — frontend types.
+- **Consequence**:
+  - C03-T003 advances to `go`. The artifact contract is classified.
+  - C03-T004 (command bus adjacency) can proceed with work-order context.
+  - ADR-020 gaps (permission policy, attempt identity, project scoping) are documented and assigned to future tasks.
+  - The work order is ready for operator use as a task-board record but not as an execution trigger.
+- **Revisit Trigger**:
+  - New fields are added to `WorkOrderCreate` or `WorkOrderContract`.
+  - Execution semantics are added to the POST route.
+  - `latest_run_id` or `latest_receipt_id` are populated by a new worker or route.
