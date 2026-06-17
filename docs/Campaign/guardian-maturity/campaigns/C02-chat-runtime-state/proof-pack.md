@@ -468,3 +468,59 @@ event_bus.emit_event(
 
 - **Decision**: `go`
 - **Reason**: Backend orphan signal now exists and is structurally tested. The event follows existing `event_bus.emit_event` conventions, preserves audit log behavior, and is read-only. False orphan events are guarded by existing denial tests (active lock and fresh worker paths). Frontend surfacing is a separate task. The signal is sufficient for frontend integration to safely proceed.
+
+---
+
+## C02 Token Follow-Through: Canonicalize Orphan Event Token (2026-06-17 20:30 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `0a073f541` — feat: emit Guardian chat orphan recovery event
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/protocol_tokens.py` — added `ChatEventType` enum with `ORPHANED_TURN_RECOVERED`, `CHAT_EVENT_TYPES` frozenset, and `__all__` exports
+- `guardian/routes/chat.py` — replaced inline `"chat.orphaned_turn_recovered"` string with `ChatEventType.ORPHANED_TURN_RECOVERED.value` import
+- `tests/core/test_turn_lock_recovery.py` — updated orphan event assertion to use `ChatEventType.ORPHANED_TURN_RECOVERED.value`
+- `tests/contracts/test_protocol_tokens.py` — added `test_chat_event_type_tokens()`
+
+### Token Added
+
+| Field | Value |
+|-------|-------|
+| Constant name | `ChatEventType.ORPHANED_TURN_RECOVERED` |
+| Constant value | `"chat.orphaned_turn_recovered"` |
+| Enum class | `ChatEventType(str, Enum)` |
+| Frozenset | `CHAT_EVENT_TYPES` |
+
+### Call Sites Updated
+
+| File | Change |
+|------|--------|
+| `guardian/routes/chat.py:682` | `"chat.orphaned_turn_recovered"` → `ChatEventType.ORPHANED_TURN_RECOVERED.value` |
+| `tests/core/test_turn_lock_recovery.py:264` | `"chat.orphaned_turn_recovered"` → `ChatEventType.ORPHANED_TURN_RECOVERED.value` |
+
+### Remaining Raw String References
+
+| Location | Classification |
+|----------|---------------|
+| `guardian/protocol_tokens.py:132` | Canonical definition ✅ |
+| `tests/contracts/test_protocol_tokens.py:1138,1141` | Contract test ✅ |
+| `docs/Campaign/guardian-maturity/...` (C02 proof/decision docs) | Historical docs ✅ |
+| Production call sites | **None** — all migrated |
+| Test assertions outside protocol-token tests | **None** — all migrated |
+
+### Test Results
+
+| Test | Result |
+|------|--------|
+| `test_chat_event_type_tokens` | **PASSED** — token value and frozenset verified |
+| `test_terminal_state_helper_detects_terminal_event` | **PASSED** |
+| Syntax (`ast.parse`) — 3 files | **PASSED** |
+
+### Gate Decision
+
+- **Decision**: `go`
+- **Reason**: The `chat.orphaned_turn_recovered` event name is now canonical in `guardian/protocol_tokens.py` as `ChatEventType.ORPHANED_TURN_RECOVERED`. All production call sites and non-contract tests use the canonical token. No ad hoc inline event strings remain in active code. Frontend consumption can safely import and reference the canonical token.

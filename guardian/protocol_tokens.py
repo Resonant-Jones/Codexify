@@ -126,6 +126,12 @@ class TaskEventType(str, Enum):
     TASK_PATCH_ARTIFACT_CREATED = "task.patch_artifact_created"
 
 
+class ChatEventType(str, Enum):
+    """Canonical chat lifecycle event names."""
+
+    ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered"
+
+
 class ToolTurnState(str, Enum):
     IDLE = "idle"
     DECISION_RECEIVED = "decision_received"
@@ -459,6 +465,9 @@ EXECUTOR_ESCALATION_KINDS: frozenset[str] = frozenset(
 DELEGATION_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in DelegationEventType}
 )
+CHAT_EVENT_TYPES: frozenset[str] = frozenset(
+    {event_type.value for event_type in ChatEventType}
+)
 DELEGATION_TERMINAL_STATUSES: frozenset[str] = frozenset(
     {
         DelegationJobStatus.COMPLETED.value,
@@ -517,6 +526,7 @@ __all__ = [
     "GuardianProviderFailureKind",
     "GuardianProviderTransportClassification",
     "TaskEventType",
+    "ChatEventType",
     "ToolTurnState",
     "LoopStopReason",
     "ToolLoopStopReason",
@@ -573,6 +583,7 @@ __all__ = [
     "EXECUTOR_EVENT_TYPES",
     "EXECUTOR_ESCALATION_KINDS",
     "DELEGATION_EVENT_TYPES",
+    "CHAT_EVENT_TYPES",
     "DELEGATION_TERMINAL_STATUSES",
     "DELEGATION_TERMINAL_EVENT_TYPES",
     "ERROR_CODES",

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from guardian.queue import task_events
+from guardian.protocol_tokens import ChatEventType
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from tests.utils import get_test_api_key, get_test_auth_headers
 
@@ -261,7 +262,7 @@ def test_complete_recovers_orphaned_turn_lock(
     # ── Orphan event assertions ────────────────────────────────────
     assert len(orphan_events) == 1
     orphan = orphan_events[0]
-    assert orphan["name"] == "chat.orphaned_turn_recovered"
+    assert orphan["name"] == ChatEventType.ORPHANED_TURN_RECOVERED.value
     assert orphan["payload"]["thread_id"] == 1
     assert orphan["payload"]["owner_task_id"] == "task-stale"
     assert orphan["payload"]["lifecycle_state"] == "orphaned"
