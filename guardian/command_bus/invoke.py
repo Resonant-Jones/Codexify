@@ -279,6 +279,7 @@ async def execute_invoke(
     execution_lane: str = "raw",
     allow_write_execution: bool = False,
     confirmation_granted: bool = False,
+    work_order_store: Any = None,
 ) -> dict[str, Any]:
     if execution_lane != "tools":
         # Write unlock is tools-lane only; raw/public lane stays read-only.
@@ -415,6 +416,17 @@ async def execute_invoke(
             fallback_invoke_version=payload.invoke_version,
         )
     run_id = run["run_id"]
+
+    # ── Work-order linkage ──────────────────────────────────────
+    wo_id = (payload.work_order_id or "").strip() or None
+    if wo_id is not None and work_order_store is not None:
+        try:
+            work_order_store.mark_latest_run(wo_id, run_id=run_id)
+        except Exception:
+            # Silently skip linkage failure — command invocation succeeded.
+            # The run record is the source of truth; work-order link is best-effort.
+            pass
+
     created_payload: dict[str, Any] = {
         "command_id": command.command_id,
         "status": "queued",

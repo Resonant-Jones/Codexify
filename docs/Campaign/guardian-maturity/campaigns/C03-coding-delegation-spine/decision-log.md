@@ -10,6 +10,7 @@
 | C03-D004 | 2026-06-17 | `go` — work-order artifact contract fully classified; 7 ADR-020 fields present, 5 absent | active |
 | C03-D005 | 2026-06-17 | `next-proof-needed` — command bus boundary classified; 0 commands registered, invocation unprovable | active |
 | C03-D006 | 2026-06-17 | `go` — manifest discovery works (106 commands); health invocation proven; path probe error, not code bug | active |
+| C03-D007 | 2026-06-17 | `go` — work-order-to-command-run linkage runtime-proven; `latest_run_id` populated | active |
 
 ---
 
@@ -212,3 +213,34 @@
   - New routes are added to the FastAPI app — verify they appear in manifest.
   - Command bus route prefix changes.
   - `latest_run_id` population is implemented — verify linkage.
+
+---
+
+### Decision: C03-D007
+
+- **Decision ID**: C03-D007
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. Work-order-to-command-run linkage is runtime-proven. `latest_run_id` is populated when `work_order_id` is supplied on command invocation. Work order status preserved (remains draft). Linkage uses existing `WorkOrderStore.mark_latest_run()`.
+- **Reason**:
+  - Added `work_order_id` optional field to `InvokeRequest` in `contracts.py`.
+  - `execute_invoke()` in `invoke.py` accepts `work_order_store` param and calls `mark_latest_run()` after run creation.
+  - `command_bus.py` route handler wires `WorkOrderStore` singleton and passes it through.
+  - Runtime proof: `work_order_id=wo_c1d4c0dbf3874986` → invoke → `latest_run_id=run_2611e0560d4e455a` (matches).
+  - Work order status remains `draft` — unchanged.
+  - Invocation without `work_order_id` works normally (no linkage).
+  - Nonexistent `work_order_id` causes silent skip (command succeeds, linkage fails gracefully).
+  - No shell, Pi/Coder, repository mutation, or work-order status change.
+- **Evidence**:
+  - `guardian/command_bus/contracts.py:128` — `work_order_id` field on `InvokeRequest`.
+  - `guardian/command_bus/invoke.py:423-430` — `mark_latest_run()` call after run creation.
+  - `guardian/routes/command_bus.py:46-63` — `WorkOrderStore` singleton wiring.
+  - Runtime: `latest_run_id` matches `run_id`; status `draft` preserved.
+- **Consequence**:
+  - C03-T006 advances to `go`. Linkage is proven.
+  - C03-T007 (result-return proof) can proceed with linkage in place.
+  - Command runs are now traceable back to work orders via `latest_run_id`.
+  - No new storage model, route, or execution semantic added.
+- **Revisit Trigger**:
+  - Work order status should be updated alongside `latest_run_id` (e.g., to `running` after dispatch).
+  - `latest_receipt_id` or `latest_lease_id` linkage is added.
+  - Linkage failure should produce a structured warning instead of silent skip.
