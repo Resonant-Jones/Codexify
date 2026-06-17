@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
+import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES } from "@/contracts/runtimeTokens";
+import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
 import {
   Composer,
   type ComposerSendOptions,
@@ -96,6 +98,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   isActiveInferencePhase,
   type ComposerInferenceMode,
+  type InferenceRequestState,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import {
@@ -162,6 +165,98 @@ export function flattenChatEventPayload(data: unknown): Record<string, unknown> 
   }
 
   return payload;
+}
+
+// ── Runtime Status Strip ────────────────────────────────────────────────
+
+type RuntimeStatusStripProps = {
+  providerRuntimeState: ProviderRuntimeState | null | undefined;
+  inferenceState: InferenceRequestState;
+};
+
+function RuntimeStatusStrip({
+  providerRuntimeState,
+  inferenceState,
+}: RuntimeStatusStripProps) {
+  const canonical = normalizeProviderRuntimeState(providerRuntimeState ?? null);
+  const providerDesc = describeProviderState(canonical);
+  const isActive =
+    inferenceState.phase === "sending" ||
+    inferenceState.phase === "thinking" ||
+    inferenceState.phase === "streaming";
+  const isTerminal =
+    inferenceState.phase === "completed" ||
+    inferenceState.phase === "failed" ||
+    inferenceState.phase === "cancelled";
+
+  // Only show when provider is not in the default ready state,
+  // or when an active inference is in progress.
+  const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
+  const showRequestState = isActive || isTerminal;
+
+  if (!showProviderState && !showRequestState) {
+    return null;
+  }
+
+  const visual = mapRuntimeToVisualState(
+    isActive ? "streaming" : "queued",
+    canonical
+  );
+
+  const toneColor =
+    canonical === PROVIDER_RUNTIME_STATES.ERROR || canonical === PROVIDER_RUNTIME_STATES.OFFLINE
+      ? "var(--danger-text)"
+      : canonical === PROVIDER_RUNTIME_STATES.DEGRADED || canonical === PROVIDER_RUNTIME_STATES.MODEL_WARMING
+        ? "rgb(245 158 11)"
+        : canonical === PROVIDER_RUNTIME_STATES.GENERATING || canonical === PROVIDER_RUNTIME_STATES.CONNECTING
+          ? "var(--info-text)"
+          : "var(--muted)";
+
+  return (
+    <div
+      data-testid="chat-runtime-status"
+      data-provider-state={canonical}
+      data-request-phase={inferenceState.phase}
+      aria-live="polite"
+      className="mx-auto w-full max-w-full px-[var(--card-pad)]"
+      style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+    >
+      <div
+        className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "var(--surface-soft)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: toneColor }}
+          />
+          <span className="font-medium truncate" style={{ color: "var(--text)" }}>
+            {providerDesc.title}
+          </span>
+          {showRequestState && isActive && (
+            <span className="truncate" style={{ color: "var(--muted)" }}>
+              {inferenceState.statusText ?? "Working…"}
+            </span>
+          )}
+          {showRequestState && isTerminal && (
+            <span className="truncate" style={{ color: "var(--muted)" }}>
+              {inferenceState.phase === "completed"
+                ? "Completed"
+                : inferenceState.phase === "failed"
+                  ? "Failed"
+                  : "Cancelled"}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
+          {providerDesc.detail}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -3937,6 +4032,12 @@ export function GuardianChat({
           </details>
         </div>
       ) : null}
+
+      {/* Runtime status — read-only provider + request lifecycle indicator */}
+      <RuntimeStatusStrip
+        providerRuntimeState={providerRuntimeState}
+        inferenceState={inferenceRequest.state}
+      />
 
       {/* Messages region - Flex 1, scrolls independently */}
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">
