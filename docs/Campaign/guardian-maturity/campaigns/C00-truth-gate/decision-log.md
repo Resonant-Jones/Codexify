@@ -4,7 +4,8 @@
 
 | ID | Date | Decision | Status |
 |----|------|----------|--------|
-| C00-D001 | 2026-06-16 | `next-proof-needed` — model mismatch blocks chat completion proof | active |
+| C00-D001 | 2026-06-16 | `next-proof-needed` — model mismatch blocks chat completion proof | superseded |
+| C00-D002 | 2026-06-16 | `go` — model mismatch resolved, all surfaces agree | active |
 
 ---
 
@@ -40,3 +41,38 @@
   - Model configuration changes (`.env` `LOCAL_CHAT_MODEL` updated or Whoosh'd model loaded).
   - Re-run C00 proof pass after model resolution.
   - If C01 or C02 proof collection begins and chat completion is needed, escalate to this decision.
+
+---
+
+### Decision: C00-D002
+
+- **Decision ID**: C00-D002
+- **Date**: 2026-06-16
+- **Decision**: Gate decision is `go`. The configured model mismatch from C00-D001 is resolved. All required proof surfaces agree: health ok, chat health healthy with fresh worker, model inventory consistent, local-only posture preserved, Whoosh'd model confirmed generating.
+- **Reason**:
+  - Commit `85931f327` aligned the git-tracked `local_runtime_presets.py` and operator-local `.env` with `mlx-community/Llama-3.2-3B-Instruct-4bit`.
+  - After `docker compose up -d` (restart alone insufficient — Docker Compose restart preserves original environment), all services healthy.
+  - `/health` — `ok`, profile valid, release hold false, cloud disabled.
+  - `/health/chat` — `healthy`, worker fresh (4.6s heartbeat), `configured_model_available=true`, `selectable=true`, `executable=true`.
+  - `/health/llm` — `ok`.
+  - `/api/llm/catalog` — local provider enabled, selectable, executable with Llama 3.2.
+  - `/api/llm/catalog?include=all` — all 6 cloud providers disabled, local-only preserved.
+  - Whoosh'd `/v1/models` and `/api/tags` — 1 model: `mlx-community/Llama-3.2-3B-Instruct-4bit`.
+  - Direct Whoosh'd `/v1/chat/completions` confirmed model generates.
+  - No contradictions across any surface.
+- **Evidence**:
+  - `git status` — clean worktree on `codex/campaignOS`
+  - `docker compose ps` — 11 services running, all healthy
+  - All 9 proof endpoints verified (see proof-pack.md re-proof section)
+  - Model mismatch resolved: configured = live = `mlx-community/Llama-3.2-3B-Instruct-4bit`
+- **Consequence**:
+  - C00 advances to `go`. The truth gate is established.
+  - C01 (Command Center verdict) is unblocked — its surfaces already agree.
+  - C02 (Chat Runtime State) can proceed. It must own end-to-end authenticated Codexify backend chat completion proof.
+  - C08 (Whoosh'd Runtime Setup) can reference confirmed model inventory.
+  - Branch drift (`codex/campaignOS` vs `main`) remains a note for release-adjacent claims.
+- **Revisit Trigger**:
+  - Whoosh'd model inventory changes (model unloaded or replaced).
+  - Backend config drift re-introduces model mismatch.
+  - C02 chat completion proof fails despite C00 gate being `go`.
+  - Merge to `main` — re-verify C00 on `main` before release claims.

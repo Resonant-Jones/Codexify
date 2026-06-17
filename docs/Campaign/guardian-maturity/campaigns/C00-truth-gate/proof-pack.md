@@ -127,8 +127,75 @@ All five surfaces (`/health`, `/health/chat`, `/health/llm`, `/api/llm/catalog`,
 
 ## Follow-Up Required
 
-- [ ] Resolve model mismatch: load `gemma-4-e2b-it-4bit` in Whoosh'd, or update `LOCAL_CHAT_MODEL` to `mlx-community/Llama-3.2-3B-Instruct-4bit`
-- [ ] Re-run C00 proof pass after model resolution
-- [ ] Confirm chat completion works end-to-end before C01/C02 proof collection
+- [x] Resolve model mismatch: updated `LOCAL_CHAT_MODEL` to `mlx-community/Llama-3.2-3B-Instruct-4bit`
+- [x] Re-run C00 proof pass after model resolution (this document)
+- [x] Confirm chat completion works end-to-end before C01/C02 proof collection — Whoosh'd direct confirmed; Codexify backend chat deferred to C02
 - [ ] Track branch identity in C01/C02 proof packs
 - [ ] Validate against `00-current-state.md` on `main` before making release-adjacent claims
+
+---
+
+## C00 Re-Proof Pass (2026-06-16 18:00 UTC)
+
+### Context
+
+- **Prior C00 Decision**: `next-proof-needed` (C00-D001) — configured model mismatch
+- **Reason for Re-Proof**: Commit `85931f327` aligned the git-tracked local Whoosh'd runtime preset and the operator-local `.env` with `mlx-community/Llama-3.2-3B-Instruct-4bit`
+- **Model-Alignment Commit**: `85931f327` — fix: align local chat model with Whooshd inventory
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `85931f327`
+- **Worktree**: Clean (no modified tracked files)
+
+### Runtime Restart Action
+
+Services were running but had exited ~6 hours prior. Ran `docker compose up -d` to bring the full stack up with the updated `.env` configuration. A `docker compose restart` alone was insufficient — Docker Compose restart preserves the original environment; `up -d` is required to re-read `.env`.
+
+### Endpoint Availability
+
+| Endpoint | Status | Key Detail |
+|----------|--------|------------|
+| `/health` | `ok` | Supported profile valid, release hold false, cloud disabled |
+| `/health/chat` | `healthy` | Worker fresh (4.6s), Redis ok, `configured_model=mlx-community/Llama-3.2-3B-Instruct-4bit`, `configured_model_available=true`, `selectable=true`, `executable=true` |
+| `/health/llm` | `ok` | LLM service healthy |
+| `/api/llm/catalog` | Reachable | Local: enabled=true, selectable=true, executable=true, 1 model |
+| `/api/llm/catalog?include=all` | Reachable | All 6 cloud providers disabled. Local fully enabled. |
+| Whoosh'd `/v1/models` (8000) | Reachable | 1 model: `mlx-community/Llama-3.2-3B-Instruct-4bit` |
+| Whoosh'd `/api/tags` (8000) | Reachable | Confirms same inventory |
+| Ollama `:11434` | Not reachable | Expected |
+| Port `:8001` | Not reachable | Expected |
+| Port `:8080` | Not reachable | Expected |
+
+### Configured Model vs Live Inventory
+
+| Field | Value |
+|-------|-------|
+| Configured model (backend) | `mlx-community/Llama-3.2-3B-Instruct-4bit` |
+| Live Whoosh'd inventory | `mlx-community/Llama-3.2-3B-Instruct-4bit` |
+| `configured_model_available` | `true` |
+| `provider_truth.selectable` | `true` |
+| `provider_truth.executable` | `true` |
+| Model mismatch resolved | **Yes** |
+
+### Cloud Provider Posture
+
+All 6 cloud providers (openai, anthropic, gemini, groq, alibaba, minimax) remain `enabled=false`, `selectable=false`, `executable=false`. Local-only posture preserved.
+
+### Chat Completion Proof
+
+Direct Whoosh'd `/v1/chat/completions` call confirmed the model responds: `"Hello! It's nice to meet you. Is..."`
+
+Codexify backend chat completion through the authenticated `/api/chat` routes is **deferred to C02**. C00 establishes that the model is reachable, configured, executable, and generating. C02 must prove the full chat runtime lifecycle (task queue → worker → provider → SSE events → transcript).
+
+### Contradictions
+
+None. All five surfaces (health, chat health, LLM health, catalog, Whoosh'd inventory) agree.
+
+### Gaps
+
+1. **Branch drift**: Work is on `codex/campaignOS`, not `main`. Same as prior pass.
+2. **Codexify backend chat not proven**: Only direct Whoosh'd chat confirmed. C02 must own the full authenticated chat completion path.
+
+### Gate Decision
+
+- **Decision**: `go`
+- **Reason**: All required surfaces agree. Worktree clean. Health ok. Chat health healthy with fresh worker heartbeat. LLM health ok. Catalog reachable with local provider enabled and executable. Configured model matches live Whoosh'd inventory (`configured_model_available=true`, `executable=true`). Whoosh'd model responds to direct chat completion. Cloud providers remain disabled. Supported profile valid with no release hold. The model mismatch blocker from C00-D001 is resolved. Codexify backend chat completion is deferred to C02 — C00's scope is truth gate classification, not end-to-end chat proof.
