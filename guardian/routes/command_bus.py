@@ -44,15 +44,20 @@ _db: Any | None = None
 _store = CommandBusStore()
 _extension_store = ExtensionProposalStore()
 _activation_resolver = EffectiveCapabilityResolver(_extension_store)
+_work_order_store: Any = None
 
 
 def configure_db(db: Any | None) -> None:
     """Configure DB handle for command bus persistence."""
-    global _db, _store, _extension_store, _activation_resolver
+    global _db, _store, _extension_store, _activation_resolver, _work_order_store
     _db = db
     _store = CommandBusStore(db=db)
     _extension_store = ExtensionProposalStore(db=db)
     _activation_resolver = EffectiveCapabilityResolver(_extension_store)
+    # Late import to avoid circular dependency
+    from guardian.agents.work_order_store import WorkOrderStore  # noqa: F811
+
+    _work_order_store = WorkOrderStore(db=db)
 
 
 def get_store() -> CommandBusStore:
@@ -105,6 +110,7 @@ async def invoke_command(
         execution_lane="tools",
         allow_write_execution=True,
         confirmation_granted=False,
+        work_order_store=_work_order_store,
     )
 
 

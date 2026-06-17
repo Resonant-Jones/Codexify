@@ -679,3 +679,47 @@ Actor spec `{"kind": "system", "id": "local"}` accepted. `auth_subject: "local"`
 ### Recommended Next Task
 
 **C03-T006: Prove work-order-to-command-run linkage.** With command invocation proven, the next step is to populate `latest_run_id` on a coding work order when a command run is created, establishing the link between work orders and execution records.
+
+---
+
+## C03-T006: Work-Order-to-Command-Run Linkage Proof (2026-06-17 23:40 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `0cac2ec7b` — docs: prove Guardian command bus manifest and health invocation
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/command_bus/contracts.py` — added `work_order_id: str | None` to `InvokeRequest`
+- `guardian/command_bus/invoke.py` — added `work_order_store` param; calls `mark_latest_run()` after run creation
+- `guardian/routes/command_bus.py` — wires `WorkOrderStore` singleton; passes to `execute_invoke()`
+
+### Linkage Field
+
+- **Field**: `work_order_id` (optional, max 64 chars) on `InvokeRequest`
+- **Behavior**: When present, calls `WorkOrderStore.mark_latest_run(work_order_id, run_id=run_id)` after CommandRun creation
+- **Error handling**: Linkage failure is best-effort — command invocation succeeds regardless
+- **Idempotency**: Repeated invocation with same idempotency key returns existing run; linkage is stable
+
+### Runtime Proof
+
+| Step | Result |
+|------|--------|
+| Create work order | `wo_c1d4c0dbf3874986`, status: draft |
+| Invoke health with `work_order_id` | `run_2611e0560d4e455a`, status: completed |
+| Read back work order | `latest_run_id: run_2611e0560d4e455a` ✅ |
+| Work order status | `draft` (unchanged) ✅ |
+| Invoke without `work_order_id` | `run_6266270456b7413e`, no linkage ✅ |
+| Invoke with nonexistent `work_order_id` | Command succeeds; `WORK_ORDER_NOT_FOUND` from work order readback ✅ |
+| No shell/Pi/Coder/repo mutation | Confirmed ✅ |
+
+### C03-T006 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Work-order-to-command-run linkage is runtime-proven. `latest_run_id` is populated when `work_order_id` is supplied on invocation. Work order status is preserved (remains draft). Command invocation without `work_order_id` still works without side effects. Nonexistent work order IDs cause a silent skip (command succeeds, linkage fails gracefully). The link uses the existing `WorkOrderStore.mark_latest_run()` method — no new storage semantics.
+
+### Recommended Next Task
+
+**C03-T007: Delegate work-order execution through command bus with result-return proof.** Now that work orders can link to command runs, the next step is to create a work order, invoke a command through it, read back the command result, and record the result as a work order execution artifact.
