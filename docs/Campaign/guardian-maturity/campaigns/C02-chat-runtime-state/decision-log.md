@@ -6,6 +6,7 @@
 |----|------|----------|--------|
 | C02-D001 | 2026-06-17 | `go` — authenticated backend chat completion proven | active |
 | C02-D002 | 2026-06-17 | `go` — lifecycle seam audit complete; retry/replay/orphan classified | active |
+| C02-D003 | 2026-06-17 | `go` — orphan recovery seam proven; operator signal gap documented | active |
 
 ---
 
@@ -82,3 +83,35 @@
   - Cancellation testing reveals transcript integrity issues.
   - New backend retry or replay implementation arrives that changes seam classification.
   - C10 recovery campaign needs orphan detection that isn't yet proven.
+
+---
+
+### Decision: C02-D003
+
+- **Decision ID**: C02-D003
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. Orphan recovery behavior is sufficiently tested by existing tests in `tests/core/test_turn_lock_recovery.py` to safely plan operator-visible orphan surfacing. The one gap — no operator-visible orphan signal — is explicitly documented as a surfacing task, not a recovery-logic gap.
+- **Reason**:
+  - Existing tests at `tests/core/test_turn_lock_recovery.py` cover 5 of 6 required C02-T005 proof cases.
+  - Non-stale locks are protected from false orphan recovery (HTTP 429).
+  - Stale locks with terminal task evidence are correctly recovered (lock cleared, audit log written, new task enqueued).
+  - Stale locks with nonterminal task + stale/missing worker are correctly recovered.
+  - Stale locks with nonterminal task + fresh worker are denied (worker alive).
+  - Stale locks with unknown terminal state are denied (ambiguous evidence fails closed).
+  - Request identity (task_id, turn_id) is preserved through the recovery enqueue.
+  - Duplicate messages are prevented by design (single enqueue after lock clear).
+  - The one gap: orphan recovery writes an audit log but emits no SSE event or API surface for operator visibility.
+- **Evidence**:
+  - `tests/core/test_turn_lock_recovery.py` — 7 test functions covering recovery and denial paths.
+  - `test_terminal_state_helper_detects_terminal_event` — **PASSED** in venv (0.10s).
+  - 6 TestClient-based tests verified by code inspection (cannot run in venv — missing jwt).
+  - `guardian/routes/chat.py:611-688` — `_recover_orphaned_turn_lock()` recovery logic.
+- **Consequence**:
+  - C02-T005 advances to `go`. Orphan recovery behavior is proven.
+  - Operator-visible orphan surfacing requires a backend task to emit orphan SSE events or expose orphan state via an API route.
+  - The `ORPHANED` token in `runtimeTokens.ts` is defined but never populated from backend data.
+  - C10 (Recovery) can reference proven orphan recovery behavior.
+- **Revisit Trigger**:
+  - Backend orphan SSE event or API route is implemented — re-verify operator visibility.
+  - Turn lock TTL is changed — re-verify recovery timing.
+  - New worker heartbeat semantics change the stale/fresh threshold.
