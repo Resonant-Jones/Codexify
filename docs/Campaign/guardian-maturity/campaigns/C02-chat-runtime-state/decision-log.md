@@ -7,6 +7,7 @@
 | C02-D001 | 2026-06-17 | `go` — authenticated backend chat completion proven | active |
 | C02-D002 | 2026-06-17 | `go` — lifecycle seam audit complete; retry/replay/orphan classified | active |
 | C02-D003 | 2026-06-17 | `go` — orphan recovery seam proven; operator signal gap documented | active |
+| C02-D004 | 2026-06-17 | `go` — backend orphan recovery event emitted; frontend surfacing pending | active |
 
 ---
 
@@ -115,3 +116,35 @@
   - Backend orphan SSE event or API route is implemented — re-verify operator visibility.
   - Turn lock TTL is changed — re-verify recovery timing.
   - New worker heartbeat semantics change the stale/fresh threshold.
+
+---
+
+### Decision: C02-D004
+
+- **Decision ID**: C02-D004
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. Backend orphan recovery now emits an operator-observable `chat.orphaned_turn_recovered` event via the existing event bus. Frontend surfacing remains a separate task.
+- **Reason**:
+  - `_recover_orphaned_turn_lock()` now emits `event_bus.emit_event("chat.orphaned_turn_recovered", {...})` after successful recovery.
+  - Event carries `thread_id`, `owner_task_id`, `turn_id`, `recovery_reason`, `terminal_state`, `worker_state`, and `lifecycle_state="orphaned"`.
+  - Event follows existing `event_bus.emit_event` conventions — no new event bus or route created.
+  - Audit log behavior preserved alongside event emission.
+  - Event is read-only — no retry, replay, or transcript mutation.
+  - False orphan events are guarded by existing denial tests (active lock, fresh worker).
+  - Recovery test now asserts event name, thread_id, owner_task_id, lifecycle_state, and recovery_reason.
+  - Denial tests assert no orphan event is emitted on non-recovery paths.
+- **Evidence**:
+  - `guardian/routes/chat.py:672-688` — `event_bus.emit_event` added in recovery block with try/except guard.
+  - `tests/core/test_turn_lock_recovery.py` — event capture added to 3 tests.
+  - Syntax validation: both files parse correctly (`ast.parse`).
+  - Unit test `test_terminal_state_helper_detects_terminal_event` — **PASSED**.
+  - TestClient tests have pre-existing environment issue (unrelated to this change).
+- **Consequence**:
+  - C02-T006 advances to `go`. Backend orphan signal exists.
+  - Frontend must consume `chat.orphaned_turn_recovered` event (or API route) and populate `ORPHANED` lifecycle token.
+  - C10 (Recovery) can reference the orphan event for operator repair surfaces.
+  - Transcript integrity preserved — event is read-only.
+- **Revisit Trigger**:
+  - Frontend orphan surfacing is implemented — verify end-to-end signal chain.
+  - Orphan event shape needs adjustment for frontend consumption.
+  - New lifecycle states require similar event emission patterns.
