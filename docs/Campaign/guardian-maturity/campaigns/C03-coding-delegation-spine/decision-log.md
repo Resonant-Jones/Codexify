@@ -9,6 +9,7 @@
 | C03-D003 | 2026-06-17 | `go` — coding work-order CRUD runtime-available under internal-only posture | active |
 | C03-D004 | 2026-06-17 | `go` — work-order artifact contract fully classified; 7 ADR-020 fields present, 5 absent | active |
 | C03-D005 | 2026-06-17 | `next-proof-needed` — command bus boundary classified; 0 commands registered, invocation unprovable | active |
+| C03-D006 | 2026-06-17 | `go` — manifest discovery works (106 commands); health invocation proven; path probe error, not code bug | active |
 
 ---
 
@@ -180,3 +181,34 @@
   - At least one command is registered in the manifest.
   - Safe invocation produces a CommandRun with run_id.
   - `latest_run_id` is populated on a work order by a runtime code path.
+
+---
+
+### Decision: C03-D006
+
+- **Decision ID**: C03-D006
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. The command bus manifest discovery works correctly — 106 commands auto-discovered from OpenAPI with zero manual registration. Safe health command invocation proven: `run_id` returned, status completed, health result ok, events stream confirmed. The C03-T004 "empty manifest" was a path probe error (wrong URL prefix), not a code bug. No code changes were needed.
+- **Reason**:
+  - Correct command bus route prefix is `/api/guardian/commands` (set in `command_bus.py:38`).
+  - `GET /api/guardian/commands/manifest` → 106 commands, 12 health commands.
+  - `op::health_health_get` (GET /health) classified as `risk=read_only, idemp=safe, approval=none`.
+  - `POST /api/guardian/commands/invoke` with health command → `run_id: run_e9b7b4e4d3f44271`, `status: completed`, health result `{"status":"ok","service":"core"}`.
+  - Run events stream confirmed: `run.created` → `run.started` → `run.completed`.
+  - Actor spec `{"kind":"system","id":"local"}` accepted; `auth_subject:"local"` enforced.
+  - No shell, Pi/Coder, repository mutation, or work-order linkage mutation.
+  - 0 code changes required — manifest auto-discovery already works.
+- **Evidence**:
+  - `curl /api/guardian/commands/manifest` → 106 commands.
+  - `curl /api/guardian/commands/invoke` → run_id, status completed, health result ok.
+  - SSE events stream → run.created/started/completed events.
+  - `guardian/routes/command_bus.py:38` — `prefix="/api/guardian/commands"`.
+- **Consequence**:
+  - C03-T005 advances to `go`. Manifest discovery and safe invocation proven.
+  - C03-T006 (work-order-to-command-run linkage) can proceed.
+  - The command bus surface is fully proven: manifest, invoke, run persistence, events, policy, idempotency.
+  - All 106 OpenAPI operations are discoverable as command bus commands — this is the existing design intent.
+- **Revisit Trigger**:
+  - New routes are added to the FastAPI app — verify they appear in manifest.
+  - Command bus route prefix changes.
+  - `latest_run_id` population is implemented — verify linkage.
