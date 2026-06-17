@@ -500,8 +500,8 @@ def default_model_for_provider(provider_id: str, settings: Settings) -> str:
 
     if provider == "local":
         candidates = (
-            getattr(settings, "LOCAL_LLM_MODEL", None),
             getattr(settings, "LOCAL_CHAT_MODEL", None),
+            getattr(settings, "LOCAL_LLM_MODEL", None),
             getattr(settings, "DEFAULT_LOCAL_MODEL", None),
             getattr(settings, "LLM_MODEL", None),
         )

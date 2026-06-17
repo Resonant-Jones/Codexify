@@ -1355,7 +1355,8 @@ def _runtime_provider(settings: Any) -> str:
 def _runtime_model_for_provider(provider: str, settings: Any) -> str:
     if provider == "local":
         return (
-            normalize_model_id(getattr(settings, "LOCAL_LLM_MODEL", None))
+            normalize_model_id(getattr(settings, "LOCAL_CHAT_MODEL", None))
+            or normalize_model_id(getattr(settings, "LOCAL_LLM_MODEL", None))
             or normalize_model_id(
                 getattr(settings, "DEFAULT_LOCAL_MODEL", None)
             )
@@ -3554,9 +3555,16 @@ async def build_messages_for_llm(
 
     context: list[dict[str, str]] = []
     latest_user_meta: dict[str, Any] | None = None
+    latest_structured_content: list[dict[str, Any]] | None = None
     for msg in conversation_messages:
         role = str(msg.get("role") or "").strip()
         raw_content = msg.get("content")
+
+        # Check for structured content preserved in extra_meta
+        extra_meta = msg.get("extra_meta")
+        if isinstance(extra_meta, dict) and isinstance(extra_meta.get("original_content"), list):
+            latest_structured_content = extra_meta["original_content"]
+
         if isinstance(raw_content, str):
             attachments, clean_text = extract_attachments_and_text(raw_content)
             if role == "user":
@@ -4389,6 +4397,35 @@ def run_chat_completion_task(
         dict[str, Any] | None,
     ] = asyncio.run(compat_builder(task, **compat_call_kwargs))
     messages_for_llm, provider, model, bundle, trace = build_result
+
+    # Inject structured multimodal content from task payload into messages_for_llm.
+    # This preserves image_url content that would otherwise be lost in the
+    # DB round-trip (chat_messages stores plain text).
+    latest_turn_msgs = getattr(task, "latest_turn_messages", None)
+    has_structured_image = False
+    if isinstance(latest_turn_msgs, list) and len(latest_turn_msgs) > 0:
+        if isinstance(bundle, dict):
+            bundle["latest_turn_messages"] = latest_turn_msgs
+        # Detect image_url parts in structured content
+        for part in latest_turn_msgs:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                has_structured_image = True
+                break
+        # Replace the content of the last user message with structured content
+        for i in range(len(messages_for_llm) - 1, -1, -1):
+            if str(messages_for_llm[i].get("role", "")).strip().lower() == "user":
+                messages_for_llm[i] = dict(messages_for_llm[i])
+                messages_for_llm[i]["content"] = latest_turn_msgs
+                break
+
+    # If structured content contains images and no explicit model, use vision model
+    if has_structured_image and not task.model:
+        from guardian.core.config import get_settings
+        vision_model = getattr(get_settings(), "LOCAL_VISION_MODEL", None)
+        if vision_model:
+            model = vision_model
+            task.model = model
+            task.selection_source = "local_vision_env"
 
     settings = get_settings()
     requested_source_mode = (

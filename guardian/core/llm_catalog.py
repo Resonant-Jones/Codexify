@@ -35,6 +35,10 @@ from guardian.core.provider_registry import (
     resolve_provider_for_model as resolve_provider_for_model_registry,
 )
 from guardian.core.provider_truth import build_provider_truth
+from guardian.core.whooshd_model_profiles import (
+    whooshd_profile_by_id_or_repo,
+    whooshd_profile_model_repos,
+)
 
 _MODEL_FAMILY_ALIASES = {
     "deepseek": "DeepSeek",
@@ -135,6 +139,50 @@ def _local_model_capabilities(
         "supports_text_input": True,
         "model_kind": "vision_chat" if supports_vision else "chat",
     }
+
+
+def _whooshd_profile_capabilities(
+    profile: dict[str, Any] | None,
+    *,
+    model_id: str,
+    display_name: str,
+) -> dict[str, Any]:
+    if not profile:
+        return _local_model_capabilities(model_id, display_name)
+
+    raw_capabilities = profile.get("capabilities")
+    capabilities = (
+        raw_capabilities if isinstance(raw_capabilities, dict) else {}
+    )
+    supports_chat = bool(capabilities.get("chat", True))
+    supports_vision = bool(capabilities.get("vision", False))
+    supports_text_input = supports_chat
+    return {
+        "supports_chat": supports_chat,
+        "supports_vision": supports_vision,
+        "supports_text_input": supports_text_input,
+        "model_kind": "vision_chat" if supports_vision else "chat",
+    }
+
+
+def _whooshd_profile_runtime_metadata(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    runtime = profile.get("runtime")
+    if not isinstance(runtime, dict):
+        return {}
+    metadata: dict[str, Any] = {}
+    for key in (
+        "kind",
+        "server",
+        "openai_compatible",
+        "default_base_url",
+        "startup_command",
+    ):
+        value = runtime.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
 
 
 def resolve_model_vision_capability_state(
@@ -347,18 +395,28 @@ def _fetch_local_models(
         settings, timeout_seconds=timeout, request_get=requests.get
     )
 
-    deduped: list[str] = []
+    live_deduped: list[str] = []
     seen: set[str] = set()
     for model_name in names:
         key = model_name.strip()
         if not key or key in seen:
             continue
         seen.add(key)
-        deduped.append(key)
+        live_deduped.append(key)
+
+    inventory_state = str(endpoint_resolution.get("state") or "").strip()
+    deduped = list(live_deduped)
+    if inventory_state != "available":
+        for model_name in whooshd_profile_model_repos():
+            key = model_name.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(key)
     local_model_resolution = resolve_local_execution_model(
         settings=settings,
         validate_availability=True,
-        discovered_model_names=deduped,
+        discovered_model_names=live_deduped,
         endpoint_resolution=endpoint_resolution,
     )
     effective_model = normalize_model_id(local_model_resolution.model)
@@ -395,10 +453,18 @@ def _fetch_local_models(
     )
     entries: list[dict[str, Any]] = []
     for name, identity in zip(deduped, identities, strict=False):
+        profile = whooshd_profile_by_id_or_repo(name)
         display_label = str(
-            identity.get("alias") or identity.get("display_label") or name
+            (profile or {}).get("display_name")
+            or identity.get("alias")
+            or identity.get("display_label")
+            or name
         ).strip()
-        local_capabilities = _local_model_capabilities(name, display_label)
+        local_capabilities = _whooshd_profile_capabilities(
+            profile,
+            model_id=name,
+            display_name=display_label,
+        )
         entry = _base_model_entry(
             name,
             display_name=display_label,
@@ -416,7 +482,9 @@ def _fetch_local_models(
             identity.get("canonical_id") or name
         ).strip()
         entry["display_label"] = str(
-            identity.get("display_label") or display_label
+            (profile or {}).get("display_name")
+            or identity.get("display_label")
+            or display_label
         ).strip()
         entry["alias"] = identity.get("alias")
         namespace = str(identity.get("namespace") or "").strip()
@@ -429,6 +497,24 @@ def _fetch_local_models(
             "supported" if local_capabilities["supports_vision"] else "unknown"
         )
         entry["runtime"] = describe_local_runtime(name, settings=settings)
+        if profile:
+            entry["profile_id"] = str(profile.get("id") or "").strip()
+            entry["profile_source"] = "whooshd_model_profile"
+            entry["display_vendor"] = str(
+                profile.get("display_vendor") or ""
+            ).strip()
+            release_posture = profile.get("release_posture")
+            if isinstance(release_posture, dict):
+                entry["release_posture"] = dict(release_posture)
+                entry["release_supported"] = bool(
+                    release_posture.get("release_supported")
+                )
+            weights = profile.get("weights")
+            if isinstance(weights, dict):
+                entry["weights"] = dict(weights)
+            entry["runtime"]["whooshd_profile"] = (
+                _whooshd_profile_runtime_metadata(profile)
+            )
         entries.append(entry)
     entries = _apply_local_model_overrides(entries)
     if endpoint_resolution.get("state") != "available" and names:
@@ -700,7 +786,18 @@ def _provider_entry(
         entry["endpoint_resolution"] = endpoint_resolution
     if local_model_resolution is not None:
         entry["default_model"] = local_model_resolution.model
-        entry["model_resolution"] = local_model_resolution.as_dict()
+        model_resolution = local_model_resolution.as_dict()
+        entry["model_resolution"] = model_resolution
+        entry["configured_model"] = local_model_resolution.model
+        entry["configured_model_available"] = local_model_resolution.ok
+        if model_resolution.get("availability_reason"):
+            entry["availability_reason"] = model_resolution[
+                "availability_reason"
+            ]
+        if model_resolution.get("advertised_models") is not None:
+            entry["advertised_models"] = model_resolution["advertised_models"]
+        if model_resolution.get("inventory_source"):
+            entry["inventory_source"] = model_resolution["inventory_source"]
     if disabled_reason:
         entry["disabled_reason"] = disabled_reason
     return entry

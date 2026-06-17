@@ -23,6 +23,8 @@ import {
 import type { FlowDraftContent, FlowDraftStageId } from "./model/flowDraft";
 
 const FLOW_BUILDER_LAST_MODE_STORAGE_KEY = "cfy.flowBuilder.mode";
+const FLOW_BUILDER_THREE_PANE_QUERY = "(min-width: 1024px)";
+const FLOW_BUILDER_WIDE_QUERY = "(min-width: 1536px)";
 
 type FlowBuilderPageProps = {
   onReturnToGuardian?: () => void;
@@ -80,6 +82,59 @@ function canonicalizeFlowBuilderLocation(nextMode: FlowBuilderMode): void {
   }
 
   window.history.replaceState({}, "", nextPath);
+}
+
+function useFlowBuilderGridTemplate(): string {
+  const [viewportState, setViewportState] = React.useState(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return { threePane: true, wide: false };
+    }
+
+    return {
+      threePane: window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY).matches,
+      wide: window.matchMedia(FLOW_BUILDER_WIDE_QUERY).matches,
+    };
+  });
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return undefined;
+    }
+
+    const threePaneQuery = window.matchMedia(FLOW_BUILDER_THREE_PANE_QUERY);
+    const wideQuery = window.matchMedia(FLOW_BUILDER_WIDE_QUERY);
+    const sync = () => {
+      setViewportState({
+        threePane: threePaneQuery.matches,
+        wide: wideQuery.matches,
+      });
+    };
+
+    sync();
+    threePaneQuery.addEventListener("change", sync);
+    wideQuery.addEventListener("change", sync);
+
+    return () => {
+      threePaneQuery.removeEventListener("change", sync);
+      wideQuery.removeEventListener("change", sync);
+    };
+  }, []);
+
+  if (!viewportState.threePane) {
+    return "minmax(0, 1fr)";
+  }
+
+  if (viewportState.wide) {
+    return "minmax(240px, 280px) minmax(0, 1fr) minmax(280px, 340px)";
+  }
+
+  return "minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px)";
 }
 
 function ModeButton({
@@ -197,6 +252,7 @@ export default function FlowBuilderPage({
     () => getSupportChatContextSummary(draft, view),
     [draft, view]
   );
+  const panelGridTemplate = useFlowBuilderGridTemplate();
 
   const handleSelectMode = useCallback(
     (nextMode: FlowBuilderMode) => {
@@ -250,10 +306,11 @@ export default function FlowBuilderPage({
     <div
       data-testid="flow-builder-page"
       data-flow-builder-mode={view.mode}
-      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-auto p-[var(--card-pad)]"
+      className="flex h-full min-h-0 w-full flex-col gap-5 overflow-x-hidden overflow-y-auto p-[var(--card-pad)]"
     >
       <div
-        className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col overflow-hidden rounded-[var(--tile-radius,19px)] border"
+        data-testid="flow-builder-surface"
+        className="mx-auto flex w-full max-w-[1680px] flex-col rounded-[var(--tile-radius,19px)] border"
         style={{
           borderColor: "var(--panel-border)",
           background:
@@ -272,15 +329,16 @@ export default function FlowBuilderPage({
                 color: "var(--muted)",
               }}
             >
-              Spec first
+              Automation spec draft
             </div>
             <div className="max-w-3xl space-y-3">
               <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
                 Flow Builder
               </h1>
               <p className="max-w-2xl text-sm leading-6 sm:text-[15px]" style={{ color: "var(--muted)" }}>
-                Authoring, inspection, validation, and draft shaping happen here before anything
-                becomes runnable. The builder keeps that boundary visible on purpose.
+                Build draft automation specifications from a known process or Assistant-guided
+                elicitation. Authoring, inspection, validation, and draft shaping happen here before
+                anything becomes runnable.
               </p>
             </div>
             <code
@@ -299,15 +357,15 @@ export default function FlowBuilderPage({
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <ModeButton
               active={view.mode === "process"}
-              description="Start from the steps you already know."
-              label="Process"
+              description="Start from explicit steps you already know and shape them into a draft automation spec."
+              label="Manual process"
               onClick={() => handleSelectMode("process")}
               testId="flow-builder-mode-process"
             />
             <ModeButton
               active={view.mode === "expertise"}
-              description="Start from the outcome and constraints."
-              label="Expertise"
+              description="Start from an outcome, constraints, or rough intent; Assistant support helps shape a draft spec."
+              label="Assistant-guided"
               onClick={() => handleSelectMode("expertise")}
               testId="flow-builder-mode-expertise"
             />
@@ -323,7 +381,11 @@ export default function FlowBuilderPage({
           </div>
         </header>
 
-        <div className="grid flex-1 gap-4 p-4 sm:p-6 xl:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(280px,340px)]">
+        <div
+          data-testid="flow-builder-panel-grid"
+          className="grid gap-4 p-4 sm:p-6"
+          style={{ gridTemplateColumns: panelGridTemplate }}
+        >
           <FlowBuilderParameterRail
             currentSelection={currentSelection}
             onSelectStage={handleSelectStage}
@@ -334,7 +396,11 @@ export default function FlowBuilderPage({
           <FlowBuilderGraphCanvas
             currentSelection={currentSelection}
             graphVisibleNodes={graphVisibleNodes}
-            modeLabel={view.mode === "expertise" ? "Expertise" : "Process"}
+            modeLabel={
+              view.mode === "expertise"
+                ? "Assistant-guided draft seed"
+                : "Manual process draft seed"
+            }
             onMoveNode={handleMoveNode}
             onSelectNode={handleSelectNode}
             validationSummary={validationSummary}
@@ -385,11 +451,12 @@ export default function FlowBuilderPage({
 
             <div className="mt-3 max-w-2xl space-y-2">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">
-                {draft.meta.title}
+                Assistant-guided automation specification draft
               </h2>
               <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-                This stub keeps the expertise lane honest: it makes the specification visible and
-                editable without claiming compile or execution support.
+                This local draft keeps Assistant-guided elicitation honest: notes can seed and shape
+                an automation specification without backend chat transport, compile, scheduling, or
+                execution support.
               </p>
             </div>
 
@@ -398,7 +465,7 @@ export default function FlowBuilderPage({
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>
                   Source
                 </div>
-                <div className="mt-2 text-sm font-medium">Build from expertise</div>
+                <div className="mt-2 text-sm font-medium">Assistant-guided draft seed</div>
               </div>
               <div className="rounded-[16px] border px-3 py-3" style={{ borderColor: "var(--panel-border)" }}>
                 <div className="text-[11px] uppercase tracking-[0.2em]" style={{ color: "var(--muted)" }}>

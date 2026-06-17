@@ -211,11 +211,11 @@ export default function FlowBuilderGraphCanvas({
         </div>
         <div className="mt-2 max-w-2xl space-y-2">
           <h2 className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">
-            Seeded from {currentSelection.stage.label}
+            Automation specification draft seeded from {currentSelection.stage.label}
           </h2>
           <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-            The graph is a drafting surface, not an execution surface. It keeps the current stage,
-            its neighboring structure, and the review boundary legible in one view.
+            The graph is a drafting surface, not an execution surface. It keeps the {modeLabel},
+            neighboring structure, and validation-before-activation boundary legible in one view.
           </p>
         </div>
       </div>
@@ -288,6 +288,9 @@ export default function FlowBuilderGraphCanvas({
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em]" style={{ color: "var(--muted)" }}>
             <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
               {currentSelection.stage.label}
+            </span>
+            <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
+              Automation spec draft
             </span>
             <span className="rounded-full border px-2 py-1" style={{ borderColor: "var(--panel-border)" }}>
               Draft only

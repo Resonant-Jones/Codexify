@@ -10,13 +10,7 @@ x-postgres-env: &postgres_env
   PGPASSWORD: ${POSTGRES_PASSWORD:-codexify}
 
 x-local-llm: &local_llm
-  LOCAL_RUNTIME_PRESET: "${LOCAL_RUNTIME_PRESET:-whooshd-mlx}"
-
   LOCAL_BASE_URL: "${LOCAL_BASE_URL:-http://host.docker.internal:8000/v1}"
-  LOCAL_DOCKER_FALLBACK_BASE_URL: "${LOCAL_DOCKER_FALLBACK_BASE_URL:-http://host.docker.internal:8000/v1}"
-  LOCAL_PROVIDER_DISPLAY_NAME: "${LOCAL_PROVIDER_DISPLAY_NAME:-Whoosh'd}"
-  LOCAL_PROVIDER_VENDOR: "${LOCAL_PROVIDER_VENDOR:-whooshd}"
-  LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
   PGDATABASE: ${POSTGRES_DB:-Codexify}
   DATABASE_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
   GUARDIAN_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
@@ -315,7 +309,7 @@ services:
       # the backend does not inherit the legacy Groq default unless it is
       # explicitly requested.
       CODEXIFY_CONFIG_SOURCE: "${CODEXIFY_CONFIG_SOURCE:-core}"
-      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE}"
+      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-local-core-web-mcp}"
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
@@ -338,13 +332,12 @@ services:
       CODEXIFY_VECTOR_STORE: "${CODEXIFY_VECTOR_STORE:-chroma}"
       CODEXIFY_CHROMA_PATH: "${CODEXIFY_CHROMA_PATH:-./.chroma}"
       CODEXIFY_COLLECTION: "${CODEXIFY_COLLECTION:-codexify_vault_supported}"
-      # --- Local OpenAI-compatible inference ---
+      # ---  Ollama (OpenAI-compatible API) ---
       # This is your local-first provider. From Codexify's POV it's just an API endpoint.
-      # NOTE: Keep this set to a model that the selected local runtime advertises (check /v1/models or /api/tags).
+      # NOTE: Keep this set to a model that actually exists on VaultNode (check /api/tags or /v1/models).
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
+      LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       LOCAL_EMBEDDINGS_REQUIRED: "${LOCAL_EMBEDDINGS_REQUIRED:-0}"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -434,18 +427,17 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      # VaultNode is the host running the local inference gateway. Keep this as a pure host:port (no /v1) unless you are explicitly targeting an OpenAI-compat health endpoint.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
+      # VaultNode is the host running Ollama. Keep this as a pure host:port (no /v1) unless you are explicitly targeting an OpenAI-compat gateway.
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
 
-      # Local inference base URL. OpenAI-compatible runtimes should use a /v1 suffix.
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
+      # Local inference base URL (Ollama native by default). If you point this at an OpenAI-compat gateway, use a /v1 suffix.
+      LOCAL_API_KEY: "local"   # Ollama ignores; satisfies SDKs
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
 
       # Routing knobs (handled by guardian/core/ai_router.py)
-      # Prefer /v1/chat/completions first for OpenAI-compatible local runtimes.
-      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
+      # Prefer /v1/chat/completions first only when explicitly enabled.
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -500,12 +492,11 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -600,10 +591,9 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       CODEXIFY_LOCAL_VOICE_BASE_URL: "${CODEXIFY_LOCAL_VOICE_BASE_URL:-http://host.docker.internal:11434}"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -658,12 +648,11 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -716,12 +705,11 @@ services:
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
       # Never use localhost for cross-container calls; localhost points to this worker container.
-      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:8000}"
-      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/v1/models,/api/tags"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-1}"
+      VAULTNODE_BASE_URL: "${VAULTNODE_BASE_URL:-http://host.docker.internal:11434}"
+      VAULTNODE_HEALTH_ENDPOINTS: "/healthz,/ping,/health,/api/tags"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
+      LOCAL_COMPAT_FIRST: "${LOCAL_COMPAT_FIRST:-0}"
       LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK: "${LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK:-0}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
@@ -775,9 +763,8 @@ services:
       # Command bus loopback base (Docker): never use localhost for cross-container calls.
       GUARDIAN_COMMAND_BUS_LOOPBACK_BASE: "http://backend:8888"
       CODEXIFY_POLICY_MODE: "${CODEXIFY_POLICY_MODE:-enforce}"
-      LOCAL_API_KEY: "${LOCAL_API_KEY:-local}"
-      LOCAL_LLM_MODEL: "${LOCAL_LLM_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
-      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-mlx-community/Llama-3.2-3B-Instruct-4bit}"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL}"
       LOCAL_EMBED_MODEL: "/models/bge-large-en-v1.5"
       CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK: "${CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK:-0}"
       REDIS_URL: redis://redis:6379/0

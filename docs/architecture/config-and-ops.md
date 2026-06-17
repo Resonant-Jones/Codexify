@@ -195,10 +195,10 @@ The supported local Docker Compose path enforces a default-off contract for grap
 - Native bridge failures in the desktop shell are classified separately from Docker preflight failures so browser-mode or Tauri bridge import problems do not masquerade as a missing Docker installation.
 - The wizard/launcher presents the user-facing local runtime label from `LOCAL_PROVIDER_DISPLAY_NAME`.
 - Whoosh'd is a host-local inference node, not code vendored into Codexify. Use [`../Ops/WHOOSHD_LOCAL_RUNTIME_RUNBOOK.md`](../Ops/WHOOSHD_LOCAL_RUNTIME_RUNBOOK.md) to install, start, and prove the local Whoosh'd runtime when `LOCAL_RUNTIME_PRESET=whooshd-mlx`.
-- The machine config remains split across the legacy and canonical lanes: `AI_BACKEND=ollama` plus `LLM_PROVIDER=local`. `LOCAL_RUNTIME_PRESET` picks setup defaults for Whoosh'd/MLX, Ollama, LM Studio, or another OpenAI-compatible local endpoint; the supported profile enforces local-only safety, not one blessed port.
+- The machine config favors the canonical local runtime lane: `LLM_PROVIDER=local` with `LOCAL_RUNTIME_PRESET` selecting the runtime preset (e.g., `whooshd-mlx` for Apple Silicon/Whoosh'd, `ollama`, `lmstudio`, or `custom-openai-compatible`). `LOCAL_RUNTIME_PRESET` picks setup defaults for Whoosh'd/MLX, Ollama, LM Studio, or another OpenAI-compatible local endpoint; the supported profile enforces local-only safety, not one blessed port. `AI_BACKEND`, if present, is a legacy compatibility surface only and should not be used to mean Whoosh'd.
 - Users should not be asked to manually source `.env`; setup reads and writes dotenv-style config directly, and values such as `GUARDIAN_CSP_POLICY` must be preserved as valid dotenv rather than shell script syntax.
 - Local backend smoke testing should start the runtime backend with `CODEXIFY_CONFIG_SOURCE=core` so the canonical local provider path can boot without a Groq key when AI inference is not being exercised.
-- If someone intentionally forces `CODEXIFY_CONFIG_SOURCE=legacy`, the legacy validator still applies and `AI_BACKEND=groq` continues to require `GROQ_API_KEY`.
+- If someone intentionally forces `CODEXIFY_CONFIG_SOURCE=legacy`, the legacy validator still applies and `AI_BACKEND` cloud values (e.g., `groq`) continue to require their corresponding API keys.
 
 ### Packaged launcher and runtime distribution contract
 

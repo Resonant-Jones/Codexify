@@ -24,6 +24,9 @@ const OPTIONS = {
 	provider: process.env.PI_PROVIDER || "anthropic",
 	thinking: process.env.PI_THINKING || "medium",
 	verbose: process.env.PI_VERBOSE === "1",
+	disableTools: ["1", "true", "yes", "on"].includes(
+		(process.env.PI_DISABLE_TOOLS || "").toLowerCase()
+	),
 };
 
 // Known model mappings
@@ -115,8 +118,7 @@ async function runAgent() {
 	const authStorage = AuthStorage.create();
 	const modelRegistry = ModelRegistry.create(authStorage);
 
-	// Create default coding tools
-	const tools = createCodingTools(OPTIONS.cwd);
+	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
 
 	// Get model
 	const model = getModel(OPTIONS.provider, resolvedModelId);
@@ -281,6 +283,7 @@ Environment Variables:
   PI_PROVIDER   - Provider to use (default: anthropic)
   PI_THINKING   - Thinking level: off, minimal, low, medium, high, xhigh
   PI_VERBOSE    - Set to 1 for verbose output
+  PI_DISABLE_TOOLS - Set to 1 to run without coding tools
 
 Model Aliases:
   sonnet, sonnet4, sonnet-4  → claude-sonnet-4-20250514

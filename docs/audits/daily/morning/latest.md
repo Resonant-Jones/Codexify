@@ -1,41 +1,41 @@
-# Daily Audit — 2026-06-02
+# Daily Audit — 2026-06-15
 
 ## Repo Status
-- Date: 2026-06-02
+- Date: 2026-06-15
 - Phase: `morning`
-- Branch: `codex/add-whooshd-provider`
-- HEAD: `4c4cb9d364f8ab3ef14a8d154346b9b9fbc17efc`
+- Branch: `main`
+- HEAD: `4c6be9a8a99aadd69b9b7e49db057b1d06448aa6`
 - Worktree: dirty
 - Status lines:
   - ` M docs/Marketing/generated/history/run-history.jsonl`
   - ` M docs/audits/daily/evening/latest.json`
   - ` M docs/audits/daily/evening/latest.md`
+  - ` M docs/audits/daily/morning/latest.json`
+  - ` M docs/audits/daily/morning/latest.md`
   - ` M docs/audits/latest.json`
   - ` M docs/audits/latest.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_01_MARKETING_V1/run-metadata.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/ad-copy.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-community.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-social.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/channel-website.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/core-brief.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/evidence-ledger.json`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/infographic-spec.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/review-notes.md`
-  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_02_MARKETING_V1/run-metadata.json`
-  - `?? docs/audits/daily/evening/2026-05-31-audit.json`
-  - `?? docs/audits/daily/evening/2026-05-31-audit.md`
-  - `?? docs/audits/daily/evening/2026-06-01-audit.json`
-  - `?? docs/audits/daily/evening/2026-06-01-audit.md`
-  - `?? docs/audits/daily/morning/2026-06-01-audit.json`
-  - `?? docs/audits/daily/morning/2026-06-01-audit.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_14_MARKETING_V1/run-metadata.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/ad-copy.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/channel-community.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/channel-social.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/channel-website.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/core-brief.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/evidence-ledger.json`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/infographic-spec.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/review-notes.md`
+  - `?? docs/Marketing/generated/CAMPAIGN_2026_06_15_MARKETING_V1/run-metadata.json`
+  - `?? docs/audits/daily/evening/2026-06-14-audit.json`
+  - `?? docs/audits/daily/evening/2026-06-14-audit.md`
+  - `?? docs/audits/daily/morning/2026-06-14-audit.json`
+  - `?? docs/audits/daily/morning/2026-06-14-audit.md`
 
 ## Audit CLI Summary
 - Selected mode: `text_fallback`
@@ -75,18 +75,30 @@
 | `Governance Readiness` | 2 |
 
 ## Changes in Last 24 Hours
-- Commit count: 1
-- Unique files changed: 2
-- Files changed: `docs/architecture/00-current-state.md`, `docs/architecture/README.md`
+- Commit count: 5
+- Unique files changed: 69
+- Files changed: `docker-compose.whooshd-smoke.yml`, `guardian/core/local_runtime_presets.py`, `guardian/core/provider_registry.py`, `tests/core/test_supported_profile_provider.py`, `tests/core/test_supported_profile_startup.py`, `tests/ops/test_setup_wizard_first_run_readiness.py`, `tests/test_whooshd_smoke_env_contract.py`, `tests/test_whooshd_vision_model_source.py`, `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `CHANGELOG.beta.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-06-11-audit.json`, `docs/audits/daily/evening/2026-06-11-audit.md`, `docs/audits/daily/evening/2026-06-12-audit.json`, `docs/audits/daily/evening/2026-06-12-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-06-12-audit.json`, `docs/audits/daily/morning/2026-06-12-audit.md`, `docs/audits/daily/morning/2026-06-13-audit.json`, `docs/audits/daily/morning/2026-06-13-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md`, `frontend/src/lib/api.ts`, `frontend/src/settings/FactCandidateReview.tsx`, `frontend/src/settings/IdentityMemorySettings.tsx`, `frontend/src/settings/__tests__/FactCandidateReview.test.tsx`, `frontend/src/vitest.config.ts`, `guardian/fact_candidate_pipeline.py`, `guardian/routes/personal_facts.py`, `tests/test_fact_candidate_pipeline.py`, `tests/test_fact_candidate_review.py`, `docs/local-provider-whooshd.md`, `guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`, `guardian/core/client_factory.py`, `guardian/core/config.py`, `guardian/core/orchestrator/agents/foresight_agent.py`, `guardian/core/orchestrator/agents/health_agent.py`, `guardian/core/orchestrator/agents/memory_agent.py`, `guardian/core/orchestrator/agents/ritual_agent.py`, `guardian/core/orchestrator/pulse_orchestrator.py`, `guardian/providers/whooshd_sidecar.py`, `guardian/routes/chat.py`, `guardian/tasks/types.py`, `guardian/workers/chat_worker.py`, `scripts/whooshd_docker_smoke_up.sh`, `tests/fixtures/vision/color_shapes.png`
 
 | SHA | Subject | Files |
 | --- | --- | --- |
-| `4c4cb9d364f8` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `4c6be9a8a99a` | Use Gemma E2B for Whooshd smoke defaults | `docker-compose.whooshd-smoke.yml`, `guardian/core/local_runtime_presets.py`, `guardian/core/provider_registry.py`, `tests/core/test_supported_profile_provider.py`, `tests/core/test_supported_profile_startup.py`, `tests/ops/test_setup_wizard_first_run_readiness.py`, `tests/test_whooshd_smoke_env_contract.py`, `tests/test_whooshd_vision_model_source.py` |
+| `3124a6a30ae6` | docs: refresh weekly current-state override | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `2dd6e26d8b43` | chore(docs): update generated audits and marketing artifacts | `CHANGELOG.beta.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl`, `docs/audits/daily/evening/2026-06-11-audit.json`, `docs/audits/daily/evening/2026-06-11-audit.md`, `docs/audits/daily/evening/2026-06-12-audit.json`, `docs/audits/daily/evening/2026-06-12-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-06-12-audit.json`, `docs/audits/daily/morning/2026-06-12-audit.md`, `docs/audits/daily/morning/2026-06-13-audit.json`, `docs/audits/daily/morning/2026-06-13-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `ba0fe6eafeeb` | feat(memory): add fact candidate review flow | `frontend/src/lib/api.ts`, `frontend/src/settings/FactCandidateReview.tsx`, `frontend/src/settings/IdentityMemorySettings.tsx`, `frontend/src/settings/__tests__/FactCandidateReview.test.tsx`, `frontend/src/vitest.config.ts`, `guardian/fact_candidate_pipeline.py`, `guardian/routes/personal_facts.py`, `tests/test_fact_candidate_pipeline.py`, `tests/test_fact_candidate_review.py` |
+| `bf51c64a6cf4` | feat(local): wire Codexify to Whoosh'd local inference | `docker-compose.whooshd-smoke.yml`, `docs/local-provider-whooshd.md`, `guardian/core/ai_router.py`, `guardian/core/chat_completion_service.py`, `guardian/core/client_factory.py`, `guardian/core/config.py`, `guardian/core/local_runtime_presets.py`, `guardian/core/orchestrator/agents/foresight_agent.py`, `guardian/core/orchestrator/agents/health_agent.py`, `guardian/core/orchestrator/agents/memory_agent.py`, `guardian/core/orchestrator/agents/ritual_agent.py`, `guardian/core/orchestrator/pulse_orchestrator.py`, `guardian/providers/whooshd_sidecar.py`, `guardian/routes/chat.py`, `guardian/tasks/types.py`, `guardian/workers/chat_worker.py`, `scripts/whooshd_docker_smoke_up.sh`, `tests/fixtures/vision/color_shapes.png`, `tests/test_whooshd_smoke_env_contract.py`, `tests/test_whooshd_vision_model_source.py` |
 
 ## Subsystems Touched
 | Bucket | Count | Files |
 | --- | --- | --- |
-| `docs` | 2 | `docs/architecture/00-current-state.md`, `docs/architecture/README.md` |
+| `chat` | 2 | `guardian/routes/chat.py`, `guardian/workers/chat_worker.py` |
+| `docs` | 21 | `docs/architecture/00-current-state.md`, `docs/architecture/README.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_12_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/ad-copy.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-community.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-social.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/channel-website.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/core-brief.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/evidence-ledger.json`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/infographic-spec.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/review-notes.md`, `docs/Marketing/generated/CAMPAIGN_2026_06_13_MARKETING_V1/run-metadata.json`, `docs/Marketing/generated/history/run-history.jsonl` |
+| `audit` | 14 | `docs/audits/daily/evening/2026-06-11-audit.json`, `docs/audits/daily/evening/2026-06-11-audit.md`, `docs/audits/daily/evening/2026-06-12-audit.json`, `docs/audits/daily/evening/2026-06-12-audit.md`, `docs/audits/daily/evening/latest.json`, `docs/audits/daily/evening/latest.md`, `docs/audits/daily/morning/2026-06-12-audit.json`, `docs/audits/daily/morning/2026-06-12-audit.md`, `docs/audits/daily/morning/2026-06-13-audit.json`, `docs/audits/daily/morning/2026-06-13-audit.md`, `docs/audits/daily/morning/latest.json`, `docs/audits/daily/morning/latest.md`, `docs/audits/latest.json`, `docs/audits/latest.md` |
+| `config` | 1 | `guardian/core/config.py` |
+| `providers` | 6 | `guardian/core/provider_registry.py`, `tests/core/test_supported_profile_provider.py`, `tests/core/test_supported_profile_startup.py`, `docs/local-provider-whooshd.md`, `guardian/core/ai_router.py`, `guardian/providers/whooshd_sidecar.py` |
+| `frontend` | 5 | `frontend/src/lib/api.ts`, `frontend/src/settings/FactCandidateReview.tsx`, `frontend/src/settings/IdentityMemorySettings.tsx`, `frontend/src/settings/__tests__/FactCandidateReview.test.tsx`, `frontend/src/vitest.config.ts` |
+| `tests` | 6 | `tests/ops/test_setup_wizard_first_run_readiness.py`, `tests/test_whooshd_smoke_env_contract.py`, `tests/test_whooshd_vision_model_source.py`, `tests/test_fact_candidate_pipeline.py`, `tests/test_fact_candidate_review.py`, `tests/fixtures/vision/color_shapes.png` |
+| `infra` | 1 | `docker-compose.whooshd-smoke.yml` |
+| `unknown` | 13 | `guardian/core/local_runtime_presets.py`, `CHANGELOG.beta.md`, `guardian/fact_candidate_pipeline.py`, `guardian/routes/personal_facts.py`, `guardian/core/chat_completion_service.py`, `guardian/core/client_factory.py`, `guardian/core/orchestrator/agents/foresight_agent.py`, `guardian/core/orchestrator/agents/health_agent.py`, `guardian/core/orchestrator/agents/memory_agent.py`, `guardian/core/orchestrator/agents/ritual_agent.py`, `guardian/core/orchestrator/pulse_orchestrator.py`, `guardian/tasks/types.py`, `scripts/whooshd_docker_smoke_up.sh` |
 
 ## Risk Flags
 - `chat_depends_on_redis_and_workers`: Chat completion is queue-coupled and depends on Redis plus worker availability. Evidence: `docs/architecture/tech-debt-and-risks.md`, `docs/architecture/roadmap-signals.md`

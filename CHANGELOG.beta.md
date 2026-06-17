@@ -2,6 +2,20 @@
 
 Evidence-led beta readiness changes only.
 
+## 2026-06-12
+
+### Merged PRs
+- #423 - [guardian-work-brief](https://github.com/Resonant-Jones/Codexify/pull/423)
+- #422 - [add-campaign-intent-packet-seam](https://github.com/Resonant-Jones/Codexify/pull/422)
+- #421 - [enable-whooshd](https://github.com/Resonant-Jones/Codexify/pull/421)
+- #420 - [add-campaign-intent-packet-seam](https://github.com/Resonant-Jones/Codexify/pull/420)
+- #419 - [add-gemma-profile-registry](https://github.com/Resonant-Jones/Codexify/pull/419)
+- #418 - [launch-codexify](https://github.com/Resonant-Jones/Codexify/pull/418)
+- #417 - [add-campaign-intent-packet-seam](https://github.com/Resonant-Jones/Codexify/pull/417)
+- #416 - [github-mention-define-docs-to-issue-compiler-protocol](https://github.com/Resonant-Jones/Codexify/pull/416)
+- #415 - [github-mention-define-codexify-issue-template-contract](https://github.com/Resonant-Jones/Codexify/pull/415)
+- #414 - [github-mention-classify-local-worktree-drift-before-new-imp](https://github.com/Resonant-Jones/Codexify/pull/414)
+- #413 - [add-campaign-intent-packet-seam](https://github.com/Resonant-Jones/Codexify/pull/413)
 
 ## 2026-05-15
 

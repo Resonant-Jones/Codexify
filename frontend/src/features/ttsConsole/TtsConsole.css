@@ -1,0 +1,223 @@
+.tts-console-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 3vw, 32px);
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.tts-console-window {
+  width: min(1180px, 100%);
+  max-height: min(820px, calc(100vh - 32px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.36);
+}
+
+.tts-console-header,
+.tts-console-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.tts-console-footer {
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 0;
+}
+
+.tts-console-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(280px, 1fr) minmax(260px, 330px);
+  gap: 1px;
+  background: var(--panel-border);
+}
+
+.tts-console-pane {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--panel-sheet, var(--panel-bg));
+}
+
+.tts-console-title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.tts-console-muted {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+}
+
+.tts-console-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tts-console-icon-button,
+.tts-console-action-button,
+.tts-console-profile-button {
+  border: 1px solid var(--chip-border);
+  border-radius: 8px;
+  background: var(--chip-bg);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.tts-console-icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tts-console-action-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+}
+
+.tts-console-action-button[data-primary="true"] {
+  background: var(--accent);
+  color: var(--panel-bg);
+}
+
+.tts-console-action-button:disabled,
+.tts-console-icon-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.tts-console-profile-stack {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tts-console-profile-button {
+  width: 100%;
+  min-height: 50px;
+  padding: 9px;
+  text-align: left;
+}
+
+.tts-console-profile-button[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.tts-console-form {
+  display: grid;
+  gap: 12px;
+}
+
+.tts-console-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tts-console-field {
+  display: grid;
+  gap: 5px;
+}
+
+.tts-console-label {
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.tts-console-input,
+.tts-console-select,
+.tts-console-textarea {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.tts-console-input,
+.tts-console-select {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.tts-console-textarea {
+  min-height: 74px;
+  resize: vertical;
+  padding: 8px 9px;
+}
+
+.tts-console-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+}
+
+.tts-console-details {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface-soft);
+}
+
+.tts-console-details > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.tts-console-details[open] > summary {
+  margin-bottom: 10px;
+}
+
+.tts-console-preview-audio {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.tts-console-status {
+  min-height: 18px;
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+}
+
+.tts-console-status[data-tone="error"] {
+  color: var(--danger-text);
+}
+
+@media (max-width: 900px) {
+  .tts-console-body {
+    grid-template-columns: 1fr;
+  }
+
+  .tts-console-window {
+    max-height: calc(100vh - 20px);
+  }
+}

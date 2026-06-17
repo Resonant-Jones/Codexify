@@ -4,7 +4,10 @@ import platform
 from dataclasses import dataclass
 
 
-WHOOSHD_MODEL = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+WHOOSHD_ALIAS_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+WHOOSHD_GGUF_MODEL = "qwen2.5-0.5b-gguf"
+WHOOSHD_VISION_MODEL = "qwen2-vl-2b-mlx"
 OLLAMA_MODEL = "llama3.2:latest"
 CUSTOM_LOCAL_MODEL = "local-model"
 
@@ -30,7 +33,8 @@ LOCAL_RUNTIME_PRESETS: dict[str, LocalRuntimePreset] = {
         base_url="http://127.0.0.1:8000/v1",
         docker_base_url="http://host.docker.internal:8000/v1",
         vaultnode_base_url="http://host.docker.internal:8000",
-        default_model=WHOOSHD_MODEL,
+        default_model=WHOOSHD_ALIAS_MODEL,
+        health_endpoints="/health,/health/runtime,/ready,/v1/models,/api/tags",
     ),
     "ollama": LocalRuntimePreset(
         id="ollama",

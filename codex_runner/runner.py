@@ -37,6 +37,11 @@ DEFAULT_TASK_RESULT_SCHEMA_PATH = (
 DEFAULT_COMPILER_JSON_TOKEN = "<PASTE MEGA_AUDIT_OUTPUT_JSON_HERE>"
 DEFAULT_REPO_ROOT_TOKEN = "<REPO_ROOT>"
 DEFAULT_AUDIT_ID_TOKEN = "<AUDIT_ID>"
+DEFAULT_INTENTION_PACKET_TOKEN = "<INTENTION_PACKET>"
+DEFAULT_INTENTION_PACKET_TEXT = (
+    "No explicit intention packet was provided. Use the default "
+    "repository-grounded audit posture and do not infer a narrower target."
+)
 
 CAMPAIGN_ID_PATTERN = re.compile(
     r"^(?P<date>\d{4}-\d{2}-\d{2})::(?P<slug>[a-z0-9_]+)::(?P<seq>\d{3})$"
@@ -44,11 +49,22 @@ CAMPAIGN_ID_PATTERN = re.compile(
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_:\-]+$")
 TASK_SLUG_PATTERN = re.compile(r"^[a-z0-9_]+$")
 RISK_VALUES = {"HIGH", "MED", "LOW"}
+TASK_LANE_VALUES = {
+    "standard",
+    "architecture_impact",
+    "discovery",
+    "docs_only",
+    "proof_runbook",
+}
 TASK_STATUS_VALUES = {"pending", "success", "failed", "blocked"}
 TASK_RESULT_STATUS_VALUES = {"success", "failed", "blocked"}
 
 MAPPING_START = "<!-- RUNNER_TASK_MAP -->"
 MAPPING_END = "<!-- /RUNNER_TASK_MAP -->"
+TASK_PROMPT_DISCLAIMER = (
+    "This is a reviewable Campaign Runner task prompt artifact. "
+    "It does not authorize execution by itself."
+)
 SUPPORTED_PROVIDER = "pi"
 LEGACY_UNSUPPORTED_PROVIDERS = {"codex", "claude"}
 UNSUPPORTED_DIRECT_PROVIDER_MESSAGE = (
@@ -98,6 +114,50 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def replace_template_placeholders(
+    template: str, replacements: dict[str, str]
+) -> str:
+    rendered = template
+    replacement_values = list(replacements.values())
+    sentinels: dict[str, str] = {}
+
+    for index, (token, value) in enumerate(replacements.items()):
+        if not token:
+            continue
+        seed = sha256_text(f"{index}:{token}")[:12]
+        sentinel = f"__RUNNER_PLACEHOLDER_{index}_{seed}__"
+        while sentinel in rendered or any(
+            sentinel in replacement for replacement in replacement_values
+        ):
+            seed = sha256_text(seed)[:12]
+            sentinel = f"__RUNNER_PLACEHOLDER_{index}_{seed}__"
+        rendered = rendered.replace(token, sentinel)
+        sentinels[sentinel] = value
+
+    for sentinel, value in sentinels.items():
+        rendered = rendered.replace(sentinel, value)
+    return rendered
+
+
+def validate_intention_packet_file(path: Path) -> None:
+    if not path.exists():
+        raise RunnerError(f"Intention packet file not found: {path}")
+    if path.is_dir():
+        raise RunnerError(f"Intention packet path is a directory: {path}")
+
+
+def load_intention_packet(path: Path | None) -> str:
+    if path is None:
+        return DEFAULT_INTENTION_PACKET_TEXT
+    validate_intention_packet_file(path)
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RunnerError(
+            f"Intention packet file must be UTF-8 text: {path}"
+        ) from exc
+
+
 def json_read(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -109,6 +169,42 @@ def json_read(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RunnerError(f"Expected object JSON at {path}")
     return data
+
+
+def validate_json_schema(
+    payload: dict[str, Any], schema_path: Path, label: str
+) -> None:
+    try:
+        from jsonschema import Draft202012Validator, FormatChecker
+    except ImportError as exc:
+        raise RunnerError(
+            "jsonschema is required for fixture materialization validation"
+        ) from exc
+
+    schema = json_read(schema_path)
+    validator = Draft202012Validator(
+        schema,
+        format_checker=FormatChecker(),
+    )
+    errors = sorted(validator.iter_errors(payload), key=lambda error: error.path)
+    if not errors:
+        return
+
+    first = errors[0]
+    path = "$"
+    if first.path:
+        path += "." + ".".join(str(part) for part in first.path)
+    raise RunnerError(
+        f"Schema validation failed for {label}: {path}: {first.message}"
+    )
+
+
+def read_schema_validated_json(
+    json_path: Path, schema_path: Path, label: str
+) -> dict[str, Any]:
+    payload = json_read(json_path)
+    validate_json_schema(payload, schema_path, label)
+    return payload
 
 
 def json_write(path: Path, payload: Any) -> None:
@@ -400,6 +496,12 @@ def normalize_task(task: dict[str, Any], campaign_slug: str) -> dict[str, Any]:
     if not task_slug or not TASK_SLUG_PATTERN.fullmatch(task_slug):
         raise RunnerError(f"Invalid task.slug: {task_slug}")
 
+    task_lane = str(task.get("task_lane") or "").strip()
+    if task_lane and task_lane not in TASK_LANE_VALUES:
+        raise RunnerError(
+            f"Invalid task.task_lane for task {task_id}: {task_lane}"
+        )
+
     risk = str(task["risk"]).strip().upper()
     if risk not in RISK_VALUES:
         raise RunnerError(f"Invalid task.risk for task {task_id}: {risk}")
@@ -432,6 +534,8 @@ def normalize_task(task: dict[str, Any], campaign_slug: str) -> dict[str, Any]:
         "dependencies": dependencies,
         "campaign_slug": campaign_slug,
     }
+    if task_lane:
+        normalized["task_lane"] = task_lane
     if not normalized["commit_message"]:
         raise RunnerError(f"Task commit_message cannot be empty: {task_id}")
 
@@ -451,6 +555,8 @@ def task_hash(task: dict[str, Any]) -> str:
         "activation_prompt": task["activation_prompt"],
         "dependencies": task["dependencies"],
     }
+    if "task_lane" in task:
+        payload["task_lane"] = task["task_lane"]
     return sha256_text(canonical_json(payload))
 
 
@@ -589,6 +695,7 @@ def merge_campaign_set(
                 "materialized": {
                     "campaign_doc_path": None,
                     "task_artifact_paths": {},
+                    "task_prompt_artifact_paths": {},
                 },
             }
             state["campaigns"][campaign_id] = existing
@@ -773,6 +880,228 @@ def ensure_mapping_block(text: str) -> str:
     return f"{base}\n\n{MAPPING_START}\n{MAPPING_END}\n"
 
 
+def markdown_bullets(items: list[str], empty_line: str) -> list[str]:
+    if not items:
+        return [f"- {empty_line}"]
+    return [f"- {item}" for item in items]
+
+
+def task_prompt_lane(task: dict[str, Any]) -> tuple[str, list[str]]:
+    raw_lane = str(task.get("task_lane") or "").strip()
+    if raw_lane in TASK_LANE_VALUES:
+        return raw_lane, []
+    if not raw_lane:
+        return (
+            "discovery",
+            [
+                "TODO(operator): task_lane was missing; defaulted to "
+                "discovery conservatively."
+            ],
+        )
+    raise RunnerError(f"Invalid task.task_lane for task {task['id']}: {raw_lane}")
+
+
+def prompt_shape_title(task_lane: str) -> str:
+    return {
+        "standard": "Standard Codexify Task",
+        "architecture_impact": "Architecture-Impact Codexify Task",
+        "discovery": "Discovery Codexify Task",
+        "docs_only": "Docs-Only Codexify Task",
+        "proof_runbook": "Proof/Runbook Codexify Task",
+    }[task_lane]
+
+
+def task_prompt_git_add_command(
+    task: dict[str, Any],
+    *,
+    task_artifact_path: str,
+    prompt_artifact_path: str,
+) -> str:
+    paths = [
+        str(path).strip()
+        for path in task.get("files", [])
+        if str(path).strip()
+    ]
+    paths.extend([task_artifact_path, prompt_artifact_path])
+    if not paths:
+        return "git add TODO(operator): add changed file or artifact paths"
+    return "git add " + " ".join(paths)
+
+
+def render_task_prompt_artifact(
+    task: dict[str, Any],
+    campaign: dict[str, Any],
+    *,
+    task_artifact_path: str,
+    prompt_artifact_path: str,
+) -> str:
+    task_lane, lane_notes = task_prompt_lane(task)
+    shape_title = prompt_shape_title(task_lane)
+    files = [
+        str(path).strip()
+        for path in task.get("files", [])
+        if str(path).strip()
+    ]
+    tests = [
+        str(command).strip()
+        for command in task.get("tests", [])
+        if str(command).strip()
+    ]
+    commit_message = str(task.get("commit_message") or "").strip()
+    if not commit_message:
+        commit_message = "TODO(operator): choose a commit message"
+
+    body: list[str] = [
+        TASK_PROMPT_DISCLAIMER,
+        "",
+        f"Prompt shape: {shape_title}",
+        f"Task lane: {task_lane}",
+        "",
+        "Context:",
+        "- You are operating on the local Codexify repo.",
+        "- Each task must be self-contained, testable, and committed individually.",
+        "- This prompt is generated from Campaign Runner task metadata for operator review.",
+        f"- Campaign: {campaign['campaign_id']}",
+        f"- Task id: {task['id']}",
+        f"- Task slug: {task['slug']}",
+        f"- Task artifact: {task_artifact_path}",
+        f"- Prompt artifact: {prompt_artifact_path}",
+    ]
+    body.extend(f"- {note}" for note in lane_notes)
+
+    optional_sections = [
+        ("Task title", task.get("title")),
+        ("Task summary", task.get("summary")),
+        ("Task evidence", task.get("evidence")),
+    ]
+    for label, value in optional_sections:
+        if value:
+            body.append(f"- {label}: {value}")
+
+    body.extend(
+        [
+            "",
+            "Task:",
+            str(task.get("activation_prompt") or "").strip()
+            or "TODO(operator): write the task objective before execution.",
+            "",
+            "File paths to inspect:",
+        ]
+    )
+    body.extend(
+        markdown_bullets(
+            files,
+            "TODO(operator): task did not provide explicit file paths to inspect.",
+        )
+    )
+
+    body.extend(
+        [
+            "",
+            "Invariants / constraints:",
+            "- Do not treat this prompt artifact as execution approval.",
+            "- Preserve Campaign Runner schema validation and runner-owned constraints.",
+            "- Do not add provider behavior, direct Codex or Claude execution, Pi broker changes, queue or worker changes, route changes, database changes, or UI changes unless a reviewed task explicitly authorizes them.",
+            "- Do not widen release claims; docs/architecture/00-current-state.md remains authoritative.",
+        ]
+    )
+
+    if task_lane == "architecture_impact":
+        body.extend(
+            [
+                "",
+                "Required pre-read:",
+                "1. docs/architecture/00-current-state.md",
+                "2. docs/architecture/adr/adr-index.md",
+                "3. docs/architecture/README.md",
+                "4. docs/architecture/agent-protocol-operations.md",
+                "5. Relevant contracts for the files being changed",
+                "",
+                "ADR impact:",
+                "- Classification: TODO(operator): classify as No ADR impact, Aligned with existing ADR(s), Requires new ADR, or Supersedes existing ADR.",
+                "- Governing ADRs/contracts: TODO(operator): list governing ADRs and contracts.",
+                "- Reason: TODO(operator): explain the architecture impact in one to three sentences.",
+                "",
+                "Current-truth anchors:",
+                "- docs/architecture/00-current-state.md remains authoritative for current release truth.",
+                "- TODO(operator): list what is true now, what is not yet true, and what this task may assume.",
+                "",
+                "Proof surface:",
+                "- TODO(operator): identify targeted tests, docs validation, live proof, or inspection evidence required for this change.",
+                "",
+                "Documentation follow-through:",
+                "- TODO(operator): update relevant contracts/docs or explicitly state why no docs update applies.",
+            ]
+        )
+    elif task_lane == "discovery":
+        body.extend(
+            [
+                "",
+                "Discovery posture:",
+                "- Read-only investigation first.",
+                "- Do not modify files unless a follow-up implementation task is created.",
+                "- No automated tests apply unless the discovery task includes a validation script.",
+                "- Do not commit if no files change.",
+            ]
+        )
+    elif task_lane == "docs_only":
+        body.extend(
+            [
+                "",
+                "Docs-only posture:",
+                "- No runtime behavior changes.",
+                "- No release claim widening.",
+                "- Run docs validation if available.",
+                "- Otherwise state No automated tests apply.",
+            ]
+        )
+    elif task_lane == "proof_runbook":
+        body.extend(
+            [
+                "",
+                "Proof/runbook posture:",
+                "- Capture proof for an existing path only.",
+                "- Do not change runtime behavior.",
+                "- Evidence must distinguish acceptance, completion, and UI/operator visibility where relevant.",
+                "- Commit only proof/runbook artifacts if files are produced.",
+            ]
+        )
+
+    body.extend(["", "Validation commands:"])
+    body.extend(
+        markdown_bullets(
+            tests,
+            "TODO(operator): add validation commands or state No automated tests apply.",
+        )
+    )
+
+    git_add_command = task_prompt_git_add_command(
+        task,
+        task_artifact_path=task_artifact_path,
+        prompt_artifact_path=prompt_artifact_path,
+    )
+    body.extend(
+        [
+            "",
+            "Git add command:",
+            git_add_command,
+            "",
+            "Git commit command:",
+            f'git commit -m "{commit_message}"',
+            "",
+            "Required output contract:",
+            "- Summary of changes",
+            "- ADR impact, when applicable",
+            "- Validation results",
+            "- Documentation follow-through, when applicable",
+            "- Git commit hash",
+            "- Known limitations or deferred work",
+        ]
+    )
+
+    return "```text\n" + "\n".join(body).rstrip() + "\n```\n"
+
+
 def parse_mapping_entries(block: str) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     for line in block.splitlines():
@@ -842,24 +1171,49 @@ def materialize_campaign_artifacts(
     campaign["materialized"]["campaign_doc_path"] = str(
         (DEFAULT_CAMPAIGN_DIR / campaign_doc_name).as_posix()
     )
+    task_artifact_paths = campaign["materialized"].setdefault(
+        "task_artifact_paths", {}
+    )
+    task_prompt_paths = campaign["materialized"].setdefault(
+        "task_prompt_artifact_paths", {}
+    )
 
-    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}"
+    task_dir_rel = DEFAULT_TASKS_DIR / f"{slug}_{date_underscore}_{seq}"
     task_dir_abs = repo_root / task_dir_rel
     task_dir_abs.mkdir(parents=True, exist_ok=True)
 
+    task_path_owners: dict[Path, str] = {}
     for task in sorted(campaign["tasks"].values(), key=lambda item: item["id"]):
-        task_file_name = (
-            f"TASK_{to_lower_snake(task['slug'])}_{date_underscore}.md"
-        )
-        task_rel = task_dir_rel / task_file_name
+        task_stem = f"{to_lower_snake(task['slug'])}_{date_underscore}"
+        task_rel = task_dir_rel / f"TASK_{task_stem}.md"
+        prompt_rel = task_dir_rel / f"PROMPT_{task_stem}.md"
+        previous_owner = task_path_owners.get(task_rel)
+        if previous_owner is not None and previous_owner != task["id"]:
+            raise RunnerError(
+                "task artifact path collision: "
+                f"{previous_owner} and {task['id']} both map to "
+                f"{task_rel.as_posix()}"
+            )
+        task_path_owners[task_rel] = task["id"]
+
         task_abs = repo_root / task_rel
         if not task_abs.exists():
             content = task["task_artifact_markdown"].rstrip() + "\n"
             text_write(task_abs, content)
             touched.append(str(task_rel.as_posix()))
-        campaign["materialized"]["task_artifact_paths"][task["id"]] = str(
-            task_rel.as_posix()
-        )
+        task_artifact_paths[task["id"]] = str(task_rel.as_posix())
+
+        prompt_abs = repo_root / prompt_rel
+        if not prompt_abs.exists():
+            content = render_task_prompt_artifact(
+                task,
+                campaign,
+                task_artifact_path=str(task_rel.as_posix()),
+                prompt_artifact_path=str(prompt_rel.as_posix()),
+            )
+            text_write(prompt_abs, content)
+            touched.append(str(prompt_rel.as_posix()))
+        task_prompt_paths[task["id"]] = str(prompt_rel.as_posix())
 
     return touched
 
@@ -899,14 +1253,23 @@ def enforce_scope_guard(
 
 
 def render_audit_prompt(
-    template: str, repo_root: Path, audit_id: str, run_id: str
+    template: str,
+    repo_root: Path,
+    audit_id: str,
+    run_id: str,
+    intention_packet_text: str = DEFAULT_INTENTION_PACKET_TEXT,
 ) -> str:
-    rendered = template
-    rendered = rendered.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(DEFAULT_AUDIT_ID_TOKEN, audit_id)
-    rendered = rendered.replace("{{AUDIT_ID}}", audit_id)
-    rendered = rendered.replace("<RUN_ID>", run_id)
-    rendered = rendered.replace("{{RUN_ID}}", run_id)
+    rendered = replace_template_placeholders(
+        template,
+        {
+            DEFAULT_REPO_ROOT_TOKEN: str(repo_root),
+            DEFAULT_AUDIT_ID_TOKEN: audit_id,
+            "{{AUDIT_ID}}": audit_id,
+            "<RUN_ID>": run_id,
+            "{{RUN_ID}}": run_id,
+            DEFAULT_INTENTION_PACKET_TOKEN: intention_packet_text,
+        },
+    )
 
     if (
         DEFAULT_AUDIT_ID_TOKEN not in template
@@ -921,12 +1284,21 @@ def render_audit_prompt(
 
 
 def render_compiler_prompt(
-    template: str, repo_root: Path, mega_payload: dict[str, Any]
+    template: str,
+    repo_root: Path,
+    mega_payload: dict[str, Any],
+    intention_packet_text: str = DEFAULT_INTENTION_PACKET_TEXT,
 ) -> str:
     mega_json = json.dumps(mega_payload, indent=2, ensure_ascii=False)
-    rendered = template.replace(DEFAULT_REPO_ROOT_TOKEN, str(repo_root))
-    rendered = rendered.replace(DEFAULT_COMPILER_JSON_TOKEN, mega_json)
-    rendered = rendered.replace("<AUDIT_JSON>", mega_json)
+    rendered = replace_template_placeholders(
+        template,
+        {
+            DEFAULT_REPO_ROOT_TOKEN: str(repo_root),
+            DEFAULT_COMPILER_JSON_TOKEN: mega_json,
+            "<AUDIT_JSON>": mega_json,
+            DEFAULT_INTENTION_PACKET_TOKEN: intention_packet_text,
+        },
+    )
     if (
         DEFAULT_COMPILER_JSON_TOKEN not in template
         and "<AUDIT_JSON>" not in template
@@ -1242,8 +1614,9 @@ def run_inputs_payload(
     pass_index: int,
     execute_mode: str,
     provider: str,
+    intention_packet_sha256: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "repo_root": str(repo_root.resolve()),
         "base_ref": base_ref_sha,
         "provider": provider,
@@ -1254,6 +1627,40 @@ def run_inputs_payload(
         "pass_index": pass_index,
         "execute_mode": execute_mode,
     }
+    if intention_packet_sha256 is not None:
+        payload["intention_packet_sha256"] = intention_packet_sha256
+    return payload
+
+
+def fixture_run_inputs_payload(
+    *,
+    repo_root: Path,
+    base_ref_sha: str,
+    audit_schema_file: Path,
+    campaign_set_schema_file: Path,
+    audit_json_file: Path,
+    campaign_json_file: Path,
+    intention_packet_sha256: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "repo_root": str(repo_root.resolve()),
+        "base_ref": base_ref_sha,
+        "provider": "fixture",
+        "execute_mode": "fixture-materialization",
+        "materialization_mode": "fixtures",
+        "provider_invocation": "skipped",
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "audit_schema_sha256": sha256_file(audit_schema_file),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "campaign_set_schema_sha256": sha256_file(campaign_set_schema_file),
+        "audit_json_file": str(audit_json_file.resolve()),
+        "audit_json_sha256": sha256_file(audit_json_file),
+        "campaign_json_file": str(campaign_json_file.resolve()),
+        "campaign_json_sha256": sha256_file(campaign_json_file),
+    }
+    if intention_packet_sha256 is not None:
+        payload["intention_packet_sha256"] = intention_packet_sha256
+    return payload
 
 
 def write_run_meta(
@@ -1275,22 +1682,30 @@ def write_run_meta(
     provider: str,
     provider_models: dict[str, str | None],
     provider_settings_sanitized: list[str],
+    intention_packet_file: Path | None = None,
+    intention_packet_sha256: str | None = None,
 ) -> None:
+    inputs = {
+        "audit_prompt_file": str(audit_prompt_file.resolve()),
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "compiler_prompt_file": str(compiler_prompt_file.resolve()),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "audit_prompt_sha256": hashes.audit_prompt_sha256,
+        "audit_schema_sha256": hashes.audit_schema_sha256,
+        "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
+        "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
+    }
+    if intention_packet_file is not None:
+        inputs["intention_packet_file"] = str(intention_packet_file.resolve())
+    if intention_packet_sha256 is not None:
+        inputs["intention_packet_sha256"] = intention_packet_sha256
+
     payload = {
         "run_id": run_id,
         "audit_id": audit_id,
         "generated_at": now_iso(),
         "resolved_base_ref_sha": base_ref_sha,
-        "inputs": {
-            "audit_prompt_file": str(audit_prompt_file.resolve()),
-            "audit_schema_file": str(audit_schema_file.resolve()),
-            "compiler_prompt_file": str(compiler_prompt_file.resolve()),
-            "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
-            "audit_prompt_sha256": hashes.audit_prompt_sha256,
-            "audit_schema_sha256": hashes.audit_schema_sha256,
-            "compiler_prompt_sha256": hashes.compiler_prompt_sha256,
-            "campaign_set_schema_sha256": hashes.campaign_set_schema_sha256,
-        },
+        "inputs": inputs,
         "cli_args": cli_args,
         "preflight": {
             "git_clean": preflight_clean,
@@ -1303,6 +1718,75 @@ def write_run_meta(
             "name": provider,
             "models": provider_models,
             "settings": provider_settings_sanitized,
+        },
+        "termination_reason": termination_reason,
+    }
+    json_write(path, payload)
+
+
+def write_fixture_run_meta(
+    path: Path,
+    *,
+    run_id: str,
+    audit_id: str,
+    base_ref_sha: str,
+    audit_schema_file: Path,
+    campaign_set_schema_file: Path,
+    audit_json_file: Path,
+    campaign_json_file: Path,
+    cli_args: list[str],
+    preflight_clean: bool,
+    selected_campaign: str | None,
+    selection_rationale: dict[str, Any] | None,
+    termination_reason: str,
+    run_inputs: dict[str, Any],
+    intention_packet_file: Path | None = None,
+    intention_packet_sha256: str | None = None,
+) -> None:
+    inputs: dict[str, Any] = {
+        "audit_schema_file": str(audit_schema_file.resolve()),
+        "audit_schema_sha256": sha256_file(audit_schema_file),
+        "campaign_set_schema_file": str(campaign_set_schema_file.resolve()),
+        "campaign_set_schema_sha256": sha256_file(campaign_set_schema_file),
+        "audit_json_file": str(audit_json_file.resolve()),
+        "audit_json_sha256": sha256_file(audit_json_file),
+        "campaign_json_file": str(campaign_json_file.resolve()),
+        "campaign_json_sha256": sha256_file(campaign_json_file),
+    }
+    if intention_packet_file is not None:
+        inputs["intention_packet_file"] = str(intention_packet_file.resolve())
+    if intention_packet_sha256 is not None:
+        inputs["intention_packet_sha256"] = intention_packet_sha256
+
+    payload = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "generated_at": now_iso(),
+        "resolved_base_ref_sha": base_ref_sha,
+        "inputs": inputs,
+        "run_inputs": run_inputs,
+        "cli_args": cli_args,
+        "preflight": {
+            "git_clean": preflight_clean,
+        },
+        "selection": {
+            "selected_campaign": selected_campaign,
+            "rationale": selection_rationale,
+        },
+        "provider": {
+            "name": "fixture",
+            "invocation_skipped": True,
+            "models": {},
+            "settings": [],
+        },
+        "fixture_materialization": {
+            "enabled": True,
+            "provider_invocation_skipped": True,
+            "audit_json_file": str(audit_json_file.resolve()),
+            "campaign_json_file": str(campaign_json_file.resolve()),
+            "intention_packet_file": str(intention_packet_file.resolve())
+            if intention_packet_file is not None
+            else None,
         },
         "termination_reason": termination_reason,
     }
@@ -1372,6 +1856,162 @@ def update_campaign_completion(campaign: dict[str, Any]) -> None:
     )
 
 
+def run_fixture_materialization(
+    args: argparse.Namespace,
+    *,
+    base_ref_sha: str,
+    cli_args: list[str],
+) -> dict[str, Any]:
+    repo_root = args.repo_root
+    preflight_clean = git_is_clean(repo_root, args.debug)
+    if not preflight_clean:
+        raise RunnerError("preflight failed: git tree is not clean")
+
+    intention_packet_sha256 = None
+    if args.intention_packet_file is not None:
+        intention_packet_sha256 = sha256_text(
+            load_intention_packet(args.intention_packet_file)
+        )
+
+    audit_payload = read_schema_validated_json(
+        args.audit_json_file,
+        args.audit_schema_file,
+        "audit JSON",
+    )
+    campaign_set_payload = read_schema_validated_json(
+        args.campaign_json_file,
+        args.campaign_set_schema_file,
+        "campaign JSON",
+    )
+
+    audit_id = str(audit_payload.get("audit_id") or "").strip()
+    stage_b_audit_id = str(campaign_set_payload.get("audit_id") or "").strip()
+    if stage_b_audit_id != audit_id:
+        raise RunnerError(
+            "Fixture audit_id mismatch. "
+            f"audit_json={audit_id} campaign_json={stage_b_audit_id}"
+        )
+    run_id = audit_id.removeprefix("AUDIT_")
+
+    run_inputs = fixture_run_inputs_payload(
+        repo_root=repo_root,
+        base_ref_sha=base_ref_sha,
+        audit_schema_file=args.audit_schema_file,
+        campaign_set_schema_file=args.campaign_set_schema_file,
+        audit_json_file=args.audit_json_file,
+        campaign_json_file=args.campaign_json_file,
+        intention_packet_sha256=intention_packet_sha256,
+    )
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    audit_dir_rel = DEFAULT_AUDITS_DIR / today_iso / audit_id
+    audit_dir_abs = repo_root / audit_dir_rel
+    audit_dir_abs.mkdir(parents=True, exist_ok=True)
+    json_write(audit_dir_abs / "run_inputs.json", run_inputs)
+    json_write(audit_dir_abs / "audit_output.json", audit_payload)
+    json_write(audit_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    state = load_state(repo_root)
+    previous_sha = state_hash(state)
+    merge_stats = merge_campaign_set(
+        state, campaign_set_payload, audit_id=audit_id
+    )
+
+    selection = select_campaign(state)
+    selected_campaign_slug = selection.campaign_slug if selection else "none"
+    selected_campaign_id = selection.campaign_id if selection else None
+    selection_reason = selection.reason if selection else None
+
+    run_dir_rel = DEFAULT_RUNS_DIR / today_iso / selected_campaign_slug / run_id
+    run_dir_abs = repo_root / run_dir_rel
+    run_dir_abs.mkdir(parents=True, exist_ok=True)
+    json_write(run_dir_abs / "run_inputs.json", run_inputs)
+    json_write(run_dir_abs / "campaign_set_output.json", campaign_set_payload)
+
+    materialized_paths: list[str] = []
+    termination_reason = "fixture_materialization_no_campaign_selected"
+    if selection is None:
+        if merge_stats["campaigns"] == 0 and merge_stats["tasks"] == 0:
+            termination_reason = "fixture_materialization_no_campaigns"
+        else:
+            termination_reason = "fixture_materialization_no_eligible_campaigns"
+    else:
+        campaign = state["campaigns"][selection.campaign_id]
+        materialized_paths = materialize_campaign_artifacts(repo_root, campaign)
+        update_campaign_completion(campaign)
+        termination_reason = "fixture_materialization_selected_campaign_materialized"
+
+    post_state_sha = state_hash(state)
+    save_state(repo_root, state)
+    append_transition(
+        repo_root,
+        run_id=run_id,
+        pass_index=1,
+        reason="fixture_materialization_complete",
+        previous_state_sha=previous_sha,
+        post_state_sha=post_state_sha,
+    )
+
+    run_trace = {
+        "run_id": run_id,
+        "audit_id": audit_id,
+        "pass_index": 1,
+        "base_ref_sha": base_ref_sha,
+        "generated_at": now_iso(),
+        "merge_stats": merge_stats,
+        "selection": {
+            "campaign_id": selected_campaign_id,
+            "campaign_slug": selected_campaign_slug,
+            "reason": selection_reason,
+        },
+        "events": [
+            {
+                "type": "fixture_materialization",
+                "provider_invocation_skipped": True,
+                "materialized_paths": materialized_paths,
+            }
+        ],
+        "termination_reason": termination_reason,
+    }
+    json_write(run_dir_abs / "execution_trace.json", run_trace)
+
+    meta_kwargs = dict(
+        run_id=run_id,
+        audit_id=audit_id,
+        base_ref_sha=base_ref_sha,
+        audit_schema_file=args.audit_schema_file,
+        campaign_set_schema_file=args.campaign_set_schema_file,
+        audit_json_file=args.audit_json_file,
+        campaign_json_file=args.campaign_json_file,
+        cli_args=cli_args,
+        preflight_clean=preflight_clean,
+        selected_campaign=selected_campaign_id,
+        selection_rationale=selection_reason,
+        termination_reason=termination_reason,
+        run_inputs=run_inputs,
+        intention_packet_file=args.intention_packet_file,
+        intention_packet_sha256=intention_packet_sha256,
+    )
+    write_fixture_run_meta(audit_dir_abs / "run_meta.json", **meta_kwargs)
+    write_fixture_run_meta(run_dir_abs / "run_meta.json", **meta_kwargs)
+
+    summary = {
+        "mode": "fixture_materialization",
+        "provider_invocation_skipped": True,
+        "audit_id": audit_id,
+        "run_id": run_id,
+        "selected_campaign": selected_campaign_id,
+        "materialized_paths": materialized_paths,
+        "termination_reason": termination_reason,
+    }
+    log(
+        "Fixture materialization complete; provider invocation was skipped "
+        "because --materialize-from-fixtures was used."
+    )
+    log(json.dumps(summary, indent=2, ensure_ascii=False))
+    return summary
+
+
 def run_pass(
     args: argparse.Namespace,
     *,
@@ -1393,6 +2033,12 @@ def run_pass(
         compiler_prompt_sha256=sha256_file(args.compiler_prompt_file),
         campaign_set_schema_sha256=sha256_file(args.campaign_set_schema_file),
     )
+    intention_packet_text = load_intention_packet(args.intention_packet_file)
+    intention_packet_sha256 = (
+        sha256_text(intention_packet_text)
+        if args.intention_packet_file is not None
+        else None
+    )
 
     run_inputs = run_inputs_payload(
         repo_root=repo_root,
@@ -1403,6 +2049,7 @@ def run_pass(
         if args.execute and not args.dry_run
         else "dry-run",
         provider=args.provider,
+        intention_packet_sha256=intention_packet_sha256,
     )
     run_id = sha256_text(canonical_json(run_inputs))[:12]
     audit_id = f"AUDIT_{run_id}"
@@ -1415,7 +2062,11 @@ def run_pass(
 
     audit_prompt_template = args.audit_prompt_file.read_text(encoding="utf-8")
     audit_prompt_text = render_audit_prompt(
-        audit_prompt_template, repo_root, audit_id, run_id
+        audit_prompt_template,
+        repo_root,
+        audit_id,
+        run_id,
+        intention_packet_text,
     )
     text_write(audit_dir_abs / "audit_input_prompt.md", audit_prompt_text)
 
@@ -1440,7 +2091,10 @@ def run_pass(
 
     compiler_template = args.compiler_prompt_file.read_text(encoding="utf-8")
     compiler_prompt_text = render_compiler_prompt(
-        compiler_template, repo_root, audit_payload
+        compiler_template,
+        repo_root,
+        audit_payload,
+        intention_packet_text,
     )
     text_write(audit_dir_abs / "compiler_input_prompt.md", compiler_prompt_text)
 
@@ -1520,6 +2174,8 @@ def run_pass(
         provider=args.provider,
         provider_models=active_models,
         provider_settings_sanitized=active_settings_sanitized,
+        intention_packet_file=args.intention_packet_file,
+        intention_packet_sha256=intention_packet_sha256,
     )
     write_run_meta(audit_dir_abs / "run_meta.json", **run_meta_kwargs)
     write_run_meta(run_dir_abs / "run_meta.json", **run_meta_kwargs)
@@ -1562,6 +2218,7 @@ def run_pass(
                 discovery_task = {
                     "id": discovery_task_id,
                     "slug": "discovery",
+                    "task_lane": "discovery",
                     "area": "docs",
                     "risk": "LOW",
                     "files": [],
@@ -1838,15 +2495,24 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Absolute path to repo root",
     )
-    parser.add_argument("--audit-prompt-file", type=Path, required=True)
-    parser.add_argument("--audit-schema-file", type=Path, required=True)
-    parser.add_argument("--compiler-prompt-file", type=Path, required=True)
-    parser.add_argument("--campaign-set-schema-file", type=Path, required=True)
+    parser.add_argument("--audit-prompt-file", type=Path)
+    parser.add_argument("--audit-schema-file", type=Path)
+    parser.add_argument("--compiler-prompt-file", type=Path)
+    parser.add_argument("--campaign-set-schema-file", type=Path)
+    parser.add_argument(
+        "--intention-packet-file",
+        type=Path,
+        default=None,
+        help="Optional UTF-8 markdown intention packet for Stage A and Stage B",
+    )
     parser.add_argument(
         "--task-result-schema-file",
         type=Path,
         default=DEFAULT_TASK_RESULT_SCHEMA_PATH,
     )
+    parser.add_argument("--materialize-from-fixtures", action="store_true")
+    parser.add_argument("--audit-json-file", type=Path, default=None)
+    parser.add_argument("--campaign-json-file", type=Path, default=None)
 
     parser.add_argument("--passes", type=int, default=1)
     parser.add_argument("--base-ref", default="HEAD")
@@ -1901,15 +2567,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
 
     args.repo_root = args.repo_root.expanduser().resolve()
-    args.audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
-    args.audit_schema_file = args.audit_schema_file.expanduser().resolve()
-    args.compiler_prompt_file = args.compiler_prompt_file.expanduser().resolve()
-    args.campaign_set_schema_file = (
-        args.campaign_set_schema_file.expanduser().resolve()
-    )
+    if args.audit_prompt_file is not None:
+        args.audit_prompt_file = args.audit_prompt_file.expanduser().resolve()
+    if args.audit_schema_file is not None:
+        args.audit_schema_file = args.audit_schema_file.expanduser().resolve()
+    if args.compiler_prompt_file is not None:
+        args.compiler_prompt_file = (
+            args.compiler_prompt_file.expanduser().resolve()
+        )
+    if args.campaign_set_schema_file is not None:
+        args.campaign_set_schema_file = (
+            args.campaign_set_schema_file.expanduser().resolve()
+        )
+    if args.intention_packet_file is not None:
+        args.intention_packet_file = (
+            args.intention_packet_file.expanduser().resolve()
+        )
     args.task_result_schema_file = (
         args.task_result_schema_file.expanduser().resolve()
     )
+    if args.audit_json_file is not None:
+        args.audit_json_file = args.audit_json_file.expanduser().resolve()
+    if args.campaign_json_file is not None:
+        args.campaign_json_file = args.campaign_json_file.expanduser().resolve()
 
     if args.passes < 1:
         raise RunnerError("--passes must be >= 1")
@@ -1923,22 +2603,61 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.verify is None:
         args.verify = default_verify(os.environ.get("CI"))
 
-    if not args.auto_commit:
+    if not args.auto_commit and not args.materialize_from_fixtures:
         raise RunnerError(
             "--no-auto-commit is not supported in deterministic mode. "
             "Use --auto-commit to preserve clean-tree invariants."
         )
 
-    required_paths = [
-        args.audit_prompt_file,
-        args.audit_schema_file,
-        args.compiler_prompt_file,
-        args.campaign_set_schema_file,
-        args.task_result_schema_file,
-    ]
+    if getattr(args, "materialize_from_fixtures", False):
+        if args.audit_json_file is None:
+            raise RunnerError(
+                "--materialize-from-fixtures requires --audit-json-file"
+            )
+        if args.campaign_json_file is None:
+            raise RunnerError(
+                "--materialize-from-fixtures requires --campaign-json-file"
+            )
+        if args.audit_schema_file is None:
+            args.audit_schema_file = DEFAULT_MEGA_AUDIT_SCHEMA_PATH.resolve()
+        if args.campaign_set_schema_file is None:
+            args.campaign_set_schema_file = (
+                DEFAULT_CAMPAIGN_SET_SCHEMA_PATH.resolve()
+            )
+        required_paths = [
+            args.audit_schema_file,
+            args.campaign_set_schema_file,
+            args.audit_json_file,
+            args.campaign_json_file,
+        ]
+    else:
+        missing_flags = []
+        if args.audit_prompt_file is None:
+            missing_flags.append("--audit-prompt-file")
+        if args.audit_schema_file is None:
+            missing_flags.append("--audit-schema-file")
+        if args.compiler_prompt_file is None:
+            missing_flags.append("--compiler-prompt-file")
+        if args.campaign_set_schema_file is None:
+            missing_flags.append("--campaign-set-schema-file")
+        if missing_flags:
+            raise RunnerError(
+                "Missing required CLI flags: " + ", ".join(missing_flags)
+            )
+        required_paths = [
+            args.audit_prompt_file,
+            args.audit_schema_file,
+            args.compiler_prompt_file,
+            args.campaign_set_schema_file,
+            args.task_result_schema_file,
+        ]
     for path in required_paths:
         if not path.exists():
             raise RunnerError(f"Required file not found: {path}")
+        if path.is_dir():
+            raise RunnerError(f"Required file is a directory: {path}")
+    if args.intention_packet_file is not None:
+        validate_intention_packet_file(args.intention_packet_file)
 
     return args
 
@@ -1999,10 +2718,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(resolved_argv)
 
     ensure_repo_root(args.repo_root, args.debug)
-    ensure_provider_available(args.provider)
 
     base_ref_sha = git_resolve_ref(args.repo_root, args.base_ref, args.debug)
     cli_args = sanitize_cli_args(resolved_argv)
+
+    if getattr(args, "materialize_from_fixtures", False):
+        run_fixture_materialization(
+            args,
+            base_ref_sha=base_ref_sha,
+            cli_args=cli_args,
+        )
+        return 0
+
+    ensure_provider_available(args.provider)
 
     for pass_index in range(1, args.passes + 1):
         run_pass(

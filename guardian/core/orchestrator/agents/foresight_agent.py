@@ -7,7 +7,10 @@ health data, and optionally calendar events or behavior patterns.
 import logging
 from typing import Any
 
-from memoryos.memoryos import Memoryos
+try:
+    from memoryos.memoryos import Memoryos
+except ImportError:
+    Memoryos = None  # type: ignore
 
 ForesightResponse = dict[str, Any]
 

@@ -1,20 +1,33 @@
 # guardian/core/client_factory.py
 from functools import lru_cache
+import logging
 
-from memoryos.embedders.factory import build_memoryos_embedder
-from memoryos.memoryos import Memoryos
-from memoryos.utils import DEFAULT_GROQ_BASE_URL, build_llm_client
+logger = logging.getLogger(__name__)
+
+try:
+    from memoryos.embedders.factory import build_memoryos_embedder
+    from memoryos.memoryos import Memoryos
+    from memoryos.utils import DEFAULT_GROQ_BASE_URL, build_llm_client
+    _HAVE_MEMORYOS = True
+except ImportError:
+    _HAVE_MEMORYOS = False
+    Memoryos = None  # type: ignore
+    build_memoryos_embedder = None  # type: ignore
+    build_llm_client = None  # type: ignore
+    DEFAULT_GROQ_BASE_URL = "https://api.groq.com"
+    logger.warning("memoryos not installed — memory/embedder features unavailable")
 
 from .config import settings, validate_embedding_provider_config
 
 
 @lru_cache(maxsize=1)
-def get_memoryos_instance() -> Memoryos:
+def get_memoryos_instance() -> "Memoryos | None":
     """
     Factory to create and return a singleton Memoryos instance.
-    It uses the Pydantic settings object for all configuration,
-    including the LLM provider and the embedder.
+    Returns None if memoryos is not installed.
     """
+    if not _HAVE_MEMORYOS:
+        return None
     # --- LLM Client Configuration ---
     provider = settings.LLM_PROVIDER.lower().strip()
     if provider == "groq":

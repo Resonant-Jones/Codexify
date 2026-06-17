@@ -121,6 +121,67 @@ describe("ProviderSelect catalog routing", () => {
     expect(onChange).toHaveBeenCalledWith("llama-3.1-70b-versatile");
   });
 
+  it("shows Whoosh'd profile-backed local models as selectable model entries", async () => {
+    (api.get as any).mockResolvedValue({
+      data: {
+        providers: [
+          {
+            id: "local",
+            displayName: "Whoosh'd",
+            enabled: true,
+            authorized: true,
+            available: true,
+            source: {
+              kind: "local",
+              baseUrl: "http://host.docker.internal:8000/v1",
+              label: "host.docker.internal:8000",
+              vendor: "whooshd",
+            },
+            models: [
+              {
+                id: "mlx-community/gemma-4-e2b-it-4bit",
+                displayName: "Gemma 4 E2B Instruct 4-bit",
+                profile_id: "gemma-4-e2b-it-4bit",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: true,
+                model_kind: "vision_chat",
+                release_supported: false,
+              },
+              {
+                id: "mlx-community/gemma-4-12B-it-OptiQ-4bit",
+                displayName: "Gemma 4 12B Instruct OptiQ 4-bit",
+                profile_id: "gemma-4-12b-it-optiq-4bit",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: false,
+                model_kind: "chat",
+                release_supported: false,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const onChange = vi.fn();
+    render(<ProviderSelect value="default" onChange={onChange} openSignal={1} />);
+
+    const whooshdButton = await screen.findByRole("button", {
+      name: "Whoosh'd",
+    });
+    expect(whooshdButton).toBeInTheDocument();
+    fireEvent.click(whooshdButton);
+
+    expect(await screen.findByText("Gemma 4 E2B Instruct 4-bit")).toBeInTheDocument();
+    expect(screen.getByText("Gemma 4 12B Instruct OptiQ 4-bit")).toBeInTheDocument();
+
+    fireEvent.click(providerButton("Gemma 4 12B Instruct OptiQ 4-bit"));
+    expect(onChange).toHaveBeenCalledWith(
+      "mlx-community/gemma-4-12B-it-OptiQ-4bit"
+    );
+  });
+
   it("refreshes catalog on a new open signal and removes unauthorized providers", async () => {
     const initialCatalog = {
       data: {
@@ -188,6 +249,52 @@ describe("ProviderSelect catalog routing", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Groq" })).not.toBeInTheDocument();
     });
+  });
+
+  it("does not treat proof-required local model profiles as selectable chat models", async () => {
+    (api.get as any).mockResolvedValue({
+      data: {
+        providers: [
+          {
+            id: "local",
+            displayName: "Whoosh'd",
+            enabled: true,
+            authorized: true,
+            available: true,
+            source: {
+              kind: "local",
+              baseUrl: "http://host.docker.internal:11434/v1",
+              label: "host.docker.internal:11434",
+            },
+            models: [
+              {
+                id: "mlx-community/gemma-4-12B-it-OptiQ-4bit",
+                displayName: "Gemma 4 12B Instruct OptiQ 4-bit",
+                supports_chat: true,
+                model_kind: "chat",
+                release_supported: false,
+                release_posture: {
+                  status: "candidate",
+                  release_supported: false,
+                  proof_required: true,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    render(<ProviderSelect value="default" onChange={vi.fn()} openSignal={1} />);
+
+    const localProvider = await screen.findByRole("button", {
+      name: "Whoosh'd",
+    });
+    expect(localProvider).toBeDisabled();
+    expect(screen.getByText("No chat models")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Gemma 4 12B Instruct OptiQ 4-bit")
+    ).not.toBeInTheDocument();
   });
 
   it("shows a visible error when the provider catalog request fails", async () => {
