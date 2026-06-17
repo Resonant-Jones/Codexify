@@ -1031,3 +1031,46 @@ Total                             24 passed
 
 - **Decision**: `go`
 - **Reason**: Work-order latest-run readback route works. Operator can now resolve `work_order_id` → `latest_run_id` → full CommandRun in one API call. Missing WO, no-run, and broken pointer all fail closed. No raw args exposed. Work-order status unchanged. Route remains internal-only.
+
+---
+
+## C03-T010: Work-Order Result Receipt Contract (2026-06-18 01:15 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `cc9bdea9f` — feat: expose Guardian work-order latest run readback
+- **Worktree**: Clean
+
+### Files Modified
+
+- `docs/Campaign/guardian-maturity/campaigns/C03-coding-delegation-spine/work-order-result-receipt-contract.md` — new contract document
+- `docs/Campaign/guardian-maturity/campaigns/C03-coding-delegation-spine/backlog.md` — updated with T010-T015
+
+### Contract Scope
+
+Defines bounded future semantics for work-order result receipts derived from linked CommandRun records. Docs-only — no implementation.
+
+### Receipt Semantics Summary
+
+A receipt is an immutable observation record. It points to a work order and optionally a CommandRun. It captures observed status/result/error. It does not execute, mutate, complete, or create artifacts.
+
+### Candidate Fields
+
+17 candidate fields: `receipt_id`, `work_order_id`, `command_run_id`, `receipt_kind`, `observed_command_id`, `observed_run_status`, `observed_result_summary`, `observed_error_text`, `created_at`, `created_by`, `source_thread_id`, `source_message_id`, `provenance`, `integrity_hash`, `schema_version`, plus optional `artifact_ids`, `review_state`, `operator_note`, `redaction_summary`.
+
+### Candidate Tokens (Docs-Only)
+
+- Receipt kinds: `command_run_observation`, `pi_harness_observation`, `manual_operator_note`
+- Review states: `unreviewed`, `accepted`, `rejected`, `superseded`
+- Creation states: `created`, `failed`, `blocked`
+
+### Safety Boundaries
+
+- Receipt creation must not execute a command, call Pi/Coder, mutate files, imply completion, or expose raw args/secrets.
+- Receipt creation must fail closed if work-order/run relationship cannot be validated.
+
+### C03-T010 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: The receipt contract is clear, bounded, and docs-only. No runtime behavior is claimed. Receipts are explicitly distinct from CommandRuns, artifacts, Pi/Coder receipts, and work-order completion. Candidate tokens are marked docs-only. Future implementation sequence (T011-T015) is scoped. Release boundary preserved.
