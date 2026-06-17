@@ -195,6 +195,7 @@ def test_complete_recovers_orphaned_turn_lock(
 ):
     captured: dict[str, object] = {}
     acquire_calls = {"count": 0}
+    orphan_events: list[dict[str, object]] = []
 
     def _acquire(*args, **kwargs):
         acquire_calls["count"] += 1
@@ -236,6 +237,12 @@ def test_complete_recovers_orphaned_turn_lock(
             {"task": task, "queue_name": queue_name}
         ),
     )
+    monkeypatch.setattr(
+        "guardian.routes.chat.event_bus.emit_event",
+        lambda event_name, payload: orphan_events.append(
+            {"name": event_name, "payload": dict(payload)}
+        ),
+    )
 
     response = test_client.post("/chat/1/complete", json={})
 
@@ -250,6 +257,15 @@ def test_complete_recovers_orphaned_turn_lock(
     task = captured["task"]
     assert getattr(task, "turn_lock_owner") == getattr(task, "task_id")
     assert getattr(task, "turn_lock")["turn_id"]
+
+    # ── Orphan event assertions ────────────────────────────────────
+    assert len(orphan_events) == 1
+    orphan = orphan_events[0]
+    assert orphan["name"] == "chat.orphaned_turn_recovered"
+    assert orphan["payload"]["thread_id"] == 1
+    assert orphan["payload"]["owner_task_id"] == "task-stale"
+    assert orphan["payload"]["lifecycle_state"] == "orphaned"
+    assert orphan["payload"]["recovery_reason"] == "terminal_task_event"
 
 
 @pytest.mark.parametrize("worker_state", ["stale", "missing"])
@@ -334,6 +350,13 @@ def test_complete_denies_recovery_when_worker_fresh(
     )
     clear_spy = MagicMock(return_value=False)
     monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+    orphan_events: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "guardian.routes.chat.event_bus.emit_event",
+        lambda event_name, payload: orphan_events.append(
+            {"name": event_name, "payload": dict(payload)}
+        ),
+    )
 
     response = test_client.post("/chat/1/complete", json={})
 
@@ -341,6 +364,7 @@ def test_complete_denies_recovery_when_worker_fresh(
     assert response.json()["detail"] == "turn_in_flight"
     clear_spy.assert_not_called()
     mock_db.write_audit_log.assert_not_called()
+    assert len(orphan_events) == 0  # no orphan event on denied recovery
 
 
 def test_complete_denies_recovery_on_unknown_terminal_state(
@@ -390,6 +414,13 @@ def test_complete_keeps_active_turn_lock_in_place(
     )
     clear_spy = MagicMock(return_value=False)
     monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+    orphan_events: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "guardian.routes.chat.event_bus.emit_event",
+        lambda event_name, payload: orphan_events.append(
+            {"name": event_name, "payload": dict(payload)}
+        ),
+    )
 
     response = test_client.post("/chat/1/complete", json={})
 
@@ -397,3 +428,4 @@ def test_complete_keeps_active_turn_lock_in_place(
     assert response.json()["detail"] == "turn_in_flight"
     clear_spy.assert_not_called()
     mock_db.write_audit_log.assert_not_called()
+    assert len(orphan_events) == 0  # no orphan event on active lock
