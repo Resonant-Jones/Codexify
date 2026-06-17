@@ -1964,6 +1964,96 @@ def discover_local_model_inventory(
     return deduped, resolution
 
 
+# ── ThreadWake segment metadata emission (Whoosh'd Phase F integration) ───
+
+def _build_threadwake_segments(
+    messages: list[dict],
+    *,
+    settings: Settings | None = None,
+) -> list[dict] | None:
+    """Build ThreadWake segment metadata from adapted messages.
+
+    Returns a list of segment dicts, or None if threadwake segments
+    are not enabled or the provider is not Whoosh'd.
+    """
+    if settings is None:
+        return None
+    if not getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False):
+        return None
+    vendor = getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+    if vendor != "whooshd":
+        return None
+
+    import hashlib
+    import json as _json
+
+    segments: list[dict] = []
+    for idx, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        name = msg.get("name", f"message:{idx}:{role}")
+
+        # Deterministic content hash
+        canonical = _json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        content_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+        # Segment type inference
+        if role == "system":
+            segment_type = "system"
+            stability = "stable"
+            scope = "user"
+        elif role == "tool":
+            segment_type = "tool_output"
+            stability = "dynamic"
+            scope = "request"
+        elif role == "user":
+            segment_type = "user"
+            stability = "dynamic"  # Latest user is always dynamic
+            scope = "request"
+        elif role == "assistant":
+            segment_type = "thread"
+            stability = "semi_stable"
+            scope = "thread"
+        else:
+            segment_type = "unknown"
+            stability = "dynamic"
+            scope = "thread"
+
+        segments.append({
+            "name": name,
+            "message_index": idx,
+            "segment_type": segment_type,
+            "stability": stability,
+            "scope": scope,
+            "content_hash": content_hash,
+            "cacheable": stability != "dynamic",
+        })
+
+    return segments
+
+
+def _build_threadwake_config(settings: Settings | None = None) -> dict | None:
+    """Build the threadwake config block for the request payload."""
+    if settings is None:
+        return None
+    if not getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False):
+        return None
+    vendor = getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+    if vendor != "whooshd":
+        return None
+
+    mode = getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_MODE", "observe") or "observe"
+    scope = getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SCOPE", "thread") or "thread"
+
+    return {
+        "enabled": True,
+        "mode": mode,
+        "scope": scope,
+    }
+
+
 def call_local(
     messages,
     model: str,
@@ -2007,6 +2097,15 @@ def call_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
+
+    # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
+    tw_config = _build_threadwake_config(settings)
+    tw_segments = _build_threadwake_segments(adapted_messages, settings=settings)
+    if tw_config is not None:
+        payload["threadwake"] = tw_config
+    if tw_segments is not None:
+        payload["threadwake_segments"] = tw_segments
+
     base_urls = _resolve_local_base_candidates(settings)
 
     # Routing policy:
@@ -2258,6 +2357,15 @@ def stream_local(
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
+
+    # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
+    tw_config = _build_threadwake_config(settings)
+    tw_segments = _build_threadwake_segments(adapted_messages, settings=settings)
+    if tw_config is not None:
+        payload["threadwake"] = tw_config
+    if tw_segments is not None:
+        payload["threadwake_segments"] = tw_segments
+
     base_urls = _resolve_local_base_candidates(settings)
 
     timeout = runtime_policy.request_timeout

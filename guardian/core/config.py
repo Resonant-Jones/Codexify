@@ -290,6 +290,22 @@ class Settings(BaseSettings):
         default=_DEFAULT_WHOOSHD_MODEL,
         description="Local chat model identifier used by supported profile validation.",
     )
+    CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "When true, emit threadwake segment metadata to Whoosh'd local provider "
+            "so Whoosh'd can identify cacheable prompt layers. "
+            "Only takes effect when LOCAL_PROVIDER_VENDOR is 'whooshd'."
+        ),
+    )
+    CODEXIFY_WHOOSHD_THREADWAKE_MODE: str = Field(
+        default="observe",
+        description="Default ThreadWake mode when segments are enabled (observe | ephemeral | session).",
+    )
+    CODEXIFY_WHOOSHD_THREADWAKE_SCOPE: str = Field(
+        default="thread",
+        description="Default ThreadWake scope when segments are enabled (thread | project | user).",
+    )
     LOCAL_EMBEDDING_MODEL: str | None = Field(
         default=None,
         description=(
