@@ -723,3 +723,44 @@ Actor spec `{"kind": "system", "id": "local"}` accepted. `auth_subject: "local"`
 ### Recommended Next Task
 
 **C03-T007: Delegate work-order execution through command bus with result-return proof.** Now that work orders can link to command runs, the next step is to create a work order, invoke a command through it, read back the command result, and record the result as a work order execution artifact.
+
+---
+
+## C03-T006-R1: Fail-Closed Linkage Repair (2026-06-17 23:55 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `dc6887307` — feat: link Guardian work orders to command runs
+- **Worktree**: Clean
+
+### Invalid-Linkage Bug
+
+C03-T006 silently skipped linkage when `work_order_id` was invalid (nonexistent or malformed). The command executed regardless, creating a CommandRun with no work-order trace.
+
+### Repair
+
+Moved work-order validation BEFORE command run creation in `execute_invoke()`. When `work_order_id` is supplied:
+1. Format validation via regex `^wo_[a-f0-9]{16}$` → malformed → 422 `work_order_id_malformed`
+2. DB lookup via `WorkOrderStore.get_work_order()` → not found → 404 `work_order_not_found`
+3. If store unavailable → 400 `work_order_linkage_unavailable`
+
+All failures halt before `store.create_run()` — the command target never executes.
+
+### Files Modified
+
+- `guardian/command_bus/invoke.py` — added `_is_valid_work_order_id_format()`, moved validation before run creation, removed silent skip
+
+### Runtime Proof
+
+| Scenario | Result |
+|----------|--------|
+| Valid `work_order_id` | `run_id: run_38133fb94f1f448e`, `latest_run_id` populated, status: draft |
+| Nonexistent (valid format `wo_ffffffffffffffff`) | `work_order_not_found`, no run_id, no execution |
+| Malformed (`not-a-valid-wo-id`) | `work_order_id_malformed`, no run_id, no execution |
+| No `work_order_id` | `run_id: run_e30791a63c69466f`, normal invocation |
+
+### C03-T006-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Fail-closed behavior proven for all invalid linkage cases. Nonexistent and malformed work_order_id both halt before command execution. Valid linkage preserved. No-link invocation preserved. Work order status preserved.
