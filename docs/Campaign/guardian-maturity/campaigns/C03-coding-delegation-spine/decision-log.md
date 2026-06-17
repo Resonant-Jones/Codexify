@@ -8,6 +8,7 @@
 | C03-D002 | 2026-06-17 | `next-proof-needed` — route is `source_present_but_feature_gated_off`; blocked by supported profile posture | active |
 | C03-D003 | 2026-06-17 | `go` — coding work-order CRUD runtime-available under internal-only posture | active |
 | C03-D004 | 2026-06-17 | `go` — work-order artifact contract fully classified; 7 ADR-020 fields present, 5 absent | active |
+| C03-D005 | 2026-06-17 | `next-proof-needed` — command bus boundary classified; 0 commands registered, invocation unprovable | active |
 
 ---
 
@@ -146,3 +147,36 @@
   - New fields are added to `WorkOrderCreate` or `WorkOrderContract`.
   - Execution semantics are added to the POST route.
   - `latest_run_id` or `latest_receipt_id` are populated by a new worker or route.
+
+---
+
+### Decision: C03-D005
+
+- **Decision ID**: C03-D005
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `next-proof-needed`. The command bus boundary is fully classified across 29 dimensions, but the command manifest is empty (0 commands registered). Invocation proof is impossible without at least one registered command. Work-order run linkage (`latest_run_id`) is source-only — field exists but is never populated at runtime.
+- **Reason**:
+  - `GET /api/command-bus/manifest` → `{"commands":[]}` — 0 commands registered.
+  - Command bus route is mounted as internal_only with auth boundary proven.
+  - `CommandRun` and `CommandRunEvent` models provide durable Postgres storage with idempotency enforcement.
+  - Command bus does NOT invoke Pi/Coder, execute shell commands, or mutate repositories in its current state.
+  - `latest_run_id` exists on work orders but is a loose string — no FK, no runtime population, no back-reference from CommandRun.
+  - Legacy tools route has no command_bus references — no bypass or delegation relationship.
+  - Frontend does not conflate command bus with coding-agent execution.
+  - Safe invocation requires at least one registered read-only command — currently impossible.
+- **Evidence**:
+  - `GET /api/command-bus/manifest` — 0 commands.
+  - `guardian/routes/command_bus.py` — 5 endpoint types, mounted as internal_only.
+  - `guardian/db/models.py:3937-4018` — CommandRun + CommandRunEvent durable models.
+  - `guardian/command_bus/contracts.py` — InvokePermissionProfile with actor chain.
+  - `guardian/agents/work_orders.py:311-312` — latest_run_id field.
+  - `guardian/routes/tools.py` — no command_bus references.
+  - 6 existing test files for command bus (phase1_invoke, manifest, events, etc.).
+- **Consequence**:
+  - C03-T004 cannot advance to `go` until at least one command is registered.
+  - Command registration is the prerequisite for invocation proof, work-order run linkage, and coding delegation execution proof.
+  - The existing test files provide a foundation for registration and invocation testing.
+- **Revisit Trigger**:
+  - At least one command is registered in the manifest.
+  - Safe invocation produces a CommandRun with run_id.
+  - `latest_run_id` is populated on a work order by a runtime code path.
