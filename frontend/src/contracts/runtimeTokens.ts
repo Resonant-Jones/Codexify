@@ -240,6 +240,9 @@ export const CHAT_REQUEST_STATES = {
   ORPHANED: "orphaned",
 } as const;
 
+/** Backend event name for chat orphan turn recovery. */
+export const CHAT_ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered";
+
 export type ChatRequestState =
   (typeof CHAT_REQUEST_STATES)[keyof typeof CHAT_REQUEST_STATES];
 
