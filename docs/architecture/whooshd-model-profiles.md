@@ -1,20 +1,13 @@
-Purpose: Define the bounded Whoosh'd local model profile registry without changing provider routing, catalog behavior, runtime selection, health semantics, or release posture.
-Last updated: 2026-06-08
-Source anchors:
-- config/whooshd/model-profiles/
-- scripts/validate_whooshd_model_profiles.py
-- docs/architecture/00-current-state.md
-- docs/architecture/config-and-ops.md
-- docs/architecture/chat-runtime-contract.md
-- docs/architecture/runtime-protocol-token-contract.md
-
 # Whoosh'd Model Profiles
 
 ## Purpose
 
-Whoosh'd model profiles are data-only local runtime descriptors for MLX-backed local models.
+Whoosh'd model profiles are data-only local runtime descriptors for MLX-backed
+local models.
 
-The registry gives future local model work a small file-backed place to record model identity, runtime hints, transcript safety defaults, acceptance checks, and release posture. It also gives the existing local model selector a bounded source for Whoosh'd profile-backed choices without creating a new provider id.
+They give Codexify a bounded place to describe candidate local model runtime
+expectations without changing provider routing, provider identity, runtime
+health semantics, catalog behavior, or release support.
 
 ## Scope
 
@@ -23,64 +16,76 @@ Profiles may describe:
 - profile metadata
 - runtime start hints
 - model family notes
-- Guardian defaults
 - acceptance checks
 - release posture
 
-Profiles may also note where a future live proof should store model weights. For this first profile, the operator requirement is to keep downloaded weights off the repo and under `/Volumes/Dev_SSD/` during a separate runtime-proof task. This metadata task does not download or verify those weights.
-
-Profiles may be surfaced in the UI as local model choices. The UI-facing selection value is the runtime model repo that the Whoosh'd/MLX server expects, while the profile id remains metadata for governance, acceptance checks, and release posture.
+Profiles are file-backed JSON manifests under
+`config/whooshd/model-profiles/` and are validated by
+`scripts/validate_whooshd_model_profiles.py`.
 
 ## Non-Goals
 
 - No new provider id.
-- No new provider routing lane.
-- No new provider catalog lane.
+- No runtime routing changes.
+- No catalog changes.
 - No health semantics changes.
 - No release claim expansion.
 - No custom proxy restoration.
 
 ## Current Profiles
 
-- Profile id: `gemma-4-e2b-it-4bit`
-- Model repo: `mlx-community/gemma-4-e2b-it-4bit`
-- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
-- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
-- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
+The current profiles are:
 
-- Profile id: `gemma-4-12b-it-optiq-4bit`
-- Model repo: `mlx-community/gemma-4-12B-it-OptiQ-4bit`
-- Runtime hint: `mlx_vlm.server --model mlx-community/gemma-4-12B-it-OptiQ-4bit --port 8000`
-- Local OpenAI-compatible base URL hint: `http://host.docker.internal:8000/v1`
-- Weight storage root: `/Volumes/Dev_SSD/whooshd/model-weights`
+- `gemma-4-e2b-it-4bit`
+  - Model repo: `mlx-community/gemma-4-e2b-it-4bit`
+  - Multimodal intent: `capabilities.multimodal = true`
+  - Image input: `capabilities.image_input = true`
+  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
+  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
+  - Runtime hint:
+    `mlx_vlm.server --model mlx-community/gemma-4-e2b-it-4bit --port 8000`
+  - Offline probe hint:
+    `python -m mlx_vlm.generate --model mlx-community/gemma-4-e2b-it-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
+  - Local OpenAI-compatible base URL hint:
+    `http://host.docker.internal:8000/v1`
+- `gemma-4-12b-it-qat-4bit`
+  - Model repo: `mlx-community/gemma-4-12B-it-qat-4bit`
+  - Multimodal intent: `capabilities.multimodal = true`
+  - Image input: `capabilities.image_input = true`
+  - Preferred local invocation path: `runtime.preferred_local_invocation_path = "mlx-vlm"`
+  - `mlx-vlm` compatibility: `runtime.mlx_vlm_compatible = true`
+  - Runtime hint:
+    `mlx_vlm.server --model mlx-community/gemma-4-12B-it-qat-4bit --port 8000`
+  - Offline probe hint:
+    `python -m mlx_vlm.generate --model mlx-community/gemma-4-12B-it-qat-4bit --max-tokens 100 --temperature 0.0 --prompt "Describe this image." --image <path_to_image>`
+  - Local OpenAI-compatible base URL hint:
+    `http://host.docker.internal:8000/v1`
+
+These profiles are candidate metadata only. They are not wired into provider
+routing or catalog exposure and are not supported release models.
 
 ## Invariants
 
 - Provider id remains `local`.
-- Whoosh'd is display/vendor metadata unless a future ADR changes provider routing.
-- UI selection between Whoosh'd profiles remains local model selection, not provider selection.
+- Whoosh'd is display/vendor metadata unless a future ADR changes provider
+  routing.
 - A model profile is not proof of model quality.
 - A model profile is not release support.
-- Model-family hidden/thinking channel leakage must be blocked before Guardian-facing use.
-- Acceptance checks must include no prompt echo, no thought/channel leakage, and Guardian completion smoke.
-- Profile metadata must not be treated as health, catalog, supported-profile, queue/worker, or Guardian completion evidence.
+- Offline use requires local cached model artifacts before network loss; the
+  profile does not download or prove those artifacts.
+- `runtime.offline_probe_command` is an operator hint for local cached-model
+  checks, not routing logic, and it can still be overridden by explicit routing
+  or task metadata.
+- `mlx-vlm` here is a preferred multimodal local runtime hint, not a provider
+  replacement and not a routing change by itself.
+- Model-family hidden/thinking channel leakage must be blocked before
+  Guardian-facing use.
+- Acceptance checks must include no prompt echo, no thought/channel leakage, and
+  Guardian completion smoke.
 
 ## Follow-Up Path
 
-Later tasks may add live smoke proof, richer profile management UI, supported-profile updates, or additional model profiles, but those must be separate tasks.
-
-The next live-proof task should verify the selected MLX runtime, keep model weights under `/Volumes/Dev_SSD/whooshd/model-weights`, compare health/catalog/supported-profile posture, confirm queue and worker health, and prove one Guardian chat completion persists back into the source thread without prompt echo or hidden-channel leakage.
-
-## ADR Impact
-
-Classification: Aligned with existing ADRs and contracts; no new ADR required.
-
-Governing anchors:
-
-- `docs/architecture/00-current-state.md`
-- `docs/architecture/config-and-ops.md`
-- `docs/architecture/chat-runtime-contract.md`
-- `docs/architecture/runtime-protocol-token-contract.md`
-- provider governance and supported-profile doctrine
-
-Reason: this creates a bounded registry for local model profiles and exposes those profiles through the existing local model-selection seam. It preserves provider id `local`, keeps Whoosh'd as display/vendor metadata, and does not alter provider routing, health semantics, or release support.
+Later tasks may add live smoke proof, profile selection UI, catalog exposure, or
+additional model profiles. Those changes must be separate tasks because each one
+changes a different proof surface and may affect provider governance or release
+posture.
