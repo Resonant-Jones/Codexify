@@ -16,6 +16,7 @@
 | C03-D010 | 2026-06-18 | `next-proof-needed` — result-return seam classified; no CommandRun readback route | active |
 | C03-D011 | 2026-06-18 | `go` — CommandRun readback route added; durable result inspectable | active |
 | C03-D012 | 2026-06-18 | `go` — work-order latest-run readback bridge added; 24 tests pass | active |
+| C03-D013 | 2026-06-18 | `go` — receipt contract defined; docs-only, bounded, no runtime claims | active |
 
 ---
 
@@ -398,3 +399,31 @@
   - Work-order readback enhanced to include joined command result inline.
   - `latest_receipt_id` populated.
   - Result artifacts created from command-run results.
+
+---
+
+### Decision: C03-D013
+
+- **Decision ID**: C03-D013
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Work-order result receipt contract defined as docs-only. Receipts are explicitly distinct from CommandRuns, artifacts, and work-order completion. No runtime claims. Release boundary preserved.
+- **Reason**:
+  - Created `work-order-result-receipt-contract.md` with 13 sections.
+  - Defines receipt as immutable observation record — does not execute, mutate, complete, or create artifacts.
+  - 17 candidate fields, 9 candidate tokens (docs-only, not runtime).
+  - Explicitly states receipts are distinct from CommandRuns, Pi/Coder receipts, and artifacts.
+  - Provenance and export/restore obligations defined.
+  - Safety boundaries: no command execution, Pi/Coder, file mutation, completion, or raw arg exposure.
+  - Future implementation sequence: T011-T015 scoped.
+  - Backlog updated with current task status.
+- **Evidence**:
+  - `work-order-result-receipt-contract.md` — 13 sections, 12,361 bytes.
+  - `backlog.md` — updated with T001-T015, T001-T010 marked complete.
+- **Consequence**:
+  - C03-T010 advances to `go`. Receipt contract established.
+  - C03-T011 (receipt persistence seam design) can proceed.
+  - No runtime behavior changed — contract only.
+- **Revisit Trigger**:
+  - Receipt persistence implementation begins — verify against this contract.
+  - New receipt fields or tokens are added — update contract.
+  - Pi/Coder receipt integration is planned — extend contract scope.
