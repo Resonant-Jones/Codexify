@@ -89,6 +89,7 @@ from guardian.depth import (
 from guardian.evals.spine import get_latest_eval_diagnostics
 from guardian.protocol_tokens import (
     AcceptanceStatus,
+    ChatEventType,
     ErrorCode,
     TaskEventType,
     TraceSnapshotAbsenceReason,
@@ -678,7 +679,7 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
         )
         try:
             event_bus.emit_event(
-                "chat.orphaned_turn_recovered",
+                ChatEventType.ORPHANED_TURN_RECOVERED.value,
                 {
                     "thread_id": thread_id,
                     "owner_task_id": stale_lock.owner_task_id,

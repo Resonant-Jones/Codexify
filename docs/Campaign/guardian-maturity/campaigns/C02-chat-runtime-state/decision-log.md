@@ -8,6 +8,7 @@
 | C02-D002 | 2026-06-17 | `go` — lifecycle seam audit complete; retry/replay/orphan classified | active |
 | C02-D003 | 2026-06-17 | `go` — orphan recovery seam proven; operator signal gap documented | active |
 | C02-D004 | 2026-06-17 | `go` — backend orphan recovery event emitted; frontend surfacing pending | active |
+| C02-D005 | 2026-06-17 | `go` — orphan event token canonicalized in protocol_tokens | active |
 
 ---
 
@@ -148,3 +149,34 @@
   - Frontend orphan surfacing is implemented — verify end-to-end signal chain.
   - Orphan event shape needs adjustment for frontend consumption.
   - New lifecycle states require similar event emission patterns.
+
+---
+
+### Decision: C02-D005
+
+- **Decision ID**: C02-D005
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. The `chat.orphaned_turn_recovered` event name is now canonicalized as `ChatEventType.ORPHANED_TURN_RECOVERED` in `guardian/protocol_tokens.py`. All call sites use the canonical token.
+- **Reason**:
+  - Added `ChatEventType(str, Enum)` enum with `ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered"`.
+  - Added `CHAT_EVENT_TYPES` frozenset for programmatic validation.
+  - Exported both in `__all__`.
+  - Replaced inline string in `guardian/routes/chat.py` with `ChatEventType.ORPHANED_TURN_RECOVERED.value`.
+  - Replaced inline string in `tests/core/test_turn_lock_recovery.py` assertion.
+  - Added `test_chat_event_type_tokens()` contract test verifying token value and frozenset membership.
+  - No ad hoc inline event strings remain in production code or non-contract tests.
+  - Follows existing `TaskEventType` / `ExecutorEventType` / `DelegationEventType` enum pattern.
+- **Evidence**:
+  - `guardian/protocol_tokens.py:130-132` — `ChatEventType` enum definition.
+  - `guardian/protocol_tokens.py:472-474` — `CHAT_EVENT_TYPES` frozenset.
+  - `grep -rn "chat.orphaned_turn_recovered"` — only canonical locations remain.
+  - `test_chat_event_type_tokens` — **PASSED** (0.28s).
+  - Syntax validation — 3 files parsed correctly.
+- **Consequence**:
+  - Frontend can safely import `ChatEventType.ORPHANED_TURN_RECOVERED` for event consumption.
+  - Future chat lifecycle events should be added to `ChatEventType`.
+  - No ad hoc event literals in production code.
+- **Revisit Trigger**:
+  - New chat lifecycle events are added — must be registered in `ChatEventType`.
+  - Event name changes — update all call sites and contract tests.
+  - Frontend consumption reveals event shape mismatch with canonical token expectations.

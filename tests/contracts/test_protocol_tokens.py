@@ -1127,3 +1127,16 @@ def test_legacy_loop_stop_tokens() -> None:
         "tool_turn_malformed",
         "tool_turn_limit_reached",
     }
+
+
+def test_chat_event_type_tokens() -> None:
+    """Canonical chat lifecycle event tokens."""
+    from guardian.protocol_tokens import ChatEventType, CHAT_EVENT_TYPES
+
+    assert (
+        ChatEventType.ORPHANED_TURN_RECOVERED.value
+        == "chat.orphaned_turn_recovered"
+    )
+    assert CHAT_EVENT_TYPES == {
+        "chat.orphaned_turn_recovered",
+    }
