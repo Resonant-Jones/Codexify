@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-16
+2026-06-17
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,25 +13,24 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work standardized Whoosh'd local runtime config and reduced legacy config breakage, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work tightened local runtime configuration and legacy compatibility, but it does not widen the release promise.
 
 ## What changed recently
 - `main` standardized Whoosh'd local runtime config.
-- `main` made `AI_BACKEND=local` legacy-compatible instead of startup-breaking.
-- `main` moved Whoosh'd smoke defaults onto the Gemma E2B local alias.
+- `main` kept `AI_BACKEND=local` as legacy compatibility, not a new contract.
+- `main` tightened first-run readiness handling around the local runtime lane.
 - `main` kept the current-state docs override in place.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- `AI_BACKEND=local` is accepted as legacy compatibility, but `LLM_PROVIDER=local` is the canonical control.
-- Whoosh'd is a supported local runtime preset on Apple Silicon paths.
-- `LOCAL_RUNTIME_PRESET` can select between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` while staying under `LLM_PROVIDER=local`.
+- `AI_BACKEND=local` is accepted only as legacy compatibility.
+- `LOCAL_RUNTIME_PRESET` selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` under the same local provider boundary.
+- Whoosh'd remains the supported Apple Silicon local runtime preset.
 - Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
-- Health surfaces still report LLM availability and chat queue/worker status.
+- `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - Graph writes remain default-off on the supported Compose path.
-- Whoosh'd smoke configs now default to the Gemma E2B local model alias.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
