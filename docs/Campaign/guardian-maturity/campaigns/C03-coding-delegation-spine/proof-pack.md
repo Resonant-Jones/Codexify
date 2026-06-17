@@ -1156,3 +1156,50 @@ Total                                28 passed
 
 - **Decision**: `go`
 - **Reason**: Receipt persistence implemented. Model, migration, create route, integrity hash, and result summary all work. 4 focused tests pass. Work-order status unchanged. `latest_receipt_id` not populated. No raw args, commands, artifacts, or mutations.
+
+---
+
+## C03-T012-R1: Receipt Persistence Proof Hardening (2026-06-18 02:20 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `faaa37849` — feat: persist Guardian work-order result receipts
+- **Worktree**: Clean
+
+### Files Modified
+
+- `tests/routes/test_work_order_result_receipts.py` — expanded from 4 to 10 tests (4 test classes)
+
+### Expanded Test Coverage
+
+| Test Class | Tests | Coverage |
+|------------|-------|----------|
+| `TestValidReceiptCreation` | 2 | All required fields, status/`latest_receipt_id` preservation |
+| `TestInvalidRelationships` | 3 | No linked run, missing WO, missing CommandRun (all 404) |
+| `TestDuplicateAndIdempotency` | 1 | Duplicate creates new receipt (in-memory) or 409 (real DB) |
+| `TestIntegrityHash` | 2 | Hash deterministic, result summarizer handles None |
+| `TestRedactionAndSafety` | 2 | No raw args/secrets, no command execution during receipt creation |
+
+### Migration Validation
+
+```
+alembic upgrade 3cdd66742226   → clean (already at head)
+alembic downgrade f9a1b2c3d4e5 → clean (drops receipt table)
+alembic upgrade 3cdd66742226   → clean (f9a1b2c3d4e5 -> 3cdd66742226)
+```
+
+### Test Results
+
+```
+test_work_order_result_receipts      10 passed (up from 4)
+test_coding_work_order_latest_run     6 passed
+test_command_bus_run_readback         5 passed
+test_command_bus_work_order_linkage  13 passed
+Total                                34 passed
+```
+
+### C03-T012-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Receipt persistence hardened with 10 focused tests covering valid creation, invalid relationships (no run, missing WO, missing CommandRun), duplicate/idempotency, deterministic integrity hash, redaction, and no command execution. Migration upgrade/downgrade/re-upgrade cycle clean. All 34 tests pass.
