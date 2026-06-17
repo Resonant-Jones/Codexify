@@ -922,3 +922,59 @@ None.
 ### Recommended Next Task
 
 **Add a `GET /api/guardian/commands/runs/{run_id}` route.** Expose the durable `CommandRun` record (including `result_json`, `error_text`, `status`, timestamps, actor metadata) as a read-only API endpoint. This makes command results inspectable without creating receipts, artifacts, or changing work-order status.
+
+---
+
+## C03-T008: CommandRun Readback Route (2026-06-18 00:30 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `f03e5bf69` — docs: audit Guardian work-order result return seam
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/routes/command_bus.py` — added `GET /api/guardian/commands/runs/{run_id}` route (+15 lines)
+- `tests/routes/test_command_bus_run_readback.py` — 5 new tests (new file)
+
+### Route Added
+
+`GET /api/guardian/commands/runs/{run_id}` — read-only CommandRun readback.
+
+### Response Fields Exposed
+
+`run_id`, `command_id`, `status`, `actor_kind`, `actor_id`, `actor_session_id`, `delegated_by`, `auth_subject`, `invoke_version`, `idempotency_key`, `args_hash`, `args_redacted`, `result_json`, `error_text`, `created_at`, `started_at`, `ended_at`, `events_url`.
+
+### Redaction
+
+- `args_redacted` is the persisted redacted form — no raw args exposed.
+- `result_json` includes the command target's HTTP response body (for `/health`: `{"status":"ok","service":"core"}`).
+- `idempotency_key` is exposed as persisted (null or the supplied key).
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| Readback 200 | `run_id: run_352b0f1a734c4e81`, all 17 fields present |
+| `result_json` | `{"body":{"status":"ok","service":"core"},"headers":{},"status_code":200}` |
+| `error_text` | `None` (success) |
+| `args_redacted` | Present, no raw args |
+| `events_url` | `/api/guardian/commands/runs/{id}/events?after_seq=0` |
+| Nonexistent run | 404 `command_run_not_found` |
+| Linked WO readback | `latest_run_id: run_352b0f1a734c4e81` → CommandRun readable |
+| WO status | `draft` (unchanged) |
+| No receipt/artifact | `latest_receipt_id` is `None` |
+
+### Test Results
+
+```
+test_command_bus_run_readback.py      5 passed
+test_command_bus_work_order_linkage  13 passed
+Total                                18 passed
+```
+
+### C03-T008 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: CommandRun readback route works. Durable `result_json` and `error_text` are inspectable. Missing run fails closed (404). No raw args exposed. Linked work-order `latest_run_id` can resolve to CommandRun readback. No receipt, artifact, or work-order status change. Route remains internal-only.

@@ -244,6 +244,24 @@ async def inspect_activation(
     return payload
 
 
+@router.get("/runs/{run_id}")
+async def get_run(
+    run_id: str,
+    auth_subject: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Read back a durable CommandRun by run id."""
+    run = _store.get_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "command_run_not_found", "run_id": run_id},
+        )
+    return {
+        **run,
+        "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+    }
+
+
 @router.get("/runs/{run_id}/events")
 async def stream_run_events(
     run_id: str,
