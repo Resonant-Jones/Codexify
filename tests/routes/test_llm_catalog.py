@@ -63,6 +63,13 @@ def _mock_whooshd_catalog_request(url: str, *args, **kwargs) -> _MockResponse:
     return _MockResponse({"data": []}, status_code=404)
 
 
+def _mock_empty_whooshd_catalog_request(
+    url: str, *args, **kwargs
+) -> _MockResponse:
+    _ = (url, args, kwargs)
+    return _MockResponse({"data": []}, status_code=404)
+
+
 def _mock_alibaba_model_index(url: str, *args, **kwargs) -> _MockResponse:
     assert url == "https://dashscope-us.aliyuncs.com/compatible-mode/v1/models"
     return _MockResponse({"data": [{"id": "qwen-plus"}]})
@@ -280,6 +287,9 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
     snapshot = {
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "LOCAL_DOCKER_FALLBACK_BASE_URL": settings.LOCAL_DOCKER_FALLBACK_BASE_URL,
+        "CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED": (
+            settings.CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED
+        ),
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
@@ -289,6 +299,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         settings.LOCAL_DOCKER_FALLBACK_BASE_URL = (
             "http://host.docker.internal:11434"
         )
+        settings.CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED = True
         settings.ALLOW_CLOUD_PROVIDERS = False
         settings.CODEXIFY_LOCAL_ONLY_MODE = True
         settings.CODEXIFY_EGRESS_ALLOWLIST = ""
@@ -299,7 +310,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         payload = response.json()
 
         local = _provider_by_id(payload, "local")
-        assert [model["id"] for model in local["models"]] == ["llama3.2:3b"]
+        assert local["models"][0]["id"] == "llama3.2:3b"
         assert local["models"][0]["source"] == "host.docker.internal:11434"
         assert any("127.0.0.1:11434" in url for url in calls)
         assert any("host.docker.internal:11434" in url for url in calls)
@@ -457,6 +468,73 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
             "mlx-community/Llama-3.2-3B-Instruct-4bit"
         )
         assert local["endpoint_resolution"]["state"] == "available"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+
+
+def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "guardian.core.llm_catalog.requests.get",
+        _mock_empty_whooshd_catalog_request,
+    )
+    _clear_extra_cloud_keys(monkeypatch)
+
+    settings = get_settings()
+    snapshot = {
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "CODEXIFY_LOCAL_ENDPOINT_CHAIN": settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_PROVIDER_DISPLAY_NAME": settings.LOCAL_PROVIDER_DISPLAY_NAME,
+        "LOCAL_PROVIDER_VENDOR": settings.LOCAL_PROVIDER_VENDOR,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+    }
+    try:
+        settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
+        settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN = (
+            "http://host.docker.internal:8000/v1"
+        )
+        settings.ALLOW_CLOUD_PROVIDERS = False
+        settings.CODEXIFY_LOCAL_ONLY_MODE = True
+        settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_PROVIDER_DISPLAY_NAME = "Whoosh'd"
+        settings.LOCAL_PROVIDER_VENDOR = "whooshd"
+        settings.LOCAL_LLM_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+        settings.LOCAL_CHAT_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+        settings.DEFAULT_LOCAL_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+        settings.LLM_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+
+        client = TestClient(app)
+        payload = client.get("/api/llm/catalog").json()
+
+        local = _provider_by_id(payload, "local")
+        models_by_id = {model["id"]: model for model in local["models"]}
+
+        e2b = models_by_id["mlx-community/gemma-4-e2b-it-4bit"]
+        optiq = models_by_id[
+            "mlx-community/gemma-4-12B-it-OptiQ-4bit"
+        ]
+
+        assert local["id"] == "local"
+        assert local["displayName"] == "Whoosh'd"
+        assert e2b["profile_id"] == "gemma-4-e2b-it-4bit"
+        assert e2b["displayName"] == "Gemma 4 E2B Instruct 4-bit"
+        assert e2b["release_supported"] is False
+        assert e2b["supports_vision"] is True
+        assert optiq["profile_id"] == "gemma-4-12b-it-optiq-4bit"
+        assert optiq["displayName"] == "Gemma 4 12B Instruct OptiQ 4-bit"
+        assert optiq["release_supported"] is False
+        assert optiq["supports_vision"] is False
+        assert optiq["weights"]["storage_root"].startswith(
+            "/Volumes/Dev_SSD/"
+        )
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

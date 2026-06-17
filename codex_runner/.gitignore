@@ -35,6 +35,8 @@ Thumbs.db
 
 # Pi Agent
 .pirc
+vendor/pi-coding-agent/dist
+vendor/pi-coding-agent/node_modules
 
 # Local config (if stored in project)
 # profiles.toml

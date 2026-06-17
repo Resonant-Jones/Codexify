@@ -1347,6 +1347,37 @@ type PersonalFactUpdateBody = {
   value?: string;
 };
 
+// ── Fact Candidate Review ──
+
+export type FactCandidate = PersonalFactRecord & {
+  _evidence?: PersonalFactEvidenceRecord[];
+};
+
+export type FactCandidateListResponse = {
+  ok: boolean;
+  facts: PersonalFactRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ApproveFactCandidateRequest = {
+  value?: string;
+  key?: string;
+  confidence?: number;
+  reason?: string;
+  force_sensitive?: boolean;
+};
+
+export type RejectFactCandidateRequest = {
+  reason?: string;
+};
+
+export type FactCandidateUpdateResponse = {
+  ok: boolean;
+  fact: PersonalFactRecord | null;
+};
+
 const PERSONAL_FACTS_BASE_PATH = "/api/personal-facts";
 
 function personalFactPath(factId: number | string): string {
@@ -1455,6 +1486,81 @@ export async function fetchPersonalFactRevisions(
     `${personalFactPath(factId)}/revisions`
   );
   return Array.isArray(response.data?.revisions) ? response.data.revisions : [];
+}
+
+// ── Fact Candidate Review API helpers ──
+
+function candidateReviewPath(
+  candidateId: number | string,
+  action: string
+): string {
+  return `${PERSONAL_FACTS_BASE_PATH}/candidates/${normalizePathSegment(candidateId)}/${action}`;
+}
+
+export async function listFactCandidates(params: {
+  status?: string | null;
+  thread_id?: number | null;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<FactCandidateListResponse> {
+  const response = await api.get<FactCandidateListResponse>(
+    `${PERSONAL_FACTS_BASE_PATH}/candidates`,
+    {
+      params: {
+        ...(params.status ? { status: params.status } : {}),
+        ...(params.thread_id !== undefined && params.thread_id !== null
+          ? { thread_id: params.thread_id }
+          : {}),
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.offset !== undefined ? { offset: params.offset } : {}),
+      },
+    }
+  );
+  return {
+    ok: response.data?.ok ?? false,
+    facts: Array.isArray(response.data?.facts) ? response.data.facts : [],
+    total: response.data?.total ?? 0,
+    limit: response.data?.limit ?? 0,
+    offset: response.data?.offset ?? 0,
+  };
+}
+
+export async function approveFactCandidate(
+  candidateId: number,
+  body: ApproveFactCandidateRequest = {}
+): Promise<PersonalFactRecord | null> {
+  const response = await api.post<FactCandidateUpdateResponse>(
+    candidateReviewPath(candidateId, "approve"),
+    body
+  );
+  return response.data?.fact ?? null;
+}
+
+export async function rejectFactCandidate(
+  candidateId: number,
+  body: RejectFactCandidateRequest = {}
+): Promise<PersonalFactRecord | null> {
+  const response = await api.post<FactCandidateUpdateResponse>(
+    candidateReviewPath(candidateId, "reject"),
+    body
+  );
+  return response.data?.fact ?? null;
+}
+
+export async function getRecentFactCandidatesDebug(
+  limit: number = 10
+): Promise<FactCandidateListResponse> {
+  const response = await api.get<{ ok: boolean; facts: PersonalFactRecord[]; count: number }>(
+    `${PERSONAL_FACTS_BASE_PATH}/candidates/debug/recent`,
+    { params: { limit: Math.max(1, Math.min(limit, 20)) } }
+  );
+  return {
+    ok: response.data?.ok ?? false,
+    facts: Array.isArray(response.data?.facts) ? response.data.facts : [],
+    total: response.data?.count ?? 0,
+    limit,
+    offset: 0,
+  };
 }
 
 export async function fetchProviderState() {

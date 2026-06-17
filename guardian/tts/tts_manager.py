@@ -10,6 +10,7 @@ import os
 from typing import Dict, List, Optional
 
 from .providers import PROVIDERS
+from .contracts import TTS_BACKEND_QWEN3
 from .tts_service import ProviderNotFoundError, TTSError, TTSProvider
 
 # Configure logging
@@ -51,7 +52,10 @@ class TTSManager:
         config = {
             "default_provider": os.getenv(
                 "TTS_DEFAULT_PROVIDER",
-                os.getenv("CODEXIFY_TTS_PROVIDER", "local"),
+                os.getenv(
+                    "CODEXIFY_TTS_PROVIDER",
+                    os.getenv("CODEXIFY_TTS_BACKEND", TTS_BACKEND_QWEN3),
+                ),
             ),
             "providers": {
                 "elevenlabs": {"api_key": os.getenv("ELEVENLABS_API_KEY")},
@@ -61,6 +65,7 @@ class TTSManager:
                     )
                 },
                 "local": {"enabled": True},
+                "qwen3_tts": {"enabled": True},
                 "local_openai_compatible": {
                     "base_url": os.getenv("CODEXIFY_LOCAL_VOICE_BASE_URL")
                     or os.getenv("CODEXIFY_LOCAL_TTS_BASE_URL")
@@ -84,6 +89,13 @@ class TTSManager:
             },
         }
 
+        env_default_provider = (
+            os.getenv("TTS_DEFAULT_PROVIDER")
+            or os.getenv("CODEXIFY_TTS_PROVIDER")
+            or os.getenv("CODEXIFY_TTS_BACKEND")
+            or TTS_BACKEND_QWEN3
+        )
+
         if os.path.exists(config_path):
             try:
                 with open(config_path) as f:
@@ -91,6 +103,10 @@ class TTSManager:
                     config.update(file_config)
             except Exception as e:
                 logger.warning(f"Failed to load config file: {e}")
+
+        # Environment/code defaults are authoritative for local runtime posture;
+        # legacy config.json must not silently force the mock local provider.
+        config["default_provider"] = env_default_provider
 
         return config
 

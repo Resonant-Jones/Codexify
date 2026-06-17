@@ -1,8 +1,8 @@
 ## Purpose
-This file is Codexify's canonical short-form source of truth for the current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
+This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-04
+2026-06-16
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,72 +13,57 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes improved operator visibility, added a site-ready documentation export bundle, and added local runtime presets for Whoosh'd/MLX, Ollama, LM Studio, and custom OpenAI-compatible endpoints, but they do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work standardized Whoosh'd local runtime config and reduced legacy config breakage, but it does not widen the release promise.
 
 ## What changed recently
-- `main` added a site-ready developer guide export bundle under `docs/site-export/developer-guide/`.
-- `main` moved the Apple Silicon default local runtime preset from Ollama to Whoosh'd/OpenAI-compatible `LOCAL_BASE_URL=http://host.docker.internal:8000/v1`.
-- `main` added `LOCAL_RUNTIME_PRESET` so users can keep `LLM_PROVIDER=local` while swapping between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` local runtimes.
-- Health checks still surface LLM model availability on the supported path.
-- Supported-profile, health, and catalog surfaces remain aligned on the local-only stack.
-- Personal-facts settings routing remains repaired on `main`.
-- GuardianChat still surfaces runtime visual state in the shell.
-- Internal/manual local-model draft adapter work remains present, but not a release promise.
-- Build Proposal artifacts now have a doctrine/scaffold surface for reviewable
-  Guardian Build Loop task candidates; proposal generation remains draft-only
-  and does not imply approval, execution, release support, runtime proof, or
-  autonomous self-modification.
+- `main` standardized Whoosh'd local runtime config.
+- `main` made `AI_BACKEND=local` legacy-compatible instead of startup-breaking.
+- `main` moved Whoosh'd smoke defaults onto the Gemma E2B local alias.
+- `main` kept the current-state docs override in place.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
-- The current Apple Silicon default local inference target is Whoosh'd/OpenAI-compatible. The setup wizard defaults to Ollama on non-Mac machines when no preset is selected.
-- Live model availability is proven only when `/v1/models` or `/api/tags` advertises the selected local model.
-- Health checks report LLM model availability.
-- Chat completion works on the supported path and persists back into the source thread.
-- Upload -> embed -> readback works on the supported path.
-- Workspace-local Obsidian retrieval is supported on the current tip.
-- Coding results return through Guardian into the source thread on the supported path.
+- `AI_BACKEND=local` is accepted as legacy compatibility, but `LLM_PROVIDER=local` is the canonical control.
+- Whoosh'd is a supported local runtime preset on Apple Silicon paths.
+- `LOCAL_RUNTIME_PRESET` can select between `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible` while staying under `LLM_PROVIDER=local`.
+- Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
+- Health surfaces still report LLM availability and chat queue/worker status.
+- Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - Graph writes remain default-off on the supported Compose path.
-- Provider timeout and slow-path failures are classified and presented more accurately in the UI.
+- Whoosh'd smoke configs now default to the Gemma E2B local model alias.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
-- Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
-- Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
-- Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
-- Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
-- Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
-- Do not assume Build Proposal generation means approval, execution, release
-  support, runtime proof, or autonomous self-modification.
-- Do not assume any local runtime is available without live endpoint/model inventory proof.
-- Do not infer desktop packaging readiness from architecture docs alone.
-- Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
+- Do not assume delegation, federation, or graph write surfaces are part of the present release promise.
+- Do not assume docs-only exports, scaffolds, prompt artifacts, or brief-generation output prove runtime support.
+- Do not assume Whoosh'd setup equals live provider reachability without endpoint/model inventory proof.
+- Do not infer a wider beta claim from the new local preset wiring alone.
+- Do not assume the Gemma E2B smoke default is itself live-model proof.
+- Do not assume legacy `AI_BACKEND` config is the preferred runtime contract.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
 - Canonical and legacy config paths still coexist, so startup and operator state can drift.
-- Legacy `/tools` behavior still overlaps with the command bus.
 - End-to-end Guardian delegation is not yet a release-supported path.
-- Federation remains a high-blast-radius area with trust-policy and egress sensitivity.
-- Docs-heavy merged work does not remove the need to recheck runtime proof on the supported path.
+- Federation remains high-blast-radius and trust-policy sensitive.
+- Graph-write enablement stays outside the default release promise.
 
 ## This week’s priorities
-1. Keep the supported profile, health, and catalog surfaces aligned on `main`.
-2. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
-3. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
-4. Keep the release-truth docs in sync with the live `main` posture.
-5. Avoid widening supported beta claims until a new merged capability is proven end to end.
+1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
+2. Keep legacy config compatibility narrow and clearly labeled.
+3. Preserve fresh proof for chat, upload, retrieval, and coding-result return paths.
+4. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
+5. Keep the release-truth docs synced with the live `main` posture.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
+- [x] The current `main` tip includes a supported local runtime preset for Whoosh'd.
 - [x] Fresh live evidence exists on the current `main` tip for the supported path.
-- [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are proven on the supported stack.
-- [x] Coding results return through Guardian into the source thread.
-- [x] No internal-only or quarantined surface is part of the release claim.
+- [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are in the supported claim set.
 - [ ] Queue, config, delegation, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
+- [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.

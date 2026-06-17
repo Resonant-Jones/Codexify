@@ -513,6 +513,7 @@ from guardian.routes import (
 )
 from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
+from guardian.routes import tts as tts_routes
 from guardian.routes import neo as neo_routes
 from guardian.routes import obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
@@ -634,8 +635,9 @@ async def app_lifespan(app: FastAPI):
         command_bus_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         guardian_delegations.configure_db(guardian_db)
+        tts_routes.configure_db(guardian_db)
         logger.info(
-            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations/guardian_delegations routes"
+            "[startup] GuardianDB configured for cron/documents/share/websocket/agent_orchestration/coding_work_orders/command_bus/delegations/guardian_delegations/tts routes"
         )
         collaboration.configure_db(guardian_db)
         logger.info(
@@ -1135,6 +1137,12 @@ _include_router(
     label="voice",
     flag_name="CODEXIFY_VOICE_ROUTES_ENABLED",
     include_fn=lambda: app.include_router(voice_router),
+    core_surface=True,
+)
+_include_router(
+    label="tts",
+    flag_name="CODEXIFY_ENABLE_MEDIA_TTS_ROUTES",
+    include_fn=lambda: app.include_router(tts_routes.router),
     core_surface=True,
 )
 _include_router(

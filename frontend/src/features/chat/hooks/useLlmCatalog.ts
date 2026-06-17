@@ -21,6 +21,10 @@ export type LlmCatalogModel = {
   alias?: string;
   namespace?: string;
   source?: string;
+  profileId?: string;
+  profileSource?: string;
+  displayVendor?: string;
+  releaseSupported?: boolean;
   contextWindow?: number;
   supportsChat?: boolean;
   supportsVision?: boolean;
@@ -46,6 +50,12 @@ export type LlmCatalogModel = {
     textInput?: boolean;
     tools?: boolean;
     streaming?: boolean;
+  };
+  releasePosture?: {
+    status?: string;
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
+    notes?: string;
   };
   runtime?: {
     reasoning?: CatalogReasoningRuntime;
@@ -102,9 +112,15 @@ function normalizeModelKind(value: unknown): "chat" | "vision_chat" | "utility" 
 export function isChatSelectableModel(model: {
   supportsChat?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
+  releaseSupported?: boolean;
+  releasePosture?: {
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
+  };
 } | null | undefined): boolean {
   if (!model) return false;
   if (model.supportsChat === false) return false;
+  if (model.releasePosture?.proofRequired === true) return false;
   return model.modelKind !== "utility";
 }
 
@@ -166,6 +182,10 @@ function normalizeModel(
     model.capabilities && typeof model.capabilities === "object"
       ? (model.capabilities as Record<string, unknown>)
       : null;
+  const releasePosture =
+    model.release_posture && typeof model.release_posture === "object"
+      ? (model.release_posture as Record<string, unknown>)
+      : null;
   const supportsChat =
     normalizeBoolean(model.supports_chat) ??
     normalizeBoolean(model.supportsChat) ??
@@ -199,6 +219,16 @@ function normalizeModel(
     alias,
     namespace: normalizeString(model.namespace) ?? undefined,
     source: normalizeString(model.source) ?? undefined,
+    profileId:
+      normalizeString(model.profile_id ?? model.profileId) ?? undefined,
+    profileSource:
+      normalizeString(model.profile_source ?? model.profileSource) ??
+      undefined,
+    displayVendor:
+      normalizeString(model.display_vendor ?? model.displayVendor) ??
+      undefined,
+    releaseSupported:
+      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow
@@ -242,6 +272,15 @@ function normalizeModel(
             streaming: Boolean(capabilities.streaming),
           }
         : undefined,
+    releasePosture: releasePosture
+      ? {
+          status: normalizeString(releasePosture.status) ?? undefined,
+          releaseSupported:
+            normalizeBoolean(releasePosture.release_supported),
+          proofRequired: normalizeBoolean(releasePosture.proof_required),
+          notes: normalizeString(releasePosture.notes) ?? undefined,
+        }
+      : undefined,
     runtime:
       reasoning && typeof reasoning === "object"
         ? {

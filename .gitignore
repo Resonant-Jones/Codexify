@@ -167,6 +167,12 @@ tmp/
 **/output/
 **/tmp/
 data/
+storage/tts/
+output/tts/
+*.generated.wav
+*.generated.mp3
+*.voice-sample.wav
+*.voice-sample.mp3
 chatgpt-conversation-extractor-master/
 chatgpt-conversation.json
 

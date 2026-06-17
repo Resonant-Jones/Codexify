@@ -6,6 +6,7 @@ import logging
 import os
 from dataclasses import dataclass
 
+from guardian.tts.contracts import TTS_BACKEND_QWEN3
 from guardian.voice.runtime import (
     STREAM_PROXY_ENABLED,
     voice_routes_enabled,
@@ -123,6 +124,8 @@ def _normalize_provider(provider: str, *, kind: str) -> str:
         return "whispercpp"
     if value in {"local_openai_compatible", "openai_compatible_local"}:
         return "local_openai_compatible"
+    if kind == "tts" and value in {"qwen3", "qwen3-tts"}:
+        return TTS_BACKEND_QWEN3
     if kind == "tts" and value in {"local"}:
         return "local_openai_compatible"
     return value
@@ -145,8 +148,11 @@ def get_voice_runtime_config() -> VoiceRuntimeConfig:
     if explicit_tts:
         tts_provider = _normalize_provider(explicit_tts, kind="tts")
     else:
-        # Canonical local-first default.
-        tts_provider = "local_openai_compatible"
+        # Canonical local-first TTS default. This is intentionally separate
+        # from LLM provider/model routing.
+        tts_provider = (
+            os.getenv("CODEXIFY_TTS_BACKEND") or TTS_BACKEND_QWEN3
+        ).strip().lower()
 
     if os.getenv("CODEXIFY_ENABLE_VOICE_TURNS") is not None:
         _warn_legacy_once(

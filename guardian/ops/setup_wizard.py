@@ -5,9 +5,7 @@ import platform
 import secrets
 import shutil
 import subprocess
-import json
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
@@ -45,7 +43,6 @@ MACOS_FALLBACK_BINARIES: dict[str, tuple[str, ...]] = {
 
 REQUIRED_LOCAL_CONFIG_KEYS = (
     "GUARDIAN_API_KEY",
-    "AI_BACKEND",
     "LLM_PROVIDER",
     "LOCAL_BASE_URL",
     "LOCAL_CHAT_MODEL",
@@ -53,23 +50,12 @@ REQUIRED_LOCAL_CONFIG_KEYS = (
     "NEO4J_PASS",
 )
 
-def local_beta_defaults(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    requested_preset = str((env or {}).get("LOCAL_RUNTIME_PRESET") or "").strip()
-    preset_id = normalize_local_runtime_preset(
-        requested_preset or default_local_runtime_preset_id()
-    )
-    defaults = {
-        "AI_BACKEND": "ollama",
-        "LLM_PROVIDER": "local",
-        "CODEXIFY_LOCAL_ONLY_MODE": "true",
-        "ALLOW_CLOUD_PROVIDERS": "false",
-        "NEO4J_USER": "neo4j",
-    }
-    defaults.update(local_runtime_env_defaults(preset_id, docker=True))
-    return defaults
-
-
-LOCAL_BETA_DEFAULTS = local_beta_defaults()
+LOCAL_BETA_DEFAULTS = {
+    "LLM_PROVIDER": "local",
+    "CODEXIFY_LOCAL_ONLY_MODE": "true",
+    "ALLOW_CLOUD_PROVIDERS": "false",
+    "NEO4J_USER": "neo4j",
+}
 
 SECRET_CONFIG_KEYS = {
     "GUARDIAN_API_KEY",
@@ -105,7 +91,7 @@ class SetupReadinessState(str, Enum):
     DOCKER_NOT_RUNNING = "docker_not_running"
     DOCKER_COMPOSE_MISSING = "docker_compose_missing"
     OLLAMA_MISSING = "ollama_missing"
-    LOCAL_INFERENCE_NOT_RUNNING = "local_inference_not_running"
+    OLLAMA_NOT_RUNNING = "ollama_not_running"
     MODEL_MISSING = "model_missing"
     COMPOSE_CONFIG_INVALID = "compose_config_invalid"
     EXISTING_VOLUMES_DETECTED = "existing_volumes_detected"
@@ -246,7 +232,7 @@ def detect_core_dependencies(
     """
     Core deps for a local-first default experience.
     - docker: optional depending on how you run services, but common for DB/redis.
-    - ollama: optional legacy runtime detection; local runtime readiness uses HTTP probes.
+    - ollama: optional unless you want local LLM on first run.
     """
 
     paths = custom_paths or {}
@@ -448,30 +434,28 @@ def normalize_local_beta_config_values(
         values["GUARDIAN_API_KEY"] = secrets.token_hex(32)
         generated.append("GUARDIAN_API_KEY")
 
-    existing_preset = str(values.get("LOCAL_RUNTIME_PRESET", "") or "").strip()
-    if existing_preset and not is_placeholder_config_value(existing_preset):
-        normalized_preset = normalize_local_runtime_preset(existing_preset)
-        if existing_preset.lower() != normalized_preset:
-            values["LOCAL_RUNTIME_PRESET"] = normalized_preset
-            repaired.append("LOCAL_RUNTIME_PRESET")
-
-    for key, value in local_beta_defaults(values).items():
+    for key, value in LOCAL_BETA_DEFAULTS.items():
         existing = values.get(key)
         if is_placeholder_config_value(existing):
             values[key] = value
             repaired.append(key)
-
-    if str(values.get("AI_BACKEND", "")).strip().lower() != "ollama":
-        if str(values.get("AI_BACKEND", "")).strip():
-            conflicts.append("AI_BACKEND")
-        values["AI_BACKEND"] = "ollama"
-        repaired.append("AI_BACKEND")
 
     if str(values.get("LLM_PROVIDER", "")).strip().lower() != "local":
         if str(values.get("LLM_PROVIDER", "")).strip():
             conflicts.append("LLM_PROVIDER")
         values["LLM_PROVIDER"] = "local"
         repaired.append("LLM_PROVIDER")
+
+    # Apply canonical local runtime preset env defaults.
+    preset_id = normalize_local_runtime_preset(
+        values.get("LOCAL_RUNTIME_PRESET")
+    )
+    preset_env = local_runtime_env_defaults(preset_id, docker=True)
+    for key, value in preset_env.items():
+        existing = values.get(key)
+        if is_placeholder_config_value(existing):
+            values[key] = value
+            repaired.append(key)
 
     if is_placeholder_config_value(values.get("NEO4J_PASS")):
         values["NEO4J_PASS"] = secrets.token_urlsafe(24)
@@ -485,21 +469,12 @@ def normalize_local_beta_config_values(
         required_order=(
             "GUARDIAN_API_KEY",
             "VITE_GUARDIAN_API_KEY",
-            "AI_BACKEND",
             "LLM_PROVIDER",
+            "LOCAL_RUNTIME_PRESET",
             "CODEXIFY_LOCAL_ONLY_MODE",
             "ALLOW_CLOUD_PROVIDERS",
-            "LOCAL_RUNTIME_PRESET",
             "LOCAL_BASE_URL",
-            "LOCAL_DOCKER_FALLBACK_BASE_URL",
-            "LOCAL_PROVIDER_DISPLAY_NAME",
-            "LOCAL_PROVIDER_VENDOR",
-            "LOCAL_LLM_MODEL",
             "LOCAL_CHAT_MODEL",
-            "LOCAL_COMPAT_FIRST",
-            "LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK",
-            "VAULTNODE_BASE_URL",
-            "VAULTNODE_HEALTH_ENDPOINTS",
             "NEO4J_USER",
             "NEO4J_PASS",
         ),
@@ -583,6 +558,8 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
     deps = detect_core_dependencies()
 
     allow_cloud = _truthy(env.get("ALLOW_CLOUD_PROVIDERS", "true"))
+    ollama_required = not allow_cloud
+
     # Docker requiredness: enforce only if existing config explicitly implies it.
     docker_required = False
     if "DATABASE_URL" in env and not env.get("DATABASE_URL", "").strip():
@@ -610,19 +587,13 @@ def build_doctor_report(repo_root: Path) -> tuple[list[DoctorItem], int]:
         )
     )
 
+    ollama = deps["ollama"]
     items.append(
         DoctorItem(
-            name="Local inference endpoint configured",
-            ok=bool(
-                env.get("CODEXIFY_LOCAL_ENDPOINT_CHAIN", "").strip()
-                or env.get("LOCAL_BASE_URL", "").strip()
-            ),
-            required=not allow_cloud,
-            detail=(
-                env.get("CODEXIFY_LOCAL_ENDPOINT_CHAIN", "").strip()
-                or env.get("LOCAL_BASE_URL", "").strip()
-                or "missing LOCAL_BASE_URL"
-            ),
+            name="Ollama available",
+            ok=ollama.is_present,
+            required=ollama_required,
+            detail=ollama.help_text,
         )
     )
 
@@ -769,7 +740,7 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         return _summary(
             SetupReadinessState.MISSING_CONFIG,
             "Local config is missing. Codexify needs to create your runtime config.",
-            "Run the setup wizard to create .env for the local inference runtime.",
+            "Run the setup wizard to create .env for the supported local runtime preset.",
             f"env_path={env_path}",
         )
 
@@ -784,19 +755,15 @@ def classify_config_readiness(env_path: Path) -> SetupReadinessSummary | None:
         )
 
     conflicts: list[str] = []
-    if env.get("AI_BACKEND", "").strip().lower() == "local":
-        conflicts.append("AI_BACKEND=local")
     if env.get("LLM_PROVIDER", "").strip().lower() == "ollama":
-        conflicts.append("LLM_PROVIDER=ollama")
-    if env.get("AI_BACKEND", "").strip().lower() != "ollama":
-        conflicts.append("AI_BACKEND must be ollama")
+        conflicts.append("LLM_PROVIDER=ollama is not a valid provider; use LLM_PROVIDER=local")
     if env.get("LLM_PROVIDER", "").strip().lower() != "local":
         conflicts.append("LLM_PROVIDER must be local")
     if conflicts:
         return _summary(
             SetupReadinessState.CONFIG_CONFLICT,
-            "Config conflict found. Current local setup requires the canonical local provider lane.",
-            "Repair config so legacy AI_BACKEND=ollama and canonical LLM_PROVIDER=local.",
+            "Config conflict found. Current local setup requires LLM_PROVIDER=local.",
+            "Repair config so LLM_PROVIDER=local.",
             "conflicts=" + "; ".join(conflicts),
         )
 
@@ -840,91 +807,21 @@ def _http_ok(getter: HttpGetter, url: str, timeout: float = 3) -> tuple[bool, st
     return False, f"status={status} {body[:500]}"
 
 
-def _local_runtime_model_names(body: str) -> set[str]:
+def _ollama_model_names(body: str) -> set[str]:
+    import json
+
     try:
         payload = json.loads(body)
     except Exception:
         return set()
-    models: list[object] = []
-    if isinstance(payload, dict):
-        for key in ("models", "data"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                models.extend(value)
+    models = payload.get("models", []) if isinstance(payload, dict) else []
     names: set[str] = set()
     for model in models:
-        if isinstance(model, str):
-            name = model.strip()
-        elif isinstance(model, dict):
-            name = str(
-                model.get("name") or model.get("model") or model.get("id") or ""
-            ).strip()
-        else:
-            name = ""
-        if name:
-            names.add(name)
+        if isinstance(model, dict):
+            name = str(model.get("name") or model.get("model") or "").strip()
+            if name:
+                names.add(name)
     return names
-
-
-def _normalize_local_base_url(raw_base: str) -> str:
-    clean = str(raw_base or "").strip()
-    if not clean:
-        return ""
-    if "://" not in clean:
-        clean = f"http://{clean}"
-    return clean.rstrip("/")
-
-
-def _host_probe_variants(base_url: str) -> list[str]:
-    variants = [base_url]
-    parsed = urllib.parse.urlparse(base_url)
-    if (parsed.hostname or "").lower() != "host.docker.internal":
-        return variants
-    netloc = "127.0.0.1"
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
-    host_variant = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
-    if host_variant not in variants:
-        variants.append(host_variant)
-    return variants
-
-
-def _configured_local_probe_bases(env: Mapping[str, str]) -> list[str]:
-    raw_chain = str(env.get("CODEXIFY_LOCAL_ENDPOINT_CHAIN") or "").strip()
-    raw_bases = raw_chain.split(",") if raw_chain else [env.get("LOCAL_BASE_URL", "")]
-    bases: list[str] = []
-    seen: set[str] = set()
-    for raw in raw_bases:
-        base = _normalize_local_base_url(raw)
-        if not base:
-            continue
-        for candidate in _host_probe_variants(base):
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            bases.append(candidate)
-    return bases
-
-
-def _local_inventory_urls(base_url: str) -> list[str]:
-    base_v1 = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
-    native_base = base_url[:-3] if base_url.endswith("/v1") else base_url
-    return [f"{base_v1}/models", f"{native_base}/api/tags"]
-
-
-def _probe_local_runtime_inventory(
-    env: Mapping[str, str],
-    http_getter: HttpGetter,
-) -> tuple[bool, str, set[str], str]:
-    failures: list[str] = []
-    for base_url in _configured_local_probe_bases(env):
-        for url in _local_inventory_urls(base_url):
-            ok, detail = _http_ok(http_getter, url)
-            if not ok:
-                failures.append(f"{url}: {detail}")
-                continue
-            return True, detail, _local_runtime_model_names(detail), url
-    return False, "; ".join(failures)[:1200], set(), ""
 
 
 def classify_setup_readiness(
@@ -968,33 +865,31 @@ def classify_setup_readiness(
             detail,
         )
 
-    provider_label = (
-        env.get("LOCAL_PROVIDER_DISPLAY_NAME", "").strip()
-        or local_beta_defaults(env).get(
-            "LOCAL_PROVIDER_DISPLAY_NAME", "local inference"
-        )
-    )
-    local_ok, local_detail, local_models, selected_inventory_url = (
-        _probe_local_runtime_inventory(env, http_getter)
-    )
-    if not local_ok:
+    ollama = detect_dependency("ollama", "Ollama", custom_path=env.get("OLLAMA_BIN"))
+    if not ollama.is_present:
         return _summary(
-            SetupReadinessState.LOCAL_INFERENCE_NOT_RUNNING,
-            "Configured local inference runtime is not reachable.",
-            f"Start {provider_label} or update LOCAL_BASE_URL, then retry.",
-            local_detail,
+            SetupReadinessState.OLLAMA_MISSING,
+            "Ollama is not installed or could not be found.",
+            "Install Ollama, then retry.",
+            ollama.help_text,
+        )
+
+    ollama_ok, ollama_detail = _http_ok(http_getter, "http://127.0.0.1:11434/api/tags")
+    if not ollama_ok:
+        return _summary(
+            SetupReadinessState.OLLAMA_NOT_RUNNING,
+            "Ollama is installed, but it is not running.",
+            "Start Ollama, then retry.",
+            ollama_detail,
         )
 
     model = env.get("LOCAL_CHAT_MODEL", "").strip()
-    if model and model not in local_models:
+    if model and model not in _ollama_model_names(ollama_detail):
         return _summary(
             SetupReadinessState.MODEL_MISSING,
-            f"The selected local model is not advertised by {provider_label}: {model}.",
-            f"Load the model in {provider_label} or update LOCAL_CHAT_MODEL, then retry.",
-            "inventory_url="
-            + selected_inventory_url
-            + " installed_models="
-            + ",".join(sorted(local_models)),
+            f"The selected Ollama model is not installed: {model}.",
+            f"Install the model with `ollama pull {model}`, then retry.",
+            "installed_models=" + ",".join(sorted(_ollama_model_names(ollama_detail))),
         )
 
     ok, detail = _command_ok(runner, [docker_cmd, "compose", "config"], cwd=root)
@@ -1056,5 +951,5 @@ def classify_setup_readiness(
         SetupReadinessState.READY,
         "Codexify local runtime is ready.",
         "Open Codexify.",
-        f"provider={provider_label}",
+        "provider=" + env.get("LOCAL_PROVIDER_DISPLAY_NAME", "Whoosh'd"),
     )

@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 
 import {
   type FlowDraftSelection,
+  type FlowDraftStageDefinition,
   type FlowDraftStageProgress,
   type FlowDraftValidationSummary,
 } from "../model/flowDraft";
@@ -12,6 +13,14 @@ type FlowBuilderParameterRailProps = {
   stageProgress: FlowDraftStageProgress[];
   validationSummary: FlowDraftValidationSummary;
 };
+
+function getStageDescription(stage: FlowDraftStageDefinition): string {
+  if (stage.id === "select-source") {
+    return "Choose whether this automation specification draft starts from explicit process steps or Assistant-guided elicitation from an outcome, constraints, or rough intent.";
+  }
+
+  return stage.description;
+}
 
 export default function FlowBuilderParameterRail({
   currentSelection,
@@ -32,10 +41,11 @@ export default function FlowBuilderParameterRail({
     >
       <div className="border-b border-[var(--panel-border)] p-4">
         <div className="text-[11px] uppercase tracking-[0.24em]" style={{ color: "var(--muted)" }}>
-          Pick your parameters
+          Draft source and parameters
         </div>
         <p className="mt-2 text-sm leading-6" style={{ color: "var(--muted)" }}>
-          Choose the stage that should seed the current draft. The selection stays local to this view.
+          Manual/process starts from known steps. Assistant-guided starts from an outcome,
+          constraints, or rough intent and helps shape a local automation specification draft.
         </p>
       </div>
 
@@ -106,7 +116,7 @@ export default function FlowBuilderParameterRail({
                   </span>
                 </span>
                 <span className="mt-2 block text-sm leading-6" style={{ color: "var(--muted)" }}>
-                  {stageItem.stage.description}
+                  {getStageDescription(stageItem.stage)}
                 </span>
               </span>
             </button>

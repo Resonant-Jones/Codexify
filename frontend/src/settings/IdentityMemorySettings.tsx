@@ -1,5 +1,6 @@
 import React from "react";
 import { fetchIdentitySettings, saveIdentitySettings, IdentitySettings } from "@/imprint/settingsApi";
+import FactCandidateReview from "./FactCandidateReview";
 
 type Props = {
   userId?: string;
@@ -115,6 +116,9 @@ export default function IdentityMemorySettings({ userId }: Props) {
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
+
+      {/* Fact Candidate Review */}
+      <FactCandidateReview userId={userId} />
     </div>
   );
 }

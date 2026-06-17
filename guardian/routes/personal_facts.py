@@ -30,6 +30,43 @@ except Exception:  # pragma: no cover - fallback for import issues
         return "local"
 
 
+# ── Sensitive key gating ──
+# Keys matching these patterns require an explicit force flag to approve.
+_SENSITIVE_KEY_PREFIXES = frozenset(
+    {
+        "ssn",
+        "password",
+        "credit_card",
+        "bank",
+        "pin",
+        "secret",
+        "token",
+    }
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = str(key or "").strip().lower()
+    return any(
+        normalized.startswith(prefix) or prefix in normalized
+        for prefix in _SENSITIVE_KEY_PREFIXES
+    )
+
+
+def _sensitive_key_error(key: str) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": "sensitive_key_blocked",
+            "key": key,
+            "message": (
+                f"Fact key '{key}' matches a sensitive pattern. "
+                "Set force_sensitive=true and provide a reason to approve."
+            ),
+        },
+    )
+
+
 def _get_chatlog_db():
     global chatlog_db
     if chatlog_db is None:
@@ -65,6 +102,42 @@ class FactUpdate(BaseModel):
 
 class FactAction(BaseModel):
     reason: str | None = None
+
+
+class CandidateApproveRequest(BaseModel):
+    """Request body for promoting a fact candidate to verified."""
+
+    value: str | None = Field(
+        default=None,
+        description="Optional edited fact text. If provided, replaces the original candidate value before promotion.",
+    )
+    key: str | None = Field(
+        default=None,
+        description="Optional normalized key override.",
+    )
+    confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Optional confidence override for the promoted fact.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Optional approval reason (recorded in revision).",
+    )
+    force_sensitive: bool = Field(
+        default=False,
+        description="Set to true to approve a fact whose key matches a sensitive pattern. Requires reason.",
+    )
+
+
+class CandidateRejectRequest(BaseModel):
+    """Request body for rejecting a fact candidate."""
+
+    reason: str | None = Field(
+        default=None,
+        description="Rejection reason: incorrect, duplicate, not_useful, sensitive, or other.",
+    )
 
 
 class EvidenceCreate(BaseModel):
@@ -157,11 +230,21 @@ def confirm_personal_fact(
     fact = db.get_fact(fact_id)
     if not fact or fact.get("user_id") != current_user:
         raise HTTPException(status_code=404, detail="fact not found")
+    # Sensitivity gate: block silent promotion of sensitive keys
+    key = str(fact.get("key") or "").strip().lower()
+    if _is_sensitive_key(key):
+        raise _sensitive_key_error(key)
     updated = db.update_fact(
         fact_id,
         status="verified",
         actor="user",
         reason=body.reason,
+    )
+    logger.info(
+        "Personal fact confirmed fact_id=%s key=%s user=%s",
+        fact_id,
+        key,
+        current_user,
     )
     return {"ok": True, "fact": updated}
 
@@ -181,6 +264,180 @@ def dispute_personal_fact(
         status="disputed",
         actor="user",
         reason=body.reason,
+    )
+    logger.info(
+        "Personal fact disputed fact_id=%s key=%s user=%s",
+        fact_id,
+        str(fact.get("key") or ""),
+        current_user,
+    )
+    return {"ok": True, "fact": updated}
+
+
+# ── Candidate review & promotion (production endpoints) ──
+
+
+@router.post(
+    "/candidates/{fact_id}/approve",
+    dependencies=[Depends(require_api_key)],
+)
+def approve_candidate(
+    fact_id: int,
+    body: CandidateApproveRequest = Body(default=CandidateApproveRequest()),
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Approve a fact candidate and promote it to verified status.
+
+    Supports edit-before-approve: if body.value is provided, the fact text
+    is updated before promotion. The original value is preserved in the
+    revision audit trail.
+
+    Sensitivity gating: candidates whose key matches a sensitive pattern
+    (password, ssn, token, etc.) are blocked unless force_sensitive=True
+    and a reason is provided.
+    """
+    db = _get_chatlog_db()
+    fact = db.get_fact(fact_id)
+    if not fact or fact.get("user_id") != current_user:
+        raise HTTPException(status_code=404, detail="fact not found")
+
+    # Verify this is a candidate (or equivalent pending state)
+    current_status = str(fact.get("status") or "").strip().lower()
+    if current_status not in ("candidate", "disputed"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "not_candidate",
+                "current_status": current_status,
+                "message": f"Fact is already {current_status}. Only candidate or disputed facts can be approved.",
+            },
+        )
+
+    key = str(fact.get("key") or "").strip()
+    effective_key = (body.key or key).strip()
+
+    # Sensitivity gate
+    if _is_sensitive_key(effective_key):
+        if not body.force_sensitive:
+            raise _sensitive_key_error(effective_key)
+        if not (body.reason and body.reason.strip()):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "sensitive_reason_required",
+                    "message": "A reason is required when force_sensitive=true.",
+                },
+            )
+        logger.warning(
+            "Sensitive candidate approved with force flag fact_id=%s key=%s user=%s reason=%s",
+            fact_id,
+            effective_key,
+            current_user,
+            body.reason,
+        )
+
+    # Edit-before-approve: update value if provided
+    edited_value = (body.value or "").strip()
+    original_value = str(fact.get("value") or "")
+    effective_value = edited_value if edited_value else original_value
+
+    if not effective_value:
+        raise HTTPException(
+            status_code=400, detail="Fact value cannot be empty"
+        )
+
+    # If editing, update the value first (creates revision)
+    if edited_value and edited_value != original_value:
+        db.update_fact(
+            fact_id,
+            value=effective_value,
+            actor="user",
+            reason=(
+                f"edited before approval: {body.reason}"
+                if body.reason
+                else "edited before approval"
+            ),
+        )
+
+    # If key changed, update key
+    if effective_key and effective_key != key:
+        db.update_fact(
+            fact_id,
+            value=effective_value,
+            actor="user",
+            reason=(
+                f"key changed to '{effective_key}' before approval"
+            ),
+        )
+
+    # Promote to verified
+    confidence = body.confidence
+    if confidence is None:
+        confidence = max(float(fact.get("confidence") or 0.5), 0.5)
+
+    updated = db.update_fact(
+        fact_id,
+        status="verified",
+        confidence=confidence,
+        actor="user",
+        reason=body.reason or "candidate approved",
+    )
+
+    logger.info(
+        "Candidate approved fact_id=%s key=%s user=%s edited=%s",
+        fact_id,
+        effective_key,
+        current_user,
+        bool(edited_value),
+    )
+    return {"ok": True, "fact": updated}
+
+
+@router.post(
+    "/candidates/{fact_id}/reject",
+    dependencies=[Depends(require_api_key)],
+)
+def reject_candidate(
+    fact_id: int,
+    body: CandidateRejectRequest = Body(default=CandidateRejectRequest()),
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Reject a fact candidate.
+
+    Sets the fact status to 'disputed' (semantically: user rejects the
+    candidate as incorrect, not useful, duplicate, sensitive, or other).
+    Evidence rows are preserved. A revision record captures the reason.
+    """
+    db = _get_chatlog_db()
+    fact = db.get_fact(fact_id)
+    if not fact or fact.get("user_id") != current_user:
+        raise HTTPException(status_code=404, detail="fact not found")
+
+    current_status = str(fact.get("status") or "").strip().lower()
+    if current_status not in ("candidate",):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "not_candidate",
+                "current_status": current_status,
+                "message": f"Fact is already {current_status}. Only candidate facts can be rejected.",
+            },
+        )
+
+    reason = (body.reason or "candidate rejected").strip()
+    updated = db.update_fact(
+        fact_id,
+        status="disputed",
+        actor="user",
+        reason=reason,
+    )
+
+    logger.info(
+        "Candidate rejected fact_id=%s key=%s user=%s reason=%s",
+        fact_id,
+        str(fact.get("key") or ""),
+        current_user,
+        reason,
     )
     return {"ok": True, "fact": updated}
 
@@ -231,3 +488,84 @@ def list_fact_revisions(
         raise HTTPException(status_code=404, detail="fact not found")
     revisions = db.get_fact_revisions(fact_id)
     return {"ok": True, "revisions": revisions}
+
+
+# ── Developer-facing candidate inspection routes ──
+
+
+@router.get("/candidates", dependencies=[Depends(require_api_key)])
+def list_fact_candidates(
+    status: str | None = "candidate",
+    thread_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List fact candidates for the current user.
+
+    Supports filtering by status (default: candidate) and thread_id.
+    Evidence rows are included inline when available.
+
+    Query params:
+        status: filter by fact status (candidate, verified, disputed, archived)
+        thread_id: only show facts with evidence linked to this thread
+        limit: max results (default 50, max 200)
+        offset: pagination offset
+    """
+    db = _get_chatlog_db()
+    limit = max(1, min(limit, 200))
+
+    facts = db.list_facts(
+        current_user,
+        status=status,
+        active_only=True,
+        limit=200,
+    )
+
+    if thread_id is not None:
+        # Filter to facts with evidence linking to the given thread.
+        filtered: list[dict[str, Any]] = []
+        for fact in facts:
+            try:
+                evidence = db.list_fact_evidence(fact["id"])
+            except Exception:
+                evidence = []
+            for ev in evidence or []:
+                meta = ev.get("evidence_meta") if isinstance(ev, dict) else {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                ev_thread = meta.get("thread_id")
+                if ev_thread is not None and int(ev_thread) == thread_id:
+                    fact["_evidence"] = ev
+                    filtered.append(fact)
+                    break
+        facts = filtered
+
+    total = len(facts)
+    page = facts[offset : offset + limit]
+    return {"ok": True, "facts": page, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/candidates/debug/recent", dependencies=[Depends(require_api_key)])
+def debug_recent_candidates(
+    limit: int = 10,
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Quick debug endpoint: most recent candidate facts with evidence."""
+    db = _get_chatlog_db()
+    limit = max(1, min(limit, 20))
+    facts = db.list_facts(
+        current_user,
+        status="candidate",
+        active_only=True,
+        limit=limit,
+    )
+    result: list[dict[str, Any]] = []
+    for fact in facts:
+        try:
+            evidence = db.list_fact_evidence(fact["id"])
+        except Exception:
+            evidence = []
+        fact["_evidence"] = evidence
+        result.append(fact)
+    return {"ok": True, "facts": result, "count": len(result)}

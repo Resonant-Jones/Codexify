@@ -21,4 +21,20 @@ describe("vite /media proxy", () => {
     expect(proxy["/media"].target).toBe(proxy["/api"].target);
     expect(proxy["/media"].target).toBe("http://proxy.test:9999");
   });
+
+  it("uses the legacy VITE_GUARDIAN_API_KEY for dev proxy auth", async () => {
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "legacy-local-key");
+    vi.stubEnv("VITE_GUARDIAN_DEV_API_KEY", "");
+    vi.resetModules();
+
+    const viteConfigModule = await import("../vite.config");
+    const config = viteConfigModule.default as any;
+    const proxy = config.server?.proxy;
+
+    expect(proxy?.["/api"]?.headers?.["X-API-Key"]).toBe("legacy-local-key");
+    expect(proxy?.["/api/events"]?.headers?.["X-API-Key"]).toBe("legacy-local-key");
+    expect(proxy?.["^/api/chat(?=/|$)"]?.headers?.["X-API-Key"]).toBe(
+      "legacy-local-key"
+    );
+  });
 });

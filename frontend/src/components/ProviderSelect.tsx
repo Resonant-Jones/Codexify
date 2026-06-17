@@ -39,6 +39,9 @@ type CatalogModel = {
   supportsChat?: boolean;
   supportsVision?: boolean;
   supportsTextInput?: boolean;
+  profileId?: string;
+  displayVendor?: string;
+  releaseSupported?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
   capabilities?: {
     chat?: boolean;
@@ -46,6 +49,10 @@ type CatalogModel = {
     textInput?: boolean;
     tools?: boolean;
     streaming?: boolean;
+  };
+  releasePosture?: {
+    releaseSupported?: boolean;
+    proofRequired?: boolean;
   };
 };
 
@@ -183,6 +190,24 @@ export function ProviderSelect({
                         : typeof (model as any).capabilities?.textInput === "boolean"
                           ? (model as any).capabilities.textInput
                           : undefined,
+                  profileId:
+                    typeof (model as any).profile_id === "string"
+                      ? (model as any).profile_id
+                      : typeof (model as any).profileId === "string"
+                        ? (model as any).profileId
+                        : undefined,
+                  displayVendor:
+                    typeof (model as any).display_vendor === "string"
+                      ? (model as any).display_vendor
+                      : typeof (model as any).displayVendor === "string"
+                        ? (model as any).displayVendor
+                        : undefined,
+                  releaseSupported:
+                    typeof (model as any).release_supported === "boolean"
+                      ? (model as any).release_supported
+                      : typeof (model as any).releaseSupported === "boolean"
+                        ? (model as any).releaseSupported
+                        : undefined,
                   modelKind:
                     typeof (model as any).model_kind === "string"
                       ? (model as any).model_kind
@@ -206,6 +231,32 @@ export function ProviderSelect({
                           streaming: Boolean((model as any).capabilities.streaming),
                         }
                       : undefined,
+                  releasePosture:
+                    typeof (model as any).release_posture === "object"
+                    && (model as any).release_posture
+                      ? {
+                          releaseSupported:
+                            typeof (model as any).release_posture.release_supported === "boolean"
+                              ? (model as any).release_posture.release_supported
+                              : undefined,
+                          proofRequired:
+                            typeof (model as any).release_posture.proof_required === "boolean"
+                              ? (model as any).release_posture.proof_required
+                              : undefined,
+                        }
+                      : typeof (model as any).releasePosture === "object"
+                        && (model as any).releasePosture
+                        ? {
+                            releaseSupported:
+                              typeof (model as any).releasePosture.releaseSupported === "boolean"
+                                ? (model as any).releasePosture.releaseSupported
+                                : undefined,
+                            proofRequired:
+                              typeof (model as any).releasePosture.proofRequired === "boolean"
+                                ? (model as any).releasePosture.proofRequired
+                                : undefined,
+                          }
+                        : undefined,
                 }))
                 .filter((model) => model.id.length > 0)
             : [],

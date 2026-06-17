@@ -144,8 +144,8 @@ class Settings(BaseSettings):
 
     # Backend selector
     AI_BACKEND: Literal[
-        "ollama", "openai", "gemini", "groq", "anthropic"
-    ] = Field("groq", description="Active AI backend")
+        "ollama", "openai", "gemini", "groq", "anthropic", "local"
+    ] = Field("groq", description="Active AI backend; 'local' is legacy compatibility for the local runtime preset path")
     ENV: str = Field(
         "development", description="Environment: development or production"
     )
@@ -198,6 +198,7 @@ class Settings(BaseSettings):
             "groq": ("GROQ_API_KEY",),
             "anthropic": ("ANTHROPIC_API_KEY",),
             "ollama": tuple(),
+            "local": tuple(),
         }
         required = required_map.get(backend, tuple())
         if self.ENV == "production" and required:
@@ -263,6 +264,8 @@ def get_active_model(settings: Settings) -> str:
         return settings.GROQ_MODEL
     if backend == "anthropic":
         return settings.ANTHROPIC_MODEL
+    if backend == "local":
+        return getattr(settings, "LOCAL_CHAT_MODEL", None) or getattr(settings, "LOCAL_MODEL_NAME", None) or settings.OLLAMA_MODEL
     return "unknown"
 
 
@@ -278,6 +281,10 @@ def get_model_and_host(settings: Settings) -> tuple[str, str]:
         return settings.GROQ_MODEL, settings.GROQ_API_ENDPOINT
     if backend == "anthropic":
         return settings.ANTHROPIC_MODEL, settings.ANTHROPIC_API_ENDPOINT
+    if backend == "local":
+        model = getattr(settings, "LOCAL_CHAT_MODEL", None) or getattr(settings, "LOCAL_MODEL_NAME", None) or settings.OLLAMA_MODEL
+        host = getattr(settings, "LOCAL_BASE_URL", None) or getattr(settings, "LOCAL_API_HOST", None) or settings.OLLAMA_HOST
+        return model, host
     return "unknown", "unknown"
 
 
@@ -304,6 +311,7 @@ def get_backend_capabilities(settings: Settings) -> dict:
         "gemini": {"can_search": True},
         "groq": {"can_stream": True, "can_vision": True},
         "anthropic": {"can_stream": True},
+        "local": {"local": True, "can_stream": True, "sovereign": True},
     }
     return capabilities.get(settings.AI_BACKEND.lower(), {})
 
@@ -312,6 +320,8 @@ def warn_if_missing_keys(settings: Settings):
     if settings.ENV == "production":
         return
     backend = (settings.AI_BACKEND or "").lower()
+    if backend in ("local", "ollama"):
+        return
     if backend == "gemini":
         if not (
             getattr(settings, "GENAI_API_KEY", None)
