@@ -17,6 +17,7 @@
 | C03-D011 | 2026-06-18 | `go` — CommandRun readback route added; durable result inspectable | active |
 | C03-D012 | 2026-06-18 | `go` — work-order latest-run readback bridge added; 24 tests pass | active |
 | C03-D013 | 2026-06-18 | `go` — receipt contract defined; docs-only, bounded, no runtime claims | active |
+| C03-D014 | 2026-06-18 | `go` — receipt persistence seam designed; 16 sections, implementation-ready | active |
 
 ---
 
@@ -427,3 +428,34 @@
   - Receipt persistence implementation begins — verify against this contract.
   - New receipt fields or tokens are added — update contract.
   - Pi/Coder receipt integration is planned — extend contract scope.
+
+---
+
+### Decision: C03-D014
+
+- **Decision ID**: C03-D014
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Receipt persistence seam design complete — 16 sections covering storage model, relationships, immutability, route contracts, integrity, redaction, export/restore, and migration plan. Implementation-ready.
+- **Reason**:
+  - Created `work-order-result-receipt-persistence-design.md` with 16 sections.
+  - Proposed table: `work_order_result_receipts` — 17 required + 4 optional columns.
+  - Soft reference policy (not hard FKs) — preserves historical records.
+  - Immutability: receipts immutable after creation; only `review_state` + `operator_note` may be mutable.
+  - Receipt creation: `POST /api/coding/work-orders/{id}/receipts` with 5 candidate error codes.
+  - Receipt readback: individual, list, and `latest-receipt` routes.
+  - Integrity hash: SHA-256 over canonical JSON of 12 payload fields.
+  - Redaction: never copies raw args/secrets; summarizes `result_json.body`.
+  - Export/restore: receipts in top-level manifest; ID remapping; broken refs flagged.
+  - Migration: candidate DDL, indexes, partial unique constraint, clean rollback.
+  - Backlog updated: C03-T011 marked complete.
+- **Evidence**:
+  - `work-order-result-receipt-persistence-design.md` — 16 sections, 17,165 bytes.
+  - `backlog.md` — C03-T011 status updated.
+- **Consequence**:
+  - C03-T011 advances to `go`. Design is implementation-ready.
+  - C03-T012 (implement receipt persistence) can proceed with clear design.
+  - No runtime behavior changed — design only.
+- **Revisit Trigger**:
+  - C03-T012 implementation begins — verify against this design.
+  - Schema decisions change (FK vs soft ref, column types).
+  - Redaction or integrity hash design evolves.
