@@ -36,6 +36,7 @@ route_posture:
     - embeddings
     - obsidian
   internal_only:
+    - coding_work_orders
     - command_bus
   quarantined:
     - neo

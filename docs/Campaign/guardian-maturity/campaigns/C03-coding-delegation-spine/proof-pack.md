@@ -241,3 +241,72 @@ None. The behavior is consistent with the documented supported profile posture.
 ### Recommended Next Task
 
 **Add `coding_work_orders` to the supported profile's `internal_only` route posture.** This is the safest first step — it makes the route accessible (hidden from OpenAPI but functional) without widening the public beta surface. Once the route is reachable, C03-T001 can complete the runtime verification (safe POST, readback, auth confirmation).
+
+---
+
+## C03-T002: Internal Work-Order Route Posture Enablement (2026-06-17 22:36 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `a5ad0349d` — docs: verify Guardian coding work-order route availability
+- **Worktree**: Clean
+
+### Files Modified
+
+- `config/supported_profiles/v1-local-core-web-mcp.yaml` — added `coding_work_orders` to `internal_only` route posture
+
+### YAML Posture Change
+
+```yaml
+  internal_only:
++   - coding_work_orders
+    - command_bus
+```
+
+### Runtime Reload
+
+`docker compose restart backend` — backend restarted to pick up the modified supported profile. `docker compose up -d` was insufficient because no docker-compose.yml change occurred.
+
+### C03-T002 Proof Table
+
+| Check | Evidence | Result | Notes |
+|---|---|---|---|
+| Supported profile changed | `v1-local-core-web-mcp.yaml` line 39 — `coding_work_orders` added | **Changed** | One line added |
+| `coding_work_orders` added to `internal_only` | Above YAML change | **Added** | Not in `enabled` or `quarantined` |
+| Not added to public/core surface | `enabled` list unchanged | **Preserved** | Public beta surface not widened |
+| Beta-core-only posture preserved | `CODEXIFY_BETA_CORE_ONLY=true` confirmed after restart | **Preserved** | Internal-only routes bypass BETA_CORE_ONLY gate |
+| Runtime config observed | `docker compose exec backend printenv` — `BETA_CORE_ONLY=true` | **Confirmed** | Posture unchanged |
+| Backend reload performed | `docker compose restart backend` | **Performed** | 40s to healthy |
+| OpenAPI route discovery checked | No coding/delegation routes in OpenAPI | **Hidden** — expected for internal_only | Internal-only routes excluded from public OpenAPI |
+| Direct route probe checked | `GET /api/coding/work-orders` → `{"ok":true,"items":[],"count":0,"limit":50,"offset":0}` | **Responding** | Route mounted and returning structured JSON |
+| Safe POST attempted | `POST /api/coding/work-orders` with C03-T002 proof payload → `ok: True`, `work_order_id: wo_22eb074add604777`, `status: draft` | **Created** | Work order created with draft status |
+| Readback/list proof attempted | `GET /api/coding/work-orders/{id}` → full detail returned; `GET /api/coding/work-orders` → count: 1 | **Verified** | Full CRUD readback confirmed |
+| No command execution triggered | No command_bus or executor calls in create path | **Confirmed** | Work-order creation is pure CRUD |
+| No Pi/Coder invocation triggered | No Pi SDK or harness calls | **Confirmed** | No invocation risk |
+| Release boundary preserved | `00-current-state.md` delegation exclusion intact; route is internal-only | **Preserved** | No public beta claim |
+
+### Route Posture Classification
+
+**`internal_route_available_openapi_hidden`**
+
+The coding work-order CRUD surface is mounted as an internal-only route. It is hidden from the public OpenAPI schema (expected for `internal_only` posture) but responds to direct requests with structured JSON. Full CRUD verified: POST create (returns work_order_id, status draft), GET single (returns full detail with timestamps), GET list (returns paginated items). Auth uses existing X-API-Key mechanism.
+
+### Contradictions
+
+None. Behavior matches `internal_only` posture expectations exactly.
+
+### Gaps
+
+1. **Source lineage not populated**: `source_thread_id` and `source_message_id` are `None` on the created work order — the proof POST did not supply them. They are optional fields on the input type.
+2. **Status progression not tested**: Only `draft` status created. Status transitions (ready, leased, running, etc.) require worker/execution infrastructure.
+3. **Orchestrator/campaign runner routes not tested**: Only the main work-order CRUD router was verified. The orchestrator (`/api/coding/orchestrator/next`) and campaign runner routes remain unproven.
+
+### C03-T002 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: The coding work-order CRUD route surface is now runtime-available under internal-only posture. Full CRUD (create, readback, list) is verified with structured JSON responses. No command execution, Pi/Coder invocation, or repository mutation occurred. The public beta surface is not widened — the route remains hidden from OpenAPI and excluded from the `enabled` route posture. The supported profile posture (`CODEXIFY_BETA_CORE_ONLY=true`, local-only, cloud-disabled) is preserved.
+
+### Recommended Next Task
+
+**C03-T003: Work-order artifact contract audit.** With the route surface confirmed runtime-available, audit the work-order payload shape against ADR-020's coding-task envelope fields (codingTaskId, threadId, sourceMessageId, permission policy, adapter kind, etc.). Identify which ADR-020 fields are represented in the current work-order schema and which are missing.

@@ -6,6 +6,7 @@
 |----|------|----------|--------|
 | C03-D001 | 2026-06-17 | `next-proof-needed` — spine mapped; coding work-order runtime availability unproven | active |
 | C03-D002 | 2026-06-17 | `next-proof-needed` — route is `source_present_but_feature_gated_off`; blocked by supported profile posture | active |
+| C03-D003 | 2026-06-17 | `go` — coding work-order CRUD runtime-available under internal-only posture | active |
 
 ---
 
@@ -78,3 +79,38 @@
   - `coding_work_orders` is added to the supported profile route posture (enabled or internal_only).
   - `CODEXIFY_BETA_CORE_ONLY` is changed to `false`.
   - Re-run C03-T001 to verify route is mounted and reachable.
+
+---
+
+### Decision: C03-D003
+
+- **Decision ID**: C03-D003
+- **Date**: 2026-06-17
+- **Decision**: Gate decision is `go`. Coding work-order CRUD is runtime-available under internal-only supported profile posture. Full CRUD verified: POST create, GET single, GET list all return structured JSON. Route is hidden from OpenAPI (expected for internal_only). No public beta surface widened.
+- **Reason**:
+  - Added `coding_work_orders` to `internal_only` in `v1-local-core-web-mcp.yaml` (one line).
+  - `docker compose restart backend` picked up the posture change.
+  - `GET /api/coding/work-orders` → `{"ok":true,"items":[],"count":0}` — route responding.
+  - `POST /api/coding/work-orders` → `ok: True`, `work_order_id: wo_22eb074add604777`, `status: draft` — created successfully.
+  - `GET /api/coding/work-orders/{id}` → full detail with `created_at` timestamp.
+  - `GET /api/coding/work-orders` → count: 1 — list confirmed.
+  - Route is hidden from OpenAPI (internal_only posture).
+  - `CODEXIFY_BETA_CORE_ONLY=true` preserved — internal_only routes bypass this gate.
+  - No command execution, Pi/Coder invocation, or repository mutation.
+- **Evidence**:
+  - `config/supported_profiles/v1-local-core-web-mcp.yaml` — `coding_work_orders` in internal_only.
+  - `curl GET /api/coding/work-orders` — 200 OK, structured JSON.
+  - `curl POST /api/coding/work-orders` — 201/200, work_order_id returned.
+  - `curl GET /api/coding/work-orders/{id}` — full detail returned.
+  - `docker compose exec backend printenv` — `CODEXIFY_BETA_CORE_ONLY=true`.
+  - `curl openapi.json` — no coding routes (expected).
+- **Consequence**:
+  - C03-T001 (route availability) and C03-T002 (posture enablement) are resolved.
+  - C03-T003 (work-order artifact contract audit) can proceed immediately.
+  - C03-T004 (command bus adjacency) can proceed with route surface confirmed.
+  - The coding work-order CRUD surface is now available for C03 downstream proof tasks.
+  - Frontend `CodingWorkOrdersPanel` can now target a reachable backend route.
+- **Revisit Trigger**:
+  - Supported profile is changed to remove `coding_work_orders` from internal_only.
+  - `CODEXIFY_BETA_CORE_ONLY` is changed to `false` — re-verify route posture.
+  - Work-order creation triggers unexpected side effects.
