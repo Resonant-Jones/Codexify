@@ -27,6 +27,7 @@ from guardian.agents.work_order_store import (
 )
 from guardian.agents.work_orders import WORK_ORDER_STATUSES, WorkOrderCreate
 from guardian.agents.worktree_lease_store import WorktreeLeaseStore
+from guardian.command_bus.store import CommandBusStore
 from guardian.core.dependencies import require_api_key
 from guardian.protocol_tokens import ErrorCode
 
@@ -49,13 +50,15 @@ orchestrator_router = APIRouter(
 _store = WorkOrderStore(db=None)
 _lease_store = WorktreeLeaseStore(db=None)
 _campaign_runner_store = CampaignRunnerStore(db=None)
+_command_bus_store: CommandBusStore | None = None
 
 
 def configure_db(db: Any | None) -> None:
-    global _store, _lease_store, _campaign_runner_store
+    global _store, _lease_store, _campaign_runner_store, _command_bus_store
     _store = WorkOrderStore(db=db)
     _lease_store = WorktreeLeaseStore(db=db)
     _campaign_runner_store = CampaignRunnerStore(db=db)
+    _command_bus_store = CommandBusStore(db=db)
 
 
 def _normalize_validation_error_code(reason_code: str | None) -> str:
@@ -407,6 +410,57 @@ async def cancel_work_order(
     return {
         "ok": True,
         "work_order": cancelled.to_dict(),
+    }
+
+
+@router.get("/{work_order_id}/latest-run")
+async def get_work_order_latest_run(
+    work_order_id: str,
+) -> dict[str, Any]:
+    """Resolve a work order's latest_run_id to the durable CommandRun."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    run_id = (wo.latest_run_id or "").strip()
+    if not run_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_latest_run_not_found", "work_order_id": work_order_id},
+        )
+
+    cbs = _command_bus_store
+    if cbs is None:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "command_bus_store_unavailable"},
+        )
+
+    run = cbs.get_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_latest_run_missing", "work_order_id": work_order_id, "run_id": run_id},
+        )
+
+    return {
+        "work_order_id": work_order_id,
+        "latest_run_id": run_id,
+        "run": {
+            **run,
+            "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+        },
     }
 
 
