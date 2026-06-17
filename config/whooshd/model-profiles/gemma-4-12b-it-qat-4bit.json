@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "gemma-4-e2b-it-4bit",
-  "display_name": "Gemma 4 E2B Instruct 4-bit",
+  "id": "gemma-4-12b-it-qat-4bit",
+  "display_name": "Gemma 4 12B Instruct QAT 4-bit",
   "family": "gemma4",
   "provider_id": "local",
   "display_vendor": "Whoosh'd",
@@ -15,7 +15,7 @@
     "startup_command": [
       "mlx_vlm.server",
       "--model",
-      "mlx-community/gemma-4-e2b-it-4bit",
+      "mlx-community/gemma-4-12B-it-qat-4bit",
       "--port",
       "8000"
     ],
@@ -24,7 +24,7 @@
       "-m",
       "mlx_vlm.generate",
       "--model",
-      "mlx-community/gemma-4-e2b-it-4bit",
+      "mlx-community/gemma-4-12B-it-qat-4bit",
       "--max-tokens",
       "100",
       "--temperature",
@@ -36,11 +36,11 @@
     ]
   },
   "model": {
-    "repo": "mlx-community/gemma-4-e2b-it-4bit",
-    "upstream_family": "google/gemma-4-E2B-it",
-    "quantization": "4bit",
+    "repo": "mlx-community/gemma-4-12B-it-qat-4bit",
+    "upstream_family": "google/gemma-4-12B-it",
+    "quantization": "qat-4bit",
     "instruction_tuned": true,
-    "effective_size": "E2B"
+    "effective_size": "12B"
   },
   "capabilities": {
     "chat": true,
@@ -65,6 +65,16 @@
       "id": "health_ready",
       "kind": "runtime",
       "description": "Runtime exposes OpenAI-compatible health/readiness or model-list evidence."
+    },
+    {
+      "id": "local_artifact_available",
+      "kind": "runtime",
+      "description": "Model weights and processor assets must already be present in local cache before offline use."
+    },
+    {
+      "id": "offline_image_probe",
+      "kind": "runtime",
+      "description": "The local mlx_vlm.generate image prompt completes against cached model artifacts without network access."
     },
     {
       "id": "no_prompt_echo",
