@@ -4456,6 +4456,63 @@ class ChannelPairing(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class WorkOrderResultReceipt(Base):
+    """Immutable observation records for work-order-linked CommandRun results."""
+
+    __tablename__ = "work_order_result_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    work_order_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    command_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    receipt_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="command_run_observation"
+    )
+    observed_command_id: Mapped[str] = mapped_column(
+        String(512), nullable=False
+    )
+    observed_run_status: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
+    observed_result_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_error_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_thread_id: Mapped[str | None] = mapped_column(String(128))
+    source_message_id: Mapped[str | None] = mapped_column(String(128))
+    provenance_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    redaction_summary_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    integrity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    artifact_ids_json: Mapped[dict | None] = mapped_column(JSONB)
+    review_state: Mapped[str | None] = mapped_column(String(32))
+    operator_note: Mapped[str | None] = mapped_column(Text)
+    supersedes_receipt_id: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        Index("ix_receipts_work_order_id", "work_order_id"),
+        Index("ix_receipts_command_run_id", "command_run_id"),
+        Index("ix_receipts_created_at", "created_at"),
+        UniqueConstraint(
+            "work_order_id",
+            "command_run_id",
+            "receipt_kind",
+            "schema_version",
+            name="uq_receipt_work_order_source",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
 class ChannelMessage(Base):
     """Inbound/outbound channel message audit entries."""
 

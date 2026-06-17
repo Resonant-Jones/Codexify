@@ -1106,3 +1106,53 @@ A receipt is an immutable observation record. It points to a work order and opti
 
 - **Decision**: `go`
 - **Reason**: The persistence seam design is implementation-ready. 16 sections covering storage model, relationships, immutability, route contracts, linkage, integrity, redaction, export/restore, and migration plan. No runtime claims. Release boundary preserved.
+
+---
+
+## C03-T012: Receipt Persistence Implementation (2026-06-18 02:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `8c4855af5` — docs: design Guardian work-order receipt persistence seam
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/db/models.py` — added `WorkOrderResultReceipt` model (+55 lines)
+- `guardian/db/migrations/versions/3cdd66742226_add_work_order_result_receipts.py` — migration (new)
+- `guardian/routes/coding_work_orders.py` — added receipt creation route, integrity hash helper, result summarizer (+165 lines)
+- `tests/routes/test_work_order_result_receipts.py` — 4 tests (new)
+
+### Route Added
+
+`POST /api/coding/work-orders/{work_order_id}/receipts` — creates immutable receipt observing linked CommandRun.
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| Receipt created | `wor_2cafdda007d444d685a8a8d126b4eb89` |
+| `receipt_kind` | `command_run_observation` |
+| `observed_result_summary` | `Status: ok, Service: core` |
+| `integrity_hash` | SHA-256 generated |
+| `schema_version` | 1 |
+| `review_state` | `unreviewed` |
+| WO status | `draft` (unchanged) |
+| `latest_receipt_id` | `None` (not populated) |
+| Raw args exposed | No |
+
+### Test Results
+
+```
+test_work_order_result_receipts       4 passed
+test_coding_work_order_latest_run     6 passed
+test_command_bus_run_readback         5 passed
+test_command_bus_work_order_linkage  13 passed
+Total                                28 passed
+```
+
+### C03-T012 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Receipt persistence implemented. Model, migration, create route, integrity hash, and result summary all work. 4 focused tests pass. Work-order status unchanged. `latest_receipt_id` not populated. No raw args, commands, artifacts, or mutations.

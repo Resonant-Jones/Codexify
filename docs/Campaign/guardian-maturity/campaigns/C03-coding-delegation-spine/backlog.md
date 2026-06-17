@@ -13,7 +13,7 @@
 | C03-T009 | implementation | complete | `guardian/routes/coding_work_orders.py`, `tests/routes/test_coding_work_order_latest_run_readback.py` | Work-order latest-run readback bridge + 6 tests | `cc9bdea9f` | C03-PROOF-009 |
 | C03-T010 | docs | complete | `docs/Campaign/.../work-order-result-receipt-contract.md` | Work-order result receipt contract | — | C03-PROOF-010 |
 | C03-T011 | docs | complete | `docs/Campaign/.../work-order-result-receipt-persistence-design.md` | Receipt persistence seam design | — | C03-PROOF-011 |
-| C03-T012 | backend | planned | `guardian/db/models.py`, `guardian/routes/` | Receipt persistence implementation | — | C03-PROOF-012 |
+| C03-T012 | backend | complete | `guardian/db/models.py`, `guardian/db/migrations/`, `guardian/routes/coding_work_orders.py`, `tests/routes/test_work_order_result_receipts.py` | Receipt persistence implementation + 4 tests | `TBD` | C03-PROOF-012 |
 | C03-T013 | backend | planned | `guardian/routes/` | Receipt readback route | — | C03-PROOF-013 |
 | C03-T014 | backend | planned | `guardian/routes/coding_work_orders.py` | Link `latest_receipt_id` after receipt creation proof | — | C03-PROOF-014 |
 | C03-T015 | frontend | planned | `frontend/src/features/commandCenter/` | Frontend/operator receipt display | — | C03-PROOF-015 |

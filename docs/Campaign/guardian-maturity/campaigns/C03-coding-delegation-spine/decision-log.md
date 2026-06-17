@@ -18,6 +18,7 @@
 | C03-D012 | 2026-06-18 | `go` — work-order latest-run readback bridge added; 24 tests pass | active |
 | C03-D013 | 2026-06-18 | `go` — receipt contract defined; docs-only, bounded, no runtime claims | active |
 | C03-D014 | 2026-06-18 | `go` — receipt persistence seam designed; 16 sections, implementation-ready | active |
+| C03-D015 | 2026-06-18 | `go` — receipt persistence implemented; model, migration, create route, 28 tests pass | active |
 
 ---
 
@@ -459,3 +460,33 @@
   - C03-T012 implementation begins — verify against this design.
   - Schema decisions change (FK vs soft ref, column types).
   - Redaction or integrity hash design evolves.
+
+---
+
+### Decision: C03-D015
+
+- **Decision ID**: C03-D015
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Receipt persistence implemented — model, migration, create route, integrity hash, result summary all working. 4 focused tests pass; 28 total with existing suites. Work-order status unchanged, `latest_receipt_id` not populated.
+- **Reason**:
+  - Model: `WorkOrderResultReceipt` with 21 columns in `guardian/db/models.py`.
+  - Migration: `3cdd66742226_add_work_order_result_receipts` — creates table, indexes, unique constraint.
+  - Route: `POST /api/coding/work-orders/{id}/receipts` — validates WO+run, copies observed fields, computes SHA-256 integrity hash, summarizes result.
+  - Receipt ID format: `wor_{uuid_hex}`.
+  - Result summary: `Status: ok, Service: core` (not raw JSON).
+  - No raw args, commands, artifacts, work-order status change, or `latest_receipt_id` population.
+  - 4 focused tests: create, no-run-404, missing-WO-404, duplicate idempotent/conflict.
+- **Evidence**:
+  - `guardian/db/models.py:4426-4483` — `WorkOrderResultReceipt` model.
+  - `guardian/db/migrations/versions/3cdd66742226_*.py` — migration.
+  - `guardian/routes/coding_work_orders.py:456-621` — receipt creation route.
+  - `tests/routes/test_work_order_result_receipts.py` — 4 tests.
+  - Runtime: `POST .../receipts` → `wor_2cafdda007d444d685a8a8d126b4eb89`.
+- **Consequence**:
+  - C03-T012 advances to `go`. Receipt persistence is live.
+  - C03-T013 (receipt readback) can proceed.
+  - Receipts are immutable observations — no execution, mutation, or completion side effects.
+- **Revisit Trigger**:
+  - C03-T013 receipt readback implementation begins.
+  - `latest_receipt_id` linkage is added.
+  - Duplicate receipt behavior with real DB unique constraint is verified.
