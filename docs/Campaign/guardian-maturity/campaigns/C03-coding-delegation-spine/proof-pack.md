@@ -450,3 +450,157 @@ None.
 ### Recommended Next Task
 
 **C03-T004: Verify command bus adjacency and invocation boundary.** Prove that command bus invocation is adjacent to (not equivalent to) coding-agent execution, that command runs can link to work orders via `latest_run_id`, and that invocation does not bypass Guardian authority.
+
+---
+
+## C03-T004: Command Bus Adjacency and Invocation Boundary Audit (2026-06-17 23:05 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `8efdf59ee` — docs: audit Guardian coding work-order artifact contract
+- **Worktree**: Clean
+- **Runtime**: Backend healthy, command_bus internal_only, coding_work_orders internal_only
+
+### Source Files Inspected
+
+- `guardian/routes/command_bus.py` — manifest, search, invoke, activation/inspect, run events routes
+- `guardian/command_bus/contracts.py` — `ActorSpec`, `InvokeArguments`, `InvokePermissionProfile`
+- `guardian/command_bus/manifest.py` — `build_manifest()`, `build_command_index()`
+- `guardian/command_bus/store.py` — `CommandBusStore` with `list_events_after()`
+- `guardian/db/models.py:3937-4018` — `CommandRun`, `CommandRunEvent` SQLAlchemy models
+- `guardian/agents/work_orders.py:311-312` — `latest_run_id`, `latest_lease_id` on `WorkOrderContract`
+- `guardian/routes/tools.py` — legacy tools route (no command_bus references)
+- `guardian/guardian_api.py` — router inclusion with `internal_only` posture
+
+### Commands Run
+
+- `curl GET /api/command-bus/manifest` — returned `{"commands":[]}` (0 commands registered)
+- `curl openapi.json` — no command/tools routes visible (internal_only)
+- `grep` source searches for command_bus, CommandRun, work-order linkage
+
+### Command Bus Boundary Table
+
+| # | Boundary Dimension | Current Evidence | Classification | Notes |
+|---|-------------------|-----------------|----------------|-------|
+| 1 | Command bus route mount | `guardian/routes/command_bus.py` — router with manifest/search/invoke/inspect/events | **present** | 5 endpoint types |
+| 2 | Supported-profile posture | `internal_only` in `v1-local-core-web-mcp.yaml` | **proven** | Hidden from OpenAPI, accessible directly |
+| 3 | OpenAPI visibility | No command routes in OpenAPI | **hidden** | Expected for internal_only |
+| 4 | Manifest route | `GET /manifest` — returns command specifications from app route introspection | **proven** | 0 commands registered in current runtime |
+| 5 | Invoke route | `POST /invoke` — accepts `InvokeArguments` with command_id, args, path_params | **present_not_runtime_verified** | Route exists; no commands to invoke |
+| 6 | Run read/list route | Not present — no GET route for individual runs or run listing | **absent** | Only events stream available |
+| 7 | Run event route | `GET /runs/{run_id}/events` — SSE stream | **present_not_runtime_verified** | Stream route exists |
+| 8 | Auth boundary | X-API-Key header; routes use `Depends(require_api_key)` | **proven** | Same auth as chat routes (C02 proven) |
+| 9 | Command discovery source | `build_manifest(app)` introspects FastAPI routes for command metadata | **source_only** | 0 commands in current runtime |
+| 10 | Command id shape | String from route path — e.g., `/api/health` → normalized command id | **source_only** | No commands to inspect |
+| 11 | Argument schema shape | `InvokeArguments(path_params, query, headers)` — free-form dicts | **source_only** | No typed argument schemas per command |
+| 12 | Result payload shape | `InvokeResponse` with `run_id`, `status`, `result` | **source_only** | No runtime evidence |
+| 13 | CommandRun durable model | `CommandRun` SQLAlchemy model — `command_runs` table, 20+ columns | **proven** | Durable Postgres storage with indexes |
+| 14 | CommandRunEvent durable model | `CommandRunEvent` — `command_run_events` table, FK to CommandRun | **proven** | Append-only event log |
+| 15 | Status vocabulary | 5 states: queued, running, completed, failed, blocked | **proven** | Check constraint enforced |
+| 16 | Event vocabulary | Defined in `CommandRunEvent` — event_type, sequence_number, payload | **source_only** | No runtime event data |
+| 17 | Actor/auth subject capture | `actor_kind`, `actor_id`, `auth_subject`, `delegated_by` on CommandRun | **proven** | Full actor chain captured |
+| 18 | Idempotency behavior | `idempotency_key` + `args_hash`; `uq_command_idempotency_key` unique constraint | **proven** | DB-level dedup on command_id + idempotency_key |
+| 19 | Policy enforcement | `InvokePermissionProfile` — allowed/denied command classes, ids, write roots, shell commands | **source_only** | Permission model defined; no runtime enforcement evidence |
+| 20 | Shell execution capability | `allowed_shell_commands` in permission profile | **source_only** | Capability defined but no commands registered |
+| 21 | Internal HTTP invocation | Command bus invokes FastAPI routes via `invoke.py` loopback adapter | **source_only** | `loopback_http_adapter.py` provides internal HTTP dispatch |
+| 22 | External harness/Pi capability | No Pi/Coder references in command_bus module | **absent** | Command bus has zero Pi/Coder awareness |
+| 23 | Repository mutation capability | `allowed_write_roots` in permission profile | **source_only** | Write path gating defined; no commands registered |
+| 24 | Legacy tools shim relationship | `guardian/routes/tools.py` — no command_bus references found | **absent** | Tools route is separate; no delegation to command bus |
+| 25 | Frontend command bus usage | `invokeCommandBus()` in `api.ts`; `command_bus.invoke` intent kind | **frontend_only** | Frontend client exists; no runtime invocation evidence |
+| 26 | Work-order `latest_run_id` field | `latest_run_id: str(64)` on `CodingWorkOrder` and `WorkOrderContract` | **present** | Loose string field; no FK, no lookup, no runtime population |
+| 27 | Work-order to command-run FK/link | No FK from coding_work_orders to command_runs | **absent** | No DB-level relationship |
+| 28 | Command run to work-order back-reference | No work_order_id on CommandRun | **absent** | No reverse reference |
+| 29 | Release-boundary risk | Command bus has 0 registered commands; no execution surface | **low** | Internal-only, empty manifest |
+
+### Invocation Semantics Table
+
+| Operation | What It Proves | What It Does Not Prove | Evidence |
+|---|---|---|---|
+| Command manifest | Route introspection of FastAPI app for command metadata | Any commands are registered or invocable | `GET /api/command-bus/manifest` → `commands: []` (0 commands) |
+| Command invoke | Route accepts structured invocation payloads with actor identity | Any command is executable | Route exists but 0 commands registered; no invocation possible |
+| Command run readback/listing | Not present — no GET route for runs | N/A | No listing endpoint |
+| Command run events | SSE stream for individual run events | Any run events exist | Route exists; no runs to stream |
+| Legacy tools invocation | Tools route exists; no command_bus integration | Tools bypasses or uses command bus | No command_bus references in tools.py |
+| Work-order readback with latest_run_id | Field exists on response model | Any runtime population exists | C03-T002 work order returned `latest_run_id: None` |
+| Work-order update to set latest_run_id | No update route for work orders | N/A | Only create/list/get/cancel routes exist |
+
+### Audit Answers
+
+1. **What is the current canonical command bus surface?**
+   An internal-only route set (`guardian/routes/command_bus.py`) providing manifest, search, invoke, activation/inspect, and run events. Commands are discovered from FastAPI route introspection via `build_manifest()`. Currently 0 commands registered in runtime.
+
+2. **Is command bus mounted under current supported posture?**
+   Yes — `internal_only` in `v1-local-core-web-mcp.yaml`. Hidden from OpenAPI, accessible via direct requests with auth.
+
+3. **Is command bus OpenAPI-visible or internal-only hidden?**
+   Internal-only hidden. No command routes appear in OpenAPI.
+
+4. **What does command bus manifest prove?**
+   It proves route introspection works and returns structured command specifications. Currently returns 0 commands — the command registry is empty in the local runtime.
+
+5. **What does command bus invocation prove?**
+   Route exists and accepts structured payloads with actor identity, idempotency key, and args hash. Cannot be proven at runtime because 0 commands are registered.
+
+6. **Does command bus invocation equal coding-agent execution?**
+   **No.** Command bus invokes individual FastAPI routes through a loopback HTTP adapter. Coding-agent execution involves multi-step plans, repository mutations, validation loops, and result artifacts. Command bus is a bounded single-command mechanism — it is adjacent, not equivalent.
+
+7. **Does command bus invocation call Pi/Coder?**
+   **No.** Zero references to Pi, PiInvocation, PiHarness, or Pi/Coder in the entire `guardian/command_bus/` module.
+
+8. **Does command bus invocation call shell or subprocess?**
+   **Not by default.** Permission profiles can gate `allowed_shell_commands`, but no commands are registered and no shell commands are configured.
+
+9. **Can command bus mutate repositories today?**
+   **No.** Permission profiles can gate `allowed_write_roots`, but 0 commands are registered. No repository mutation is possible without registered commands.
+
+10. **Can command bus invoke internal read-only routes today?**
+   **Architecturally yes** — the loopback HTTP adapter can invoke any registered FastAPI route. **At runtime no** — 0 commands are registered in the manifest.
+
+11. **Can command bus invoke internal mutating routes today?**
+   Same answer as #10 — architecturally possible, runtime impossible with empty manifest.
+
+12. **What policy/idempotency boundary exists?**
+   `InvokePermissionProfile` gates command classes, command ids, write roots, and shell commands. `idempotency_key` + `args_hash` with `uq_command_idempotency_key` unique constraint prevents duplicate invocations. Full actor chain (`actor_kind`, `actor_id`, `auth_subject`, `delegated_by`) is captured.
+
+13. **What durable command run data is stored?**
+   `CommandRun` model stores run_id, command_id, status, actor chain, idempotency_key, args_hash, args_redacted, result_json, error_text, and timestamps. `CommandRunEvent` stores ordered append-only events with FK to CommandRun.
+
+14. **Are command run events stored?**
+   Yes — `CommandRunEvent` model provides durable append-only event storage.
+
+15. **Can command runs link to coding work orders through `latest_run_id`?**
+   **Architecturally yes** — `latest_run_id` exists as a string field on `WorkOrderContract` and `CodingWorkOrder`. **At runtime no** — no code path populates it. No FK relationship exists. No command run references work_order_id. The linkage is a loose string convention, not a proven relationship.
+
+16. **Is that link source-only, runtime-proven, docs-only, or absent?**
+   **Source-only.** Field exists in code. Not populated at runtime. Not enforced by DB constraint. No back-reference.
+
+17. **Does legacy `/tools` bypass command bus authority?**
+   **No.** `guardian/routes/tools.py` has zero references to command_bus. The tools route is a separate legacy surface with its own authority semantics. No bypass or delegation relationship exists.
+
+18. **Does frontend imply command bus is coding-agent execution?**
+   **No.** Frontend has `invokeCommandBus()` for direct command invocation and `command_bus.invoke` intent kind for the intent spine. Neither labels command bus as coding-agent execution. The `CodingWorkOrdersPanel` renders work orders as a task board — no command-bus-to-coding-agent conflation.
+
+19. **What is the smallest safe next implementation or proof task?**
+   **C03-T005: Verify delegation routes and worker execution seam.** The command bus is empty (0 commands) and has no work-order linkage. Proving coding delegation execution requires verifying the delegation worker and agent worker seams, which are downstream of command bus registration. Command bus registration is a prerequisite.
+
+### Contradictions
+
+None.
+
+### Gaps
+
+1. **Empty command manifest**: 0 commands registered. Command bus infrastructure exists but has no commands to invoke. Registration requires adding command metadata to FastAPI routes.
+2. **No command run listing**: Only SSE stream for individual runs. No list/search endpoint for command run history.
+3. **Work-order run linkage is source-only**: `latest_run_id` field exists but is never populated. No FK, no back-reference, no runtime linkage.
+4. **No dedicated work-order update route**: Cannot set `latest_run_id` or transition status through the API. Status transitions require worker/orchestrator.
+5. **Invocation boundary unproven at runtime**: 0 commands → no invocation proof possible. Safe invocation requires at least one registered read-only command.
+
+### C03-T004 Gate Decision
+
+- **Decision**: `next-proof-needed`
+- **Reason**: The command bus boundary is fully classified across 29 dimensions. The surface is internal-only with durable CommandRun/CommandRunEvent storage, idempotency enforcement, and actor chain capture. However, the command manifest is empty (0 commands registered), making invocation proof impossible. Work-order run linkage is source-only — `latest_run_id` exists but is never populated. The gate is `next-proof-needed` specifically because command registration is a prerequisite for any downstream execution proof. The next task must register at least one safe read-only command before invocation can be proven.
+
+### Recommended Next Task
+
+**Register a safe read-only command in the command bus manifest.** The smallest step: add command metadata to an existing read-only FastAPI route (e.g., `/health` or `/api/llm/catalog`) so the manifest returns at least one command. This unlocks invocation proof without adding mutating behavior.
