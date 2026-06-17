@@ -1074,3 +1074,35 @@ A receipt is an immutable observation record. It points to a work order and opti
 
 - **Decision**: `go`
 - **Reason**: The receipt contract is clear, bounded, and docs-only. No runtime behavior is claimed. Receipts are explicitly distinct from CommandRuns, artifacts, Pi/Coder receipts, and work-order completion. Candidate tokens are marked docs-only. Future implementation sequence (T011-T015) is scoped. Release boundary preserved.
+
+---
+
+## C03-T011: Receipt Persistence Seam Design (2026-06-18 01:30 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `3537d90a6` — docs: define Guardian work-order result receipt contract
+- **Worktree**: Clean
+
+### Files Modified
+
+- `docs/Campaign/.../work-order-result-receipt-persistence-design.md` — new design document (16 sections)
+- `docs/Campaign/.../backlog.md` — C03-T011 marked complete
+
+### Design Summary
+
+- **Proposed table**: `work_order_result_receipts` — 26 columns (17 required, 4 optional)
+- **Relationships**: Soft references (not hard FKs) — preserves historical records when referenced entities are deleted
+- **Immutability**: Receipts immutable after creation; only `review_state` + `operator_note` may be mutable
+- **Receive creation**: `POST /api/coding/work-orders/{id}/receipts` — validates WO+run, copies observed fields, computes integrity hash
+- **Receipt readback**: `GET .../receipts/{id}`, list, and `latest-receipt` routes
+- **Integrity hash**: SHA-256 over canonical JSON of observed payload fields
+- **Redaction**: Never copies raw args/secrets; summarizes `result_json.body` into `observed_result_summary`
+- **Export/restore**: Receipts in top-level manifest collection; ID remapping; broken refs flagged not dropped
+- **Migration**: Candidate DDL with indexes, partial unique constraint, no backfill, clean rollback
+
+### C03-T011 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: The persistence seam design is implementation-ready. 16 sections covering storage model, relationships, immutability, route contracts, linkage, integrity, redaction, export/restore, and migration plan. No runtime claims. Release boundary preserved.
