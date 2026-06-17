@@ -652,6 +652,13 @@ async def create_work_order_receipt(
             cbs._receipts = {}
         cbs._receipts[receipt_id] = row
 
+    return _serialize_receipt(row)
+
+
+# ── Receipt serialization ──────────────────────────────────────────
+
+
+def _serialize_receipt(row: WorkOrderResultReceipt) -> dict[str, Any]:
     return {
         "receipt_id": row.receipt_id,
         "work_order_id": row.work_order_id,
@@ -672,6 +679,103 @@ async def create_work_order_receipt(
         "review_state": row.review_state,
         "operator_note": row.operator_note,
     }
+
+
+@router.get("/{work_order_id}/receipts")
+async def list_work_order_receipts(
+    work_order_id: str,
+) -> dict[str, Any]:
+    """List receipts for a work order, newest first."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    cbs = _command_bus_store
+    receipts: list[dict[str, Any]] = []
+    if cbs is not None:
+        # Try real DB first
+        cbs_db = getattr(cbs, "_db", None)
+        if cbs_db is not None and hasattr(cbs_db, "get_session"):
+            with cbs_db.get_session() as session:
+                rows = (
+                    session.query(WorkOrderResultReceipt)
+                    .filter_by(work_order_id=work_order_id)
+                    .order_by(WorkOrderResultReceipt.created_at.desc())
+                    .all()
+                )
+                receipts = [_serialize_receipt(row) for row in rows]
+        # Fallback to in-memory
+        elif hasattr(cbs, "_receipts"):
+            for row in cbs._receipts.values():
+                if getattr(row, "work_order_id", None) == work_order_id:
+                    receipts.append(_serialize_receipt(row))
+            receipts.sort(
+                key=lambda r: r.get("created_at") or "",
+                reverse=True,
+            )
+
+    return {
+        "work_order_id": work_order_id,
+        "receipts": receipts,
+    }
+
+
+@router.get("/{work_order_id}/receipts/{receipt_id}")
+async def get_work_order_receipt(
+    work_order_id: str,
+    receipt_id: str,
+) -> dict[str, Any]:
+    """Read a single receipt by work order id and receipt id."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    cbs = _command_bus_store
+    if cbs is not None:
+        # Try real DB first
+        cbs_db = getattr(cbs, "_db", None)
+        if cbs_db is not None and hasattr(cbs_db, "get_session"):
+            with cbs_db.get_session() as session:
+                row = (
+                    session.query(WorkOrderResultReceipt)
+                    .filter_by(
+                        receipt_id=receipt_id,
+                        work_order_id=work_order_id,
+                    )
+                    .first()
+                )
+                if row is not None:
+                    return _serialize_receipt(row)
+        # Fallback to in-memory
+        elif hasattr(cbs, "_receipts"):
+            row = cbs._receipts.get(receipt_id)
+            if row is not None and getattr(row, "work_order_id", None) == work_order_id:
+                return _serialize_receipt(row)
+
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "work_order_receipt_not_found"},
+    )
 
 
 @orchestrator_router.get("/next")

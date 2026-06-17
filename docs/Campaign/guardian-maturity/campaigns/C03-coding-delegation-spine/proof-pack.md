@@ -1203,3 +1203,50 @@ Total                                34 passed
 
 - **Decision**: `go`
 - **Reason**: Receipt persistence hardened with 10 focused tests covering valid creation, invalid relationships (no run, missing WO, missing CommandRun), duplicate/idempotency, deterministic integrity hash, redaction, and no command execution. Migration upgrade/downgrade/re-upgrade cycle clean. All 34 tests pass.
+
+---
+
+## C03-T013: Receipt Readback Routes (2026-06-18 02:45 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `e941fd22a` — test: harden Guardian work-order receipt persistence proof
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/routes/coding_work_orders.py` — added `_serialize_receipt` helper, `GET .../receipts` list, `GET .../receipts/{id}` single (+60 lines)
+- `tests/routes/test_work_order_result_receipt_readback.py` — 6 tests (new)
+
+### Routes Added
+
+- `GET /api/coding/work-orders/{id}/receipts/{receipt_id}` — single receipt readback
+- `GET /api/coding/work-orders/{id}/receipts` — list receipts (newest first)
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| GET single | `receipt_id` matches, summary: `Status: ok, Service: core`, hash present |
+| GET list | `count: 1` |
+| 404 | `work_order_receipt_not_found` |
+| Wrong WO | 404 |
+| No raw args | Confirmed |
+| Read-only | Two reads return identical data |
+
+### Test Results
+
+```
+test_work_order_result_receipt_readback  6 passed (new)
+test_work_order_result_receipts         10 passed
+test_coding_work_order_latest_run        6 passed
+test_command_bus_run_readback            5 passed
+test_command_bus_work_order_linkage     13 passed
+Total                                   40 passed
+```
+
+### C03-T013 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Receipt readback routes work — single and list. DB query path fixed (reads from real DB, falls back to in-memory). 6 focused tests pass. No raw args exposed. Read-only. 40 total tests pass.
