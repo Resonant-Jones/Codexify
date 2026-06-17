@@ -764,3 +764,37 @@ All failures halt before `store.create_run()` — the command target never execu
 
 - **Decision**: `go`
 - **Reason**: Fail-closed behavior proven for all invalid linkage cases. Nonexistent and malformed work_order_id both halt before command execution. Valid linkage preserved. No-link invocation preserved. Work order status preserved.
+
+---
+
+## C03-T006-R2: Focused Backend Linkage Tests (2026-06-18 00:10 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `3614ee7b6` — fix: fail closed on invalid Guardian work-order command links
+- **Worktree**: Clean
+
+### Files Modified
+
+- `tests/routes/test_command_bus_work_order_linkage.py` — 13 new tests (new file)
+
+### Test Results
+
+```
+tests/routes/test_command_bus_work_order_linkage.py .............  13 passed
+```
+
+| Test Class | Tests | Key Coverage |
+|------------|-------|-------------|
+| `TestValidLinkage` | 2 | `latest_run_id` populated, status preserved |
+| `TestNoLinkInvocation` | 2 | Succeeds without `work_order_id`, no mutation |
+| `TestNonexistentWorkOrder` | 3 | 404 `work_order_not_found`, no execution, store-unavailable 400 |
+| `TestMalformedWorkOrder` | 2 | 422 `work_order_id_malformed`, empty string → normal invoke |
+| `TestIdempotency` | 2 | Repeat preserves same link, idempotency without WO works |
+| `TestSafetyExclusions` | 2 | Loopback only, no shell/Pi/Coder/repo mutation |
+
+### C03-T006-R2 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: 13 focused backend tests pass, covering valid linkage, no-link, nonexistent fail-closed, malformed fail-closed, store-unavailable, idempotency, and safety exclusions. All invalid linkage cases are regression-proven.

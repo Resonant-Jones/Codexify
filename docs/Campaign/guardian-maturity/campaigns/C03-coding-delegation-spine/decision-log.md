@@ -12,6 +12,7 @@
 | C03-D006 | 2026-06-17 | `go` — manifest discovery works (106 commands); health invocation proven; path probe error, not code bug | active |
 | C03-D007 | 2026-06-17 | `go` — work-order-to-command-run linkage runtime-proven; `latest_run_id` populated | active |
 | C03-D008 | 2026-06-17 | `go` — fail-closed linkage repair; invalid work_order_id blocks command execution | active |
+| C03-D009 | 2026-06-18 | `go` — 13 focused backend tests pass; linkage contract regression-proven | active |
 
 ---
 
@@ -276,3 +277,34 @@
   - Work order ownership/auth validation is added (currently only existence + format checked).
   - Archived/deleted work orders should be rejected by the DB lookup.
   - Idempotency across different work_order_ids should be explicitly tested.
+
+---
+
+### Decision: C03-D009
+
+- **Decision ID**: C03-D009
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. 13 focused backend tests pass covering valid linkage, no-link, nonexistent fail-closed, malformed fail-closed, store-unavailable, idempotency, and safety exclusions. The linkage contract is regression-proven.
+- **Reason**:
+  - Created `tests/routes/test_command_bus_work_order_linkage.py` with 13 tests.
+  - Valid linkage: `latest_run_id` populated, status preserved. ✅
+  - No-link: succeeds without `work_order_id`, no mutation. ✅
+  - Nonexistent: 404 `work_order_not_found`, no command execution. ✅
+  - Malformed: 422 `work_order_id_malformed`. ✅
+  - Store-unavailable: 400 `work_order_linkage_unavailable`. ✅
+  - Empty string: treated as missing → normal invocation. ✅
+  - Idempotent repeat: preserves same link. ✅
+  - Safety: loopback only, no shell/Pi/Coder/repo mutation. ✅
+  - Tests use fake loopback following existing command bus test patterns.
+- **Evidence**:
+  - `tests/routes/test_command_bus_work_order_linkage.py` — 13 tests, 6 test classes.
+  - `pytest -v` → 13 passed, 0 failed.
+  - Broader command bus tests: 11/12 pass (1 async pre-existing).
+- **Consequence**:
+  - C03-T006-R2 advances to `go`. Linkage contract regression-proven.
+  - C03-T007 (result-return proof) can proceed with safe, tested linkage.
+  - C03-T006 is now fully closed (initial + fail-closed repair + tests).
+- **Revisit Trigger**:
+  - New linkage error cases are added.
+  - Idempotency mismatch across work orders is explicitly tested.
+  - Work order ownership/auth validation is added to `execute_invoke`.
