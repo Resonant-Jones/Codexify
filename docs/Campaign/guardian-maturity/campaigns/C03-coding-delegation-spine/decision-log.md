@@ -13,6 +13,7 @@
 | C03-D007 | 2026-06-17 | `go` — work-order-to-command-run linkage runtime-proven; `latest_run_id` populated | active |
 | C03-D008 | 2026-06-17 | `go` — fail-closed linkage repair; invalid work_order_id blocks command execution | active |
 | C03-D009 | 2026-06-18 | `go` — 13 focused backend tests pass; linkage contract regression-proven | active |
+| C03-D010 | 2026-06-18 | `next-proof-needed` — result-return seam classified; no CommandRun readback route | active |
 
 ---
 
@@ -308,3 +309,37 @@
   - New linkage error cases are added.
   - Idempotency mismatch across work orders is explicitly tested.
   - Work order ownership/auth validation is added to `execute_invoke`.
+
+---
+
+### Decision: C03-D010
+
+- **Decision ID**: C03-D010
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `next-proof-needed`. The result-return seam is fully classified across 22 dimensions. CommandRun results are durably stored (`result_json` in Postgres) but have no API readback route. Work-order result linkage is pointer-only (`latest_run_id`). The gap is specific and implementable.
+- **Reason**:
+  - `CommandRun.result_json` is durably stored in Postgres.
+  - `CommandRun.error_text` is durably stored.
+  - `GET /api/guardian/commands/runs/{run_id}` returns 404 — no readback route.
+  - `CommandBusStore.get_run()` exists internally but is not exposed.
+  - Invoke response includes `inline_result` with command output — transient.
+  - Work-order readback includes `latest_run_id` pointer only — no joined result.
+  - No receipt or artifact is created.
+  - `latest_receipt_id` exists on work orders but is never populated.
+  - `PiInvocationReceipt` and `PiInvocationArtifact` exist in Pi module but are not linked to work orders.
+  - The smallest safe next step: add `GET /api/guardian/commands/runs/{run_id}` as a read-only route.
+- **Evidence**:
+  - `guardian/db/models.py:3967-3968` — `result_json` and `error_text` columns.
+  - `guardian/command_bus/store.py:142` — `get_run()` method.
+  - `curl GET /api/guardian/commands/runs/{id}` → 404.
+  - `curl POST invoke` → `inline_result` with health response.
+  - `curl GET /api/coding/work-orders/{id}` → `latest_run_id` present, no result.
+- **Consequence**:
+  - C03-T007 cannot advance to `go` until a CommandRun readback route exists.
+  - The durable result is already stored — only the route is missing.
+  - Once the readback route exists, work-order-to-result linkage becomes inspectable.
+  - Receipt and artifact creation are deferred to later tasks.
+- **Revisit Trigger**:
+  - `GET /api/guardian/commands/runs/{run_id}` route is added.
+  - `latest_receipt_id` is populated by a runtime code path.
+  - Result artifacts are created from command-run results.
