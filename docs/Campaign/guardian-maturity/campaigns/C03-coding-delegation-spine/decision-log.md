@@ -19,6 +19,7 @@
 | C03-D013 | 2026-06-18 | `go` — receipt contract defined; docs-only, bounded, no runtime claims | active |
 | C03-D014 | 2026-06-18 | `go` — receipt persistence seam designed; 16 sections, implementation-ready | active |
 | C03-D015 | 2026-06-18 | `go` — receipt persistence implemented; model, migration, create route, 28 tests pass | active |
+| C03-D016 | 2026-06-18 | `go` — receipt proof hardened; 10 focused tests, migration cycle clean, 34 total pass | active |
 
 ---
 
@@ -490,3 +491,32 @@
   - C03-T013 receipt readback implementation begins.
   - `latest_receipt_id` linkage is added.
   - Duplicate receipt behavior with real DB unique constraint is verified.
+
+---
+
+### Decision: C03-D016
+
+- **Decision ID**: C03-D016
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Receipt persistence proof hardened — 10 focused tests covering valid creation, invalid relationships, duplicate/idempotency, deterministic hash, redaction, and no command execution. Migration upgrade/downgrade/re-upgrade cycle clean. 34 total tests pass.
+- **Reason**:
+  - Expanded `test_work_order_result_receipts.py` from 4 to 10 tests across 4 test classes.
+  - Invalid relationships: no linked run → 404, missing WO → 404, missing CommandRun → 404.
+  - Duplicate: creates new receipt (in-memory) or 409 (real DB).
+  - Integrity hash: deterministic — recomputed hash matches stored hash.
+  - Redaction: no raw args/secrets exposed; `redaction_summary_json` present.
+  - No command execution: `execute_invoke` not called during receipt creation.
+  - Migration: `upgrade → downgrade → re-upgrade` cycle passes cleanly.
+- **Evidence**:
+  - `tests/routes/test_work_order_result_receipts.py` — 10 tests, 4 classes.
+  - `pytest -v` → 34 passed (10 receipt + 24 existing).
+  - `alembic upgrade/downgrade/upgrade` → all clean.
+  - `git diff --check` → clean.
+  - `python3 scripts/validate_docs.py` → passed.
+- **Consequence**:
+  - C03-T012-R1 advances to `go`. Receipt persistence is fully proven.
+  - C03-T013 (receipt readback) can proceed.
+  - All C03-T012 required checks are now covered.
+- **Revisit Trigger**:
+  - Real DB unique constraint behavior is verified (currently tested with in-memory fallback).
+  - Receipt readback route is added — verify readback returns stored receipts.
