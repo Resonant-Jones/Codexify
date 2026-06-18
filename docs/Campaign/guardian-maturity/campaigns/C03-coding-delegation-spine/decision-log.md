@@ -21,6 +21,7 @@
 | C03-D015 | 2026-06-18 | `go` — receipt persistence implemented; model, migration, create route, 28 tests pass | active |
 | C03-D016 | 2026-06-18 | `go` — receipt proof hardened; 10 focused tests, migration cycle clean, 34 total pass | active |
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
+| C03-D018 | 2026-06-18 | `go` — receipt readback proof hardened; 11 tests, response shape, ordering, isolation, 45 total pass | active |
 
 ---
 
@@ -521,3 +522,31 @@
 - **Revisit Trigger**:
   - Real DB unique constraint behavior is verified (currently tested with in-memory fallback).
   - Receipt readback route is added — verify readback returns stored receipts.
+
+---
+
+### Decision: C03-D018
+
+- **Decision ID**: C03-D018
+- **Date**: 2026-06-18
+- **Decision**: Gate decision is `go`. Receipt readback proof hardened — 11 focused tests covering response shape, list ordering, cross-WO isolation, error cases, no command execution, and safety exclusions. 45 total tests pass. Docs validator and git diff check clean.
+- **Reason**:
+  - Expanded `test_work_order_result_receipt_readback.py` from 6 to 11 tests across 4 classes.
+  - Response shape: all 18 required fields present, no forbidden fields exposed.
+  - List ordering: newest-first proven with timestamped receipts.
+  - Cross-WO isolation: single and list routes enforce work-order membership.
+  - Error cases: nonexistent receipt 404, missing WO single/list 404.
+  - No command execution: `execute_invoke` spy not called.
+  - Fixed `_serialize_receipt` to handle string `created_at` for in-memory fixtures.
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `tests/routes/test_work_order_result_receipt_readback.py` — 11 tests, 4 classes.
+  - `pytest -v` → 45 passed (11 readback + 34 existing).
+  - `guardian/routes/coding_work_orders.py:671` — serialization fix.
+- **Consequence**:
+  - C03-T013-R1 advances to `go`. Receipt readback is fully proven.
+  - C03-T014 (`latest_receipt_id` linkage) can proceed.
+  - All C03-T013 required checks are covered.
+- **Revisit Trigger**:
+  - `latest-receipt` route is added after C03-T014 linkage.
+  - Receipt list pagination is added.

@@ -1250,3 +1250,45 @@ Total                                   40 passed
 
 - **Decision**: `go`
 - **Reason**: Receipt readback routes work — single and list. DB query path fixed (reads from real DB, falls back to in-memory). 6 focused tests pass. No raw args exposed. Read-only. 40 total tests pass.
+
+---
+
+## C03-T013-R1: Receipt Readback Proof Hardening (2026-06-18 03:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `a5bebe592` — feat: add Guardian work-order receipt readback routes
+- **Worktree**: Clean
+
+### Files Modified
+
+- `tests/routes/test_work_order_result_receipt_readback.py` — expanded 6→11 tests across 4 test classes
+- `guardian/routes/coding_work_orders.py` — fixed `_serialize_receipt` to handle string `created_at`
+- `docs/.../backlog.md` — C03-T013 marked complete
+- `docs/.../decision-log.md` — C03-D018 added
+
+### Expanded Test Coverage
+
+| Test Class | Tests | Coverage |
+|------------|-------|----------|
+| `TestSingleReceiptReadback` | 2 | All required fields present, read-only idempotent |
+| `TestReceiptList` | 2 | List includes receipts, newest-first ordering |
+| `TestErrorCases` | 5 | Nonexistent receipt, missing WO single/list, cross-WO isolation single/list |
+| `TestSafetyAndNonMutation` | 2 | No command execution spy, no shell/Pi/Coder/repo mutation |
+
+### Test Results
+
+```
+test_work_order_result_receipt_readback  11 passed (up from 6)
+test_work_order_result_receipts          10 passed
+test_coding_work_order_latest_run         6 passed
+test_command_bus_run_readback             5 passed
+test_command_bus_work_order_linkage      13 passed
+Total                                    45 passed
+```
+
+### C03-T013-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Receipt readback hardened with 11 focused tests covering response shape, list ordering, cross-WO isolation, missing WO/receipt errors, no command execution, and safety exclusions. All 45 tests pass. `git diff --check` clean. Docs validator passed. Backlog and decision log complete.
