@@ -668,7 +668,7 @@ def _serialize_receipt(row: WorkOrderResultReceipt) -> dict[str, Any]:
         "observed_run_status": row.observed_run_status,
         "observed_result_summary": row.observed_result_summary,
         "observed_error_text": row.observed_error_text,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": row.created_at.isoformat() if hasattr(row.created_at, "isoformat") else row.created_at,
         "created_by": row.created_by,
         "source_thread_id": row.source_thread_id,
         "source_message_id": row.source_message_id,
