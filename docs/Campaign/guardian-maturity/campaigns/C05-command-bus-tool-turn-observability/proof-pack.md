@@ -87,3 +87,52 @@ test_tool_turn_observability.py  24 passed
 ### Next Task
 
 **C05-T004: Add backend readback route for tool-turn observability**
+
+---
+
+## C05-T003-R1: Helper Validation Closeout (2026-06-19 06:30 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `2e07bb462` — feat: add Guardian tool-turn observability read model helper
+- **Worktree**: Clean
+- **Prior `next-proof-needed` Reason**: Broader command-bus suite, git diff check, docs validator, and complete decision log entry not reported.
+
+### Files Modified
+
+- `proof-pack.md` — this section
+- `decision-log.md` — C05-D003 expanded + C05-D004 added
+
+### Helper Inspection
+
+- Pure/read-only ✅
+- No DB access ✅
+- No HTTP calls ✅
+- No command invocation ✅
+- No shell/subprocess ✅
+- No artifact creation ✅
+- No input mutation ✅
+- CamelCase over snake_case ✅
+- Mapping + ORM CommandRun ✅
+- Safe missing-evidence output ✅
+
+### Validation
+
+```
+test_tool_turn_observability.py              24 passed
+test_command_bus_phase1_invoke.py             9 passed
+test_command_bus_phase1_manifest.py           1 passed
+Total                                        34 passed
+git diff --check                              clean
+python3 scripts/validate_docs.py               passed
+```
+
+### C05-T003-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Helper validation closeout complete. All 34 tests pass. `git diff --check` clean. Docs validator passed. Decision log complete. C05-T004 can proceed.
+
+### Next Task
+
+**C05-T004: Add backend readback route for tool-turn observability**
