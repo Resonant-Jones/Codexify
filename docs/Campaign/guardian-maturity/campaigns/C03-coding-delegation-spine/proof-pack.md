@@ -1432,3 +1432,45 @@ pytest -k "latest_receipt_id|..."        22 collection errors (pre-existing, unr
 
 - **Decision**: `go`
 - **Reason**: Linkage proof closeout complete. 7 focused tests covering successful linkage, failed non-linkage (no run, missing CommandRun), pointer failure non-false-success, no command execution, and safety exclusions. 52 total tests pass. `git diff --check` clean. Docs validator passed. Backlog and decision log complete. Runtime proof confirmed `latest_receipt_id` set, `latest_run_id` preserved, status unchanged.
+
+---
+
+## C03-T014-R3: Fail-Closed Linkage Repair (2026-06-19 04:30 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `96e7b22c7` — test: close Guardian latest receipt linkage proof
+- **Worktree**: Clean
+- **Prior Hold Reason**: Pointer update was best-effort — receipt returned success when `latest_receipt_id` linkage failed.
+
+### Files Modified
+
+- `guardian/routes/coding_work_orders.py` — replaced `except Exception: pass` with structured 500 error (+3/-1 lines)
+- `tests/routes/test_work_order_latest_receipt_linkage.py` — updated pointer failure test to expect 500
+
+### Final Linkage Semantics
+
+**Fail-closed.** If `set_latest_receipt()` raises, the route returns HTTP 500 with `work_order_latest_receipt_linkage_failed`. Successful response guarantees `latest_receipt_id` equals returned `receipt_id`.
+
+Best-effort behavior removed. Receipt is no longer returned when pointer linkage fails.
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| Receipt created | `wor_7cabc56d449e4c5b86fe5d63dfaa3efe` |
+| `latest_receipt_id` | `wor_7cabc56d449e4c5b86fe5d63dfaa3efe` ✅ |
+| `latest_run_id` | `run_348de921199140c0` (preserved) ✅ |
+| Status | `draft` (unchanged) ✅ |
+
+### Test Results
+
+```
+All 52 tests pass (pointer failure now asserts 500, not 201)
+```
+
+### C03-T014-R3 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Linkage is fail-closed. `set_latest_receipt()` failure returns 500, not a misleading success. Successful response guarantees `latest_receipt_id` equals receipt_id. 52 tests pass. Runtime proof confirmed.

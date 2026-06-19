@@ -22,7 +22,7 @@
 | C03-D016 | 2026-06-18 | `go` — receipt proof hardened; 10 focused tests, migration cycle clean, 34 total pass | active |
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
-| C03-D021 | 2026-06-19 | `go` — linkage proof closeout; 7 tests, full validation hygiene, decision log complete, 52 tests | active |
+| C03-D022 | 2026-06-19 | `go` — linkage fail-closed; `set_latest_receipt` failure returns 500, not misleading success, 52 tests | active |
 
 ---
 
