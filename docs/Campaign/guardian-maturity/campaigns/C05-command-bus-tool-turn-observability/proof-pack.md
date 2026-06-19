@@ -274,3 +274,51 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C05-T006: Close Command Center tool-turn observability proof**
+
+---
+
+## C05-T005-R3: Final UI Proof Closeout (2026-06-19 08:37 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `3d40fcf55` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: proof-pack missing, loaded-state fetch source-verified but not recorded, empty/no-tool-turn unaddressed, broader validation unreported.
+
+### UI Behavior Inspection (Source-Verified — `CodingWorkOrdersPanel.tsx`)
+- Tool-turn observability section exists (`ToolTurnObservability` component, data-testid `tool-turn-observability`).
+- Section is read-only (no mutation controls, no buttons for dispatch/execute/retry/approve/complete/artifact/receipt).
+- Route fetch gated on `assistantMessageId`: `if (!assistantMessageId) return` (line 240–241 of ToolTurnObservability).
+- No message-id fabrication (extracted from work-order data, not generated).
+- Unavailable state: `No assistant message id` copy when `assistantMessageId` is null.
+- Loading state: displayed during in-flight fetch.
+- Loaded state: renders `tool_turn_id`, `tool_turn_state`, `loop_stop_reason`, `command_run_id`, `command_id`, `command_status`, `evidence_durability` from readback response.
+- Empty/no-tool-turn state: `No bounded tool-turn evidence is recorded for this assistant message.` when `evidence_durability` is not definitive.
+- Fetch failure: safe error copy, no raw backend payload, stack trace, or response body.
+- Redaction: blocked from C05-T002 contract — raw args, secrets, credentials, system prompts, hidden prompts, raw `extra_meta`, raw `result_json`, stack traces not rendered.
+- Truth-labeling: `Read-only bounded tool-turn evidence. This does not prove autonomous delegation, Pi/Coder execution, artifact creation, or work-order completion.`
+
+### Dynamic Import Mock Limitation
+Loaded-state and empty/no-tool-turn state tests cannot use the existing `api.get` mock pattern because the `ToolTurnObservability` component uses dynamic `import("@/lib/api")`. Previous receipt evidence tests work around this via `configureSuccessResponses` mock chaining; the same pattern is incompatible for the tool-turn fetch because `configureSuccessResponses` chain can't simultaneously intercept the work-order list URL and the tool-turn observability URL without breaking the prior chain.
+
+**Source-verified evidence for loaded/empty paths (not test-proven):**
+- `CodingWorkOrdersPanel.tsx` line 230: `const url = \`/api/guardian/commands/tool-turns/${encodeURIComponent(assistantMessageId)}/observability\``
+- Line 240–241: fetch guard `if (!assistantMessageId) return`
+- Line 246–251: successful parse `setData(resp.data as Record<string, unknown>)`
+- Lines 260–267: loaded-state rendering with `data?.tool_turn_id`, `data?.tool_turn_state`, etc.
+- Line 264: empty/no-tool-turn fallback `No bounded tool-turn evidence is recorded for this assistant message.`
+- Lines 276–281: fetch-failure with `setError(true)` — renders safe error copy (lines 282–285).
+
+### Validation
+| Command | Result |
+|---------|--------|
+| `npx vitest run ... CodingWorkOrdersPanel` | 22 passed |
+| `npx vitest run ... -t "Coding|Health|CommandCenter"` | 120 passed, 704 skipped, 6 playwright failures (pre-existing, no server) |
+| `git diff --check` | clean |
+| `python3 scripts/validate_docs.py` | passed |
+| `pnpm --dir frontend test` | not run — wrapper times out; `npx vitest` used directly (repo standard) |
+
+### Gate Decision
+**`go`** — C05-T005 final UI proof complete. All contract-surfaced behaviors proven or source-verified. No mutation controls, redaction safe, truth-labeled. Dynamic import mock limitation explicitly recorded with line-number evidence.
+
+### Next Task
+**C05-T006: Close Command Center tool-turn observability proof**
+
