@@ -161,3 +161,38 @@ python3 scripts/validate_docs.py               passed
 
 ### Next Task
 **C05-T005: Surface tool-turn observability in Command Center**
+
+---
+
+## C05-T004-R1: Route Validation Closeout (2026-06-19 07:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `542d82bfb` | **Worktree**: Clean
+- **Prior**: `next-proof-needed` — git diff check, docs validator, complete decision log, receipt linkage, auth posture, and no-side-effects proof not reported.
+
+### Route Inspection
+- Read-only ✅ | Uses C05-T003 helper ✅ | extra_meta → CommandRun enrichment ✅
+- Missing message 404 ✅ | Non-assistant 400 ✅ | No metadata → safe null ✅
+- Missing CommandRun → metadata preserved ✅ | No raw data ✅
+- No writes, commands, artifacts, receipts, or job enqueue ✅
+- Auth: follows command bus internal-only posture ✅
+
+### Receipt Linkage
+**Deferred** — route returns empty `receipt_ids` and `latest_receipt_id: null`. Receipt linkage requires C03 store access not yet wired in command_bus routes.
+
+### Validation
+```
+test_command_bus_tool_turn_observability  8 passed
+test_command_bus_run_readback             5 passed
+test_command_bus_work_order_linkage      13 passed
+test_tool_turn_observability             24 passed
+Total                                    50 passed
+git diff --check                         clean
+python3 scripts/validate_docs.py          passed
+```
+
+### Gate
+**`go`** — Route validation closeout complete. 50 tests pass. Full hygiene. C05-T005 can proceed.
+
+### Next Task
+**C05-T005: Surface tool-turn observability in Command Center**
