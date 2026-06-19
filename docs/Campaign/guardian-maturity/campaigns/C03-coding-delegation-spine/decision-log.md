@@ -24,6 +24,7 @@
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
 | C03-D022 | 2026-06-19 | `go` — linkage fail-closed; `set_latest_receipt` failure returns 500, not misleading success, 52 tests | active |
 | C03-D025 | 2026-06-19 | `go` — receipt display proof hardened; 5 focused tests, redaction, no-mutation, 16 frontend tests | active |
+| C03-D026 | 2026-06-19 | `go` — C03 campaign closed; 15 tasks, 52 backend + 16 frontend tests, closeout recorded | active |
 
 ---
 
@@ -604,3 +605,31 @@
   - `latest-receipt` convenience route is added.
   - Linkage is made atomic with receipt creation in same DB transaction.
   - Frontend receipt display is implemented.
+
+---
+
+### Decision: C03-D026
+
+- **Decision ID**: C03-D026
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. C03 Coding Delegation Spine campaign closed. 15 tasks complete across work-order artifacts, command bus adjacency, run linkage, receipt persistence, receipt readback, latest-receipt linkage, and operator receipt evidence UI. Full closeout recorded at `closeout.md`.
+- **Reason**:
+  - All 15 C03 tasks gated `go` (T001–T015).
+  - Backend: 52 tests passing across 6 test files.
+  - Frontend: 16 tests passing (CodingWorkOrdersPanel with receipt evidence).
+  - Migration: Alembic upgrade/downgrade cycle clean.
+  - Docs: `closeout.md` created with scope, proven surfaces, operator truth, non-release-supported items, safety boundaries, and validation summary.
+  - Guardrails: no end-to-end delegation claim, no Pi/Coder execution claim, no artifact creation claim, no work-order completion implied by receipts.
+- **Evidence**:
+  - `closeout.md` — 9 sections covering scope, proven surfaces, operator truth, non-release-supported items, safety boundaries, validation, next handoff.
+  - `proof-pack.md` — C03 closeout section referencing `closeout.md`.
+  - `backlog.md` — all 15 tasks marked complete.
+  - `decision-log.md` — C03-D001 through C03-D026 complete.
+- **Consequence**:
+  - C03 campaign advances to `go`. Coding delegation spine is proven.
+  - Next wave handoff: C05 (Command Bus and Tool Turn Observability) or C06 (Guardian Operator Workspace).
+  - Release boundary preserved: `00-current-state.md` remains authoritative.
+- **Revisit Trigger**:
+  - C05 or C06 campaign begins — verify C03 proof boundaries are respected.
+  - Pi/Coder validation route is added — update C03 closeout.
+  - Artifact creation is implemented — reclassify receipt-vs-artifact boundary.
