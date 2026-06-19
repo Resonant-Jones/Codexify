@@ -22,6 +22,7 @@
 | C03-D016 | 2026-06-18 | `go` — receipt proof hardened; 10 focused tests, migration cycle clean, 34 total pass | active |
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
+| C03-D021 | 2026-06-19 | `go` — linkage proof closeout; 7 tests, full validation hygiene, decision log complete, 52 tests | active |
 
 ---
 
@@ -550,3 +551,28 @@
 - **Revisit Trigger**:
   - `latest-receipt` route is added after C03-T014 linkage.
   - Receipt list pagination is added.
+
+---
+
+### Decision: C03-D021
+
+- **Decision ID**: C03-D021
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Linkage proof closeout complete — 7 focused tests, full validation hygiene, 52 total tests pass. `latest_receipt_id` linkage proven with `set_latest_receipt()`, `latest_run_id` preserved, status unchanged.
+- **Reason**:
+  - Expanded tests to 7 across 3 classes: successful linkage, `set_latest_receipt` doesn't touch `latest_run_id`, no-run 404, missing CommandRun 404, pointer failure non-false-success, no command execution, safety exclusions.
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+  - Backlog: C03-T014 confirmed complete.
+  - Decision log: C03-D019 through C03-D021 all complete entries.
+  - Runtime proof from C03-T014-R1: `latest_receipt_id` matches, `latest_run_id` preserved, status `draft`.
+- **Evidence**:
+  - `tests/routes/test_work_order_latest_receipt_linkage.py` — 7 tests, 3 classes, 52 total passing.
+  - `guardian/agents/work_order_store.py:296-307` — `set_latest_receipt()` method.
+  - `guardian/routes/coding_work_orders.py:656-660` — `store.set_latest_receipt()` call.
+- **Consequence**:
+  - C03-T014-R2 advances to `go`. Linkage proof fully closed.
+  - C03-T015 (frontend/operator receipt display) can proceed.
+  - All C03-T014 required checks are covered.
+- **Revisit Trigger**:
+  - `latest-receipt` route is added after linkage.
+  - Pointer update is made atomic with receipt creation.
