@@ -21,7 +21,7 @@
 | C03-D015 | 2026-06-18 | `go` — receipt persistence implemented; model, migration, create route, 28 tests pass | active |
 | C03-D016 | 2026-06-18 | `go` — receipt proof hardened; 10 focused tests, migration cycle clean, 34 total pass | active |
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
-| C03-D018 | 2026-06-18 | `go` — receipt readback proof hardened; 11 tests, response shape, ordering, isolation, 45 total pass | active |
+| C03-D019 | 2026-06-19 | `go` — `latest_receipt_id` linkage integrated; 4 tests, 49 total pass | active |
 
 ---
 

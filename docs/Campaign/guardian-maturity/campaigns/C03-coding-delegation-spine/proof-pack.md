@@ -1292,3 +1292,39 @@ Total                                    45 passed
 
 - **Decision**: `go`
 - **Reason**: Receipt readback hardened with 11 focused tests covering response shape, list ordering, cross-WO isolation, missing WO/receipt errors, no command execution, and safety exclusions. All 45 tests pass. `git diff --check` clean. Docs validator passed. Backlog and decision log complete.
+
+---
+
+## C03-T014: Latest Receipt Linkage (2026-06-19 03:40 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `f3e59192f` — test: harden Guardian work-order receipt readback proof
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/routes/coding_work_orders.py` — added `store.mark_latest_run(work_order_id, receipt_id=receipt_id)` after receipt creation (+5 lines)
+- `tests/routes/test_work_order_latest_receipt_linkage.py` — 4 tests (new)
+
+### Linkage Behavior
+
+After successful receipt creation, `store.mark_latest_run(work_order_id, receipt_id=receipt_id)` updates the work order's `latest_receipt_id`. Linkage is best-effort — receipt is the source of truth.
+
+### Test Results
+
+```
+test_work_order_latest_receipt_linkage  4 passed (new)
+test_work_order_result_receipt_readback 11 passed
+test_work_order_result_receipts         10 passed
+test_coding_work_order_latest_run        6 passed
+test_command_bus_run_readback            5 passed
+test_command_bus_work_order_linkage     13 passed
+Total                                   49 passed
+```
+
+### C03-T014 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: `latest_receipt_id` linkage integrated — receipt creation calls `mark_latest_run` with receipt_id. 4 focused tests prove the call (mock-based). Failed creation does not update pointer. No command execution. 49 tests pass.

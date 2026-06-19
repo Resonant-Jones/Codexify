@@ -652,6 +652,12 @@ async def create_work_order_receipt(
             cbs._receipts = {}
         cbs._receipts[receipt_id] = row
 
+    # Link latest_receipt_id on the work order
+    try:
+        store.mark_latest_run(work_order_id, receipt_id=receipt_id)
+    except Exception:
+        pass  # best-effort linkage; receipt is the source of truth
+
     return _serialize_receipt(row)
 
 
