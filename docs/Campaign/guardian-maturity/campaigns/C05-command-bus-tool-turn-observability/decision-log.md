@@ -5,6 +5,7 @@
 | ID | Date | Decision | Status |
 |----|------|----------|--------|
 | C05-D001 | 2026-06-19 | `go` — tool-turn observability seam audit complete; all 6 fields durably persisted, frontend gap identified | active |
+| C05-D002 | 2026-06-19 | `go` — read model contract defined; 15 fields, source priority, redaction, CommandRun/receipt relationships | active |
 
 ---
 
@@ -35,3 +36,27 @@
   - C05-T002 read model contract is defined — verify alignment with seam audit.
   - New tool-turn fields are added — re-audit.
   - CommandRun readback route changes — verify frontend compatibility.
+
+---
+
+### Decision: C05-D002
+
+- **Decision ID**: C05-D002
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Read model contract defined with 15 canonical fields, source priority, field mapping, redaction rules, CommandRun/receipt relationships, and state interpretation. C05-T003 can proceed.
+- **Reason**:
+  - Defined 15 read model fields across 4 source layers (`extra_meta`, `command_runs`, command events, receipts).
+  - Source priority: `extra_meta` → `command_runs` → events → receipts → task events → logs.
+  - All redaction boundaries documented: raw args, secrets, prompts, unredacted payloads must not be surfaced.
+  - State interpretation defined for all `ToolTurnState` and `LoopStopReason` tokens.
+  - CommandRun relationship: `commandRunId` bridges to C03-T008 readback route.
+  - Receipt relationship: `latestReceiptId` bridges to C03-T013 readback routes.
+  - 4 unknowns recorded for follow-up in C05-T003.
+- **Evidence**:
+  - `tool-turn-read-model-contract.md` — 18 sections.
+- **Consequence**:
+  - C05-T002 advances to `go`. Read model contract established.
+  - C05-T003 (backend read-model helper) can proceed with clear field definitions.
+- **Revisit Trigger**:
+  - C05-T003 discovers fields not defined in the contract.
+  - New tool-turn or command-run fields are added to `extra_meta` or `command_runs`.
