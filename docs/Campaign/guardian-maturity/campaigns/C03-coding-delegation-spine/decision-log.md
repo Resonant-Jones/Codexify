@@ -24,7 +24,7 @@
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
 | C03-D022 | 2026-06-19 | `go` — linkage fail-closed; `set_latest_receipt` failure returns 500, not misleading success, 52 tests | active |
 | C03-D025 | 2026-06-19 | `go` — receipt display proof hardened; 5 focused tests, redaction, no-mutation, 16 frontend tests | active |
-| C03-D026 | 2026-06-19 | `go` — C03 campaign closed; 15 tasks, 52 backend + 16 frontend tests, closeout recorded | active |
+| C03-D027 | 2026-06-19 | `go` — C03 final validation closeout; backlog updated, validation hygiene proven | active |
 
 ---
 
@@ -633,3 +633,27 @@
   - C05 or C06 campaign begins — verify C03 proof boundaries are respected.
   - Pi/Coder validation route is added — update C03 closeout.
   - Artifact creation is implemented — reclassify receipt-vs-artifact boundary.
+
+---
+
+### Decision: C03-D027
+
+- **Decision ID**: C03-D027
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. C03 final validation closeout complete. Backlog reflects C03 closed. `git diff --check` clean, `python3 scripts/validate_docs.py` passed. All C03 proof gaps resolved.
+- **Reason**:
+  - Backlog updated with campaign status note: C03 closed (`go`), 15 tasks complete.
+  - Proof-pack records C03-FINAL-R1 validation closeout.
+  - Decision log complete (C03-D001 through C03-D027).
+  - `git diff --check` clean, docs validator passed.
+  - No automated runtime tests apply — docs-only closeout validation.
+- **Evidence**:
+  - `backlog.md` — campaign status note added.
+  - `proof-pack.md` — C03-FINAL-R1 section.
+  - `decision-log.md` — C03-D027 entry.
+- **Consequence**:
+  - C03 campaign fully closed. All gates resolved.
+  - Next wave handoff: C05 or C06.
+  - Release boundary preserved.
+- **Revisit Trigger**:
+  - C05/C06 campaign begins.

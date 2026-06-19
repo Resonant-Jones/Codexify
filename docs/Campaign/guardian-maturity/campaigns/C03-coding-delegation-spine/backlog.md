@@ -28,3 +28,11 @@
 - **backend**: Backend schema, route, or persistence work.
 - **frontend**: Frontend component, state, or UI work.
 - **blocked**: Task cannot proceed due to dependencies.
+
+---
+
+## Campaign Status
+
+**C03 Coding Delegation Spine — Closed (`go`)**
+
+All 15 tasks complete (T001–T015). 52 backend + 16 frontend tests passing. Final closeout: [`closeout.md`](./closeout.md). Final validation: `f3067c4e8` (R1 closeout validation).
