@@ -1328,3 +1328,51 @@ Total                                   49 passed
 
 - **Decision**: `go`
 - **Reason**: `latest_receipt_id` linkage integrated — receipt creation calls `mark_latest_run` with receipt_id. 4 focused tests prove the call (mock-based). Failed creation does not update pointer. No command execution. 49 tests pass.
+
+---
+
+## C03-T014-R1: Latest Receipt Linkage Hardening (2026-06-19 04:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `5505725e4` — feat: link Guardian work orders to latest receipt
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/agents/work_order_store.py` — added `set_latest_receipt()` method (receipt-only, does not touch `latest_run_id`) (+12 lines)
+- `guardian/routes/coding_work_orders.py` — replaced `mark_latest_run` with `set_latest_receipt` (-1/+1 line)
+- `tests/routes/test_work_order_latest_receipt_linkage.py` — rewritten with 5 tests using `set_latest_receipt`
+
+### Implementation Repair
+
+**Root cause**: `mark_latest_run(work_order_id, receipt_id=receipt_id)` passes `run_id=None` which calls `_coerce_optional_text(None)` → `None`, clearing the existing `latest_run_id`.
+
+**Fix**: Added `WorkOrderStore.set_latest_receipt(work_order_id, receipt_id)` — sets ONLY `latest_receipt_id`, leaving `latest_run_id` and `latest_lease_id` untouched.
+
+### Runtime Proof
+
+| Check | Result |
+|-------|--------|
+| Receipt created | `wor_39306ef304ab4255a4c3e433aa3f97c0` |
+| `latest_receipt_id` after create | `wor_39306ef304ab4255a4c3e433aa3f97c0` ✅ |
+| `latest_run_id` preserved | `run_0ef91dedbfb2420e` ✅ |
+| Status unchanged | `draft` ✅ |
+
+### Test Results
+
+```
+test_work_order_latest_receipt_linkage  5 passed (rewritten)
+test_work_order_result_receipt_readback 11 passed
+test_work_order_result_receipts         10 passed
+test_coding_work_order_latest_run        6 passed
+test_command_bus_run_readback            5 passed
+test_command_bus_work_order_linkage     13 passed
+Total                                   50 passed
+```
+
+### C03-T014-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: `latest_receipt_id` linkage hardened — `set_latest_receipt()` only touches `latest_receipt_id`, preserves `latest_run_id`. Runtime proof confirms linkage. 50 tests pass. `git diff --check` and docs validator clean.

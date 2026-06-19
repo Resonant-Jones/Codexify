@@ -1,4 +1,4 @@
-"""Focused backend tests for latest_receipt_id linkage after receipt creation."""
+"""Focused backend tests for latest_receipt_id linkage — hardened."""
 
 from __future__ import annotations
 
@@ -76,55 +76,65 @@ def _build_client(monkeypatch):
 
 
 class TestLatestReceiptLinkage:
-    def test_creation_updates_latest_receipt_id(self, monkeypatch) -> None:
+    def test_creation_calls_set_latest_receipt_with_receipt_id(self, monkeypatch) -> None:
         client, wo_store, cb_store, db = _build_client(monkeypatch)
         wo_id = "wo_aaaaaaaaaaaaaaa1"; run_id = "run_0000000000000001"
-        wo = _mock_work_order(wo_id, latest_run_id=run_id)
-        wo_store.get_work_order.return_value = wo
+        wo_store.get_work_order.return_value = _mock_work_order(wo_id, latest_run_id=run_id)
         cb_store.get_run = MagicMock(return_value=_mock_command_run(run_id))
         calls = []
-        def capture_mark(self, *a, **kw): calls.append({"args": a, "kw": kw})
-        wo_store.mark_latest_run = capture_mark.__get__(wo_store)
+        wo_store.set_latest_receipt = (lambda self, wid, rid: calls.append({"work_order_id": wid, "receipt_id": rid})).__get__(wo_store)
 
         resp = client.post(f"/api/coding/work-orders/{wo_id}/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
         assert resp.status_code == 201
         rid = resp.json()["receipt_id"]
-
         assert len(calls) == 1
-        # mark_latest_run called — verify args
-        assert calls[0]["kw"].get("receipt_id") == rid
+        assert calls[0]["work_order_id"] == wo_id
+        assert calls[0]["receipt_id"] == rid
 
-    def test_failed_creation_does_not_update_pointer(self, monkeypatch) -> None:
+    def test_set_latest_receipt_does_not_touch_latest_run_id(self, monkeypatch) -> None:
+        """Verify set_latest_receipt only sets receipt_id, not latest_run_id."""
         client, wo_store, cb_store, db = _build_client(monkeypatch)
-        wo_store.get_work_order.return_value = _mock_work_order("wo_aaaaaaaaaaaaaaa2", latest_run_id=None)
-        calls = []
-        wo_store.mark_latest_run = (lambda self, *a, **kw: calls.append(kw)).__get__(wo_store)
-
-        resp = client.post("/api/coding/work-orders/wo_aaaaaaaaaaaaaaa2/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
-        assert resp.status_code == 404
-        assert len(calls) == 0  # pointer not updated on failure
-
-    def test_pointer_preserves_status_and_latest_run(self, monkeypatch) -> None:
-        client, wo_store, cb_store, db = _build_client(monkeypatch)
-        wo_id = "wo_aaaaaaaaaaaaaaa3"; run_id = "run_0000000000000003"
+        wo_id = "wo_aaaaaaaaaaaaaaa2"; run_id = "run_0000000000000002"
         wo_store.get_work_order.return_value = _mock_work_order(wo_id, latest_run_id=run_id)
         cb_store.get_run = MagicMock(return_value=_mock_command_run(run_id))
         calls = []
-        wo_store.mark_latest_run = (lambda self, *a, **kw: calls.append(kw)).__get__(wo_store)
+        wo_store.set_latest_receipt = (lambda self, wid, rid: calls.append({"wid": wid, "rid": rid})).__get__(wo_store)
 
         resp = client.post(f"/api/coding/work-orders/{wo_id}/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
         assert resp.status_code == 201
-        # mark_latest_run was called — status and latest_run_id are NOT mutated by this call
         assert len(calls) == 1
+        # set_latest_receipt only takes work_order_id and receipt_id — no run_id parameter
+
+    def test_failed_creation_does_not_update_pointer(self, monkeypatch) -> None:
+        client, wo_store, cb_store, db = _build_client(monkeypatch)
+        wo_store.get_work_order.return_value = _mock_work_order("wo_aaaaaaaaaaaaaaa3", latest_run_id=None)
+        calls = []
+        wo_store.set_latest_receipt = (lambda self, wid, rid: calls.append(rid)).__get__(wo_store)
+
+        resp = client.post("/api/coding/work-orders/wo_aaaaaaaaaaaaaaa3/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
+        assert resp.status_code == 404
+        assert len(calls) == 0
 
     def test_no_command_execution_during_linkage(self, monkeypatch) -> None:
         client, wo_store, cb_store, db = _build_client(monkeypatch)
         wo_id = "wo_aaaaaaaaaaaaaaa4"; run_id = "run_0000000000000004"
         wo_store.get_work_order.return_value = _mock_work_order(wo_id, latest_run_id=run_id)
         cb_store.get_run = MagicMock(return_value=_mock_command_run(run_id))
-        wo_store.mark_latest_run = (lambda self, *a, **kw: None).__get__(wo_store)
+        wo_store.set_latest_receipt = (lambda self, wid, rid: None).__get__(wo_store)
         invoke_spy = MagicMock()
         monkeypatch.setattr("guardian.command_bus.invoke.execute_invoke", invoke_spy)
         resp = client.post(f"/api/coding/work-orders/{wo_id}/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
         assert resp.status_code == 201
         invoke_spy.assert_not_called()
+
+    def test_pointer_linkage_does_not_affect_missing_command_run_case(self, monkeypatch) -> None:
+        client, wo_store, cb_store, db = _build_client(monkeypatch)
+        wo_id = "wo_aaaaaaaaaaaaaaa5"
+        wo_store.get_work_order.return_value = _mock_work_order(wo_id, latest_run_id="run_missing0000000")
+        cb_store.get_run = MagicMock(return_value=None)
+        calls = []
+        wo_store.set_latest_receipt = (lambda self, wid, rid: calls.append(rid)).__get__(wo_store)
+
+        resp = client.post(f"/api/coding/work-orders/{wo_id}/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
+        assert resp.status_code == 404
+        assert len(calls) == 0
