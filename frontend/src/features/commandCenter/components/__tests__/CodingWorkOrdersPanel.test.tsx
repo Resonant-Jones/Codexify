@@ -471,5 +471,111 @@ describe("CodingWorkOrdersPanel", () => {
     await screen.findByTestId("receipt-evidence");
     await screen.findByText(/not an artifact/);
     await screen.findByText(/does not mark the work order complete/);
+    await screen.findByText(/does not prove coding-agent execution/);
+  });
+
+  it("does not render raw args secrets prompts or surrogate IDs", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: { args_redacted: true },
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+            // Adversarial fields that must NOT render
+            raw_args: "RAW_ARGS_SHOULD_NOT_RENDER",
+            args: "ARGS_SHOULD_NOT_RENDER",
+            secret: "SECRET_SHOULD_NOT_RENDER",
+            password: "PASSWORD_SHOULD_NOT_RENDER",
+            token: "TOKEN_SHOULD_NOT_RENDER",
+            system_prompt: "SYSTEM_PROMPT_SHOULD_NOT_RENDER",
+            hidden_prompt: "HIDDEN_PROMPT_SHOULD_NOT_RENDER",
+            db_id: "LOCAL_DB_ID_SHOULD_NOT_RENDER",
+            id: 99999,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+
+    const forbidden = [
+      "RAW_ARGS_SHOULD_NOT_RENDER",
+      "ARGS_SHOULD_NOT_RENDER",
+      "SECRET_SHOULD_NOT_RENDER",
+      "PASSWORD_SHOULD_NOT_RENDER",
+      "TOKEN_SHOULD_NOT_RENDER",
+      "SYSTEM_PROMPT_SHOULD_NOT_RENDER",
+      "HIDDEN_PROMPT_SHOULD_NOT_RENDER",
+      "LOCAL_DB_ID_SHOULD_NOT_RENDER",
+      "99999",
+    ];
+    for (const f of forbidden) {
+      expect(screen.queryByText(f)).toBeNull();
+    }
+  });
+
+  it("receipt display has no mutation controls", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: {},
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+
+    const forbiddenControls = [
+      "Create artifact", "Complete work order", "Run command",
+      "Retry", "Replay", "Invoke", "Run coding agent", "Approve execution",
+    ];
+    for (const label of forbiddenControls) {
+      expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+    }
   });
 });

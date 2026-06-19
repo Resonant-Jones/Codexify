@@ -1557,3 +1557,43 @@ CodingWorkOrdersPanel.test.tsx  14 passed (3 new + 11 existing)
 
 - **Decision**: `go`
 - **Reason**: Operator receipt display added. 3 focused tests pass. Empty/error states handled. Truth-labeling distinguishes receipt from artifact/completion/execution. No mutation controls. 14 frontend tests pass.
+
+---
+
+## C03-T015-R1: Receipt Display Proof Hardening (2026-06-19 05:15 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `2015cf0bc` — feat: show Guardian work-order receipt evidence
+- **Worktree**: Clean
+- **Prior `next-proof-needed` Reason**: Only 3 tests, no redaction proof, no coding-agent execution distinction, no validation hygiene.
+
+### Files Modified
+
+- `CodingWorkOrdersPanel.tsx` — added coding-agent execution distinction to truth-labeling (+1 line)
+- `CodingWorkOrdersPanel.test.tsx` — 2 new tests: redaction/surrogate ID exclusion, no mutation controls (+98 lines)
+
+### Expanded Test Coverage
+
+| Test | Coverage |
+|------|----------|
+| Empty state | `No result receipt yet` ✅ |
+| Success display | Receipt fields visible ✅ |
+| Failure state | `Receipt unavailable` ✅ |
+| Truth-labeling | Not artifact, not completion, not coding-agent execution ✅ |
+| Redaction | 9 adversarial strings not rendered ✅ |
+| No mutation controls | 8 forbidden control labels absent ✅ |
+
+### Validation
+
+```
+CodingWorkOrdersPanel.test.tsx  16 passed (5 new + 11 existing)
+git diff --check                  clean
+python3 scripts/validate_docs.py   passed
+```
+
+### C03-T015-R1 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Receipt display proof hardened. 5 focused tests pass. Redaction and no-mutation controls proven. Truth-labeling distinguishes observation from artifact, completion, and coding-agent execution. 16 frontend tests pass. `git diff --check` and docs validator clean.

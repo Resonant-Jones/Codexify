@@ -23,7 +23,7 @@
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
 | C03-D022 | 2026-06-19 | `go` — linkage fail-closed; `set_latest_receipt` failure returns 500, not misleading success, 52 tests | active |
-| C03-D024 | 2026-06-19 | `go` — operator receipt display in CodingWorkOrdersPanel; 14 frontend tests pass | active |
+| C03-D025 | 2026-06-19 | `go` — receipt display proof hardened; 5 focused tests, redaction, no-mutation, 16 frontend tests | active |
 
 ---
 

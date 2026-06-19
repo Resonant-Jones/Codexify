@@ -203,7 +203,7 @@ function ReceiptEvidence({
       </div>
 
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-        Receipt records an observed command run result. It is not an artifact and does not mark the work order complete.
+        Receipt records an observed command run result. It is not an artifact, does not mark the work order complete, and does not prove coding-agent execution.
       </div>
     </div>
   );
