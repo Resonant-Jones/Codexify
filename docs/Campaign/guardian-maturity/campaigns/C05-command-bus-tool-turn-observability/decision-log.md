@@ -88,3 +88,30 @@
   - C05-T003-R1 advances to `go`. C05-T004 (readback route) can proceed.
 - **Revisit Trigger**:
   - C05-T004 route implementation begins — verify against read model helper.
+
+---
+
+### Decision: C05-D006
+
+- **Decision ID**: C05-D006
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. C05-T004 route validation closeout complete. 50 tests pass. Route is read-only, uses C05-T003 helper, handles all edge cases. Receipt linkage deferred (C03 store not wired). `git diff --check` clean, docs validator passed.
+- **Reason**:
+  - Route: `GET /api/guardian/commands/tool-turns/{message_id}/observability`.
+  - Read-only — no writes, commands, artifacts, receipts, or job enqueue.
+  - Reads assistant `extra_meta`, enriches from CommandRun when `commandRunId` present.
+  - Edge cases: missing message 404, non-assistant 400, no metadata → safe null, missing CommandRun → metadata preserved.
+  - Receipt linkage deferred — C03 receipt store not wired in command_bus routes.
+  - Auth: follows command bus internal-only posture.
+  - 50 tests pass (8 route + 42 existing).
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `guardian/routes/command_bus.py:265-338` — route implementation.
+  - `tests/routes/test_command_bus_tool_turn_observability.py` — 8 tests.
+  - C05-T004-R1 validation closeout in proof-pack.
+- **Consequence**:
+  - C05-T004 advances to `go`. Route proof complete.
+  - C05-T005 (Command Center surfacing) can proceed.
+- **Revisit Trigger**:
+  - C03 receipt store is wired in command_bus routes — add receipt enrichment to route.
+  - C05-T005 frontend implementation begins.

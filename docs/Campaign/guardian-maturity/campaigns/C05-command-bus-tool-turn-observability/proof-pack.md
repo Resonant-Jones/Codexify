@@ -196,3 +196,26 @@ python3 scripts/validate_docs.py          passed
 
 ### Next Task
 **C05-T005: Surface tool-turn observability in Command Center**
+
+---
+
+## C05-T004-R2: Decision Log Closeout (2026-06-19 07:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `01be9fc33` | **Worktree**: Clean
+- **Prior**: `next-proof-needed` — C05-D006 was a one-line entry.
+
+### Repair
+C05-D006 expanded to complete entry with reason, evidence, consequence, revisit trigger.
+
+### Validation
+```
+git diff --check                    clean
+python3 scripts/validate_docs.py     passed
+```
+
+### Gate
+**`go`** — Decision log complete. C05-T004 fully closed.
+
+### Next Task
+**C05-T005: Surface tool-turn observability in Command Center**
