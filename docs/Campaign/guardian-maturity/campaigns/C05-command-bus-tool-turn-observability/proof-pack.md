@@ -322,3 +322,58 @@ Loaded-state and empty/no-tool-turn state tests cannot use the existing `api.get
 ### Next Task
 **C05-T006: Close Command Center tool-turn observability proof**
 
+
+---
+
+## C05-T006: Final Campaign Closeout (2026-06-19 08:45 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `d34b3cf6a` | **Worktree**: clean
+- All preceding tasks gated `go`.
+
+### Files Modified
+- `closeout.md` — created (130 lines)
+- `backlog.md` — updated (C05-T005 go, C05-T006 go, campaign closed)
+- `proof-pack.md` — this section added
+- `decision-log.md` — C05-D008 appended
+
+### Inputs Read
+All 26 required pre-reads available. No missing inputs.
+
+### Closeout Artifact
+`closeout.md` created with: gate decision, task ledger, architecture truth, release boundary, operator truth surface, redaction/safety, known limitations, validation summary, documentation follow-through.
+
+### Final Task Ledger
+
+| Task | Gate |
+|------|------|
+| C05-T001 | `go` |
+| C05-T002 | `go` |
+| C05-T003 | `go` |
+| C05-T004 | `go` |
+| C05-T005 | `go` |
+| C05-T006 | `go` |
+
+### Final Release Boundary
+- No runtime behavior changed beyond read-only observability.
+- No command invocation, chat completion, persistence, or token semantics changed.
+- No autonomous delegation, Pi/Coder execution, recursive tool-loop, artifact creation, receipt creation, or work-order completion claims added.
+- No release claim widened.
+
+### Known Limitations
+- Receipt linkage deferred (C03 store not wired in command bus routes).
+- Dynamic import mock limitation for loaded-state UI tests (source-verified).
+- Playwright 6 pre-existing e2e failures (no server).
+- C06 deferred.
+
+### Validation Results
+- Backend: 24 + 34 + 50 = 108 tests passing.
+- Frontend: 22 focused + 120 broader = 142 tests passing across 9 vitest suites.
+- `git diff --check`: clean.
+- `python3 scripts/validate_docs.py`: passed.
+
+### Gate Decision
+**`go`** — C05 closed. Campaign complete.
+
+### Next Step
+**Wave 2 next-campaign selection after C05 closeout**
