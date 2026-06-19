@@ -8,6 +8,7 @@
 | C05-D002 | 2026-06-19 | `go` — read model contract defined; 15 fields, source priority, redaction, CommandRun/receipt relationships | active |
 | C05-D003 | 2026-06-19 | `go` — read-model helper implemented; pure, redaction proven, 24 tests pass | active |
 | C05-D004 | 2026-06-19 | `go` — helper validation closeout; 34 tests, full hygiene, decision log complete | active |
+| C05-D005 | 2026-06-19 | `go` — tool-turn readback route added; 8 tests, 50 total pass | active |
 
 ---
 
