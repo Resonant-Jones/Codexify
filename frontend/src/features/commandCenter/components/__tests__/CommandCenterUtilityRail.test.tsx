@@ -35,6 +35,7 @@ describe("CommandCenterUtilityRail", () => {
   it("renders all lens navigation buttons", () => {
     renderRail();
     expect(screen.getByTestId("command-center-rail-item-agent-command")).toBeInTheDocument();
+    expect(screen.getByTestId("command-center-rail-item-guardian-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-rail-item-observability")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-rail-item-runtime-health")).toBeInTheDocument();
     expect(screen.getByTestId("command-center-rail-item-event-console")).toBeInTheDocument();
@@ -55,6 +56,12 @@ describe("CommandCenterUtilityRail", () => {
     renderRail();
     fireEvent.click(screen.getByTestId("command-center-rail-item-observability"));
     expect(onLensChange).toHaveBeenCalledWith("observability");
+  });
+
+  it("clicking Guardian Workspace lens calls onLensChange with guardian-workspace", () => {
+    renderRail();
+    fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+    expect(onLensChange).toHaveBeenCalledWith("guardian-workspace");
   });
 
   it("rail starts collapsed (unpinned, not hovered)", () => {
