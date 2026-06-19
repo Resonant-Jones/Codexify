@@ -5,6 +5,7 @@
 | C06-D001 | 2026-06-19 | `go` — C06 seam audit complete; 8 operator surfaces, 5 backend surfaces, 8 gaps, workspace implementation not started, release boundary preserved, C06-T002 next | active |
 | C06-D002 | 2026-06-19 | `go` — C06 surface contract defined; 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states, redaction/truth-labeling, C06-T003 next | active |
 | C06-D003 | 2026-06-19 | `go` — Guardian Operator Workspace lens scaffold added; read-only, no fetch, no mutation, 7 tests, C06-T004 next | active |
+| C06-D004 | 2026-06-19 | `go` — first live cards composed; HealthOverview + CodingWorkOrdersPanel in workspace; no new fetch, no mutation, C06-T005 next | active |
 
 ---
 
@@ -93,3 +94,29 @@
   - C06-T004 composes work-order card — replace scaffold text with live CodingWorkOrdersPanel integration.
   - C06-T005 composes receipt card — replace scaffold text with live ReceiptEvidence.
   - C06-T006 composes tool-turn card — replace scaffold text with live ToolTurnObservability.
+
+---
+
+### Decision: C06-D004
+
+- **Decision ID**: C06-D004
+- **Date**: 2026-06-19
+- **Decision**: `go`. First live read-only cards composed inside Guardian Operator Workspace. `HealthOverview` rendered for runtime/health card. `CodingWorkOrdersPanel` rendered for work-order status card. Remaining cards remain static/deferred. No new backend routes, no new fetch behavior beyond existing nested component behavior, no mutation controls added. Release boundary preserved.
+- **Reason**:
+  - HealthOverview composed with props from shell (healthItems, lastCheckedAt, loading, onRefresh) — no new fetch.
+  - CodingWorkOrdersPanel composed as-is — preserves existing C05 tool-turn and C03 receipt behavior.
+  - Command-run evidence, tool-turn observability (separate), receipt evidence (separate), gaps, safety boundary remain static/deferred cards.
+  - 26 shell tests pass (5 workspace + 21 existing). 96 broader tests pass.
+  - Git diff --check clean, docs validator passed.
+- **Evidence**:
+  - `GuardianOperatorWorkspaceLens.tsx` — props interface + live HealthOverview + live CodingWorkOrdersPanel.
+  - `CommandCenterShell.tsx` — workspace case passes health props.
+  - `CommandCenterShell.test.tsx` — existing workspace tests continue to pass.
+- **Consequence**:
+  - Workspace now has 2 live cards (work-order + health) and 6 static/deferred cards.
+  - C06-T005 (composition proof) may proceed.
+  - Remaining deferred cards (command-run, tool-turn standalone, receipt standalone) not yet composed.
+- **Revisit Trigger**:
+  - C06-T005 composition proof — verify all cards match contract.
+  - C06-T006/T007 — compose remaining deferred cards.
+  - C06-T008 integration tests — verify full workspace behavior.

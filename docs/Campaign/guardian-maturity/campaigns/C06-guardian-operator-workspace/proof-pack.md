@@ -179,3 +179,54 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C06-T004: Compose first Guardian Operator Workspace read-only cards**
+
+---
+
+## C06-T004: Compose First Read-Only Cards (2026-06-19 09:30 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `4841081ca` | **Worktree**: clean
+
+### Files Modified
+- `GuardianOperatorWorkspaceLens.tsx` — rewritten with props + live HealthOverview + live CodingWorkOrdersPanel
+- `CommandCenterShell.tsx` — workspace case passes health props
+- `backlog.md` — C06-T004 marked `go`
+
+### Inputs Read
+All 32 required pre-reads available. No missing inputs.
+
+### Runtime/Health Composition
+`HealthOverview` rendered inside workspace section labeled "Runtime / health" with explanatory copy. Props passed from shell: healthItems, lastCheckedAt, loading, onRefresh. No new fetch — uses existing shell prop pipeline.
+
+### Work-Order Composition
+`CodingWorkOrdersPanel` rendered inside workspace section labeled "Work-order status" with explanatory copy. No new fetch — panel uses its own existing data fetching. Panel preserves existing C05 tool-turn observability and C03 receipt evidence behavior.
+
+### Static/Deferred Card Preservation
+Command-run evidence (deferred), tool-turn observability (conditional, with note about composed panel), receipt evidence (available/composed + deferred receipt linkage), gaps, safety boundary — all preserved as static/deferred cards.
+
+### Shell Prop Wiring
+`GuardianOperatorWorkspaceLens` now accepts `GuardianOperatorWorkspaceLensProps` (healthItems, lastCheckedAt, loading, onRefresh). Shell passes these from existing props. No unrelated shell props passed.
+
+### Read-Only / No-New-Fetch
+Workspace wrapper adds no new fetch, no new API imports. Composed panels use their own existing fetch behavior (already test-proven in C03/C05).
+
+### No Mutation Controls
+Test-proven: 7 forbidden button labels absent from workspace.
+
+### Truth-Labeling
+Safety boundary lists 6 unsupported claims. Tool-turn card truth-labels bounded evidence. Receipt card truth-labels receipt evidence.
+
+### Validation
+```
+CommandCenterShell.test.tsx  26 passed
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  96 passed, 753 skipped
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T004 accepted. C06-T005 may proceed.
+
+### Next Task
+**C06-T005: Add Guardian Operator Workspace composition proof**
+
