@@ -57,3 +57,33 @@ Defined 15 canonical read model fields with source, durability, and redaction ru
 ### Next Task
 
 **C05-T003: Add backend read-model helper for tool-turn observability**
+
+---
+
+## C05-T003: Backend Read-Model Helper (2026-06-19 06:15 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `ae3ac129a` — docs: define Guardian tool-turn observability read model
+- **Worktree**: Clean
+
+### Files Modified
+
+- `guardian/command_bus/tool_turn_observability.py` — read-model helper with `ToolTurnObservabilityReadModel` dataclass + `build_tool_turn_observability_read_model()` (new)
+- `tests/command_bus/test_tool_turn_observability.py` — 24 tests (new)
+
+### Test Results
+
+```
+test_tool_turn_observability.py  24 passed
+```
+
+### C05-T003 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Read-model helper implemented. Pure/read-only. Extracts from extra_meta (camelCase wins over snake_case), enriches from CommandRun (mapping + ORM), supports receipt enrichment. Redaction proven: no raw args, secrets, prompts, or surrogate IDs surfaced. 24 tests pass.
+
+### Next Task
+
+**C05-T004: Add backend readback route for tool-turn observability**

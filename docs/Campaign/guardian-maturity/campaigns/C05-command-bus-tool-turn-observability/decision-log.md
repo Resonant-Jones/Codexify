@@ -6,6 +6,7 @@
 |----|------|----------|--------|
 | C05-D001 | 2026-06-19 | `go` — tool-turn observability seam audit complete; all 6 fields durably persisted, frontend gap identified | active |
 | C05-D002 | 2026-06-19 | `go` — read model contract defined; 15 fields, source priority, redaction, CommandRun/receipt relationships | active |
+| C05-D003 | 2026-06-19 | `go` — read-model helper implemented; pure, redaction proven, 24 tests pass | active |
 
 ---
 
