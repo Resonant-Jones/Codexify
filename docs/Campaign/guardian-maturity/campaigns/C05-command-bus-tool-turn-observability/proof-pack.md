@@ -219,3 +219,31 @@ python3 scripts/validate_docs.py     passed
 
 ### Next Task
 **C05-T005: Surface tool-turn observability in Command Center**
+
+---
+
+## C05-T005: Command Center Tool-Turn Observability UI (2026-06-19 08:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `9e3643879` | **Worktree**: Clean
+
+### Files
+- `CodingWorkOrdersPanel.tsx` — `ToolTurnObservability` component (+80 lines)
+- `types.ts` — added `assistant_message_id` field
+- `CodingWorkOrdersPanel.test.tsx` — 2 new tests
+
+### UI Behavior
+- Unavailable state when no `assistant_message_id` ✅
+- Route wired for future message ID availability ✅
+- Truth-labeling present ✅
+- Loading/error states ✅
+- No mutation controls ✅
+
+### Tests
+18 passed (2 new + 16 existing)
+
+### Gate
+**`go`** — Tool-turn observability UI added. 18 tests pass.
+
+### Next Task
+**C05-T006: Close Command Center tool-turn observability proof**
