@@ -1597,3 +1597,15 @@ python3 scripts/validate_docs.py   passed
 
 - **Decision**: `go`
 - **Reason**: Receipt display proof hardened. 5 focused tests pass. Redaction and no-mutation controls proven. Truth-labeling distinguishes observation from artifact, completion, and coding-agent execution. 16 frontend tests pass. `git diff --check` and docs validator clean.
+
+---
+
+## C03 Campaign Closeout
+
+**Gate**: `go` | **Final commit**: `f3067c4e8`
+
+C03 Coding Delegation Spine is complete. 15 tasks proved across route posture, work-order artifacts, command bus adjacency, run linkage, receipt persistence, receipt readback, latest-receipt linkage, and operator receipt evidence UI.
+
+Full closeout: [`closeout.md`](./closeout.md).
+
+**Next**: C05/C06 wave selection.
