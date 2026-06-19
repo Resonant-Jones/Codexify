@@ -30,3 +30,30 @@ All six canonical observability fields (`toolTurnId`, `commandRunId`, `toolTurnS
 ### Next Task
 
 **C05-T002: Define tool-turn observability read model contract**
+
+---
+
+## C05-T002: Read Model Contract (2026-06-19 06:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `a0dda5ca7` — docs: audit Guardian tool-turn observability seam
+- **Worktree**: Clean
+
+### Files Modified
+
+- `tool-turn-read-model-contract.md` — 18-section contract (new)
+- `backlog.md` — C05-T002 marked complete
+
+### Contract Result
+
+Defined 15 canonical read model fields with source, durability, and redaction rules. Source priority: `chat_messages.extra_meta` → `command_runs` → `command_run_events` → receipts → task events → logs. All redaction boundaries documented. Relationship to CommandRun readback and receipt evidence defined.
+
+### Gate Decision
+
+**`go`** — Read model contract complete. C05-T003 can proceed.
+
+### Next Task
+
+**C05-T003: Add backend read-model helper for tool-turn observability**

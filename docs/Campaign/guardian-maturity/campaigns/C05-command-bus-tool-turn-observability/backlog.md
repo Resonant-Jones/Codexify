@@ -3,7 +3,7 @@
 | Task ID | Lane | Status | Files | Validation | Commit | Proof Artifact |
 |---------|------|--------|-------|------------|--------|----------------|
 | C05-T001 | audit | complete | `seam-audit.md` | Docs-only seam audit | `TBD` | C05-PROOF-001 |
-| C05-T002 | docs | planned | — | Define tool-turn observability read model contract | — | C05-PROOF-002 |
+| C05-T002 | docs | complete | `tool-turn-read-model-contract.md` | Define tool-turn observability read model contract | `TBD` | C05-PROOF-002 |
 | C05-T003 | frontend | planned | `frontend/src/features/chat/` | Add tool-turn context to assistant message display | — | C05-PROOF-003 |
 | C05-T004 | frontend | planned | `frontend/src/features/commandCenter/` | Add CommandRun viewer to Command Center | — | C05-PROOF-004 |
 | C05-T005 | frontend | planned | `frontend/src/features/commandCenter/` | Add tool-turn state timeline | — | C05-PROOF-005 |
