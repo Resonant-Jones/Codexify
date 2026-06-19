@@ -298,13 +298,21 @@ class Settings(BaseSettings):
         default="library2/ministral-3:8b",
         description="Local chat model identifier used by supported profile validation.",
     )
-    LOCAL_VISION_MODEL: str | None = Field(
-        default=None,
-        description="Local vision model identifier for multimodal image requests. Falls back to qwen2-vl-2b-mlx when not set.",
+    CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "When true, emit threadwake segment metadata to Whoosh'd local provider "
+            "so Whoosh'd can identify cacheable prompt layers. "
+            "Only takes effect when LOCAL_PROVIDER_VENDOR is 'whooshd'."
+        ),
     )
-    LOCAL_GGUF_MODEL: str | None = Field(
-        default=None,
-        description="Local GGUF model identifier for llama_cpp inference. No default; must be explicitly configured.",
+    CODEXIFY_WHOOSHD_THREADWAKE_MODE: str = Field(
+        default="observe",
+        description="Default ThreadWake mode when segments are enabled (observe | ephemeral | session).",
+    )
+    CODEXIFY_WHOOSHD_THREADWAKE_SCOPE: str = Field(
+        default="thread",
+        description="Default ThreadWake scope when segments are enabled (thread | project | user).",
     )
     LOCAL_EMBEDDING_MODEL: str | None = Field(
         default=None,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate data-only Whoosh'd local model profile metadata."""
+"""Validate data-only Whoosh'd local model profile manifests."""
 
 from __future__ import annotations
 

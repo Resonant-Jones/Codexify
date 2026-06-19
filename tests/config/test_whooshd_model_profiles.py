@@ -1,4 +1,4 @@
-"""Tests for Whoosh'd local model profile metadata."""
+"""Tests for Whoosh'd local model profile manifests."""
 
 from __future__ import annotations
 

@@ -101,6 +101,7 @@ import {
   type InferenceRequestState,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
+import { resolveModelDisplayLabel } from "@/lib/modelLabels";
 import {
   CHAT_LANE_MAX_WIDTH,
   CHAT_LANE_INLINE_PADDING,
@@ -684,15 +685,15 @@ function getModelMenuLabel(model: {
   alias?: string;
   displayLabel?: string;
   pickerLabel?: string;
+  profileDisplayName?: string;
   canonicalId: string;
 }): string {
   return (
-    String(
-      model.displayLabel ??
-        model.pickerLabel ??
-        model.alias ??
-        model.canonicalId
-    ).trim() || model.canonicalId
+    resolveModelDisplayLabel({
+      profileDisplayName: model.profileDisplayName ?? null,
+      catalogDisplayName: model.displayLabel ?? model.pickerLabel ?? model.alias ?? null,
+      modelId: model.canonicalId,
+    }) || model.canonicalId
   );
 }
 
