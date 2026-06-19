@@ -136,3 +136,28 @@ python3 scripts/validate_docs.py               passed
 ### Next Task
 
 **C05-T004: Add backend readback route for tool-turn observability**
+
+---
+
+## C05-T004: Tool-Turn Readback Route (2026-06-19 06:45 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `6baec95ee`
+- **Worktree**: Clean
+
+### Files
+- `guardian/routes/command_bus.py` — route added (+65 lines)
+- `tests/routes/test_command_bus_tool_turn_observability.py` — 8 tests (new)
+
+### Route
+`GET /api/guardian/commands/tool-turns/{message_id}/observability`
+
+### Tests
+50 passed (8 new + 42 existing)
+
+### Gate
+**`go`** — Readback route added. Uses C05-T003 helper. All edge cases handled. No raw data.
+
+### Next Task
+**C05-T005: Surface tool-turn observability in Command Center**
