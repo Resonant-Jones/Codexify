@@ -4,6 +4,7 @@
 |----|------|----------|--------|
 | C06-D001 | 2026-06-19 | `go` — C06 seam audit complete; 8 operator surfaces, 5 backend surfaces, 8 gaps, workspace implementation not started, release boundary preserved, C06-T002 next | active |
 | C06-D002 | 2026-06-19 | `go` — C06 surface contract defined; 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states, redaction/truth-labeling, C06-T003 next | active |
+| C06-D003 | 2026-06-19 | `go` — Guardian Operator Workspace lens scaffold added; read-only, no fetch, no mutation, 7 tests, C06-T004 next | active |
 
 ---
 
@@ -62,3 +63,33 @@
   - C06-T003 lens scaffold implementation begins — verify contract compliance.
   - C05 receipt linkage is wired — update receipts zone readiness.
   - C06-T009 closeout — verify all zones meet contract.
+
+---
+
+### Decision: C06-D003
+
+- **Decision ID**: C06-D003
+- **Date**: 2026-06-19
+- **Decision**: `go`. Guardian Operator Workspace lens scaffold added to Command Center. `GuardianOperatorWorkspaceLens` component created (read-only, static scaffold). New `guardian-workspace` rail id wired. Shell renders workspace lens on selection. 7 tests added (5 shell + 2 rail). No backend or runtime behavior change. Workspace implementation remains scaffold-only. Release boundary preserved.
+- **Reason**:
+  - Scaffold matches C06-T002 surface contract: 8 cards (work-order, command-run, tool-turn, receipt, health, gaps, safety) + header.
+  - All content is static — no fetch, no API imports, no dynamic imports.
+  - No mutation controls (7 labels absent, test-proven).
+  - Truth-labeling present on tool-turn and receipt cards.
+  - Safety boundary lists 6 unsupported claims.
+  - Rail item and shell switch both test-proven.
+  - 26 shell tests (5 new + 21 existing), 16 rail tests (2 new + 14 existing), 74 broader (all pass, 756 skipped).
+- **Evidence**:
+  - `GuardianOperatorWorkspaceLens.tsx` — 195-line read-only scaffold.
+  - `CommandCenterUtilityRail.tsx` — new lens id and entry.
+  - `CommandCenterShell.tsx` — switch case wired.
+  - `CommandCenterShell.test.tsx` — 5 workspace tests.
+  - `CommandCenterUtilityRail.test.tsx` — 2 workspace tests.
+- **Consequence**:
+  - C06 has a visible workspace entry point in Command Center.
+  - C06-T004 (compose live cards) may proceed.
+  - Scaffold remains static until live data sources are composed.
+- **Revisit Trigger**:
+  - C06-T004 composes work-order card — replace scaffold text with live CodingWorkOrdersPanel integration.
+  - C06-T005 composes receipt card — replace scaffold text with live ReceiptEvidence.
+  - C06-T006 composes tool-turn card — replace scaffold text with live ToolTurnObservability.

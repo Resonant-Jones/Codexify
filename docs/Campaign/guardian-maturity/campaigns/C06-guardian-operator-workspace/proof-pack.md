@@ -128,3 +128,54 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C06-T003: Add Guardian Operator Workspace lens scaffold**
+
+---
+
+## C06-T003: Lens Scaffold (2026-06-19 09:15 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `daba74953` | **Worktree**: clean
+
+### Files Created/Modified
+- `GuardianOperatorWorkspaceLens.tsx` — created (read-only, static scaffold, 8 cards + safety boundary)
+- `CommandCenterUtilityRail.tsx` — `guardian-workspace` lens id added
+- `CommandCenterShell.tsx` — import + switch case wired
+- `CommandCenterShell.test.tsx` — 5 new tests
+- `CommandCenterUtilityRail.test.tsx` — 2 new tests
+- `backlog.md` — C06-T003 marked `go`
+
+### Inputs Read
+All 35 required pre-reads available. No missing inputs.
+
+### Lens Scaffold Result
+`GuardianOperatorWorkspaceLens` component created. Read-only. No fetch, no API imports, no dynamic imports. Renders 8 cards matching C06-T002 surface contract zones + safety boundary note.
+
+### Utility Rail Wiring
+New lens id `guardian-workspace` with label "Workspace", icon `Ω`. Test-proven: renders in rail, `onLensChange("guardian-workspace")` fires on click.
+
+### Shell Wiring
+New `guardian-workspace` switch case renders `<GuardianOperatorWorkspaceLens />`. Test-proven: workspace renders when clicked.
+
+### Read-Only / No-Fetch
+Component has no `fetch` calls, no `api` imports, no dynamic imports. All content is static scaffold text.
+
+### No Mutation Controls
+Test-proven: 7 forbidden button labels absent from workspace. No dispatch, execute, retry, replay, approve, complete, create artifact, create receipt.
+
+### Truth-Labeling
+Test-proven: tool-turn card truth-labels bounded evidence (scoped to card to avoid duplicate text across cards). Safety boundary lists 6 unsupported claims: no autonomous delegation, no Pi/Coder execution, no recursive tool loops, no artifact creation, no receipt creation, no work-order completion.
+
+### Validation
+```
+CommandCenterShell.test.tsx      26 passed (5 workspace + 21 existing)
+CommandCenterUtilityRail.test.tsx 16 passed (2 workspace + 14 existing)
+-t "CommandCenter|GuardianWorkspace" 74 passed, 756 skipped
+git diff --check                clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T003 accepted. C06-T004 may proceed.
+
+### Next Task
+**C06-T004: Compose first Guardian Operator Workspace read-only cards**
