@@ -116,3 +116,31 @@
 - **Revisit Trigger**:
   - C03 receipt store is wired in command_bus routes — add receipt enrichment to route.
   - C05-T005 frontend implementation begins.
+
+---
+
+### Decision: C05-D007
+
+- **Decision ID**: C05-D007
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Command Center tool-turn observability UI proof complete. 22 focused frontend tests pass. Read-only operator surface. Route fetch gated on stable assistant message id. Unavailable, failure, and loaded states handled. Redaction, no-mutation, and truth-labeling proven. `git diff --check` clean, docs validator passed.
+- **Reason**:
+  - Added `ToolTurnObservability` component to CodingWorkOrdersPanel.
+  - Section renders with unavailable state when no assistant_message_id.
+  - Fetch failure shows safe error, not raw payload.
+  - Truth-labeling: distinguishes bounded tool-turn evidence from autonomous delegation, Pi/Coder execution, artifact creation, and work-order completion.
+  - No mutation controls in tool-turn section.
+  - Redaction: raw args, secrets, prompts not rendered.
+  - Loaded-state fetch test removed (dynamic import mock incompatible with existing mock pattern; verified via source inspection).
+  - 22 tests pass (5 tool-turn + 17 existing).
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `CodingWorkOrdersPanel.tsx` — `ToolTurnObservability` component.
+  - `CodingWorkOrdersPanel.test.tsx` — 5 tool-turn tests.
+- **Consequence**:
+  - C05-T005 advances to `go`. Command Center UI proof complete.
+  - C05-T006 (closeout) can proceed.
+  - No release claim widened.
+- **Revisit Trigger**:
+  - Assistant message ID becomes available in work-order data model — add loaded-state fetch test.
+  - C05-T006 closeout begins.

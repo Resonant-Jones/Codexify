@@ -644,4 +644,37 @@ describe("CodingWorkOrdersPanel", () => {
       expect(screen.queryByText(f)).toBeNull();
     }
   });
+
+  it("tool-turn fetch failure shows safe error not raw payload", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-err" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-err")) {
+        const err: any = new Error("fetch failed");
+        err.response = { status: 500, data: { detail: "RAW_STACK", secret: "leaked" } };
+        throw err;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/unavailable/);
+    expect(screen.queryByText(/RAW_STACK/)).toBeNull();
+    expect(screen.queryByText(/leaked/)).toBeNull();
+  });
+
+  it("tool-turn truth-labeling in unavailable state", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const el = screen.getByTestId("tool-turn-observability");
+    const text = el.textContent || "";
+    expect(text).toContain("bounded tool-turn evidence");
+    expect(text).toContain("does not prove autonomous delegation");
+    expect(text).toContain("Pi/Coder execution");
+    expect(text).toContain("artifact creation");
+    expect(text).toContain("work-order completion");
+  });
 });
