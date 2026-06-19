@@ -655,8 +655,11 @@ async def create_work_order_receipt(
     # Link latest_receipt_id on the work order (receipt-only, does not touch latest_run_id)
     try:
         store.set_latest_receipt(work_order_id, receipt_id)
-    except Exception:
-        pass  # best-effort linkage; receipt is the source of truth
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "work_order_latest_receipt_linkage_failed", "receipt_id": receipt_id},
+        ) from exc
 
     return _serialize_receipt(row)
 

@@ -129,21 +129,19 @@ class TestFailedLinkageDoesNotUpdatePointer:
         assert resp.status_code == 404
         assert len(calls) == 0
 
-    def test_pointer_failure_does_not_return_success(self, monkeypatch) -> None:
+    def test_pointer_failure_fails_closed(self, monkeypatch) -> None:
         client, wo_store, cb_store, db = _build_client(monkeypatch)
         wo_id = "wo_aaaaaaaaaaaaaaa5"; run_id = "run_0000000000000005"
         wo_store.get_work_order.return_value = _mock_work_order(wo_id, latest_run_id=run_id)
         cb_store.get_run = MagicMock(return_value=_mock_command_run(run_id))
-        # set_latest_receipt raises — linkage failure
         def failing_set_latest(self, wid, rid):
             raise RuntimeError("DB unavailable")
         wo_store.set_latest_receipt = failing_set_latest.__get__(wo_store)
 
         resp = client.post(f"/api/coding/work-orders/{wo_id}/receipts", json={}, headers={"X-API-Key": "test-key", "X-User-Id": "operator"})
-        # Receipt creation succeeds (receipt persisted), linkage fails silently (best-effort)
-        # This is the current design — receipt is source of truth
-        assert resp.status_code == 201
-        assert resp.json()["receipt_id"]  # receipt still created
+        # Linkage failure must fail closed — no successful receipt response
+        assert resp.status_code == 500
+        assert "work_order_latest_receipt_linkage_failed" in str(resp.json())
 
 
 class TestSafetyAndNonMutation:
