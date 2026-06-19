@@ -77,3 +77,54 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C06-T002: Define Guardian Operator Workspace surface contract**
+
+---
+
+## C06-T002: Surface Contract (2026-06-19 09:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `905234bcb` | **Worktree**: clean
+
+### Files Created/Modified
+- `surface-contract.md` — created (19 sections)
+- `backlog.md` — C06-T002 marked `go`
+- `proof-pack.md` — this section added
+- `decision-log.md` — C06-D002 appended
+
+### Inputs Read
+All 34 required pre-reads available. No missing inputs.
+
+### Surface Contract Result
+19-section contract covering: gate, scope, truth after C06-T001, workspace purpose, surface model, source-of-truth mapping, read-only interaction rules, evidence state model, redaction/truth-labeling rules, unavailable/deferred states, non-goals, implementation readiness, backlog, release boundary.
+
+### Surface Model
+8 top-level zones: Workspace Header, Work-Order Status Card, Command-Run Evidence Card, Tool-Turn Observability Card, Receipt Evidence Card, Runtime/Health Card, Gaps and Unavailable Card, Safety Boundary Note.
+
+5 safe to compose now, 1 conditional (tool-turn), 2 new (gaps/safety).
+
+### Source-of-Truth Mapping
+8-row table mapping each zone to frontend source, backend route, durable store, proof artifact, known limitation.
+
+### Read-Only Interaction Rules
+3 allowed interactions (navigate, refresh, copy public IDs). 11 prohibited interactions (dispatch, execute, retry, replay, approve, complete, create artifact/receipt, mutate state, invoke Pi/Coder, invoke tool loops).
+
+### Evidence State Model
+7 canonical states: available, unavailable, deferred, loading, error, stale, diagnostic-only. Each with user-facing label, usage rule, and what-not-to-imply.
+
+### Redaction and Truth-Labeling
+10 forbidden content types. 5 truth-label templates (tool-turn, command-run, receipt, work-order, health).
+
+### Unavailable/Deferred States
+6 items recorded: receipt linkage, assistant_message_id, workspace composition, EventConsole, manifest, latest-run bridge.
+
+### Validation
+```
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T002 accepted. C06-T003 may proceed.
+
+### Next Task
+**C06-T003: Add Guardian Operator Workspace lens scaffold**
