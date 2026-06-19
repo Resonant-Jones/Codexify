@@ -1527,3 +1527,33 @@ decision log                                C03-D022 + C03-D023 complete
 
 - **Decision**: `go`
 - **Reason**: All proof and validation gaps closed. Linkage is fail-closed (R3). Best-effort success removed. Full validation hygiene: 52 tests pass, `git diff --check` clean, docs validator passed, broad selector run, backlog updated, decision log complete. Runtime proof confirmed `latest_receipt_id` set, `latest_run_id` preserved, status unchanged. C03-T014 is complete.
+
+---
+
+## C03-T015: Operator Receipt Display (2026-06-19 05:00 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `17106ceb7` — docs: close Guardian latest receipt linkage proof
+- **Worktree**: Clean
+
+### Files Modified
+
+- `frontend/src/features/commandCenter/components/CodingWorkOrdersPanel.tsx` — added `ReceiptEvidence` component with fetch, loading, error, and truth-labeling states (+90 lines)
+- `frontend/src/features/commandCenter/components/__tests__/CodingWorkOrdersPanel.test.tsx` — 3 new tests (+100 lines)
+
+### UI Surface
+
+`ReceiptEvidence` component renders when `latest_receipt_id` is present. Shows receipt kind, observed command, run status, result summary, integrity hash, schema version, and truth-labeling copy. Empty state shows `No result receipt yet`. Error state shows `Receipt unavailable`.
+
+### Test Results
+
+```
+CodingWorkOrdersPanel.test.tsx  14 passed (3 new + 11 existing)
+```
+
+### C03-T015 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Operator receipt display added. 3 focused tests pass. Empty/error states handled. Truth-labeling distinguishes receipt from artifact/completion/execution. No mutation controls. 14 frontend tests pass.
