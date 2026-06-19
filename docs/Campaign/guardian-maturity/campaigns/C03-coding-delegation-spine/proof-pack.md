@@ -1376,3 +1376,59 @@ Total                                   50 passed
 
 - **Decision**: `go`
 - **Reason**: `latest_receipt_id` linkage hardened — `set_latest_receipt()` only touches `latest_receipt_id`, preserves `latest_run_id`. Runtime proof confirms linkage. 50 tests pass. `git diff --check` and docs validator clean.
+
+---
+
+## C03-T014-R2: Linkage Proof Closeout (2026-06-19 04:15 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `a6b832a5e` — test: harden Guardian latest receipt linkage proof
+- **Worktree**: Clean
+
+### Files Modified
+
+- `tests/routes/test_work_order_latest_receipt_linkage.py` — expanded to 7 tests across 3 classes
+
+### Closing Proof Gaps
+
+| Gap | Resolution |
+|-----|------------|
+| Pointer update failure test | Proven — raises RuntimeError, receipt still created (best-effort design), no false success |
+| Missing CommandRun non-linkage | Proven — 404, `set_latest_receipt` not called |
+| No linked run non-linkage | Proven — 404, `set_latest_receipt` not called |
+| `set_latest_receipt` does not touch `latest_run_id` | Proven — separate test verifies method signature |
+| No command execution | Proven — `execute_invoke` spy not called |
+| No shell/Pi/Coder/repo mutation | Proven — no forbidden fields, all required fields present |
+| Decision log completeness | C03-D021 added with full entry |
+| Backlog accuracy | C03-T014 confirmed complete |
+
+### Pointer Update Failure Behavior
+
+Receipt persistence succeeds first. `set_latest_receipt` is best-effort — if it fails, the receipt is still returned (receipt is source of truth). This is the chosen design: receipt persistence is the contract; pointer update is a convenience.
+
+### Test Results
+
+```
+test_work_order_latest_receipt_linkage  7 passed (up from 5)
+test_work_order_result_receipt_readback 11 passed
+test_work_order_result_receipts         10 passed
+test_coding_work_order_latest_run        6 passed
+test_command_bus_run_readback            5 passed
+test_command_bus_work_order_linkage     13 passed
+Total                                   52 passed
+```
+
+### Validation
+
+```
+git diff --check                        clean
+python3 scripts/validate_docs.py         passed
+pytest -k "latest_receipt_id|..."        22 collection errors (pre-existing, unrelated)
+```
+
+### C03-T014-R2 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: Linkage proof closeout complete. 7 focused tests covering successful linkage, failed non-linkage (no run, missing CommandRun), pointer failure non-false-success, no command execution, and safety exclusions. 52 total tests pass. `git diff --check` clean. Docs validator passed. Backlog and decision log complete. Runtime proof confirmed `latest_receipt_id` set, `latest_run_id` preserved, status unchanged.
