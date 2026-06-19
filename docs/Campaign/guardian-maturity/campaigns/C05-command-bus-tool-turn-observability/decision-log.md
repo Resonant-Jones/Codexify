@@ -11,6 +11,7 @@
 | C05-D005 | 2026-06-19 | `go` — tool-turn readback route added; 8 tests, 50 total pass | active |
 | C05-D006 | 2026-06-19 | `go` — route validation closeout; 50 tests, full hygiene, receipt linkage deferred | active |
 | C05-D007 | 2026-06-19 | `go` — Command Center tool-turn UI proof; 20 frontend tests, redaction, no-mutation, truth-labeling | active |
+| C05-D008 | 2026-06-19 | `go` — C05 campaign closed; all 6 tasks accepted; 108 backend + 142 frontend tests; read-only observability only, no runtime expansion | active |
 
 ---
 
@@ -144,3 +145,31 @@
 - **Revisit Trigger**:
   - Assistant message ID becomes available in work-order data model — add loaded-state fetch test.
   - C05-T006 closeout begins.
+
+---
+
+### Decision: C05-D008
+
+- **Decision ID**: C05-D008
+- **Date**: 2026-06-19
+- **Decision**: `go`. C05 Command Bus and Tool Turn Observability campaign closed. All six tasks (T001–T006) accepted. Read-only observability surface created — seam audit, read model contract, backend helper/route, Command Center UI. No runtime execution expansion.
+- **Reason**:
+  - C05-T001–T005 all gated `go` with commit proof.
+  - C05-T006 closeout created: task ledger, architecture truth, release boundary, known limitations, validation summary.
+  - Backend: 108 tests passing (helper 24 + validation 34 + route 50).
+  - Frontend: 22 focused + 120 broader = 142 tests passing across 9 vitest suites.
+  - Playwright: 6 pre-existing failures (no server).
+  - `git diff --check` clean, docs validator passed.
+- **Evidence**:
+  - `closeout.md` — final campaign closeout artifact.
+  - `backlog.md` — C05-T005/T006 `go`, campaign closed.
+  - `proof-pack.md` — C05-T006 closeout section recorded.
+- **Consequence**:
+  - C05 campaign closed. Read-only tool-turn observability surface available in Command Center.
+  - Receipt linkage deferred. Dynamic import mock limitation recorded.
+  - C06 unified operator workspace deferred.
+  - No release claim widened.
+- **Revisit Trigger**:
+  - C03 receipt store wiring in command bus routes enables receipt enrichment.
+  - Assistant message ID becomes available in work-order data model — enables active loaded-state UI fetch test.
+  - Wave 2 next-campaign selection.
