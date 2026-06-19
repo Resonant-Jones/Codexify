@@ -101,6 +101,114 @@ function isNonTerminalStatus(status: string): boolean {
   return !TERMINAL_WORK_ORDER_STATUSES.has(status);
 }
 
+type ReceiptData = {
+  receipt_id: string;
+  command_run_id: string;
+  receipt_kind: string;
+  observed_command_id: string;
+  observed_run_status: string;
+  observed_result_summary: string;
+  observed_error_text: string | null;
+  integrity_hash: string;
+  schema_version: number;
+  review_state: string | null;
+  redaction_summary_json: Record<string, unknown> | null;
+  provenance_json: Record<string, unknown> | null;
+  created_at: string | null;
+  created_by: string | null;
+  source_thread_id: string | null;
+  source_message_id: string | null;
+} | null;
+
+function ReceiptEvidence({
+  workOrderId,
+  receiptId,
+}: {
+  workOrderId: string;
+  receiptId: string;
+}) {
+  const [receipt, setReceipt] = React.useState<ReceiptData>(null);
+  const [error, setError] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const fetchReceipt = async () => {
+      try {
+        const { default: api } = await import("@/lib/api");
+        const resp = await api.get<Record<string, unknown>>(
+          `/api/coding/work-orders/${encodeURIComponent(workOrderId)}/receipts/${encodeURIComponent(receiptId)}`
+        );
+        if (!cancelled) {
+          const data = resp.data as unknown as Record<string, unknown>;
+          setReceipt(data as unknown as ReceiptData);
+          setError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(true);
+        }
+      }
+    };
+    fetchReceipt();
+    return () => { cancelled = true; };
+  }, [workOrderId, receiptId]);
+
+  if (error) {
+    return (
+      <div className="text-xs" style={{ color: "var(--muted)" }}>
+        Receipt unavailable
+      </div>
+    );
+  }
+
+  if (!receipt) {
+    return (
+      <div className="text-xs" style={{ color: "var(--muted)" }}>
+        Loading receipt…
+      </div>
+    );
+  }
+
+  const hashPreview = receipt.integrity_hash
+    ? `${receipt.integrity_hash.slice(0, 12)}…`
+    : "—";
+
+  return (
+    <div
+      className="rounded-[var(--tile-radius)] border p-3 space-y-2"
+      style={{ borderColor: "var(--panel-border)", background: "var(--surface-soft)" }}
+      data-testid="receipt-evidence"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>
+          Latest receipt
+        </span>
+        <Badge
+          className="border text-[10px] font-medium leading-none"
+          style={toneStyle("subtle")}
+        >
+          {receipt.receipt_kind}
+        </Badge>
+      </div>
+
+      <div className="text-[11px] space-y-1" style={{ color: "var(--muted)" }}>
+        <div>Command: {receipt.observed_command_id}</div>
+        <div>Status: {receipt.observed_run_status}</div>
+        <div>Summary: {receipt.observed_result_summary}</div>
+        {receipt.observed_error_text ? (
+          <div style={{ color: "var(--danger-text)" }}>Error: {receipt.observed_error_text}</div>
+        ) : null}
+        <div>Hash: {hashPreview}</div>
+        <div>Schema v{receipt.schema_version}</div>
+      </div>
+
+      <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+        Receipt records an observed command run result. It is not an artifact and does not mark the work order complete.
+      </div>
+    </div>
+  );
+}
+
 function WorkOrderMeta({ order }: { order: CommandCenterCodingWorkOrder }) {
   const scopePreview =
     order.file_scope.length <= 3
@@ -137,8 +245,15 @@ function WorkOrderMeta({ order }: { order: CommandCenterCodingWorkOrder }) {
       <div className="flex flex-wrap gap-2 text-xs" style={{ color: "var(--muted)" }}>
         {order.latest_run_id ? <span>Run: {order.latest_run_id}</span> : null}
         {order.latest_lease_id ? <span>Lease: {order.latest_lease_id}</span> : null}
-        {order.latest_receipt_id ? <span>Receipt: {order.latest_receipt_id}</span> : null}
       </div>
+
+      {order.latest_receipt_id ? (
+        <ReceiptEvidence workOrderId={order.work_order_id} receiptId={order.latest_receipt_id} />
+      ) : (
+        <div className="text-xs" style={{ color: "var(--muted)" }}>
+          No result receipt yet
+        </div>
+      )}
     </div>
   );
 }

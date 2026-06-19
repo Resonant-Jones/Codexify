@@ -385,4 +385,91 @@ describe("CodingWorkOrdersPanel", () => {
       screen.getByText((_, node) => node?.textContent === "Merge-ready: 1")
     ).toBeInTheDocument();
   });
+
+  it("shows empty receipt state when no latest_receipt_id", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: null }),
+    ]);
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByText("No result receipt yet");
+  });
+
+  it("fetches and displays receipt evidence when latest_receipt_id present", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    // Extend the existing mock to also handle receipt fetch
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok, Service: core",
+            observed_error_text: null,
+            integrity_hash: "abc123def456",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: { args_redacted: true },
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+    await screen.findByText(/Latest receipt/);
+    await screen.findByText(/Status: ok/);
+    await screen.findByText(/command_run_observation/);
+  });
+
+  it("shows truth-labeling copy on receipt", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: {},
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+    await screen.findByText(/not an artifact/);
+    await screen.findByText(/does not mark the work order complete/);
+  });
 });
