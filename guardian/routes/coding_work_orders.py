@@ -652,9 +652,9 @@ async def create_work_order_receipt(
             cbs._receipts = {}
         cbs._receipts[receipt_id] = row
 
-    # Link latest_receipt_id on the work order
+    # Link latest_receipt_id on the work order (receipt-only, does not touch latest_run_id)
     try:
-        store.mark_latest_run(work_order_id, receipt_id=receipt_id)
+        store.set_latest_receipt(work_order_id, receipt_id)
     except Exception:
         pass  # best-effort linkage; receipt is the source of truth
 
