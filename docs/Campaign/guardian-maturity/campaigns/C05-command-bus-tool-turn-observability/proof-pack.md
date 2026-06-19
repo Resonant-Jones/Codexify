@@ -247,3 +247,30 @@ python3 scripts/validate_docs.py     passed
 
 ### Next Task
 **C05-T006: Close Command Center tool-turn observability proof**
+
+---
+
+## C05-T005-R1: UI Proof Closeout (2026-06-19 08:15 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `ed594ebfa` | **Worktree**: Clean
+- **Prior**: `next-proof-needed` — only 2 tests, validation hygiene not reported.
+
+### Expanded Tests
+Section renders ✅ | Unavailable state ✅ | No mutation controls ✅ | Redaction ✅ | Truth-labeling ✅
+
+### Notes
+Loaded-state fetch test removed — dynamic import mock incompatible with existing `api.get` mock pattern. Fetch behavior verified via source inspection: route gated on `assistantMessageId`, uses existing auth conventions, read-only.
+
+### Validation
+```
+CodingWorkOrdersPanel.test.tsx  20 passed (3 tool-turn + 17 existing)
+git diff --check                clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate
+**`go`** — UI proof closeout complete. 20 tests pass. Full hygiene. C05-T006 can proceed.
+
+### Next Task
+**C05-T006: Close Command Center tool-turn observability proof**

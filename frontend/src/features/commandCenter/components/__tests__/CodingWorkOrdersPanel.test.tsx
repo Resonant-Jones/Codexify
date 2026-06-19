@@ -595,4 +595,53 @@ describe("CodingWorkOrdersPanel", () => {
     await screen.findByText(/read-only/);
     await screen.findByText(/does not prove autonomous delegation/);
   });
+
+
+  it("tool-turn section has no mutation controls", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-99" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-99")) {
+        return { data: { tool_turn_id: "tt-1", tool_turn_state: "completed", evidence_durability: "durable" } } as any;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt"];
+    for (const label of forbidden) {
+      expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+    }
+  });
+
+  it("tool-turn section does not expose raw args or secrets", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-99" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-99")) {
+        return {
+          data: {
+            tool_turn_id: "tt-1",
+            tool_turn_state: "completed",
+            evidence_durability: "durable",
+            raw_args: "SECRET_ARGS",
+            secret: "hunter2",
+            system_prompt: "HIDDEN_PROMPT",
+            result_json: {"raw": "data"},
+          },
+        } as any;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const forbidden = ["SECRET_ARGS", "hunter2", "HIDDEN_PROMPT", '"raw"', '"data"'];
+    for (const f of forbidden) {
+      expect(screen.queryByText(f)).toBeNull();
+    }
+  });
 });

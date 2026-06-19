@@ -10,6 +10,7 @@
 | C05-D004 | 2026-06-19 | `go` — helper validation closeout; 34 tests, full hygiene, decision log complete | active |
 | C05-D005 | 2026-06-19 | `go` — tool-turn readback route added; 8 tests, 50 total pass | active |
 | C05-D006 | 2026-06-19 | `go` — route validation closeout; 50 tests, full hygiene, receipt linkage deferred | active |
+| C05-D007 | 2026-06-19 | `go` — Command Center tool-turn UI proof; 20 frontend tests, redaction, no-mutation, truth-labeling | active |
 
 ---
 
