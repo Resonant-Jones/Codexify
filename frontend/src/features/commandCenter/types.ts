@@ -201,6 +201,7 @@ export interface CommandCenterCodingWorkOrder {
   latest_run_id: string | null;
   latest_lease_id: string | null;
   latest_receipt_id: string | null;
+  assistant_message_id: string | null;
   blocked_reason: string | null;
   extra_meta: Record<string, unknown>;
   created_at: string;

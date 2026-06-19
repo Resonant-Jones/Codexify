@@ -45,6 +45,7 @@ function buildWorkOrder(
     file_scope: ["frontend/src/App.tsx"],
     latest_lease_id: null,
     latest_receipt_id: null,
+    assistant_message_id: null,
     latest_run_id: null,
     max_validation_attempts: 1,
     objective: "Objective",
@@ -577,5 +578,21 @@ describe("CodingWorkOrdersPanel", () => {
     for (const label of forbiddenControls) {
       expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
     }
+  });
+
+  it("shows tool-turn observability section", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/Tool-turn observability/);
+  });
+
+  it("shows unavailable state when no assistant message id", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/No assistant message id/);
+    await screen.findByText(/read-only/);
+    await screen.findByText(/does not prove autonomous delegation/);
   });
 });
