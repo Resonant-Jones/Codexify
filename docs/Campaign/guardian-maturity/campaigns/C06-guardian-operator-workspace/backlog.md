@@ -11,7 +11,8 @@
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
 | C06-T001 | audit | `go` | `TBD` | Seam audit — 8 operator surfaces, 5 backend truth surfaces, 8 gaps, 9-task backlog |
-| C06-T002 | docs | `go` | `TBD` | Surface contract: 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states |
+| C06-T002 | docs | `go` | `daba74953` | Surface contract: 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states |
+| C06-T003 | frontend | `go` | `TBD` | Workspace lens scaffold: component + rail + shell wiring + 7 tests |
 | C06-T003 | frontend | planned | — | Scaffold workspace lens and layout |
 | C06-T004 | frontend | planned | — | Compose work-order status panel |
 | C06-T005 | frontend | planned | — | Compose receipt evidence panel |

@@ -449,6 +449,63 @@ describe("CommandCenterShell", () => {
     expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
   });
 
+  describe("Guardian Workspace lens", () => {
+    it("renders when Guardian Workspace rail item is clicked", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("guardian-operator-workspace")).toBeInTheDocument();
+      expect(screen.getByText("Guardian Operator Workspace")).toBeInTheDocument();
+    });
+
+    it("renders all scaffold cards", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const ws = screen.getByTestId("guardian-operator-workspace");
+      // Card headings per C06-T002 surface contract
+      expect(within(ws).getByText("Work-order status")).toBeInTheDocument();
+      expect(within(ws).getByText("Command-run evidence")).toBeInTheDocument();
+      expect(within(ws).getByText("Tool-turn observability")).toBeInTheDocument();
+      expect(within(ws).getByText("Receipt evidence")).toBeInTheDocument();
+      expect(within(ws).getByText("Runtime / health")).toBeInTheDocument();
+      expect(within(ws).getByText("Gaps and unavailable evidence")).toBeInTheDocument();
+      expect(within(ws).getByText("Safety boundary")).toBeInTheDocument();
+    });
+
+    it("has no mutation controls in scaffold", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const ws = screen.getByTestId("guardian-operator-workspace");
+      const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt"];
+      for (const label of forbidden) {
+        expect(within(ws).queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+      }
+    });
+
+    it("does not claim unsupported execution semantics", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const ws = screen.getByTestId("guardian-operator-workspace");
+      expect(within(ws).getByText(/No autonomous delegation/)).toBeInTheDocument();
+      expect(within(ws).getByText(/No Pi.Coder execution/)).toBeInTheDocument();
+      expect(within(ws).getByText(/No recursive tool loops/)).toBeInTheDocument();
+      expect(within(ws).getByText(/No artifact creation/)).toBeInTheDocument();
+      expect(within(ws).getByText(/No receipt creation/)).toBeInTheDocument();
+      expect(within(ws).getByText(/No work-order completion/)).toBeInTheDocument();
+    });
+
+    it("tool-turn card truth-labels bounded evidence", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const ws = screen.getByTestId("guardian-operator-workspace");
+      // Scope to tool-turn card specifically — multiple cards share truth-labeling phrases
+      const ttc = within(ws).getByText("Tool-turn observability").closest("div")!;
+      expect(within(ttc as HTMLElement).getByText(/does not prove autonomous delegation/)).toBeInTheDocument();
+      expect(within(ttc as HTMLElement).getByText(/Pi.Coder execution/)).toBeInTheDocument();
+      expect(within(ttc as HTMLElement).getByText(/artifact creation/)).toBeInTheDocument();
+      expect(within(ttc as HTMLElement).getByText(/work-order completion/)).toBeInTheDocument();
+    });
+  });
+
   describe("readInitialDelegationIntentId", () => {
     it("readInitialDelegationIntentId_supports_guardian_delegation_intent_id", () => {
       vi.stubGlobal("location", {
