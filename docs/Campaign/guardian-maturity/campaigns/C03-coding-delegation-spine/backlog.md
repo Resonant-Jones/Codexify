@@ -15,7 +15,7 @@
 | C03-T011 | docs | complete | `docs/Campaign/.../work-order-result-receipt-persistence-design.md` | Receipt persistence seam design | — | C03-PROOF-011 |
 | C03-T012 | backend | complete | `guardian/db/models.py`, `guardian/db/migrations/`, `guardian/routes/coding_work_orders.py`, `tests/routes/test_work_order_result_receipts.py` | Receipt persistence implementation + 4 tests | `TBD` | C03-PROOF-012 |
 | C03-T013 | backend | complete | `guardian/routes/coding_work_orders.py`, `tests/routes/test_work_order_result_receipt_readback.py` | Receipt readback routes + 11 tests | `a5bebe592` | C03-PROOF-013 |
-| C03-T014 | backend | complete | `guardian/routes/coding_work_orders.py`, `tests/routes/test_work_order_latest_receipt_linkage.py` | `latest_receipt_id` linkage + 4 tests | `TBD` | C03-PROOF-014 |
+| C03-T014 | backend | complete | `guardian/agents/work_order_store.py`, `guardian/routes/coding_work_orders.py`, `tests/routes/test_work_order_latest_receipt_linkage.py` | `set_latest_receipt()` fail-closed linkage + 7 tests (R1–R4) | `e3681ac51` | C03-PROOF-014 |
 | C03-T015 | frontend | planned | `frontend/src/features/commandCenter/` | Frontend/operator receipt display | — | C03-PROOF-015 |
 
 ## Lane Definitions

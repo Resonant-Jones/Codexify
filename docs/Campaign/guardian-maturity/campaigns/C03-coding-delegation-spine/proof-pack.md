@@ -1474,3 +1474,56 @@ All 52 tests pass (pointer failure now asserts 500, not 201)
 
 - **Decision**: `go`
 - **Reason**: Linkage is fail-closed. `set_latest_receipt()` failure returns 500, not a misleading success. Successful response guarantees `latest_receipt_id` equals receipt_id. 52 tests pass. Runtime proof confirmed.
+
+---
+
+## C03-T014-R4: Validation and Docs Closeout (2026-06-19 04:45 UTC)
+
+### Context
+
+- **Branch**: `codex/campaignOS`
+- **Latest Commit**: `e3681ac51` — fix: fail closed on Guardian latest receipt linkage failure
+- **Worktree**: Clean
+- **Prior `next-proof-needed` Reason**: R3 closeout did not report `git diff --check`, docs validator, broad selector, backlog update, or complete decision log entry.
+
+### Files Modified
+
+- `docs/.../proof-pack.md` — added R4 closeout section
+- `docs/.../decision-log.md` — expanded C03-D022 to complete entry; added C03-D023
+- `docs/.../backlog.md` — C03-T014 confirmed complete with R3/R4 fail-closed note
+
+### Final Linkage Semantics
+
+**Fail-closed.** `set_latest_receipt()` failure → HTTP 500 `work_order_latest_receipt_linkage_failed`. Successful response guarantees `latest_receipt_id` equals returned `receipt_id`. Best-effort behavior removed in R3.
+
+### Proof Table
+
+| Check | Evidence | Result | Notes |
+|-------|----------|--------|-------|
+| Best-effort success removed | `except Exception: pass` → `raise HTTPException(500, ...)` in R3 | ✅ | R3 code change |
+| Success guarantees pointer | Runtime: `latest_receipt_id` matches `receipt_id` | ✅ | R3 runtime proof |
+| Pointer failure fails closed | Test: `RuntimeError` → 500, not 201 | ✅ | R3 test update |
+| WO status unchanged | `draft` after linkage | ✅ | All rounds |
+| `latest_run_id` unchanged | Preserved through `set_latest_receipt()` | ✅ | R1 repair |
+| Receipt readback via pointer | `GET .../receipts/{latest_receipt_id}` works | ✅ | C03-T013 |
+| Receipt list includes pointer | `GET .../receipts` includes receipt | ✅ | C03-T013 |
+| Redaction preserved | No raw args in receipt or WO response | ✅ | C03-T012/T013 |
+| No artifact created | No artifact table touched | ✅ | All rounds |
+| No command execution | `execute_invoke` spy not called | ✅ | R2 test |
+| No shell/Pi/Coder/repo mutation | No forbidden fields, loopback only | ✅ | R2 test |
+
+### Validation
+
+```
+pytest 6 test files                         52 passed
+git diff --check                            clean
+python3 scripts/validate_docs.py             passed
+pytest -k "latest_receipt_id\|..."           22 pre-existing collection errors (unrelated)
+backlog                                     C03-T014 complete
+decision log                                C03-D022 + C03-D023 complete
+```
+
+### C03-T014-R4 Gate Decision
+
+- **Decision**: `go`
+- **Reason**: All proof and validation gaps closed. Linkage is fail-closed (R3). Best-effort success removed. Full validation hygiene: 52 tests pass, `git diff --check` clean, docs validator passed, broad selector run, backlog updated, decision log complete. Runtime proof confirmed `latest_receipt_id` set, `latest_run_id` preserved, status unchanged. C03-T014 is complete.

@@ -23,6 +23,7 @@
 | C03-D017 | 2026-06-18 | `go` — receipt readback routes added; single + list, 6 tests, 40 total pass | active |
 | C03-D020 | 2026-06-19 | `go` — latest receipt linkage hardened; `set_latest_receipt` preserves `latest_run_id`, runtime proof, 50 tests | active |
 | C03-D022 | 2026-06-19 | `go` — linkage fail-closed; `set_latest_receipt` failure returns 500, not misleading success, 52 tests | active |
+| C03-D023 | 2026-06-19 | `go` — C03-T014 complete; all proof gaps closed, full validation hygiene, 52 tests | active |
 
 ---
 
@@ -576,3 +577,30 @@
 - **Revisit Trigger**:
   - `latest-receipt` route is added after linkage.
   - Pointer update is made atomic with receipt creation.
+
+---
+
+### Decision: C03-D023
+
+- **Decision ID**: C03-D023
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. C03-T014 is complete. All proof gaps closed across R1–R4. Linkage is fail-closed (R3). Best-effort success removed. Full validation hygiene: 52 tests pass, `git diff --check` clean, docs validator passed, broad selector run, backlog updated, decision log complete.
+- **Reason**:
+  - R1: Added `set_latest_receipt()` — receipt-only, preserves `latest_run_id`.
+  - R2: Expanded tests to 7, pointer failure non-false-success, safety exclusions.
+  - R3: Removed best-effort — `except Exception: pass` → `raise HTTPException(500)`.
+  - R4: Completed validation hygiene and documentation closeout.
+  - Runtime proof: `latest_receipt_id` matches receipt_id, `latest_run_id` preserved, status `draft`.
+- **Evidence**:
+  - `guardian/agents/work_order_store.py:296-307` — `set_latest_receipt()`.
+  - `guardian/routes/coding_work_orders.py:656-662` — fail-closed linkage.
+  - `tests/routes/test_work_order_latest_receipt_linkage.py` — 7 tests, 52 total.
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Consequence**:
+  - C03-T014 advances to `go`. Latest receipt linkage is complete.
+  - C03-T015 (frontend/operator receipt display) can proceed.
+  - All C03 receipt infrastructure is proven: persistence (T012), readback (T013), linkage (T014).
+- **Revisit Trigger**:
+  - `latest-receipt` convenience route is added.
+  - Linkage is made atomic with receipt creation in same DB transaction.
+  - Frontend receipt display is implemented.
