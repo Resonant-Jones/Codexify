@@ -113,3 +113,19 @@
   - C04-T005 (policy decision contract) may proceed.
 - **Revisit Trigger**:
   - C04-T005 policy decision contract — define Guardian-owned decision semantics.
+
+---
+
+### Decision: C04-D006-R1
+
+- **Decision ID**: C04-D006-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T006 result return contract validation closeout complete. Prior missing `git diff --check` and docs validator results now recorded. 22 focused + 66 full Pi tests pass. `guardian.pi` import ok. `git diff --check` clean. Docs validator passed. No runtime behavior changed. Release boundary preserved.
+- **Reason**: Prior C04-T006 output omitted validation hygiene. All validation commands now pass. No code changes required.
+- **Evidence**:
+  - `pytest tests/pi/` — 66 passed.
+  - `python -c "import guardian.pi"` — ok.
+  - `git diff --check` — clean.
+  - `python3 scripts/validate_docs.py` — passed.
+- **Consequence**: C04-T006 fully accepted. C04-T007 may proceed.
+- **Revisit Trigger**: None — validation closeout is final.

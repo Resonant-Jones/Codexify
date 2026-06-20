@@ -156,3 +156,32 @@ Total: 23 passed
 
 ### Next Task
 **C04-T005: Define Pi/Coder policy decision contract**
+
+---
+
+## C06-T006-R1: Validation Closeout (2026-06-20 12:40 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `c4e63a55f` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: `git diff --check` and `python3 scripts/validate_docs.py` not reported.
+
+### Result Return Contract Verification
+`PiInvocationResultReturn` dataclass present with 20 fields. `validate_pi_invocation_result_return()` helper present. 22 focused tests cover all contract states and edge cases.
+
+### Validation
+```
+pytest tests/pi/test_invocation_result_return_contract.py  22 passed
+pytest tests/pi/                                           66 passed
+python -c "import guardian.pi"                             ok
+git diff --check                                            clean
+python3 scripts/validate_docs.py                            passed
+```
+
+### No Runtime
+No result return runtime, no result reinjection, no transcript persistence, no backend routes, no frontend controls.
+
+### Gate Decision
+**`go`** — C04-T006-R1 accepted. C04-T007 may proceed.
+
+### Next Task
+**C04-T007: Define Pi/Coder operator evidence read model**
