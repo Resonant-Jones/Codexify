@@ -6,6 +6,7 @@
 | C06-D002 | 2026-06-19 | `go` — C06 surface contract defined; 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states, redaction/truth-labeling, C06-T003 next | active |
 | C06-D003 | 2026-06-19 | `go` — Guardian Operator Workspace lens scaffold added; read-only, no fetch, no mutation, 7 tests, C06-T004 next | active |
 | C06-D004 | 2026-06-19 | `go` — first live cards composed; HealthOverview + CodingWorkOrdersPanel in workspace; no new fetch, no mutation, C06-T005 next | active |
+| C06-D005 | 2026-06-19 | `go` — C06 composition proof consolidated; 2 live cards, no-new-fetch, no-mutation, truth-labeling, 10 limitations, C06-T006 next | active |
 
 ---
 
@@ -121,3 +122,31 @@
   - C06-T005 composition proof — verify all cards match contract.
   - C06-T006/T007 — compose remaining deferred cards.
   - C06-T008 integration tests — verify full workspace behavior.
+
+---
+
+### Decision: C06-D005
+
+- **Decision ID**: C06-D005
+- **Date**: 2026-06-19
+- **Decision**: `go`. C06 composition proof consolidated. `composition-proof.md` created: 2 live cards (HealthOverview, CodingWorkOrdersPanel), 5 static/deferred cards, no-new-fetch proof, no-mutation proof, truth-labeling proof, 10 known limitations. First read-only composition slice accepted. Command-run evidence remains next. Release boundary preserved.
+- **Reason**:
+  - C06-T004 implementation and tests proved at commit `6f3596991` / `e2909d07d`.
+  - Composition proof consolidates all evidence into a single artifact.
+  - 2 live composed surfaces (runtime/health, work-order status).
+  - Workspace wrapper adds no new fetch, no mutation controls.
+  - Truth-labeling preserved (6 unsupported claims).
+  - 33 CommandCenterShell tests pass. 103 broader tests pass.
+  - No backend, migration, ADR, or current-state files changed.
+- **Evidence**:
+  - `composition-proof.md` — 15-section proof artifact.
+  - `CommandCenterShell.test.tsx` — 33 tests (5 scaffold + 7 composition + 21 existing).
+  - `GuardianOperatorWorkspaceLens.tsx` — no fetch, no API imports, no dynamic imports.
+- **Consequence**:
+  - C06-T005 composition proof accepted. C06-T006 (command-run evidence card) may proceed.
+  - Deferred cards remain: command-run (next), tool-turn standalone, receipt standalone.
+  - Receipt linkage, EventConsole redaction remain deferred.
+- **Revisit Trigger**:
+  - C06-T006 command-run evidence card implementation.
+  - C06-T007/T008 remaining card composition + integration tests.
+  - C06-T009 final C06 closeout.
