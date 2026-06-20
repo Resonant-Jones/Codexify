@@ -1,177 +1,117 @@
-# Codex Guidance for Codexify
+# Codexify Agent Operating Protocol
 
-This file guides Codex style work inside the Codexify repo. It emphasizes repo-grounded edits, small blast radius, and architectural clarity.
+This repo-level protocol tells Codex and other coding agents how to work inside Codexify without bypassing Axis task protocol, release truth, validation, or commit discipline.
 
-## Purpose
+## Agent Role Inside Codexify
 
-This document provides operational guidance for AI-assisted coding sessions within Codexify. All edits should:
+- Act as a task-scoped implementation agent, not an autonomous product owner.
+- Ground every edit in the current repository, current task, and current release truth.
+- Prefer small, direct, reviewable changes over broad refactors or new abstractions.
+- Respect Codexify's runtime boundaries: frontend, Guardian routes, queue, worker, persistence, provider, events, and docs each have separate responsibilities.
 
-- Be grounded in the actual repo structure and existing patterns
-- Maintain a small blast radius - change only what is necessary
-- Prioritize architectural clarity over cleverness
-- Respect established boundaries between subsystems
+## Required First Reads
 
-## Runtime Reality Alignment (Critical)
+Before architecture-impacting work, read the task plus these current-truth anchors when present:
 
-Codex must align all reasoning and suggestions with Codexify's current runtime contracts and proven system behavior.
+1. `docs/architecture/00-current-state.md`
+2. `docs/architecture/adr/adr-index.md` or the current ADR index path if it differs
+3. `docs/architecture/README.md`
+4. `docs/architecture/agent-protocol-operations.md`
+5. `docs/Ops/codexify-issue-template-contract.md` if present
+6. `docs/Ops/docs-to-issue-compiler-protocol.md` if present
 
-- Do not collapse provider state and request state into a single concept.
-- Treat chat execution as two distinct state machines:
-  1. Provider/runtime state
-  2. Per-message request/attempt state
+For standard work, inspect the directly relevant files, neighboring tests, and any applicable nested `AGENTS.md` before editing.
 
-- Never assume:
-  - request acceptance = completion
-  - task enqueue = execution
-  - event publication = UI receipt
+## Issue / Task Execution Rules
 
-- Respect that Codexify operates on a queued worker model:
-  - frontend → route → queue → worker → persistence → events
-  - any step may succeed while downstream steps fail or lag
+- GitHub issues are work packets, not proof.
+- Follow the task scope exactly; do not silently widen the change.
+- Verify mount, import, queue, worker, route, and runtime paths before asserting behavior.
+- Distinguish proven runtime behavior from code-path-only assumptions.
+- Do not use docs, stubs, types, or issue text as evidence that a capability is shipped.
+- If a task needs broader work, stop at the boundary and propose a follow-up instead of smuggling it into the current change.
 
-- When debugging or proposing changes:
-  - identify which layer is responsible (route, queue, worker, provider, persistence)
-  - do not attribute failures to the wrong layer
+## Standard vs Architecture-Impact Lane Selection
 
-## Repo Structure
+Use the standard lane for localized code, test, or documentation changes that do not alter accepted contracts, release claims, runtime semantics, or architecture doctrine.
 
-The Codexify repository is organized into these major areas:
+Use the architecture-impact lane when work touches or changes:
 
-### guardian/
-The Guardian layer handles routing, request mediation, and external interface concerns. Contains agents, API route handlers, command bus infrastructure, and cognition components. Should not invent new backend abstractions casually.
+- ADR-governed behavior or architectural contracts
+- release readiness, supported paths, or current-state claims
+- queue, worker, provider, persistence, or event semantics
+- command bus, Guardian delegation, federation, graph writes, retrieval policy, memory, identity, or canonical runtime tokens
+- agent protocol, validation doctrine, or task execution rules
 
-### backend/
-Core server-side logic including RAG services, TTS services, vector store operations, and database migrations. Scripts and utility tooling live here. Treat storage/API/domain expansion as earned, not assumed.
+Architecture-impact work must identify governing ADRs/contracts and explain why the change is aligned with them or why a new ADR is required.
 
-### frontend/
-React/TypeScript application code. Contains the UI layer, component library, and client-side state management. Avoid duplicate product surfaces - check existing implementations before adding new ones.
+## Validation and Commit Discipline
 
-### docs/
-Documentation including architecture decisions, audit reports, campaign materials, CLI references, and development guides.
+- Run the validation requested by the task from the repo root.
+- If the task does not specify validation, run the smallest relevant checks for the changed surface.
+- For docs-only tasks, state that no automated runtime tests apply and still run any requested file or diff checks.
+- Treat validation as surface-specific proof only; docs validation is not runtime proof.
+- Stage only task-scoped files.
+- Commit successful scoped changes and report the commit hash.
+- Do not commit `.env`, credentials, generated secrets, or unrelated working-tree changes.
 
-### tests/
-Backend tests live in `tests/` covering routes, core systems, memory, plugins, realtime, and server components. Frontend tests live in `frontend/tests/`. Always identify neighboring tests before editing code.
+## Closeout Format
 
-### Other notable directories:
-- `codex_runner/` - Task execution infrastructure
-- `codex_tasks/` - Task definitions and handling
-- `codexify/` - Core Codexify module
-- `flows/` - Workflow definitions
-- `config/` - Configuration files
-- `services/` - External service integrations
-- `plugins/` - Plugin system
-- `scripts/` - Operational scripts
+Every task closeout must include:
 
-## Architectural Boundaries
+- Summary of changes
+- Files changed
+- ADR impact, when applicable
+- Validation results, including commands run and whether they passed, failed, or were not applicable
+- Documentation follow-through, including what was updated or explicitly deferred
+- Git commit hash
+- Any known limitations, unproven assumptions, or recommended KB additions for Axis
 
-- **Guardian routes** should not invent new backend abstractions casually. Prefer routing to existing services.
-- **Prefer existing runtime rails** before adding new subsystems. Check what is already wired and working.
-- **Avoid duplicate product surfaces**. Search for existing implementations before creating new ones.
-- **Treat storage/API/domain expansion as earned, not assumed**. New tables, routes, or domain types require clear justification.
-- **Respect the migration flow**: `guardian/db/migrations` is symlinked to `backend/migrations`.
+## Forbidden Assumptions
 
-## Chat Runtime Contract Awareness
+Do not assume any of the following unless a future task proves and authorizes the surface:
 
-Codex must operate with awareness of the canonical chat runtime contract:
+- autonomous self-modification
+- auto-merge, auto-push, or release-ready coding-worker behavior
+- cloud-provider beta support
+- board automation or issue mutation
+- command bus, delegation, federation, graph writes, or desktop packaging as part of the current release promise
+- request acceptance as completion, task enqueue as execution, or event publication as UI receipt
+- provider warmup latency as provider offline
+- new runtime/protocol tokens invented inline instead of using a canonical registry
+- widened release claims based only on docs, scaffolds, plans, or issue text
 
-- Provider runtime states include:
-  OFFLINE, CONNECTING, RUNTIME_AVAILABLE, MODEL_WARMING, READY, GENERATING, DEGRADED, ERROR
+## Current-Truth Hierarchy
 
-- Request lifecycle states include:
-  QUEUED, DISPATCHING, AWAITING_ACK, AWAITING_MODEL, AWAITING_FIRST_TOKEN,
-  STREAMING, COMPLETED, CANCELLED, TIMED_OUT, FAILED_RETRYABLE, FAILED_FATAL,
-  ORPHANED, REPLAYED
+When sources conflict, prefer this order for short-horizon release truth:
 
-Key rules:
+1. `docs/architecture/00-current-state.md`
+2. governing ADRs and explicit architecture contracts
+3. task or issue acceptance criteria
+4. code and tests proving the specific implementation path
+5. older planning, roadmap, campaign, or audit documents
 
-- A slow or warming model must NOT be interpreted as "offline"
-- A timed-out request may still complete later (orphaned vs completed ambiguity)
-- Retries must be treated as new attempts, not new messages
+For implementation details, verify the live code path and tests. For release claims, `00-current-state.md` is the gate.
 
-Codex must not recommend UI or backend logic that:
-- collapses these states into binary success/failure
-- loses attempt-level tracking
-- breaks transcript integrity
+## Handling Dirty Worktrees
 
-## Working Style
+- Inspect `git status` before editing.
+- Preserve user or concurrent-agent changes.
+- Do not stage or rewrite unrelated files.
+- If unrelated dirty files exist, leave them untouched and mention them in closeout when relevant.
+- If formatting or hooks change files, re-check the diff and stage only task-scoped changes.
 
-- **Inspect before editing**. Read the relevant files first. Understand the patterns in use.
-- **Prefer the smallest truthful fix**. A direct change beats a decorative adapter.
-- **Avoid reviving dead abstractions** unless required by current contracts. Check if code is actually imported and used.
-- **Distinguish runtime-proof from type/spec presence**. A type definition or stub does not mean capability exists.
-- **Avoid broad refactors** unless explicitly requested. Stay focused on the task at hand.
-- **Verify mount/import/runtime paths** before assuming behavior. Check actual wiring, not just declarations.
+## Handling Validation Failures
 
-## Proof Discipline
+- Do not proceed to unrelated edits after a validation failure.
+- Fix failures only when the fix is inside task scope.
+- If a failure is environmental or unrelated, report the command, result, and why it was not fixed in this task.
+- Never hide failed validation behind a successful commit message or release claim.
 
-All reasoning should distinguish between:
+## Handling Docs / Code Disagreement
 
-- Proven runtime behavior (supported path, test-backed, or live evidence)
-- Unproven or code-path-only assumptions
-
-Codex must:
-
-- Prefer supported-path evidence over speculation
-- Call out when something is:
-  - "proven in tests"
-  - "proven in live runtime"
-  - "code-path only"
-  - "working theory"
-
-- Avoid presenting hypotheses as facts
-
-- When suggesting changes:
-  - minimize blast radius
-  - avoid introducing new subsystems unless explicitly justified
-  - prefer wiring into existing runtime seams (routes, broker, worker, queue)
-
-## Testing Rules
-
-Run tests appropriate to the work:
-
-| Work Type | Test Command |
-|-----------|--------------|
-| Backend-oriented | `pytest -v` |
-| Frontend-oriented | `pnpm test` |
-| Mixed (backend + frontend) | Run both commands |
-| Docs-only | No automated tests apply - state this explicitly |
-
-Always run tests from the repo root. For targeted test runs, use `pytest -v tests/<path>` or `pnpm test -- <pattern>`.
-
-## Output Contract
-
-All agent outputs must include:
-
-1. **Summary of changes** - What was done and why
-2. **Files changed** - List of modified/created/deleted files
-3. **Test results** - Output from test commands or explicit note when no tests apply
-4. **Git commit hash** - The commit that contains the changes
-
-## Safety / Change Discipline
-
-- **Do not silently widen scope**. If the task grows, say so and ask for confirmation.
-- **Do not add new architecture to solve a local issue**. Prefer direct fixes.
-- **Verify mount/import/runtime paths before assuming behavior**. Check that code is actually wired in.
-- **Prefer direct fixes over decorative adapters**. Deletion, direct wiring, or a thin shim are usually better than speculative abstraction.
-- **Do not commit sensitive files**. Avoid committing `.env`, credentials, or secrets.
-
-## Failure Mode Awareness
-
-Codex must reason explicitly about common Codexify failure modes:
-
-- Redis queue degradation does not equal backend failure
-- Worker absence or stale heartbeat can cause silent stalls
-- Task-event publication does not guarantee UI visibility
-- Provider warmup latency can mimic outage conditions
-
-When diagnosing issues:
-
-- check health surfaces (`/health`, `/health/chat`, `/api/health/llm`, `/api/health/retrieval`)
-- distinguish:
-  - queue backlog vs worker stall
-  - provider degraded vs offline
-  - request timeout vs orphaned execution
-
-Do not recommend superficial fixes (e.g., retries, UI banners) without identifying the underlying layer.
-
-Prefer structural clarity over patchwork behavior.
+- Stop broad implementation and identify the exact disagreement.
+- Use `00-current-state.md` for current release truth and code/tests for implementation proof.
+- Update docs only when the task explicitly includes documentation follow-through.
+- Do not silently normalize contradictions or present hypotheses as proven behavior.
+- If the disagreement affects architecture, reclassify the task into the architecture-impact lane before continuing.
