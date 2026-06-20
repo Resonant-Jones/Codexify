@@ -92,7 +92,15 @@ struct SettingsAuthView: View {
                         draftProfile.validationState = .validating
 
                         Task {
-                            let result = await ScoutEndpointConnectivityProbe.probe(endpoint: draftProfile)
+                            let apiKey: String?
+                            do {
+                                apiKey = try keychainStore.loadAPIKey()
+                            } catch {
+                                keychainMessage = "Could not load API key from Keychain. Testing without credentials."
+                                apiKey = nil
+                            }
+
+                            let result = await ScoutEndpointConnectivityProbe.probe(endpoint: draftProfile, apiKey: apiKey)
                             draftProfile.validationState = result.validationState
                             draftProfile.authenticationState = result.authenticationState
                             if let connectedAt = result.connectedAt {
