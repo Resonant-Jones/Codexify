@@ -40,7 +40,12 @@ describe("WebRuntimeStartupGate", () => {
       </WebRuntimeStartupGate>
     );
 
-    expect(await screen.findByText("Waiting for the backend")).toBeInTheDocument();
+    const gateTitle = await screen.findByText("Waiting for the backend");
+    const gateOverlay = gateTitle.closest(".fixed");
+
+    expect(gateTitle).toBeInTheDocument();
     expect(screen.getByText("App shell")).toBeInTheDocument();
+    expect(gateOverlay).toHaveClass("z-[1300]");
+    expect(gateOverlay).not.toHaveClass("pointer-events-none");
   });
 });

@@ -102,6 +102,14 @@ inline literals.
   semantics, and bounded tool-loop state is considered part of the runtime
   protocol surface.
 
+## Future local runtime-family tokens
+
+- Candidate future token domain: `local_runtime_family`.
+- Initial candidate values: `mlx`, `gguf`.
+- These values are not provider ids.
+- These values must be promoted into code only when a future implementation task wires API/catalog/UI behavior.
+- Any future code implementation must add tests that prevent ad hoc literals and prevent runtime-family values from being interpreted as providers.
+
 ## Interpretation caveat
 Canonical token definitions establish a shared vocabulary for runtime meaning.
 They do not by themselves prove that every state is already emitted end-to-end
