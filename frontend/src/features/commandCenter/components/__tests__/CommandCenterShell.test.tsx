@@ -754,6 +754,137 @@ describe("CommandCenterShell", () => {
     });
   });
 
+  describe("Guardian Workspace tool-turn evidence card", () => {
+    it("renders Tool-turn observability heading in workspace", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByText("Tool-turn observability")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-tool-turn-card")).toBeInTheDocument();
+    });
+
+    it("shows unavailable when no assistant_message_id", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-1", title: "x", status: "draft", assistant_message_id: null, latest_run_id: null, latest_lease_id: null, latest_receipt_id: null, extra_meta: {}, dependency_ids: [], file_scope: [], priority: 1, max_validation_attempts: 3, require_worktree_lease: false, commit_after_validation: false, require_human_review_before_merge: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const unav = await screen.findByTestId("tt-unavailable");
+      expect(unav).toHaveTextContent(/no explicit assistant message id/);
+    });
+
+    it("does not fabricate assistant_message_id from other ids", async () => {
+      const spy = vi.fn();
+      apiGetMock.mockImplementation(async (url: string) => {
+        spy(url);
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-x", campaign_id: null, title: "x", objective: "x", status: "draft", priority: 1, dependency_ids: [], file_scope: [], validation_command: null, max_validation_attempts: 3, require_worktree_lease: false, commit_after_validation: false, require_human_review_before_merge: false, latest_run_id: "run-fake", latest_lease_id: "lease-fake", latest_receipt_id: "rec-fake", assistant_message_id: null, extra_meta: {}, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("tt-unavailable");
+      // Assert no tool-turns route was called — no assistant_message_id to use
+      const toolTurnCalls = spy.mock.calls.filter((c: string[]) => c[0]?.includes("/tool-turns/"));
+      expect(toolTurnCalls.length).toBe(0);
+    });
+
+    it("shows available state when assistant_message_id exists and C05 route returns data", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-tt", title: "x", status: "draft", assistant_message_id: "msg-1", latest_run_id: null, latest_lease_id: null, latest_receipt_id: null, extra_meta: {}, dependency_ids: [], file_scope: [], priority: 1, max_validation_attempts: 3, require_worktree_lease: false, commit_after_validation: false, require_human_review_before_merge: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        if (typeof url === "string" && url.includes("/tool-turns/msg-1")) {
+          return { data: { tool_turn_id: "tt-99", tool_turn_state: "completed", loop_stop_reason: "max_turns", command_run_id: "run-99", command_id: "op::test", command_status: "completed", command_result_summary: "ok", evidence_durability: "durable" } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const av = await screen.findByTestId("tt-available");
+      expect(av).toHaveTextContent(/tt-99/);
+      expect(av).toHaveTextContent(/completed/);
+      expect(av).toHaveTextContent(/max_turns/);
+      expect(av).toHaveTextContent(/durable/);
+      // No raw payload
+      expect(av).not.toHaveTextContent(/SECRET/);
+    });
+
+    it("shows empty when assistant_message_id exists but no tool-turn data", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-tt2", title: "x", status: "draft", assistant_message_id: "msg-2", latest_run_id: null, latest_lease_id: null, latest_receipt_id: null, extra_meta: {}, dependency_ids: [], file_scope: [], priority: 1, max_validation_attempts: 3, require_worktree_lease: false, commit_after_validation: false, require_human_review_before_merge: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        if (typeof url === "string" && url.includes("/tool-turns/msg-2")) {
+          return { data: { evidence_durability: "no_evidence" } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("tt-empty");
+      expect(screen.getByTestId("tt-empty")).toHaveTextContent(/No bounded tool-turn evidence/);
+    });
+
+    it("shows error when C05 route fails", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-err", title: "x", status: "draft", assistant_message_id: "msg-err", latest_run_id: null, latest_lease_id: null, latest_receipt_id: null, extra_meta: {}, dependency_ids: [], file_scope: [], priority: 1, max_validation_attempts: 3, require_worktree_lease: false, commit_after_validation: false, require_human_review_before_merge: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        if (typeof url === "string" && url.includes("/tool-turns/msg-err")) {
+          const err: any = new Error("fail");
+          err.response = { status: 500, data: { detail: "RAW_SECRET_NOT_EXPOSED" } };
+          throw err;
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("tt-error");
+      expect(screen.getByTestId("tt-error")).toHaveTextContent(/unavailable/);
+      expect(screen.queryByText(/RAW_SECRET/)).toBeNull();
+    });
+
+    it("tool-turn card has no mutation controls", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt", "run tool", "invoke tool"];
+      for (const label of forbidden) {
+        expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+      }
+    });
+
+    it("tool-turn card truth-labels unsupported claims", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-tool-turn-card");
+      const text = card.textContent || "";
+      expect(text).toContain("autonomous delegation");
+      expect(text).toContain("Pi/Coder execution");
+      expect(text).toContain("recursive tool use");
+      expect(text).toContain("artifact creation");
+      expect(text).toContain("receipt creation");
+      expect(text).toContain("work-order completion");
+    });
+
+    it("existing workspace panels preserved after tool-turn card added", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
+      expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-command-run-evidence")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-safety-boundary")).toBeInTheDocument();
+    });
+  });
+
   describe("readInitialDelegationIntentId", () => {
     it("readInitialDelegationIntentId_supports_guardian_delegation_intent_id", () => {
       vi.stubGlobal("location", {
