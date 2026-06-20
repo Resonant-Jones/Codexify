@@ -18,7 +18,10 @@
 | C06-T006 | frontend | `go` | `7c4e4dacc` / `0ce7bdd07` / `fdd9eb9ac` | Command-run evidence card via useCodingWorkOrders; 5 states, 8 tests |
 | C06-T007 | frontend | `go` | `bc3582154` / `b52a1de11` | Standalone tool-turn evidence card via C05 route; explicit assistant_message_id only, no id fabrication, 9 tests |
 | C06-T008 | frontend | `go` | `b3e94be4a` / `09ab5f5c8` | Standalone receipt evidence card via latest_receipt_id pointers; deferred linkage, 8 tests |
-| C06-T009 | proof | `go` | `TBD` | Final composition proof consolidation; task ledger, 7 surfaces, no-backend, no-mutation, truth-labeling |
+| C06-T009 | proof | `go` | `bcdd0e3f3` / `d624e1d09` | Final composition proof consolidation; task ledger, 7 surfaces, no-backend, no-mutation, truth-labeling |
+| C06-T010 | closeout | `go` | `TBD` | Campaign closeout; task ledger, 7 surfaces, proven truth, explicit non-claims, release boundary |
+
+**Campaign Status: closed**
 | C06-T003 | frontend | planned | — | Scaffold workspace lens and layout |
 | C06-T004 | frontend | planned | — | Compose work-order status panel |
 | C06-T005 | frontend | planned | — | Compose receipt evidence panel |
