@@ -116,6 +116,7 @@
   - Workspace now has 2 live cards (work-order + health) and 6 static/deferred cards.
   - C06-T005 (composition proof) may proceed.
   - Remaining deferred cards (command-run, tool-turn standalone, receipt standalone) not yet composed.
+- **R1 addendum (2026-06-19)**: Implementation commit `6f3596991` recorded. 7 composition-specific tests added (33 shell total). HealthOverview renders inside workspace with `command-center-health-overview` testid. Refresh button calls `onRefresh`. CodingWorkOrdersPanel renders with `coding-work-orders-panel` testid. Deferred cards + safety boundary + truth-labeling preserved. 103 broader tests pass.
 - **Revisit Trigger**:
   - C06-T005 composition proof — verify all cards match contract.
   - C06-T006/T007 — compose remaining deferred cards.
