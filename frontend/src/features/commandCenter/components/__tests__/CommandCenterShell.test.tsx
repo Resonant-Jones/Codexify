@@ -885,6 +885,120 @@ describe("CommandCenterShell", () => {
     });
   });
 
+  describe("Guardian Workspace receipt evidence card", () => {
+    const fullWoFields = {
+      campaign_id: null,
+      objective: "x",
+      dependency_ids: [],
+      file_scope: [],
+      validation_command: null,
+      max_validation_attempts: 3,
+      require_worktree_lease: false,
+      commit_after_validation: false,
+      require_human_review_before_merge: false,
+      latest_run_id: null,
+      latest_lease_id: null,
+      latest_receipt_id: null,
+      assistant_message_id: null,
+      extra_meta: {},
+      priority: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    it("renders Receipt evidence heading in workspace", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByText("Receipt evidence")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-receipt-card")).toBeInTheDocument();
+    });
+
+    it("shows deferred receipt linkage message", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("rc-deferred")).toHaveTextContent(/remain deferred/);
+    });
+
+    it("shows available state with safe fields when latest_receipt_id exists", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ ...fullWoFields, work_order_id: "wo-rec-1", title: "Rec test", status: "completed", latest_receipt_id: "rec-99" }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("rc-wo-wo-rec-1");
+      const card = screen.getByTestId("guardian-workspace-receipt-card");
+      expect(within(card).getByText("wo-rec-1")).toBeInTheDocument();
+      expect(within(card).getByText("rec-99")).toBeInTheDocument();
+      expect(within(card).getByText("Rec test")).toBeInTheDocument();
+    });
+
+    it("shows no-pointer state when no latest_receipt_id", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 1, items: [{ work_order_id: "wo-no-rec", title: "x", status: "draft", ...fullWoFields }], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("rc-no-pointer");
+      expect(screen.getByTestId("rc-no-pointer")).toHaveTextContent(/no explicit receipt pointer/);
+    });
+
+    it("shows error when work-order load fails", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          const err: any = new Error("fail");
+          err.response = { status: 500, data: { detail: "RAW_SECRET" } };
+          throw err;
+        }
+        if (url === "/api/coding/orchestrator/next") return { data: { ok: true, recommendations: [] } };
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("rc-error");
+      expect(screen.queryByText(/RAW_SECRET/)).toBeNull();
+    });
+
+    it("receipt card has no mutation controls", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt", "run tool", "invoke tool", "merge", "mark complete"];
+      for (const label of forbidden) {
+        expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+      }
+    });
+
+    it("receipt card truth-labels unsupported claims", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-receipt-card");
+      const text = card.textContent || "";
+      expect(text).toContain("work-order completion");
+      expect(text).toContain("artifact creation");
+      expect(text).toContain("Pi/Coder execution");
+      expect(text).toContain("autonomous delegation");
+      expect(text).toContain("recursive tool use");
+      expect(text).toContain("successful merge");
+    });
+
+    it("existing workspace panels preserved after receipt card added", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
+      expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-command-run-evidence")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-tool-turn-card")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-safety-boundary")).toBeInTheDocument();
+    });
+  });
+
   describe("readInitialDelegationIntentId", () => {
     it("readInitialDelegationIntentId_supports_guardian_delegation_intent_id", () => {
       vi.stubGlobal("location", {
