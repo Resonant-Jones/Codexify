@@ -2,6 +2,7 @@ import * as React from "react";
 
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
+import GuardianWorkspaceCommandRunEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceCommandRunEvidenceCard";
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
 
 /** Read-only Guardian Operator Workspace lens.
@@ -60,17 +61,10 @@ export default function GuardianOperatorWorkspaceLens(props: GuardianOperatorWor
         <CodingWorkOrdersPanel />
       </Section>
 
-      {/* ── Command-run evidence card (deferred) ── */}
-      <Card title="Command-run evidence">
-        <CardField label="Operator question" value="What command ran?" />
-        <CardField label="Source of truth" value="GET /api/coding/work-orders/{id}/latest-run → GET /api/guardian/commands/runs/{run_id}" />
-        <CardChip label="deferred" />
-        <CardField label="Readiness" value="Backend route exists. No UI card yet. Safe to compose in a later task." />
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          CommandRun evidence does not prove autonomous delegation, artifact
-          creation, or work-order completion.
-        </p>
-      </Card>
+      {/* ── Command-run evidence card (live composition) ── */}
+      <Section title="Command-run evidence">
+        <GuardianWorkspaceCommandRunEvidenceCard />
+      </Section>
 
       {/* ── Tool-turn observability card (conditional) ── */}
       <Card title="Tool-turn observability">
