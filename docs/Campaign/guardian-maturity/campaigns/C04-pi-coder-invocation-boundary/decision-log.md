@@ -63,3 +63,31 @@
   - C04-T003 proof matrix — verify all acceptance criteria are mapped.
   - Any C04 implementation task — cross-reference against acceptance contract.
   - C04-T008 closeout — verify all acceptance criteria were satisfied or explicitly deferred.
+
+---
+
+### Decision: C04-D003
+
+- **Decision ID**: C04-D003
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04 Pi/Coder invocation boundary proof matrix defined. 8-state proof ladder, 27-row core boundary matrix with current/target states, 10-class evidence matrix, 15-condition gate outcome matrix, reusable future-task proof-row template, lineage/receipt/artifact/operator/redaction proof requirements. No runtime behavior changed. Release boundary preserved.
+- **Reason**:
+  - Proof matrix translates C04-T002 acceptance contract into task-by-task rubric.
+  - 27-row core boundary matrix: every Pi/Coder surface from envelope through release support.
+  - Current states: contract_only (majority), scaffold (orchestration route, id generation), missing (receipt, artifact, validation result, policy decision), deferred (artifact lineage, receipt lineage, Minimax).
+  - Target states for C04-T003: contract_only (verified) — no implementation yet.
+  - 10 evidence classes: static inspection, contract tests, route tests, dry-run, internal runtime, operator read-only, supported-path, docs validation, git diff hygiene, release proof.
+  - 15 gate conditions: `hold` for safety-critical (lineage, policy, permission, authority bypass, raw payload, release claim), `next-proof-needed` for insufficient evidence.
+  - Future task proof-row template: 12 required fields.
+  - Lineage: 10 elements with gate rules. Receipt/artifact: 6 proof rows. Operator surface: 12 rows + prohibited controls. Redaction: 11 items.
+  - No live Pi SDK behavior. No live Coder execution. No autonomous dispatch.
+- **Evidence**:
+  - `proof-matrix.md` — 17-section rubric.
+  - `backlog.md` — C04-T003 `go`, C04-T004 named next.
+- **Consequence**:
+  - C04-T003 accepted. C04-T004 (repair receipt + artifact contract gaps) may proceed.
+  - Future C04 implementation tasks must satisfy this proof matrix.
+- **Revisit Trigger**:
+  - C04-T004 receipt + artifact contract repair — verify against proof matrix.
+  - Any C04 implementation task — cross-reference proof rows.
+  - C04-T008 closeout — verify all proof matrix rows satisfied or explicitly deferred.

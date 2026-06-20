@@ -89,3 +89,23 @@ All 24 required pre-reads available. No missing inputs.
 
 ### Next Task
 **C04-T003: Define Pi/Coder invocation boundary proof matrix**
+
+---
+
+## C04-T003: Proof Matrix (2026-06-20 12:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `c5c0d5931` | **Worktree**: clean
+
+### Files Created
+- `proof-matrix.md` — 17 sections
+- `backlog.md` — C04-T003 marked `go`
+
+### Proof Matrix Artifact
+`proof-matrix.md`: 17 sections — proof state ladder (8 states), core boundary proof matrix (27 rows), evidence class matrix (10 classes), gate outcome matrix (15 conditions), future task proof-row template, lineage requirements (10 elements), receipt/artifact requirements (6 rows), operator surface requirements (12 rows), redaction/safety requirements (11 items).
+
+### Gate Decision
+**`go`** — C04-T003 accepted. C04-T004 may proceed.
+
+### Next Task
+**C04-T004: Repair Pi/Coder invocation receipt and artifact contract gaps**
