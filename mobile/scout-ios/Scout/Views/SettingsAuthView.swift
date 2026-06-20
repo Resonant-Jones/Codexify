@@ -1,20 +1,60 @@
 import SwiftUI
 
 struct SettingsAuthView: View {
+    @State private var draftProfile = ScoutEndpointProfile.emptyDraft
+
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Settings")
-                    .font(.largeTitle)
-                    .fontWeight(.semibold)
+            Form {
+                Section("Endpoint Profile") {
+                    TextField("Name", text: $draftProfile.name)
 
-                Text("Future work will store the Vault URL and credentials using iOS Keychain while keeping auth and secret management explicit.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    TextField("Vault Base URL", text: $draftProfile.baseURL)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
 
-                Spacer()
+                    Picker("Transport", selection: $draftProfile.transportType) {
+                        ForEach(ScoutEndpointTransportType.allCases) { transport in
+                            Text(transport.title).tag(transport)
+                        }
+                    }
+                }
+
+                Section("Status") {
+                    HStack {
+                        Text("Authentication")
+                        Spacer()
+                        Text(draftProfile.authenticationState.title)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Text("Validation")
+                        Spacer()
+                        Text(draftProfile.validationState.title)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Text("Last Connected")
+                        Spacer()
+                        if let lastConnected = draftProfile.lastConnectedAt {
+                            Text(lastConnected, style: .date)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Never")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Section {
+                    Text("Saving, Keychain storage, validation, and connection testing are future work.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .padding()
             .navigationTitle("Settings")
         }
     }
