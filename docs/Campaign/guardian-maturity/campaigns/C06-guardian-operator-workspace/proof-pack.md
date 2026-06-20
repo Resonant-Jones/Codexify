@@ -230,3 +230,51 @@ python3 scripts/validate_docs.py passed
 ### Next Task
 **C06-T005: Add Guardian Operator Workspace composition proof**
 
+
+---
+
+## C06-T004-R1: Composition Proof Closeout (2026-06-19 22:59 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit (before)**: `40f90ce4e` | **Worktree**: dirty (uncommitted frontend)
+- **Prior `next-proof-needed` reason**: frontend implementation commit missing; composition-specific tests absent.
+
+### Frontend Implementation Commit
+`6f3596991` — `feat: compose Guardian Workspace read-only cards`
+Contains: `GuardianOperatorWorkspaceLens.tsx` (live HealthOverview + CodingWorkOrdersPanel), `CommandCenterShell.tsx` (health props wiring), `CommandCenterShell.test.tsx` (7 new composition tests).
+
+### Runtime/Health Composition
+`HealthOverview` rendered inside `Runtime / health` section. Props from shell: healthItems, lastCheckedAt, loading, onRefresh. Test-proven: `command-center-health-overview` testid found in workspace.
+
+### Health Refresh
+"Refresh" button inside HealthOverview calls existing `onRefresh` prop — test-proven.
+
+### Work-Order Composition
+`CodingWorkOrdersPanel` rendered inside `Work-order status` section. Test-proven: `coding-work-orders-panel` testid found in workspace.
+
+### Static/Deferred Cards Preserved
+Command-run evidence, tool-turn observability (conditional), receipt evidence (available/composed, linkage deferred), gaps, safety boundary — all preserved. Test-proven: deferred cards + safety boundary present after composition.
+
+### No New Mutation Controls
+Test-proven: 7 forbidden button labels absent from workspace wrapper.
+
+### Truth-Labeling
+Test-proven: safety boundary lists 6 unsupported claims after composition.
+
+### Worktree Clean
+`git status`: clean after `6f3596991`.
+
+### Validation
+```
+CommandCenterShell.test.tsx   33 passed (5 scaffold + 7 composition + 21 existing)
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  103 passed, 753 skipped
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T004 composition proof complete. C06-T005 may proceed.
+
+### Next Task
+**C06-T005: Add Guardian Operator Workspace composition proof**
+
