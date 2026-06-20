@@ -582,3 +582,50 @@ No automated runtime tests — docs-only validation closeout.
 
 ### Next Task
 **C06-T010: Close Guardian Operator Workspace campaign**
+
+---
+
+## C06-T010: Campaign Closeout (2026-06-20 11:28 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `d624e1d09` | **Worktree**: clean
+
+### Files Created/Modified
+- `closeout.md` — created (14 sections)
+- `backlog.md` — C06-T010 marked `go`, campaign closed
+- `proof-pack.md` — this section added
+- `decision-log.md` — C06-D010 appended
+
+### Inputs Read
+All 33 required pre-reads available. No missing inputs.
+
+### Closeout Artifact
+`closeout.md` created: gate, scope, objective, task ledger (10 tasks + commits), 7 final surfaces, proven truth, explicit non-claims, deferred limitations, validation summary, release boundary.
+
+### Task Ledger
+All 10 tasks (T001–T010) gated `go` with commit evidence where recoverable. C06-T001: `905234bcb`. C06-T002: `daba74953`. C06-T003: `4b3cd10df`/`4841081ca`. C06-T004: `6f3596991`/`e2909d07d`. C06-T005: `19a26566b`. C06-T006: `7c4e4dacc`/`0ce7bdd07`/`fdd9eb9ac`. C06-T007: `bc3582154`/`b52a1de11`. C06-T008: `b3e94be4a`/`09ab5f5c8`. C06-T009: `bcdd0e3f3`/`d624e1d09`.
+
+### Final Workspace Surfaces
+7 surfaces: HealthOverview, CodingWorkOrdersPanel, command-run card, tool-turn card, receipt card, gaps, safety boundary. All read-only. All truth-labeled.
+
+### Proven Truth
+C06 created read-only workspace lens. C06 composed existing surfaces. C06 added 3 evidence cards. No new backend routes. No command/tool/receipt controls. No release widening.
+
+### Explicit Non-Claims
+9 non-claims: delegation, Pi/Coder, recursive use, artifacts, receipt creation, completion, merge, release widening.
+
+### Deferred Limitations
+10 items: receipt linkage, receipt readback, EventConsole, delegation, Pi/Coder, artifacts, receipt creation, completion, merge, release widening.
+
+### Validation
+```
+C06-T010: docs-only, no runtime tests
+git diff --check    clean
+validate_docs.py    passed
+```
+
+### Gate Decision
+**`go`** — C06 closed.
+
+### Next Step
+**Wave 3 selection after C06 closeout**
