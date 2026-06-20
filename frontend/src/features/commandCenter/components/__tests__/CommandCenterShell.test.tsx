@@ -461,7 +461,7 @@ describe("CommandCenterShell", () => {
       render(<CommandCenterShell {...defaultProps} />);
       fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
       const ws = screen.getByTestId("guardian-operator-workspace");
-      // Card headings per C06-T002 surface contract
+      // Card headings per C06-T002 surface contract (command-run now live, not static)
       expect(within(ws).getByText("Work-order status")).toBeInTheDocument();
       expect(within(ws).getByText("Command-run evidence")).toBeInTheDocument();
       expect(within(ws).getByText("Tool-turn observability")).toBeInTheDocument();
@@ -544,7 +544,9 @@ describe("CommandCenterShell", () => {
     it("deferred cards remain after composition", () => {
       render(<CommandCenterShell {...defaultProps} />);
       fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
-      expect(screen.getByText("Command-run evidence")).toBeInTheDocument();
+      // Command-run evidence is now live — check deferred cards still render
+      expect(screen.getByText("Tool-turn observability")).toBeInTheDocument();
+      expect(screen.getByText("Receipt evidence")).toBeInTheDocument();
       expect(screen.getByText("Gaps and unavailable evidence")).toBeInTheDocument();
       expect(screen.getByTestId("guardian-workspace-safety-boundary")).toBeInTheDocument();
     });
@@ -580,6 +582,175 @@ describe("CommandCenterShell", () => {
       expect(within(sb).getByText(/No artifact creation/)).toBeInTheDocument();
       expect(within(sb).getByText(/No receipt creation/)).toBeInTheDocument();
       expect(within(sb).getByText(/No work-order completion/)).toBeInTheDocument();
+    });
+  });
+
+  describe("Guardian Workspace command-run evidence card", () => {
+    it("renders Command-run evidence heading in workspace", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return { data: { count: 0, items: [], limit: 50, offset: 0, ok: true } };
+        }
+        if (url === "/api/coding/orchestrator/next") {
+          return { data: { ok: true, recommendations: [] } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByText("Command-run evidence")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-command-run-evidence")).toBeInTheDocument();
+    });
+
+    it("shows empty state when no work orders exist", async () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const empty = await screen.findByTestId("cmd-run-empty");
+      expect(empty).toHaveTextContent(/No command-run evidence/);
+    });
+
+    it("shows no-pointer state when work orders have no latest_run_id", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return {
+            data: {
+              count: 1,
+              items: [{
+                work_order_id: "wo-no-run",
+                campaign_id: null,
+                title: "No run test",
+                objective: "test",
+                status: "draft",
+                priority: 1,
+                dependency_ids: [],
+                file_scope: [],
+                validation_command: null,
+                max_validation_attempts: 3,
+                require_worktree_lease: false,
+                commit_after_validation: false,
+                require_human_review_before_merge: false,
+                latest_run_id: null,
+                latest_lease_id: null,
+                latest_receipt_id: null,
+                assistant_message_id: null,
+                extra_meta: {},
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-01T00:00:00Z",
+              }],
+              limit: 50,
+              offset: 0,
+              ok: true,
+            },
+          };
+        }
+        if (url === "/api/coding/orchestrator/next") {
+          return { data: { ok: true, recommendations: [] } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const noPtr = await screen.findByTestId("cmd-run-no-pointer");
+      expect(noPtr).toHaveTextContent(/no latest command-run pointer/);
+    });
+
+    it("shows available state with safe fields when latest_run_id exists", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          return {
+            data: {
+              count: 1,
+              items: [{
+                work_order_id: "wo-run-1",
+                campaign_id: null,
+                title: "Run test wo",
+                objective: "test",
+                status: "running",
+                priority: 1,
+                dependency_ids: [],
+                file_scope: [],
+                validation_command: null,
+                max_validation_attempts: 3,
+                require_worktree_lease: false,
+                commit_after_validation: false,
+                require_human_review_before_merge: false,
+                latest_run_id: "run-abc",
+                latest_lease_id: "lease-1",
+                latest_receipt_id: "rec-1",
+                assistant_message_id: null,
+                extra_meta: {},
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-01T00:00:00Z",
+              }],
+              limit: 50,
+              offset: 0,
+              ok: true,
+            },
+          };
+        }
+        if (url === "/api/coding/orchestrator/next") {
+          return { data: { ok: true, recommendations: [] } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      await screen.findByTestId("cmd-run-wo-wo-run-1");
+      const card = screen.getByTestId("guardian-workspace-command-run-evidence");
+      expect(within(card).getByText("wo-run-1")).toBeInTheDocument();
+      expect(within(card).getByText("Run test wo")).toBeInTheDocument();
+      expect(within(card).getByText("run-abc")).toBeInTheDocument();
+      expect(within(card).getByText("lease-1")).toBeInTheDocument();
+      expect(within(card).getByText("rec-1")).toBeInTheDocument();
+    });
+
+    it("shows error state when work-order load fails", async () => {
+      apiGetMock.mockImplementation(async (url: string) => {
+        if (url === "/api/coding/work-orders") {
+          const err: any = new Error("fail");
+          err.response = { status: 500, data: { detail: "RAW_SECRET_NOT_RENDERED" } };
+          throw err;
+        }
+        if (url === "/api/coding/orchestrator/next") {
+          return { data: { ok: true, recommendations: [] } };
+        }
+        return { data: {} };
+      });
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const errEl = await screen.findByTestId("cmd-run-error");
+      expect(errEl).toHaveTextContent(/unavailable/);
+      expect(screen.queryByText(/RAW_SECRET/)).toBeNull();
+    });
+
+    it("command-run card has refresh button but no mutation controls", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("cmd-run-refresh")).toBeInTheDocument();
+      const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt"];
+      for (const label of forbidden) {
+        expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+      }
+    });
+
+    it("command-run card truth-labels unsupported claims", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-command-run-evidence");
+      const text = card.textContent || "";
+      expect(text).toContain("artifact creation");
+      expect(text).toContain("receipt creation");
+      expect(text).toContain("Pi/Coder execution");
+      expect(text).toContain("autonomous delegation");
+      expect(text).toContain("work-order completion");
+    });
+
+    it("existing workspace panels still render after command-run card added", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("command-center-health-overview")).toBeInTheDocument();
+      expect(screen.getByTestId("coding-work-orders-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-safety-boundary")).toBeInTheDocument();
     });
   });
 
