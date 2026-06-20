@@ -51,8 +51,6 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from import_chatgpt import import_chatgpt
-
 # Initialize CLI app
 app = typer.Typer(
     name="codexify",
@@ -228,7 +226,73 @@ def migrate(
     )
 
     # Delegate all migration logic to import_chatgpt
+    from import_chatgpt import import_chatgpt
+
     import_chatgpt()
+
+
+@app.command("import:openai")
+def import_openai(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    diagnose: bool = typer.Option(
+        False,
+        "--diagnose",
+        help="Only scan and write diagnostics; do not mutate the database",
+    ),
+    diagnostic_dir: Path = typer.Option(
+        Path("logs/openai_import"),
+        "--diagnostic-dir",
+        help="Directory for OpenAI export diagnostic JSON and summary reports",
+    ),
+    user_id: Optional[str] = typer.Option(
+        None,
+        "--user-id",
+        help="Codexify user_id to import into; defaults to local identity",
+    ),
+):
+    """
+    Diagnose or import OpenAI data exports, including sharded .dat archives.
+
+    Example:
+        codexify import:openai --path ./OpenAI-export --diagnose
+        codexify import:openai --path ./OpenAI-export
+    """
+    load_dotenv()
+
+    from backend.rag.openai_export_adapter import import_openai_export_path
+    from guardian.identity import get_user_id
+
+    resolved_user_id = user_id or get_user_id()
+    if not resolved_user_id:
+        raise typer.BadParameter("Unable to resolve Codexify user_id")
+
+    stats = import_openai_export_path(
+        path,
+        user_id=resolved_user_id,
+        diagnose_only=diagnose,
+        diagnostic_output_dir=diagnostic_dir,
+    )
+
+    print_header()
+    if diagnose:
+        print_message("[bold cyan]OpenAI export diagnostic complete[/bold cyan]")
+    else:
+        print_message("[bold cyan]OpenAI export import complete[/bold cyan]")
+
+    print_summary(stats)
+    if stats.get("diagnostic_report"):
+        print_message(f"Diagnostic JSON: {stats['diagnostic_report']}")
+    if stats.get("diagnostic_summary"):
+        print_message(f"Diagnostic summary: {stats['diagnostic_summary']}")
 
 
 @app.command()

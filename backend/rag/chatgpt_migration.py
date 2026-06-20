@@ -1069,6 +1069,16 @@ def _build_import_grouping_metadata(
 ) -> Dict[str, Any]:
     metadata: Dict[str, Any] = {}
 
+    adapter_metadata = conversation.get("_codexify_import_metadata")
+    if isinstance(adapter_metadata, dict):
+        for key, value in adapter_metadata.items():
+            if not isinstance(key, str) or not key.startswith("openai_export_"):
+                continue
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                metadata[key] = value
+            else:
+                metadata[key] = json.loads(json.dumps(value, default=str))
+
     template_id = _normalize_template_id(
         conversation.get("conversation_template_id")
     )
@@ -1730,15 +1740,6 @@ def ingest_chatgpt_export(
             "ingest_chatgpt_export requires a valid user_id (got None or empty)"
         )
 
-    chatlog_db = dependencies.chatlog_db
-
-    if not chatlog_db:
-        # Try to init if not ready (e.g. in tests)
-        chatlog_db = dependencies.init_database()
-
-    if not chatlog_db:
-        raise RuntimeError("Database not available")
-
     hint = _detect_non_json_hint(content)
     if hint:
         raise ValueError(hint)
@@ -1749,6 +1750,29 @@ def ingest_chatgpt_export(
         raise ValueError("Invalid JSON file: unable to parse uploaded content.")
 
     data = _validate_chatgpt_export_payload(parsed)
+
+    return ingest_chatgpt_conversation_records(data, user_id=user_id)
+
+
+def ingest_chatgpt_conversation_records(
+    data: List[Dict[str, Any]], user_id: Optional[str] = None
+) -> Dict[str, int]:
+    """Ingest validated ChatGPT-shaped conversation records."""
+    if not user_id:
+        raise ValueError(
+            "ingest_chatgpt_conversation_records requires a valid user_id (got None or empty)"
+        )
+
+    data = _validate_chatgpt_export_payload(data)
+
+    chatlog_db = dependencies.chatlog_db
+
+    if not chatlog_db:
+        # Try to init if not ready (e.g. in tests)
+        chatlog_db = dependencies.init_database()
+
+    if not chatlog_db:
+        raise RuntimeError("Database not available")
 
     threads_count = 0
     messages_count = 0
