@@ -34,3 +34,32 @@
   - C04-T002 acceptance contract defines governed behavior — revisit risk register.
   - Any new Pi SDK or Coder execution code appears in the codebase — re-audit.
   - C04-T005 result return governance — wire receipt linkage if C05 receipt linkage is completed.
+
+---
+
+### Decision: C04-D002
+
+- **Decision ID**: C04-D002
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04 Pi/Coder invocation boundary acceptance contract defined. 8-state acceptance model, 14 invocation boundary criteria, 18-row proof surface matrix, 13 prohibited acceptance shortcuts, 7 required runtime proof classes, result return/lineage requirements, receipt/artifact acceptance rules, operator surface acceptance rules, 12 fail-closed blocker rules. No runtime behavior changed. Release boundary preserved.
+- **Reason**:
+  - Acceptance contract governs all future C04 implementation tasks.
+  - 8-state acceptance model from `not_started` through `operator_visible_read_only`.
+  - 14 invocation boundary criteria: envelope, permission, policy ownership, command bus authority, result return, transcript lineage, source-message lineage, receipt, artifact, provider lane, Minimax, bounded failure, no recursion, no autonomous dispatch, no hidden writes.
+  - 18-row proof surface matrix: minimum acceptable evidence, insufficient shortcuts, blocker conditions.
+  - 13 prohibited shortcuts: docs, types, routes, scaffolds, pointers, buttons, mocks, imports, CLI help, catalog presence, health endpoints.
+  - 7 proof classes: from static inspection to supported-path proof.
+  - Docs validation is explicitly not runtime proof.
+  - 12 fail-closed conditions with gate rules.
+  - No live Pi SDK behavior. No live Coder execution. No autonomous dispatch.
+  - No backend, frontend, test, or runtime changes.
+- **Evidence**:
+  - `acceptance-contract.md` — 17-section governing contract.
+  - `backlog.md` — C04-T002 `go`, C04-T003 named next.
+- **Consequence**:
+  - C04-T002 accepted. C04-T003 (proof matrix) may proceed.
+  - Future C04 implementation tasks must satisfy this contract before gating `go`.
+- **Revisit Trigger**:
+  - C04-T003 proof matrix — verify all acceptance criteria are mapped.
+  - Any C04 implementation task — cross-reference against acceptance contract.
+  - C04-T008 closeout — verify all acceptance criteria were satisfied or explicitly deferred.

@@ -66,3 +66,26 @@ No runtime, backend, frontend, test, migration, ADR, or current-state changes.
 
 ### Next Task
 **C04-T002: Define Pi/Coder invocation boundary acceptance contract**
+
+---
+
+## C04-T002: Acceptance Contract (2026-06-20 12:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `e4b68e685` | **Worktree**: clean
+
+### Files Created/Modified
+- `acceptance-contract.md` — created (17 sections, 350+ lines)
+- `backlog.md` — C04-T002 marked `go`
+
+### Inputs Read
+All 24 required pre-reads available. No missing inputs.
+
+### Acceptance Contract Artifact
+`acceptance-contract.md`: 17 sections — gate, scope, contract purpose, acceptance state model (8 states), invocation boundary acceptance criteria (14 criteria), proof surface matrix (18 rows), prohibited acceptance shortcuts (13), runtime proof classes (7 classes), result return and lineage requirements (10 fields), receipt and artifact acceptance rules (6 distinctions), operator surface acceptance rules (11 safe fields, 10 prohibited, 12 prohibited controls), failure and blocker rules (12 fail-closed conditions), release boundary.
+
+### Gate Decision
+**`go`** — C04-T002 accepted. C04-T003 may proceed.
+
+### Next Task
+**C04-T003: Define Pi/Coder invocation boundary proof matrix**
