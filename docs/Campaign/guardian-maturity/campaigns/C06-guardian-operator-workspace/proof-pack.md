@@ -278,3 +278,55 @@ python3 scripts/validate_docs.py passed
 ### Next Task
 **C06-T005: Add Guardian Operator Workspace composition proof**
 
+
+---
+
+## C06-T005: Composition Proof (2026-06-19 23:15 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `e2909d07d` | **Worktree**: clean
+
+### Files Created/Modified
+- `composition-proof.md` — created (15 sections)
+- `backlog.md` — C06-T005 marked `go`
+- `proof-pack.md` — this section added
+- `decision-log.md` — C06-D005 appended
+
+### Inputs Read
+All 32 required pre-reads available. No missing inputs.
+
+### Composition Proof Artifact
+`composition-proof.md` created: 15 sections — gate, scope, truth after C06-T004, composed surfaces table, static/deferred surfaces table, no-new-fetch proof, no-mutation proof, truth-labeling proof, validation evidence, known limitations, release boundary, documentation follow-through.
+
+### Composed Surfaces
+2 live cards: `HealthOverview` (runtime/health) and `CodingWorkOrdersPanel` (work-order status). Both read-only, no wrapper mutations.
+
+### Static/Deferred Surfaces
+5 cards: command-run evidence (deferred → C06-T006), tool-turn standalone (conditional), receipt standalone (deferred), gaps (static), safety boundary (static).
+
+### No-New-Fetch Proof
+Source-verified: no `fetch`, no API imports, no dynamic imports in wrapper. Test-verified: workspace renders without additional API context.
+
+### No-Mutation Proof
+8 forbidden controls absent — test-proven in C06-T004-R1.
+
+### Truth-Labeling Proof
+6 unsupported claims present in safety boundary — test-proven.
+
+### Known Limitations
+10 limitations explicitly recorded.
+
+### Validation
+```
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+No runtime tests — docs-only proof consolidation.
+
+### Gate Decision
+**`go`** — C06-T005 accepted. C06-T006 may proceed.
+
+### Next Task
+**C06-T006: Add Guardian Operator Workspace command-run evidence card**
+
