@@ -1,39 +1,135 @@
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 import types
+from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
-_numpy_stub = types.ModuleType("numpy")
-_numpy_stub.ndarray = object
-sys.modules.setdefault("numpy", _numpy_stub)
-
-_psycopg_stub = types.ModuleType("psycopg")
-_psycopg_stub.connect = lambda *_args, **_kwargs: None
-_psycopg_errors_stub = types.ModuleType("psycopg.errors")
-_psycopg_rows_stub = types.ModuleType("psycopg.rows")
-_psycopg_rows_stub.dict_row = object()
-_psycopg_types_stub = types.ModuleType("psycopg.types")
-_psycopg_json_stub = types.ModuleType("psycopg.types.json")
-_psycopg_json_stub.Json = lambda value, dumps=None: value
-_psycopg_stub.errors = _psycopg_errors_stub
-sys.modules.setdefault("psycopg", _psycopg_stub)
-sys.modules.setdefault("psycopg.errors", _psycopg_errors_stub)
-sys.modules.setdefault("psycopg.rows", _psycopg_rows_stub)
-sys.modules.setdefault("psycopg.types", _psycopg_types_stub)
-sys.modules.setdefault("psycopg.types.json", _psycopg_json_stub)
-
-from backend.rag import chatgpt_migration
 from backend.rag.openai_export_adapter import (
     OpenAIExportDetector,
     import_openai_export_path,
 )
-from guardian.core import dependencies
+
+
+class OpenAIImportModules(NamedTuple):
+    chatgpt_migration: Any
+    dependencies: Any
+
+
+_MISSING = object()
+_PSYCOPG_MODULE_NAMES = (
+    "psycopg",
+    "psycopg.errors",
+    "psycopg.rows",
+    "psycopg.types",
+    "psycopg.types.json",
+)
+_SCOPED_IMPORT_MODULE_NAMES = (
+    "backend.rag.chatgpt_migration",
+    "guardian.core.dependencies",
+    "guardian.core.chatlog_postgres",
+    "guardian.core.pgdb",
+)
+
+
+def _fake_module(name: str) -> types.ModuleType:
+    module = types.ModuleType(name)
+    module._codexify_openai_test_stub = True
+    return module
+
+
+def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
+    psycopg_stub = _fake_module("psycopg")
+    errors_stub = _fake_module("psycopg.errors")
+    rows_stub = _fake_module("psycopg.rows")
+    types_stub = _fake_module("psycopg.types")
+    json_stub = _fake_module("psycopg.types.json")
+
+    rows_stub.dict_row = object()
+    json_stub.Json = lambda value, dumps=None: value
+    types_stub.json = json_stub
+    psycopg_stub.errors = errors_stub
+    psycopg_stub.rows = rows_stub
+    psycopg_stub.types = types_stub
+
+    monkeypatch.setitem(sys.modules, "psycopg", psycopg_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.errors", errors_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.rows", rows_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.types", types_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.types.json", json_stub)
+
+
+def _snapshot_modules(
+    module_names: tuple[str, ...],
+) -> dict[str, tuple[Any, types.ModuleType | None, Any]]:
+    state: dict[str, tuple[Any, types.ModuleType | None, Any]] = {}
+    for name in module_names:
+        parent_name, _, child_name = name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        parent_attr = (
+            getattr(parent, child_name, _MISSING)
+            if parent is not None
+            else _MISSING
+        )
+        state[name] = (sys.modules.get(name, _MISSING), parent, parent_attr)
+    return state
+
+
+def _restore_modules(
+    state: dict[str, tuple[Any, types.ModuleType | None, Any]],
+) -> None:
+    for name, (module, original_parent, parent_attr) in reversed(
+        list(state.items())
+    ):
+        if module is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+        parent_name, _, child_name = name.rpartition(".")
+        parent = original_parent or sys.modules.get(parent_name)
+        if parent is None:
+            continue
+        if parent_attr is _MISSING:
+            if hasattr(parent, child_name):
+                delattr(parent, child_name)
+        else:
+            setattr(parent, child_name, parent_attr)
+
+
+@pytest.fixture(autouse=True)
+def _assert_fake_psycopg_does_not_leak() -> Generator[None]:
+    yield
+    leaked = [
+        name
+        for name in _PSYCOPG_MODULE_NAMES
+        if getattr(sys.modules.get(name), "_codexify_openai_test_stub", False)
+    ]
+    assert leaked == []
+
+
+@pytest.fixture
+def openai_import_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[OpenAIImportModules]:
+    module_state = _snapshot_modules(_SCOPED_IMPORT_MODULE_NAMES)
+    _install_fake_psycopg(monkeypatch)
+    modules = OpenAIImportModules(
+        chatgpt_migration=importlib.import_module(
+            "backend.rag.chatgpt_migration"
+        ),
+        dependencies=importlib.import_module("guardian.core.dependencies"),
+    )
+    try:
+        yield modules
+    finally:
+        _restore_modules(module_state)
 
 
 def _build_mainline_export(
@@ -143,17 +239,28 @@ class OpenAIImportStore:
 
 
 @pytest.fixture
-def import_store(monkeypatch: pytest.MonkeyPatch) -> OpenAIImportStore:
+def import_store(
+    monkeypatch: pytest.MonkeyPatch,
+    openai_import_modules: OpenAIImportModules,
+) -> OpenAIImportStore:
     store = OpenAIImportStore()
-    monkeypatch.setattr(dependencies, "chatlog_db", store)
-    monkeypatch.setattr(dependencies, "init_database", lambda: store)
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.dependencies,
+        "chatlog_db",
+        store,
+    )
+    monkeypatch.setattr(
+        openai_import_modules.dependencies,
+        "init_database",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        openai_import_modules.chatgpt_migration,
         "_persist_temporal_metadata",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.chatgpt_migration,
         "_process_chatgpt_embedding_batches",
         lambda **_kwargs: {
             "embedding_candidates": 0,
@@ -356,17 +463,26 @@ def test_mixed_export_writes_diagnostic_report(tmp_path: Path) -> None:
 def test_sharded_import_is_idempotent_on_reimport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    openai_import_modules: OpenAIImportModules,
 ) -> None:
     store = OpenAIImportStore()
-    monkeypatch.setattr(dependencies, "chatlog_db", store)
-    monkeypatch.setattr(dependencies, "init_database", lambda: store)
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.dependencies,
+        "chatlog_db",
+        store,
+    )
+    monkeypatch.setattr(
+        openai_import_modules.dependencies,
+        "init_database",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        openai_import_modules.chatgpt_migration,
         "_persist_temporal_metadata",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.chatgpt_migration,
         "_process_chatgpt_embedding_batches",
         lambda **_kwargs: {
             "embedding_candidates": 0,
@@ -410,12 +526,12 @@ def test_sharded_import_is_idempotent_on_reimport(
     store.create_chat_thread = create_thread  # type: ignore[method-assign]
     store.create_message = create_message  # type: ignore[method-assign]
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.chatgpt_migration,
         "_find_existing_thread_for_source",
         find_thread,
     )
     monkeypatch.setattr(
-        chatgpt_migration,
+        openai_import_modules.chatgpt_migration,
         "_find_existing_message_for_source",
         find_message,
     )
