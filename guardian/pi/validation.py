@@ -12,6 +12,7 @@ from guardian.pi.contracts import (
     PiInvocationEnvelope,
     PiInvocationPolicyDecision,
     PiInvocationReceipt,
+    PiInvocationResultReturn,
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
@@ -910,9 +911,63 @@ def validate_pi_invocation_policy_decision(
     return _result(reasons=reasons, metadata=metadata)
 
 
+def validate_pi_invocation_result_return(
+    result_return: PiInvocationResultReturn,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    if not result_return.result_return_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.invocation_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.source_thread_id or not result_return.source_message_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+    if not result_return.harness_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+    if result_return.return_state not in {
+        "not_returned", "returned", "validation_failed", "blocked", "deferred"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+    if not result_return.validation_status:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.redaction_state:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.created_at:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    if result_return.return_state == "returned":
+        if not (
+            result_return.artifact_id
+            or result_return.receipt_id
+            or result_return.result_summary
+        ):
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
+            )
+    elif result_return.return_state == "validation_failed":
+        if not result_return.failure_reason:
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+            )
+
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        result_return.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "result_return",
+        "result_return_id": result_return.result_return_id,
+        "invocation_id": result_return.invocation_id,
+        "return_state": result_return.return_state,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
 __all__ = [
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",
     "validate_harness_result_against_receipt",
     "validate_pi_invocation_policy_decision",
+    "validate_pi_invocation_result_return",
 ]
