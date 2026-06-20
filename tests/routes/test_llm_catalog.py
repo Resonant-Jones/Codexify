@@ -293,6 +293,10 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
     }
     try:
         settings.LOCAL_BASE_URL = "http://127.0.0.1:11434"
@@ -303,6 +307,10 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         settings.ALLOW_CLOUD_PROVIDERS = False
         settings.CODEXIFY_LOCAL_ONLY_MODE = True
         settings.CODEXIFY_EGRESS_ALLOWLIST = ""
+        settings.LOCAL_LLM_MODEL = "llama3.2:3b"
+        settings.LOCAL_CHAT_MODEL = "llama3.2:3b"
+        settings.DEFAULT_LOCAL_MODEL = "llama3.2:3b"
+        settings.LLM_MODEL = "llama3.2:3b"
 
         client = TestClient(app)
         response = client.get("/api/llm/catalog")
@@ -310,8 +318,10 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
         payload = response.json()
 
         local = _provider_by_id(payload, "local")
-        assert local["models"][0]["id"] == "llama3.2:3b"
-        assert local["models"][0]["source"] == "host.docker.internal:11434"
+        models_by_id = {model["id"]: model for model in local["models"]}
+        assert models_by_id["llama3.2:3b"]["source"] == (
+            "host.docker.internal:11434"
+        )
         assert any("127.0.0.1:11434" in url for url in calls)
         assert any("host.docker.internal:11434" in url for url in calls)
     finally:
@@ -518,9 +528,14 @@ def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
         models_by_id = {model["id"]: model for model in local["models"]}
 
         e2b = models_by_id["mlx-community/gemma-4-e2b-it-4bit"]
+        e4b = models_by_id["mlx-community/gemma-4-e4b-it-4bit"]
+        e4b_optiq = models_by_id[
+            "mlx-community/gemma-4-e4b-it-OptiQ-4bit"
+        ]
         optiq = models_by_id[
             "mlx-community/gemma-4-12B-it-OptiQ-4bit"
         ]
+        qat = models_by_id["mlx-community/gemma-4-12B-it-qat-4bit"]
 
         assert local["id"] == "local"
         assert local["displayName"] == "Whoosh'd"
@@ -528,10 +543,24 @@ def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
         assert e2b["displayName"] == "Gemma 4 E2B Instruct 4-bit"
         assert e2b["release_supported"] is False
         assert e2b["supports_vision"] is True
+        assert e4b["profile_id"] == "gemma-4-e4b-it-4bit"
+        assert e4b["displayName"] == "Gemma 4 E4B Instruct 4-bit"
+        assert e4b["release_supported"] is False
+        assert e4b["supports_vision"] is True
+        assert e4b_optiq["profile_id"] == "gemma-4-e4b-it-optiq-4bit"
+        assert e4b_optiq["displayName"] == (
+            "Gemma 4 E4B Instruct OptiQ 4-bit"
+        )
+        assert e4b_optiq["release_supported"] is False
+        assert e4b_optiq["supports_vision"] is False
         assert optiq["profile_id"] == "gemma-4-12b-it-optiq-4bit"
         assert optiq["displayName"] == "Gemma 4 12B Instruct OptiQ 4-bit"
         assert optiq["release_supported"] is False
         assert optiq["supports_vision"] is False
+        assert qat["profile_id"] == "gemma-4-12b-it-qat-4bit"
+        assert qat["displayName"] == "Gemma 4 12B Instruct QAT 4-bit"
+        assert qat["release_supported"] is False
+        assert qat["supports_vision"] is True
         assert optiq["weights"]["storage_root"].startswith(
             "/Volumes/Dev_SSD/"
         )

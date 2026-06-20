@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api, { buildLlmCatalogPath } from "@/lib/api";
+import { resolveModelDisplayLabel } from "@/lib/modelLabels";
 import { logOnce } from "@/lib/logging/logOnce";
 import type { ComposerInferenceMode } from "@/types/inference";
 
@@ -39,6 +40,10 @@ export type LlmCatalogModel = {
     notes?: string | null;
     updatedAt?: string | null;
   };
+  profileDisplayName?: string;
+  profile_display_name?: string;
+  modelProfileDisplayName?: string;
+  model_profile_display_name?: string;
   capabilities?: {
     chat?: boolean;
     vision?: boolean;
@@ -107,6 +112,9 @@ function normalizeModelKind(value: unknown): "chat" | "vision_chat" | "utility" 
 export function isChatSelectableModel(model: {
   supportsChat?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
+  profileId?: string;
+  profileSource?: string;
+  displayVendor?: string;
   releaseSupported?: boolean;
   releasePosture?: {
     releaseSupported?: boolean;
@@ -115,7 +123,18 @@ export function isChatSelectableModel(model: {
 } | null | undefined): boolean {
   if (!model) return false;
   if (model.supportsChat === false) return false;
-  if (model.releasePosture?.proofRequired === true) return false;
+  const isWhooshdProfile = Boolean(
+    model.profileId
+    && (
+      model.profileSource === "whooshd_model_profile"
+      || model.displayVendor === "Whoosh'd"
+    )
+  );
+  if (!isWhooshdProfile) {
+    if (model.releaseSupported === false) return false;
+    if (model.releasePosture?.releaseSupported === false) return false;
+    if (model.releasePosture?.proofRequired === true) return false;
+  }
   return model.modelKind !== "utility";
 }
 
@@ -140,23 +159,34 @@ function normalizeModel(
     normalizeString(model.canonical_id) ?? normalizeString(model.id);
   if (!canonicalId) return null;
 
-  const displayLabel =
-    normalizeString(model.display_label) ??
-    normalizeString(model.displayName) ??
-    normalizeString(model.label) ??
-    canonicalId;
-  const pickerLabel =
-    normalizeString(model.picker_label) ??
-    normalizeString(model.pickerLabel) ??
-    displayLabel ??
-    canonicalId;
+  const profileDisplayName =
+    normalizeString(model.profileDisplayName) ??
+    normalizeString(model.profile_display_name) ??
+    normalizeString(model.modelProfileDisplayName) ??
+    normalizeString(model.model_profile_display_name) ??
+    null;
+  const displayLabel = resolveModelDisplayLabel({
+    profileDisplayName,
+    catalogDisplayName:
+      normalizeString(model.display_label) ??
+      normalizeString(model.displayName) ??
+      normalizeString(model.label),
+    modelId: canonicalId,
+  });
+  const pickerLabel = resolveModelDisplayLabel({
+    profileDisplayName,
+    catalogDisplayName:
+      normalizeString(model.picker_label) ??
+      normalizeString(model.pickerLabel),
+    modelId: canonicalId,
+  });
   const alias = normalizeString(model.alias) ?? undefined;
   const override =
     model.override && typeof model.override === "object"
       ? (model.override as Record<string, unknown>)
       : null;
   const displayName =
-    displayLabel ?? pickerLabel ?? alias ?? canonicalId;
+    displayLabel || pickerLabel || alias || canonicalId;
   const runtime = model.runtime;
   const reasoning =
     runtime && typeof runtime === "object"
@@ -211,8 +241,6 @@ function normalizeModel(
     displayVendor:
       normalizeString(model.display_vendor ?? model.displayVendor) ??
       undefined,
-    releaseSupported:
-      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow
@@ -256,6 +284,8 @@ function normalizeModel(
             streaming: Boolean(capabilities.streaming),
           }
         : undefined,
+    releaseSupported:
+      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     releasePosture: releasePosture
       ? {
           status: normalizeString(releasePosture.status) ?? undefined,

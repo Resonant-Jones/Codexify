@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "gemma-4-e2b-it-4bit",
-  "display_name": "Gemma 4 E2B Instruct 4-bit",
+  "id": "gemma-4-e4b-it-4bit",
+  "display_name": "Gemma 4 E4B Instruct 4-bit",
   "family": "gemma4",
   "provider_id": "local",
   "display_vendor": "Whoosh'd",
@@ -9,43 +9,29 @@
     "kind": "mlx",
     "server": "mlx_vlm.server",
     "openai_compatible": true,
-    "preferred_local_invocation_path": "mlx-vlm",
-    "mlx_vlm_compatible": true,
     "default_base_url": "http://host.docker.internal:8000/v1",
     "startup_command": [
       "mlx_vlm.server",
       "--model",
-      "mlx-community/gemma-4-e2b-it-4bit",
+      "mlx-community/gemma-4-e4b-it-4bit",
       "--port",
       "8000"
-    ],
-    "offline_probe_command": [
-      "python",
-      "-m",
-      "mlx_vlm.generate",
-      "--model",
-      "mlx-community/gemma-4-e2b-it-4bit",
-      "--max-tokens",
-      "100",
-      "--temperature",
-      "0.0",
-      "--prompt",
-      "Describe this image.",
-      "--image",
-      "<path_to_image>"
     ]
   },
   "model": {
-    "repo": "mlx-community/gemma-4-e2b-it-4bit",
-    "upstream_family": "google/gemma-4-E2B-it",
+    "repo": "mlx-community/gemma-4-e4b-it-4bit",
+    "upstream_family": "google/gemma-4-E4B-it",
     "quantization": "4bit",
     "instruction_tuned": true,
-    "effective_size": "E2B"
+    "effective_size": "E4B"
+  },
+  "weights": {
+    "storage_root": "/Volumes/Dev_SSD/whooshd/model-weights",
+    "repo_local": false,
+    "download_required": true
   },
   "capabilities": {
     "chat": true,
-    "multimodal": true,
-    "image_input": true,
     "vision": true,
     "audio_input": false,
     "tool_calling": false,
