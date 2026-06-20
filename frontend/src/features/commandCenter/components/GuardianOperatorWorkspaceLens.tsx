@@ -4,6 +4,7 @@ import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
 import GuardianWorkspaceCommandRunEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceCommandRunEvidenceCard";
 import GuardianWorkspaceToolTurnEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceToolTurnEvidenceCard";
+import GuardianWorkspaceReceiptEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceReceiptEvidenceCard";
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
 
 /** Read-only Guardian Operator Workspace lens.
@@ -72,26 +73,10 @@ export default function GuardianOperatorWorkspaceLens(props: GuardianOperatorWor
         <GuardianWorkspaceToolTurnEvidenceCard />
       </Section>
 
-      {/* ── Receipt evidence card (available via composed panel) ── */}
-      <Card title="Receipt evidence">
-        <CardField label="Operator question" value="What receipt evidence backs this?" />
-        <CardField label="Source of truth" value="GET /api/coding/work-orders/{id}/receipts/{receipt_id}" />
-        <CardChip label="available" secondary>
-          composed
-        </CardChip>
-        <CardChip label="deferred" secondary>
-          receipt linkage
-        </CardChip>
-        <CardField
-          label="Readiness"
-          value="Receipt readback exists inside composed CodingWorkOrdersPanel. Receipt enrichment deferred."
-        />
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Receipt evidence records observed results. This does not prove
-          completion, artifact creation, coding-agent execution, or autonomous
-          delegation.
-        </p>
-      </Card>
+      {/* ── Receipt evidence card (live composition) ── */}
+      <Section title="Receipt evidence">
+        <GuardianWorkspaceReceiptEvidenceCard />
+      </Section>
 
       {/* ── Runtime / health card (live composition) ── */}
       <Section title="Runtime / health">
