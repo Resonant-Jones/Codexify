@@ -379,3 +379,35 @@ git diff --check              clean
 ### Next Task
 **C06-T007: Add Guardian Operator Workspace standalone tool-turn evidence card**
 
+
+---
+
+## C06-T006-R1: Docs Validation Closeout (2026-06-19 23:30 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `0ce7bdd07` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: `python3 scripts/validate_docs.py` not reported despite C06 docs being modified.
+
+### Source Verification
+`GuardianWorkspaceCommandRunEvidenceCard.tsx`: uses `useCodingWorkOrders` (existing hook, no new backend routes). No POST/PUT/PATCH/DELETE. No command invocation routes. No raw args, secrets, prompts, extra_meta, result_json, stack traces.
+
+### Safe Fields
+work_order_id, title, status, latest_run_id, latest_lease_id, latest_receipt_id — all safe.
+
+### States
+Loading, error, empty, no-pointer, available — all test-proven in CommandCenterShell.
+
+### Validation
+```
+python3 scripts/validate_docs.py     passed
+git diff --check                      clean
+CommandCenterShell.test.tsx           41 passed (no new changes needed)
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  111 passed
+```
+
+### Gate Decision
+**`go`** — C06-T006-R1 accepted. All validation hygiene complete.
+
+### Next Task
+**C06-T007: Add Guardian Operator Workspace standalone tool-turn evidence card**
+
