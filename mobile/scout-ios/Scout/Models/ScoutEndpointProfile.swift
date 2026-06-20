@@ -52,6 +52,24 @@ enum ScoutEndpointValidationState: CaseIterable, Identifiable {
     }
 }
 
+enum ScoutEndpointDraftValidationError: CaseIterable, Identifiable {
+    case emptyName
+    case missingBaseURL
+    case invalidURLFormat
+    case unsupportedScheme
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .emptyName: return "Name is empty"
+        case .missingBaseURL: return "Base URL is missing"
+        case .invalidURLFormat: return "URL format is invalid"
+        case .unsupportedScheme: return "Unsupported URL scheme"
+        }
+    }
+}
+
 struct ScoutEndpointProfile: Identifiable, Equatable {
     var id: UUID
     var name: String
@@ -71,5 +89,38 @@ struct ScoutEndpointProfile: Identifiable, Equatable {
             validationState: .unconfigured,
             lastConnectedAt: nil
         )
+    }
+
+    var draftValidationErrors: [ScoutEndpointDraftValidationError] {
+        var errors: [ScoutEndpointDraftValidationError] = []
+
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errors.append(.emptyName)
+        }
+
+        let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedURL.isEmpty {
+            errors.append(.missingBaseURL)
+        } else if let url = URL(string: trimmedURL) {
+            guard let scheme = url.scheme?.lowercased(), scheme == "https" else {
+                errors.append(.unsupportedScheme)
+            }
+        } else {
+            errors.append(.invalidURLFormat)
+        }
+
+        return errors
+    }
+
+    var isValidDraft: Bool {
+        draftValidationErrors.isEmpty
+    }
+
+    mutating func validateDraft() {
+        if isValidDraft {
+            validationState = .reachable
+        } else {
+            validationState = .invalidConfiguration
+        }
     }
 }
