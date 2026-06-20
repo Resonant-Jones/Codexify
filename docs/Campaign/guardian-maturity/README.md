@@ -53,3 +53,25 @@ Reusable templates live in [`templates/`](./templates/):
 - [`proof-pack-template.md`](./templates/proof-pack-template.md)
 - [`decision-log-template.md`](./templates/decision-log-template.md)
 - [`task-index-template.md`](./templates/task-index-template.md)
+
+## Wave Status
+
+| Wave | Campaign | Status |
+|------|----------|--------|
+| 0 | C00 Truth Gate | closed |
+| 0 | C11 API Route Audit | closed |
+| 1 | C01 Command Center Verdict | closed |
+| 1 | C02 Chat Runtime State | closed |
+| 2 | C03 Coding Delegation Spine | closed |
+| 2 | C05 Command Bus and Tool Turn Observability | closed |
+| 2 | C06 Guardian Operator Workspace | closed |
+| 3 | C04 Pi/Coder Invocation Boundary | **selected** — see `wave-3-selection-after-c06.md` |
+| 3 | C07 Persona Studio | planned |
+| 3 | C08 Whoosh'd Runtime Setup | planned |
+| 4 | C09 Execution Ledger | planned |
+| 4 | C10 Recovery and Operator Repair | planned |
+| 5 | C12 Operator Auth | planned |
+| 5 | C13 SSE/Task-Event Reliability | planned |
+| 5 | C14 Frontend State Management Audit | planned |
+
+Wave 2 is complete. Wave 3 begins with C04: Pi/Coder Invocation Boundary.
