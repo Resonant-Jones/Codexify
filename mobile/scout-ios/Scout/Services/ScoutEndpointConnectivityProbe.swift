@@ -9,7 +9,7 @@ struct ScoutEndpointConnectivityResult {
 
 struct ScoutEndpointConnectivityProbe {
 
-    static func probe(endpoint: ScoutEndpointProfile) async -> ScoutEndpointConnectivityResult {
+    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil) async -> ScoutEndpointConnectivityResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !urlString.isEmpty else {
@@ -39,6 +39,11 @@ struct ScoutEndpointConnectivityProbe {
         request.httpMethod = "GET"
         request.timeoutInterval = 5
 
+        let hasApiKey = apiKey.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+        if let key = apiKey, hasApiKey {
+            request.setValue(key, forHTTPHeaderField: "X-API-Key")
+        }
+
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
 
@@ -55,12 +60,21 @@ struct ScoutEndpointConnectivityProbe {
 
             switch statusCode {
             case 200..<300:
-                return ScoutEndpointConnectivityResult(
-                    validationState: .reachable,
-                    authenticationState: .authenticated,
-                    message: "Vault is reachable (HTTP \(statusCode)).",
-                    connectedAt: Date()
-                )
+                if hasApiKey {
+                    return ScoutEndpointConnectivityResult(
+                        validationState: .reachable,
+                        authenticationState: .authenticated,
+                        message: "Vault is reachable and authenticated (HTTP \(statusCode)).",
+                        connectedAt: Date()
+                    )
+                } else {
+                    return ScoutEndpointConnectivityResult(
+                        validationState: .reachable,
+                        authenticationState: .unconfigured,
+                        message: "Vault is reachable, but no API key was used (HTTP \(statusCode)).",
+                        connectedAt: Date()
+                    )
+                }
             case 401, 403:
                 return ScoutEndpointConnectivityResult(
                     validationState: .reachable,
