@@ -2,7 +2,7 @@
 
 Scout is the native iOS companion for Codexify.
 
-This scaffold follows the concepts defined in [`../docs/architecture/ios-scout-vault-remote-contract.md`](../docs/architecture/ios-scout-vault-remote-contract.md).
+This scaffold follows the concepts defined in [`../../docs/architecture/ios-scout-vault-remote-contract.md`](../../docs/architecture/ios-scout-vault-remote-contract.md).
 
 Guardian is the operator.
 
