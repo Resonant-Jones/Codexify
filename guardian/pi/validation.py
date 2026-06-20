@@ -13,6 +13,7 @@ from guardian.pi.contracts import (
     PiInvocationPolicyDecision,
     PiInvocationReceipt,
     PiInvocationResultReturn,
+    PiInvocationOperatorEvidence,
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
@@ -964,10 +965,67 @@ def validate_pi_invocation_result_return(
     return _result(reasons=reasons, metadata=metadata)
 
 
+def validate_pi_invocation_operator_evidence(
+    evidence: PiInvocationOperatorEvidence,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    if not evidence.operator_evidence_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.invocation_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.source_thread_id or not evidence.source_message_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+    if not evidence.harness_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+    if evidence.evidence_state not in {
+        "unavailable", "available", "partial", "blocked", "deferred", "validation_failed"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+    if not evidence.policy_decision_summary:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.permission_posture:
+        reasons.append(_invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT))
+    if not evidence.validation_status:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.redaction_state:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.created_at:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    if evidence.evidence_state == "available":
+        if not (
+            evidence.result_return_id
+            or evidence.receipt_id
+            or evidence.artifact_id
+            or evidence.result_summary
+        ):
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
+            )
+    elif evidence.evidence_state == "validation_failed":
+        if not evidence.failure_reason:
+            reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        evidence.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "operator_evidence",
+        "operator_evidence_id": evidence.operator_evidence_id,
+        "invocation_id": evidence.invocation_id,
+        "evidence_state": evidence.evidence_state,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
 __all__ = [
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",
     "validate_harness_result_against_receipt",
     "validate_pi_invocation_policy_decision",
     "validate_pi_invocation_result_return",
+    "validate_pi_invocation_operator_evidence",
 ]
