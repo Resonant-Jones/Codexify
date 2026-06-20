@@ -1,9 +1,7 @@
 #syntax=docker/dockerfile:1
 
-ARG PYTHON_BASE_IMAGE=python:3.11.14-bookworm
-
 # === Build stage: Install dependencies and prepare application ===
-FROM ${PYTHON_BASE_IMAGE} AS builder
+FROM python:3.11.14-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -131,7 +129,7 @@ RUN python -m pip install -r /tmp/backend/requirements-tts.txt
 # === Final stage: Create minimal runtime image ===
  # NOTE: The non-"-dev" runtime image is intentionally hardened/minimal and does not ship with apt.
  # We use the "-dev" variant here because this stage needs to install ffmpeg via apt-get.
-FROM ${PYTHON_BASE_IMAGE} AS runtime
+FROM python:3.11.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -162,9 +160,8 @@ RUN apt-get update && \
 # should be persisted via the runtime HOME volume instead of being baked into the image.
 # Keep a POSIX shell available in the runtime image for compatibility.
 
-# Copy Python packages and console scripts from builder.
+# Copy Python site-packages from builder (minimal and secure)
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY guardian /app/guardian
@@ -187,7 +184,6 @@ FROM runtime AS tts-runtime
 
 # Copy the site-packages tree with pinned TTS dependency graph.
 COPY --from=builder-tts /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder-tts /usr/local/bin /usr/local/bin
 
 # === Compiled runtime proof stage: build a frozen dispatcher artifact ===
 FROM builder AS compiled-builder
@@ -209,7 +205,7 @@ RUN python -m pip install pyinstaller
 RUN pyinstaller /src/packaging/pyinstaller/codexify_runtime.spec --noconfirm --clean --distpath /src/build/dist --workpath /src/build/work
 
 # === Compiled runtime proof image ===
-FROM ${PYTHON_BASE_IMAGE} AS compiled-runtime
+FROM python:3.11.14-slim AS compiled-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

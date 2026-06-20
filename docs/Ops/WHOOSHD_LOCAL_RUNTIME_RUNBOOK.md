@@ -72,6 +72,13 @@ For MLX-backed inference:
 "$WHOOSHD_PYTHON" -m pip install -e "$WHOOSHD_ROOT[mlx]"
 ```
 
+For MLX-VLM-backed Gemma 4 profiles:
+
+```bash
+"$WHOOSHD_PYTHON" -m pip install mlx-vlm
+mkdir -p /Volumes/Dev_SSD/whooshd/model-weights
+```
+
 ## Start Whoosh'd
 
 Stub mode proves the API contract without a model:
@@ -88,11 +95,26 @@ MLX mode serves the configured model:
 cd "$WHOOSHD_ROOT"
 WHOOSHD_ADAPTER=mlx \
 WHOOSHD_MLX_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit \
-"$WHOOSHD_PYTHON" -m uvicorn whooshd.app:app --host 0.0.0.0 --port 8000
+"$WHOOSHD_PYTHON" -m uvicorn whooshd.app:app --host 127.0.0.1 --port 8000
 ```
 
-Use `127.0.0.1` for host-native Codexify checks. Use `0.0.0.0` when Dockerized
-Codexify services need to reach Whoosh'd through `host.docker.internal`.
+MLX-VLM mode can serve a Gemma 4 profile directly through an OpenAI-compatible
+API:
+
+```bash
+HF_HOME=/Volumes/Dev_SSD/whooshd/model-weights \
+HF_HUB_CACHE=/Volumes/Dev_SSD/whooshd/model-weights/hub \
+"$WHOOSHD_PYTHON" -m mlx_vlm.server \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --model mlx-community/gemma-4-e4b-it-OptiQ-4bit
+```
+
+Prefer `127.0.0.1` for host-side Whoosh'd processes. Docker Desktop can still
+reach the host process through `host.docker.internal`, but the Docker bridge
+must be proven explicitly. Avoid `0.0.0.0:8000` on hosts where another local
+network service, such as Tailscale, already owns port 8000 on non-loopback
+interfaces.
 
 ## Prove The Runtime Before Starting Codexify
 
@@ -159,8 +181,16 @@ curl -s http://127.0.0.1:8888/api/llm/catalog
 |---|---|---|
 | `local_inference_not_running` | Whoosh'd host process or Docker host bridge | `curl http://127.0.0.1:8000/v1/models` and `curl http://host.docker.internal:8000/v1/models` |
 | `model_missing` | Whoosh'd inventory does not advertise `LOCAL_CHAT_MODEL` | `curl http://127.0.0.1:8000/v1/models` |
+| `address already in use` on `0.0.0.0:8000` | Stale Whoosh'd daemon or another local network service owns port 8000 | `lsof -nP -iTCP:8000 -sTCP:LISTEN`, `netstat -anv -p tcp \| grep '.8000 '`, and `launchctl print system/com.resonant.whooshd` |
 | `/health/chat` red | Codexify queue/worker layer | Redis and chat worker logs |
 | `/health/llm` red while Whoosh'd is green | Codexify provider routing/config layer | `LOCAL_BASE_URL`, `LOCAL_CHAT_MODEL`, `/api/llm/catalog` |
+
+If `/Library/LaunchDaemons/com.resonant.whooshd.plist` is still running an old
+Whoosh'd process on `0.0.0.0:8000`, unload it before starting MLX-VLM:
+
+```bash
+sudo launchctl bootout system /Library/LaunchDaemons/com.resonant.whooshd.plist
+```
 
 ## Binary Hardening Path
 
