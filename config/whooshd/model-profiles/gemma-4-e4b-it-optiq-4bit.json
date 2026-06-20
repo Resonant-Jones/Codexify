@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "gemma-4-12b-it-qat-4bit",
-  "display_name": "Gemma 4 12B Instruct QAT 4-bit",
+  "id": "gemma-4-e4b-it-optiq-4bit",
+  "display_name": "Gemma 4 E4B Instruct OptiQ 4-bit",
   "family": "gemma4",
   "provider_id": "local",
   "display_vendor": "Whoosh'd",
@@ -12,18 +12,20 @@
     "default_base_url": "http://host.docker.internal:8000/v1",
     "startup_command": [
       "mlx_vlm.server",
+      "--host",
+      "127.0.0.1",
       "--model",
-      "mlx-community/gemma-4-12B-it-qat-4bit",
+      "mlx-community/gemma-4-e4b-it-OptiQ-4bit",
       "--port",
       "8000"
     ]
   },
   "model": {
-    "repo": "mlx-community/gemma-4-12B-it-qat-4bit",
-    "upstream_family": "google/gemma-4-12B-it",
-    "quantization": "QAT 4-bit",
+    "repo": "mlx-community/gemma-4-e4b-it-OptiQ-4bit",
+    "upstream_family": "google/gemma-4-E4B-it",
+    "quantization": "OptiQ-4bit mixed-precision",
     "instruction_tuned": true,
-    "effective_size": "12B"
+    "effective_size": "E4B"
   },
   "weights": {
     "storage_root": "/Volumes/Dev_SSD/whooshd/model-weights",
@@ -32,7 +34,7 @@
   },
   "capabilities": {
     "chat": true,
-    "vision": true,
+    "vision": false,
     "audio_input": false,
     "tool_calling": false,
     "coding": "candidate",

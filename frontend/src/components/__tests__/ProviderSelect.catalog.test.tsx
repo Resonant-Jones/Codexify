@@ -158,6 +158,47 @@ describe("ProviderSelect catalog routing", () => {
                 model_kind: "chat",
                 release_supported: false,
               },
+              {
+                id: "mlx-community/gemma-4-e4b-it-4bit",
+                displayName: "Gemma 4 E4B Instruct 4-bit",
+                profile_id: "gemma-4-e4b-it-4bit",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: true,
+                model_kind: "vision_chat",
+                release_supported: false,
+              },
+              {
+                id: "mlx-community/gemma-4-e4b-it-OptiQ-4bit",
+                displayName: "Gemma 4 E4B Instruct OptiQ 4-bit",
+                profile_id: "gemma-4-e4b-it-optiq-4bit",
+                profile_source: "whooshd_model_profile",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: false,
+                model_kind: "chat",
+                release_supported: false,
+                release_posture: {
+                  status: "candidate",
+                  release_supported: false,
+                  proof_required: true,
+                },
+              },
+              {
+                id: "mlx-community/gemma-4-12B-it-qat-4bit",
+                displayName: "Gemma 4 12B Instruct QAT 4-bit",
+                profile_id: "gemma-4-12b-it-qat-4bit",
+                display_vendor: "Whoosh'd",
+                supports_chat: true,
+                supports_vision: true,
+                model_kind: "vision_chat",
+                release_supported: false,
+                release_posture: {
+                  status: "candidate",
+                  release_supported: false,
+                  proof_required: true,
+                },
+              },
             ],
           },
         ],
@@ -175,10 +216,13 @@ describe("ProviderSelect catalog routing", () => {
 
     expect(await screen.findByText("Gemma 4 E2B Instruct 4-bit")).toBeInTheDocument();
     expect(screen.getByText("Gemma 4 12B Instruct OptiQ 4-bit")).toBeInTheDocument();
+    expect(screen.getByText("Gemma 4 E4B Instruct 4-bit")).toBeInTheDocument();
+    expect(screen.getByText("Gemma 4 E4B Instruct OptiQ 4-bit")).toBeInTheDocument();
+    expect(screen.getByText("Gemma 4 12B Instruct QAT 4-bit")).toBeInTheDocument();
 
-    fireEvent.click(providerButton("Gemma 4 12B Instruct OptiQ 4-bit"));
+    fireEvent.click(providerButton("Gemma 4 E4B Instruct OptiQ 4-bit"));
     expect(onChange).toHaveBeenCalledWith(
-      "mlx-community/gemma-4-12B-it-OptiQ-4bit"
+      "mlx-community/gemma-4-e4b-it-OptiQ-4bit"
     );
   });
 
@@ -251,7 +295,7 @@ describe("ProviderSelect catalog routing", () => {
     });
   });
 
-  it("does not treat proof-required local model profiles as selectable chat models", async () => {
+  it("treats proof-required Whoosh'd profiles as selectable local model entries", async () => {
     (api.get as any).mockResolvedValue({
       data: {
         providers: [
@@ -270,6 +314,9 @@ describe("ProviderSelect catalog routing", () => {
               {
                 id: "mlx-community/gemma-4-12B-it-OptiQ-4bit",
                 displayName: "Gemma 4 12B Instruct OptiQ 4-bit",
+                profile_id: "gemma-4-12b-it-optiq-4bit",
+                profile_source: "whooshd_model_profile",
+                display_vendor: "Whoosh'd",
                 supports_chat: true,
                 model_kind: "chat",
                 release_supported: false,
@@ -290,11 +337,11 @@ describe("ProviderSelect catalog routing", () => {
     const localProvider = await screen.findByRole("button", {
       name: "Whoosh'd",
     });
-    expect(localProvider).toBeDisabled();
-    expect(screen.getByText("No chat models")).toBeInTheDocument();
+    expect(localProvider).toBeEnabled();
+    fireEvent.click(localProvider);
     expect(
-      screen.queryByText("Gemma 4 12B Instruct OptiQ 4-bit")
-    ).not.toBeInTheDocument();
+      await screen.findByText("Gemma 4 12B Instruct OptiQ 4-bit")
+    ).toBeInTheDocument();
   });
 
   it("shows a visible error when the provider catalog request fails", async () => {

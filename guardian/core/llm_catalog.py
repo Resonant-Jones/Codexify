@@ -454,6 +454,8 @@ def _fetch_local_models(
     entries: list[dict[str, Any]] = []
     for name, identity in zip(deduped, identities, strict=False):
         profile = whooshd_profile_by_id_or_repo(name)
+        if profile:
+            name = str(profile.get("id") or name).strip()
         display_label = str(
             (profile or {}).get("display_name")
             or identity.get("alias")
