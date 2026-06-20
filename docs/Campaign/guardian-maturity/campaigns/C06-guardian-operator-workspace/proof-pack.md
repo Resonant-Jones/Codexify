@@ -330,3 +330,52 @@ No runtime tests — docs-only proof consolidation.
 ### Next Task
 **C06-T006: Add Guardian Operator Workspace command-run evidence card**
 
+
+---
+
+## C06-T006: Command-Run Evidence Card (2026-06-19 23:25 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `19a26566b` | **Worktree**: clean
+
+### Files Created/Modified
+- `GuardianWorkspaceCommandRunEvidenceCard.tsx` — created
+- `GuardianOperatorWorkspaceLens.tsx` — static card replaced with live component
+- `CommandCenterShell.test.tsx` — 8 new tests
+- `backlog.md` — C06-T006 marked `go`
+
+### Source Decision
+Uses `useCodingWorkOrders` hook (limit 10) to derive command-run evidence from work-order `latest_run_id` pointers. No new backend routes, no new API helpers. This is the existing Command Center work-order hook — no additional backend changes required.
+
+### Implementation
+Card renders: explanatory copy, loading/error/empty/no-pointer/available states, safe fields (work_order_id, title, status, latest_run_id, latest_lease_id, latest_receipt_id), refresh button.
+
+### Safe Fields Rendered
+work_order_id, title, status, latest_run_id, latest_lease_id, latest_receipt_id. No raw args, secrets, prompts, extra_meta, result_json, stack traces.
+
+### States
+- Loading → "Loading command-run evidence…"
+- Error → "Command-run evidence is unavailable from the current workspace source."
+- Empty (no work orders) → "No command-run evidence is available from current work-order pointers."
+- No-pointer (no latest_run_id) → "Work orders are present, but no latest command-run pointer is recorded."
+- Available → safe field cards rendered.
+
+### Read-Only / No Mutation
+Refresh button only. No dispatch, execute, retry, replay, approve, complete, create artifact, create receipt controls.
+
+### Truth-Labeling
+"A run pointer does not prove artifact creation, receipt creation, Pi/Coder execution, autonomous delegation, or work-order completion."
+
+### Validation
+```
+CommandCenterShell.test.tsx  41 passed (5 scaffold + 7 composition + 8 cmd-run + 21 existing)
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  111 passed, 753 skipped
+git diff --check              clean
+```
+
+### Gate Decision
+**`go`** — C06-T006 accepted. C06-T007 may proceed.
+
+### Next Task
+**C06-T007: Add Guardian Operator Workspace standalone tool-turn evidence card**
+

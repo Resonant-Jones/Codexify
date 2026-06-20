@@ -7,6 +7,7 @@
 | C06-D003 | 2026-06-19 | `go` — Guardian Operator Workspace lens scaffold added; read-only, no fetch, no mutation, 7 tests, C06-T004 next | active |
 | C06-D004 | 2026-06-19 | `go` — first live cards composed; HealthOverview + CodingWorkOrdersPanel in workspace; no new fetch, no mutation, C06-T005 next | active |
 | C06-D005 | 2026-06-19 | `go` — C06 composition proof consolidated; 2 live cards, no-new-fetch, no-mutation, truth-labeling, 10 limitations, C06-T006 next | active |
+| C06-D006 | 2026-06-19 | `go` — command-run evidence card added via useCodingWorkOrders; 5 states, safe fields, no mutation, 8 tests, C06-T007 next | active |
 
 ---
 
@@ -149,4 +150,29 @@
 - **Revisit Trigger**:
   - C06-T006 command-run evidence card implementation.
   - C06-T007/T008 remaining card composition + integration tests.
+  - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D006
+
+- **Decision ID**: C06-D006
+- **Date**: 2026-06-19
+- **Decision**: `go`. Guardian Operator Workspace command-run evidence card added. Uses `useCodingWorkOrders` to derive evidence from existing `latest_run_id` pointers. No new backend routes. Available/unavailable/empty/error states handled. Safe fields only. No mutation controls. Truth-labels unsupported claims. 8 new tests. Release boundary preserved.
+- **Reason**:
+  - Card uses existing work-order hook (no new API, no new routes).
+  - States: loading, error, empty, no-pointer, available — all test-proven.
+  - Safe fields: work_order_id, title, status, latest_run_id, latest_lease_id, latest_receipt_id.
+  - No raw args, secrets, prompts, extra_meta, result_json, stack traces.
+  - Refresh button only — no mutation controls (8 labels absent).
+  - Truth-labeling: 5 unsupported claims.
+  - 41 shell tests (8 new + 33 existing), 111 broader tests pass.
+- **Evidence**:
+  - `GuardianWorkspaceCommandRunEvidenceCard.tsx` — 145 lines.
+  - `CommandCenterShell.test.tsx` — 8 new tests.
+- **Consequence**:
+  - C06-T006 accepted. Command-run evidence card is live in workspace.
+  - C06-T007 (standalone tool-turn card) may proceed.
+- **Revisit Trigger**:
+  - C06-T007 standalone tool-turn evidence card.
   - C06-T009 final C06 closeout.
