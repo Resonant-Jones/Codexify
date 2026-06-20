@@ -502,3 +502,58 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C06-T009: Add Guardian Operator Workspace final composition proof**
+
+---
+
+## C06-T009: Final Composition Proof (2026-06-20 11:20 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `09ab5f5c8` | **Worktree**: clean
+
+### Files Created/Modified
+- `final-composition-proof.md` — created (16 sections)
+- `backlog.md` — C06-T009 marked `go`
+- `proof-pack.md` — this section added
+- `decision-log.md` — C06-D009 appended
+
+### Inputs Read
+All 36 required pre-reads available. No missing inputs.
+
+### Final Composition Proof Artifact
+16-section proof covering: gate, scope, C06 task ledger (8 tasks), final workspace composition table (7 surfaces), source decisions, read-only/no-mutation proof (12 controls), no-new-backend proof (0 guardian/ files changed), evidence safety/redaction proof (12 boundaries), truth-labeling proof (8 claims rejected), deferred surfaces (10 limitations), validation evidence, release boundary.
+
+### C06 Task Ledger
+All 8 tasks (T001–T008) gated `go` with commit evidence.
+
+### Final Workspace Composition
+7 surfaces: HealthOverview, CodingWorkOrdersPanel, command-run card, tool-turn card, receipt card, gaps card, safety boundary. All read-only. All truth-labeled.
+
+### Source Decisions
+No new backend routes. No new persistence schema. Verified via `git log -- guardian/`.
+
+### Read-Only / No-Mutation
+12 prohibited controls — all absent from workspace. Source-verified + test-proven.
+
+### No-New-Backend
+0 `guardian/` files changed in C06-T006–T008. Existing C03/C05/C01/C02 truth surfaces only.
+
+### Truth-Labeling
+8 unsupported claims explicitly rejected across all cards.
+
+### Deferred Surfaces / Limitations
+10 items: receipt linkage, receipt readback, EventConsole, delegation, Pi/Coder, artifacts, receipt creation, completion, merge, release widening.
+
+### Validation
+```
+CommandCenterShell  58 passed (latest)
+Broader             128 passed, 753 skipped (latest)
+git diff --check    clean
+validate_docs.py    passed
+```
+C06-T009 is docs-only — no runtime tests.
+
+### Gate Decision
+**`go`** — C06-T009 accepted. C06-T010 may proceed.
+
+### Next Task
+**C06-T010: Close Guardian Operator Workspace campaign**
