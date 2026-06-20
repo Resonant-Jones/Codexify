@@ -1,0 +1,41 @@
+# C04 Backlog: Pi/Coder Invocation Boundary
+
+## Campaign
+
+**C04: Pi/Coder Invocation Boundary**
+
+## Campaign Objective
+
+Define and implement a governed, bounded, operator-visible Pi/Coder invocation seam that carries Guardian authority, preserves lineage, enforces validation-only run mode, and does not imply autonomous delegation, Pi/Coder execution, recursive tool loops, artifact creation, receipt creation, or release widening.
+
+## Status
+
+**Gate**: `go` — C04-T001 accepted. Campaign active.
+
+| Task | Domain | Gate | Commit | Summary |
+|------|--------|------|--------|---------|
+| C04-T001 | audit | `go` | `TBD` | Pi/Coder invocation boundary seam audit — contracts, implementation, runtime proven/not-proven, risks, backlog |
+| C04-T002 | docs | planned | — | Define Pi/Coder invocation boundary acceptance contract |
+| C04-T003 | docs | planned | — | Envelope preview contract |
+| C04-T004 | docs | planned | — | Validation-only run mode contract |
+| C04-T005 | docs | planned | — | Result return governance contract |
+| C04-T006 | frontend | planned | — | Envelope preview UI scaffold |
+| C04-T007 | frontend | planned | — | Validation-only run mode UI scaffold |
+| C04-T008 | proof | planned | — | C04 integration proof and closeout |
+
+## Next Task
+
+**C04-T002: Define Pi/Coder invocation boundary acceptance contract**
+
+## Campaign Status
+
+**active**
+
+## Deferred / Non-Goals
+
+- No autonomous delegation.
+- No ungoverned Pi/Coder execution.
+- No recursive tool loops.
+- No artifact creation.
+- No receipt creation (unless C03/C05 receipt infrastructure is explicitly reused and receipt linkage is governed).
+- No release claim widening.
