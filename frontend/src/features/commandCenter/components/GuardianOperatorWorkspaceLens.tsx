@@ -3,6 +3,7 @@ import * as React from "react";
 import HealthOverview from "@/features/commandCenter/components/HealthOverview";
 import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
 import GuardianWorkspaceCommandRunEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceCommandRunEvidenceCard";
+import GuardianWorkspaceToolTurnEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceToolTurnEvidenceCard";
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
 
 /** Read-only Guardian Operator Workspace lens.
@@ -66,21 +67,10 @@ export default function GuardianOperatorWorkspaceLens(props: GuardianOperatorWor
         <GuardianWorkspaceCommandRunEvidenceCard />
       </Section>
 
-      {/* ── Tool-turn observability card (conditional) ── */}
-      <Card title="Tool-turn observability">
-        <CardField label="Operator question" value="What bounded tool-turn evidence exists?" />
-        <CardField label="Source of truth" value="GET /api/guardian/commands/tool-turns/{message_id}/observability" />
-        <CardChip label="conditional" />
-        <CardField
-          label="Readiness"
-          value="Backend route exists. Conditional on stable assistant_message_id. Present inside composed CodingWorkOrdersPanel when message ID is available."
-        />
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Read-only bounded tool-turn evidence. This does not prove autonomous
-          delegation, Pi/Coder execution, artifact creation, or work-order
-          completion.
-        </p>
-      </Card>
+      {/* ── Tool-turn observability card (live composition) ── */}
+      <Section title="Tool-turn observability">
+        <GuardianWorkspaceToolTurnEvidenceCard />
+      </Section>
 
       {/* ── Receipt evidence card (available via composed panel) ── */}
       <Card title="Receipt evidence">
