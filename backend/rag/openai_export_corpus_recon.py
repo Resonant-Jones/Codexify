@@ -405,12 +405,12 @@ class OpenAIExportCorpusRecon:
                     stats.messages_by_year[dt.year] += 1
                     stats.messages_by_year_month[f"{dt.year}-{dt.month:02d}"] += 1
 
-            # Count keywords across all text
+            # Count keywords across all text (per-occurrence)
             all_text = conv.all_text()
             for kw, pattern in _KEYWORD_PATTERNS.items():
                 count = len(pattern.findall(all_text))
                 if count:
-                    stats.keyword_counts[kw] += 1  # count per conversation
+                    stats.keyword_counts[kw] += count
 
             # Count headings
             for line in all_text.splitlines():
@@ -725,7 +725,19 @@ def write_corpus_summary_markdown(
         lines.append(f"- {family}: {count}")
     lines.append("")
     lines.append("### By Size Bucket")
-    for bucket, count in sorted(ab["by_size_bucket"].items()):
+    bucket_order = {
+        label: idx
+        for idx, spec in enumerate(_SIZE_BUCKETS)
+        for label in (
+            [spec[1]]
+            if len(spec) == 2
+            else [spec[2]]
+        )
+    }
+    for bucket, count in sorted(
+        ab["by_size_bucket"].items(),
+        key=lambda item: bucket_order.get(item[0], 999),
+    ):
         lines.append(f"- {bucket}: {count}")
     lines.append("")
     lines.append(f"- Sharded assets: {ab['sharded']}")
