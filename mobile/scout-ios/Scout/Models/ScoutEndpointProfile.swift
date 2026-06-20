@@ -1,6 +1,6 @@
 import Foundation
 
-enum ScoutEndpointTransportType: CaseIterable, Identifiable {
+enum ScoutEndpointTransportType: CaseIterable, Identifiable, Codable {
     case tailscale
     case localNetwork
     case custom
@@ -16,7 +16,7 @@ enum ScoutEndpointTransportType: CaseIterable, Identifiable {
     }
 }
 
-enum ScoutEndpointAuthenticationState: CaseIterable, Identifiable {
+enum ScoutEndpointAuthenticationState: CaseIterable, Identifiable, Codable {
     case unconfigured
     case authRequired
     case authenticated
@@ -32,7 +32,7 @@ enum ScoutEndpointAuthenticationState: CaseIterable, Identifiable {
     }
 }
 
-enum ScoutEndpointValidationState: CaseIterable, Identifiable {
+enum ScoutEndpointValidationState: CaseIterable, Identifiable, Codable {
     case unconfigured
     case validating
     case reachable
@@ -70,7 +70,7 @@ enum ScoutEndpointDraftValidationError: CaseIterable, Identifiable {
     }
 }
 
-struct ScoutEndpointProfile: Identifiable, Equatable {
+struct ScoutEndpointProfile: Identifiable, Equatable, Codable {
     var id: UUID
     var name: String
     var baseURL: String
