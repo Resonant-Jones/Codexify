@@ -6,6 +6,9 @@ struct SettingsAuthView: View {
     @State private var showValidationResults = false
     @State private var isProbing = false
     @State private var connectionMessage: String?
+    @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @State private var saveMessage: String?
+    @State private var loadError: String?
 
     var body: some View {
         NavigationStack {
@@ -53,6 +56,13 @@ struct SettingsAuthView: View {
                     }
                 }
 
+                if let error = loadError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+
                 Section {
                     Button("Validate Draft") {
                         let errors = draftProfile.draftValidationErrors
@@ -73,6 +83,7 @@ struct SettingsAuthView: View {
 
                         isProbing = true
                         connectionMessage = nil
+                        saveMessage = nil
                         draftProfile.validationState = .validating
 
                         Task {
@@ -84,9 +95,26 @@ struct SettingsAuthView: View {
                             }
                             connectionMessage = result.message
                             isProbing = false
+
+                            if result.validationState == .reachable {
+                                autoSave()
+                            }
                         }
                     }
                     .disabled(!draftProfile.isValidDraft || isProbing)
+                }
+
+                Section {
+                    Button("Save Profile") {
+                        let errors = draftProfile.draftValidationErrors
+                        if !errors.isEmpty {
+                            validationErrors = errors
+                            showValidationResults = true
+                            saveMessage = nil
+                            return
+                        }
+                        persistDraft()
+                    }
                 }
 
                 if isProbing {
@@ -107,6 +135,13 @@ struct SettingsAuthView: View {
                     }
                 }
 
+                if let message = saveMessage {
+                    Section {
+                        Label(message, systemImage: "square.and.arrow.down.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+
                 if showValidationResults {
                     Section("Validation Results") {
                         if validationErrors.isEmpty {
@@ -122,12 +157,42 @@ struct SettingsAuthView: View {
                 }
 
                 Section {
-                    Text("Saving and Keychain storage are future work.")
+                    Text("Only non-secret endpoint configuration is stored locally. Credential and API key storage belongs to a future Keychain slice.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Settings")
+            .onAppear {
+                loadProfile()
+            }
+        }
+    }
+
+    private func loadProfile() {
+        guard !storedProfileData.isEmpty else { return }
+        do {
+            draftProfile = try JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData)
+            loadError = nil
+        } catch {
+            draftProfile = .emptyDraft
+            loadError = "Could not load saved profile. Starting with a blank configuration."
+        }
+    }
+
+    private func persistDraft() {
+        do {
+            storedProfileData = try JSONEncoder().encode(draftProfile)
+            saveMessage = "Profile saved."
+            loadError = nil
+        } catch {
+            saveMessage = "Failed to save profile."
+        }
+    }
+
+    private func autoSave() {
+        if let data = try? JSONEncoder().encode(draftProfile) {
+            storedProfileData = data
         }
     }
 }
