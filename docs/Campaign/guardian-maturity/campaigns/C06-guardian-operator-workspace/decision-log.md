@@ -9,6 +9,7 @@
 | C06-D005 | 2026-06-19 | `go` — C06 composition proof consolidated; 2 live cards, no-new-fetch, no-mutation, truth-labeling, 10 limitations, C06-T006 next | active |
 | C06-D006 | 2026-06-19 | `go` — command-run evidence card added via useCodingWorkOrders; 5 states, safe fields, no mutation, 8 tests, C06-T007 next | active |
 | C06-D007 | 2026-06-20 | `go` — standalone tool-turn evidence card via C05 route; explicit ID only, no fabrication, 5 states, 9 tests, C06-T008 next | active |
+| C06-D008 | 2026-06-20 | `go` — receipt evidence card via latest_receipt_id pointers; deferred linkage, 5 states, 8 tests, C06-T009 next | active |
 
 ---
 
@@ -204,3 +205,29 @@
 - **Revisit Trigger**:
   - C06-T008 standalone receipt evidence card.
   - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D008
+
+- **Decision ID**: C06-D008
+- **Date**: 2026-06-20
+- **Decision**: `go`. Guardian Operator Workspace standalone receipt evidence card added. Uses `useCodingWorkOrders` to derive receipt pointers from `latest_receipt_id`. Richer receipt readback and receipt linkage remain deferred. No new backend routes. No receipt creation. 5 states + deferred disclaimer. 8 tests. Release boundary preserved.
+- **Reason**:
+  - Card uses existing work-order hook. No new API calls, no receipt creation.
+  - Deferred linkage disclaimer always visible.
+  - States: loading, error, empty, no-pointer, available — all test-proven.
+  - Safe fields: work_order_id, title, status, latest_receipt_id, latest_run_id, latest_lease_id.
+  - Refresh button only. No receipt creation/mutation controls.
+  - Truth-labeled: 6 unsupported claims.
+  - 58 shell tests (8 new + 50 existing). 128 broader tests pass.
+  - Docs validator passed. Git diff --check clean.
+- **Evidence**:
+  - `GuardianWorkspaceReceiptEvidenceCard.tsx` — 150 lines.
+  - `CommandCenterShell.test.tsx` — 8 new tests.
+- **Consequence**:
+  - C06-T008 accepted. Receipt evidence card is live in workspace.
+  - C06-T009 (final composition proof) may proceed.
+- **Revisit Trigger**:
+  - C06-T009 final composition proof + closeout.
+  - C05 receipt linkage wiring — then upgrade card.

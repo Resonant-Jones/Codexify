@@ -456,3 +456,49 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C06-T008: Add Guardian Operator Workspace standalone receipt evidence card**
+
+---
+
+## C06-T008: Receipt Evidence Card (2026-06-20 11:12 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `b52a1de11` | **Worktree**: clean
+- **C06-T007 commits**: `bc3582154` (impl), `b52a1de11` (docs)
+
+### Files Created/Modified
+- `GuardianWorkspaceReceiptEvidenceCard.tsx` — created
+- `GuardianOperatorWorkspaceLens.tsx` — static card replaced with live component
+- `CommandCenterShell.test.tsx` — 8 new tests
+- `backlog.md` — C06-T008 marked `go`
+
+### Source Decision
+Uses `useCodingWorkOrders` to derive receipt pointers from `latest_receipt_id`. Richer readback + linkage deferred. No receipt creation, no new backend routes.
+
+### Explicit Receipt Pointer
+Only `latest_receipt_id` from work-order records. No inference from status, run_id, command_id, lease_id, or timestamps.
+
+### States
+Loading, error, empty (no work orders), no-pointer (no latest_receipt_id), available. Deferred linkage message always visible.
+
+### Safe Fields
+work_order_id, title, status, latest_receipt_id, latest_run_id, latest_lease_id. No raw args/secrets/payloads.
+
+### No Mutation / No Creation
+Refresh button only. No dispatch, execute, retry, replay, approve, complete, create artifact, create receipt, run tool, invoke tool, merge, mark complete controls.
+
+### Truth-Labeling
+6 claims: work-order completion, artifact creation, Pi/Coder execution, autonomous delegation, recursive tool use, successful merge.
+
+### Validation
+```
+CommandCenterShell.test.tsx  58 passed (8 receipt + 50 existing)
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  128 passed, 753 skipped
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T008 accepted. C06-T009 may proceed.
+
+### Next Task
+**C06-T009: Add Guardian Operator Workspace final composition proof**

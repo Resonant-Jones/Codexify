@@ -16,7 +16,8 @@
 | C06-T004 | frontend | `go` | `6f3596991` / `e2909d07d` | Compose HealthOverview + CodingWorkOrdersPanel into workspace; 2 live cards, static remainder, 7 composition tests |
 | C06-T005 | proof | `go` | `19a26566b` | Composition proof artifact consolidation; composed/static surfaces, no-new-fetch, no-mutation, truth-labeling |
 | C06-T006 | frontend | `go` | `7c4e4dacc` / `0ce7bdd07` / `fdd9eb9ac` | Command-run evidence card via useCodingWorkOrders; 5 states, 8 tests |
-| C06-T007 | frontend | `go` | `bc3582154` | Standalone tool-turn evidence card via C05 route; explicit assistant_message_id only, no id fabrication, 9 tests |
+| C06-T007 | frontend | `go` | `bc3582154` / `b52a1de11` | Standalone tool-turn evidence card via C05 route; explicit assistant_message_id only, no id fabrication, 9 tests |
+| C06-T008 | frontend | `go` | `b3e94be4a` | Standalone receipt evidence card via latest_receipt_id pointers; deferred linkage, 8 tests |
 | C06-T003 | frontend | planned | — | Scaffold workspace lens and layout |
 | C06-T004 | frontend | planned | — | Compose work-order status panel |
 | C06-T005 | frontend | planned | — | Compose receipt evidence panel |
