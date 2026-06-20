@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-19
+2026-06-20
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work tightened local runtime configuration, audit sentinel behavior, and Guardian work-order briefing, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work tightened local runtime configuration, release-sentinel behavior, and Guardian work-order briefing, but it does not widen the release promise.
 
 ## What changed recently
 - `main` standardized Whoosh'd local runtime config.
 - `main` removed dead `releaseSupported` fields and restored missing `run_git` support in readiness tooling.
 - `main` fixed beta sentinel output ordering.
 - `main` merged Guardian work-brief artifacts for 2026-06-11 through 2026-06-15.
+- `main` kept the current-state override aligned with the latest merged posture.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
