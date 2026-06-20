@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsAuthView: View {
     @State private var draftProfile = ScoutEndpointProfile.emptyDraft
+    @State private var validationErrors: [ScoutEndpointDraftValidationError] = []
+    @State private var showValidationResults = false
 
     var body: some View {
         NavigationStack {
@@ -50,7 +52,30 @@ struct SettingsAuthView: View {
                 }
 
                 Section {
-                    Text("Saving, Keychain storage, validation, and connection testing are future work.")
+                    Button("Validate Draft") {
+                        let errors = draftProfile.draftValidationErrors
+                        validationErrors = errors
+                        showValidationResults = true
+                        draftProfile.validateDraft()
+                    }
+                }
+
+                if showValidationResults {
+                    Section("Validation Results") {
+                        if validationErrors.isEmpty {
+                            Label("Draft looks valid — ready for connection testing.", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        } else {
+                            ForEach(validationErrors) { error in
+                                Label(error.title, systemImage: "xmark.circle.fill")
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Text("Saving, Keychain storage, and connection testing are future work.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
