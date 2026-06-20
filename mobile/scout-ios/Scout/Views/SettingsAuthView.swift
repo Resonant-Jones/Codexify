@@ -9,6 +9,11 @@ struct SettingsAuthView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var saveMessage: String?
     @State private var loadError: String?
+    @State private var apiKeyInput: String = ""
+    @State private var isKeyStored: Bool = false
+    @State private var keychainMessage: String?
+
+    private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
         NavigationStack {
@@ -117,6 +122,63 @@ struct SettingsAuthView: View {
                     }
                 }
 
+                Section("API Key") {
+                    SecureField("Vault API Key", text: $apiKeyInput)
+                        .disabled(isKeyStored && apiKeyInput.isEmpty)
+
+                    if isKeyStored {
+                        HStack {
+                            Label("Stored in Keychain", systemImage: "lock.fill")
+                                .foregroundStyle(.green)
+                            Spacer()
+                            Button("Delete", role: .destructive) {
+                                try? keychainStore.deleteAPIKey()
+                                isKeyStored = false
+                                apiKeyInput = ""
+                                keychainMessage = "API key removed from Keychain."
+                            }
+                        }
+
+                        if !apiKeyInput.isEmpty {
+                            Button("Update") {
+                                let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmed.isEmpty else { return }
+                                do {
+                                    try keychainStore.saveAPIKey(trimmed)
+                                    apiKeyInput = ""
+                                    keychainMessage = "API key updated in Keychain."
+                                } catch {
+                                    keychainMessage = "Failed to update API key."
+                                }
+                            }
+                        }
+                    } else {
+                        Button("Save to Keychain") {
+                            let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            do {
+                                try keychainStore.saveAPIKey(trimmed)
+                                isKeyStored = true
+                                apiKeyInput = ""
+                                keychainMessage = "API key saved to Keychain."
+                            } catch {
+                                keychainMessage = "Failed to save API key."
+                            }
+                        }
+                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    if let msg = keychainMessage {
+                        Label(msg, systemImage: msg.contains("Failed") ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(msg.contains("Failed") ? .red : .green)
+                            .font(.caption)
+                    }
+
+                    Text("The API key is stored in the iOS Keychain and never written to UserDefaults or included in unencrypted backups.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 if isProbing {
                     Section {
                         HStack {
@@ -157,7 +219,7 @@ struct SettingsAuthView: View {
                 }
 
                 Section {
-                    Text("Only non-secret endpoint configuration is stored locally. Credential and API key storage belongs to a future Keychain slice.")
+                    Text("Endpoint configuration is stored in UserDefaults. The API key is stored in the iOS Keychain.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -165,6 +227,7 @@ struct SettingsAuthView: View {
             .navigationTitle("Settings")
             .onAppear {
                 loadProfile()
+                isKeyStored = keychainStore.hasAPIKey()
             }
         }
     }
