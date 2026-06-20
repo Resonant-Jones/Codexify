@@ -319,7 +319,14 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
   const lensContent = React.useMemo((): React.ReactNode => {
     switch (activeLens) {
       case "guardian-workspace":
-        return <GuardianOperatorWorkspaceLens />;
+        return (
+          <GuardianOperatorWorkspaceLens
+            healthItems={healthItems}
+            lastCheckedAt={lastCheckedAt}
+            loading={loading}
+            onRefresh={onRefresh}
+          />
+        );
 
       case "agent-command":
         return <CodingWorkOrdersPanel />;
