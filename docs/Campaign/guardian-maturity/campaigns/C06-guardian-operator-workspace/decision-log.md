@@ -253,6 +253,7 @@
   - `CommandCenterShell.test.tsx` — 58 tests.
 - **Consequence**:
   - C06-T009 accepted. C06-T010 (campaign closeout) may proceed.
+- **R1 addendum (2026-06-20)**: `git diff --check` clean, `python3 scripts/validate_docs.py` passed. Final composition proof verified — all 16 sections, no defects. Gate sealed.
 - **Revisit Trigger**:
   - C06-T010 closeout — verify all evidence and mark campaign closed.
   - C05 receipt linkage wiring — upgrade receipt card.

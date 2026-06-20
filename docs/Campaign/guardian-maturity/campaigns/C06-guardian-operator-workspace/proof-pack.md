@@ -557,3 +557,28 @@ C06-T009 is docs-only — no runtime tests.
 
 ### Next Task
 **C06-T010: Close Guardian Operator Workspace campaign**
+
+---
+
+## C06-T009-R1: Validation Closeout (2026-06-20 11:22 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `bcdd0e3f3` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: `git diff --check` + `python3 scripts/validate_docs.py` not explicitly reported despite C06 docs being modified.
+
+### Final Composition Proof Verification
+`final-composition-proof.md`: all 16 sections present. Task ledger (8 tasks), 7 surfaces, source decisions, no-backend, no-mutation, truth-labeling, 10 limitations, release boundary. C06-T010 named by name only. No defects found.
+
+### Validation
+```
+git diff --check                  clean
+python3 scripts/validate_docs.py   passed
+```
+
+No automated runtime tests — docs-only validation closeout.
+
+### Gate Decision
+**`go`** — C06-T009-R1 accepted. All hygiene complete. C06-T010 may proceed.
+
+### Next Task
+**C06-T010: Close Guardian Operator Workspace campaign**
