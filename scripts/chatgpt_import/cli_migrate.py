@@ -295,6 +295,63 @@ def import_openai(
         print_message(f"Diagnostic summary: {stats['diagnostic_summary']}")
 
 
+@app.command("export-recon")
+def export_recon(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    out: Path = typer.Option(
+        Path("export_archaeology"),
+        "--out",
+        "-o",
+        help="Output directory for recon artifacts",
+    ),
+):
+    """
+    Run read-only forensic reconnaissance on an OpenAI export corpus.
+
+    Generates conversation index CSV, corpus stats JSON, summary Markdown,
+    and diagnostic reports. No database writes, no embeddings, no model calls.
+
+    Example:
+        codexify export-recon --path ./OpenAI-export --out export_archaeology
+    """
+    from backend.rag.openai_export_corpus_recon import run_corpus_recon
+
+    stats = run_corpus_recon(path, output_dir=out)
+    d = stats.to_dict()
+    totals = d["corpus_totals"]
+
+    print_header()
+    print_message("[bold cyan]OpenAI export corpus recon complete[/bold cyan]")
+    print_summary(
+        {
+            "files_scanned": totals["files_scanned"],
+            "json_like_files": totals["json_like_files"],
+            "conversations_found": totals["conversations_found"],
+            "messages_scanned": totals["messages_scanned"],
+            "assets_found": totals["assets_found"],
+            "orphan_assets_found": totals["orphan_assets_found"],
+            "parse_failures": totals["parse_failures"],
+        }
+    )
+    out_dir = Path(out).resolve()
+    print_message(f"Output directory: {out_dir}")
+    print_message(f"Conversation index: {out_dir / 'conversation_index.csv'}")
+    print_message(f"Corpus stats: {out_dir / 'corpus_stats.json'}")
+    print_message(f"Summary: {out_dir / 'corpus_summary.md'}")
+    print_message(
+        f"Diagnostics: {out_dir / 'diagnostics' / 'recon_report.json'}"
+    )
+
+
 @app.command("export-scraper:tasks")
 def scrape_openai_tasks(
     path: Path = typer.Option(
