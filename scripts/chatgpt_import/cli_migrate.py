@@ -295,6 +295,57 @@ def import_openai(
         print_message(f"Diagnostic summary: {stats['diagnostic_summary']}")
 
 
+@app.command("export-scraper:tasks")
+def scrape_openai_tasks(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    out: Path = typer.Option(
+        Path("export_scraper"),
+        "--out",
+        "-o",
+        help="Repo-local output directory for extracted task prompt artifacts",
+    ),
+):
+    """
+    Scrape Codexify task prompt artifacts from OpenAI exports without DB writes.
+
+    Example:
+        codexify export-scraper:tasks --path ./OpenAI-export --out export_scraper
+    """
+    from backend.rag.openai_export_task_scraper import scrape_openai_export_tasks
+
+    report = scrape_openai_export_tasks(path, output_dir=out)
+    stats = report.to_dict()
+
+    print_header()
+    print_message("[bold cyan]OpenAI export task scrape complete[/bold cyan]")
+    print_summary(
+        {
+            "files_scanned": stats["files_scanned"],
+            "messages_scanned": stats["messages_scanned"],
+            "codexify_task_prompt_hits": stats["codexify_task_prompt_hits"],
+            "task_summary_hits": stats["task_summary_hits"],
+            "execution_contract_hits": stats["execution_contract_hits"],
+            "partial_or_ambiguous_hits": stats["partial_or_ambiguous_hits"],
+        }
+    )
+    print_message(f"Output directory: {report.output_dir}")
+    print_message(
+        f"Diagnostic JSON: {report.output_dir / 'diagnostics' / 'scraper_report.json'}"
+    )
+    print_message(
+        f"Diagnostic summary: {report.output_dir / 'diagnostics' / 'scraper_report.md'}"
+    )
+
+
 @app.command()
 def validate(
     neo4j_url: str = typer.Option(
