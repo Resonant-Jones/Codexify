@@ -1314,6 +1314,222 @@ class PiInvocationResultReturn:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PiInvocationOperatorEvidence:
+    operator_evidence_id: str
+    invocation_id: str
+    source_thread_id: str
+    source_message_id: str
+    harness_id: str
+    evidence_state: str
+    policy_decision_summary: str
+    permission_posture: str
+    guardian_boundary: PiGuardianBoundary | Mapping[str, Any]
+    validation_status: str = ""
+    redaction_state: str = ""
+    created_at: str = ""
+    request_id: str | None = None
+    attempt_id: str | None = None
+    adapter_id: str | None = None
+    policy_decision_id: str | None = None
+    result_return_id: str | None = None
+    receipt_id: str | None = None
+    artifact_id: str | None = None
+    command_run_id: str | None = None
+    result_availability: str | None = None
+    receipt_availability: str | None = None
+    artifact_availability: str | None = None
+    granted_permission_summary: str | None = None
+    result_summary: str | None = None
+    failure_reason: str | None = None
+    updated_at: str | None = None
+    owner_account_id: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        boundary = _coerce_boundary(
+            self.guardian_boundary, fallback_account_id=self.owner_account_id
+        )
+        object.__setattr__(self, "guardian_boundary", boundary)
+        object.__setattr__(
+            self, "owner_account_id", _clean_text(boundary.owner_account_id)
+        )
+        object.__setattr__(
+            self, "operator_evidence_id",
+            _clean_text(self.operator_evidence_id),
+        )
+        object.__setattr__(
+            self, "invocation_id", _clean_text(self.invocation_id)
+        )
+        object.__setattr__(
+            self, "source_thread_id", _clean_text(self.source_thread_id)
+        )
+        object.__setattr__(
+            self, "source_message_id", _clean_text(self.source_message_id)
+        )
+        object.__setattr__(
+            self, "harness_id", _clean_text(self.harness_id)
+        )
+        object.__setattr__(
+            self, "evidence_state", _clean_text(self.evidence_state)
+        )
+        object.__setattr__(
+            self, "policy_decision_summary",
+            _clean_text(self.policy_decision_summary),
+        )
+        object.__setattr__(
+            self, "permission_posture",
+            _clean_text(self.permission_posture),
+        )
+        object.__setattr__(
+            self, "validation_status", _clean_text(self.validation_status)
+        )
+        object.__setattr__(
+            self, "redaction_state", _clean_text(self.redaction_state)
+        )
+        object.__setattr__(
+            self, "created_at", _clean_text(self.created_at)
+        )
+        object.__setattr__(
+            self, "request_id", _clean_optional_text(self.request_id)
+        )
+        object.__setattr__(
+            self, "attempt_id", _clean_optional_text(self.attempt_id)
+        )
+        object.__setattr__(
+            self, "adapter_id", _clean_optional_text(self.adapter_id)
+        )
+        object.__setattr__(
+            self, "policy_decision_id",
+            _clean_optional_text(self.policy_decision_id),
+        )
+        object.__setattr__(
+            self, "result_return_id",
+            _clean_optional_text(self.result_return_id),
+        )
+        object.__setattr__(
+            self, "receipt_id", _clean_optional_text(self.receipt_id)
+        )
+        object.__setattr__(
+            self, "artifact_id", _clean_optional_text(self.artifact_id)
+        )
+        object.__setattr__(
+            self, "command_run_id",
+            _clean_optional_text(self.command_run_id),
+        )
+        object.__setattr__(
+            self, "result_availability",
+            _clean_optional_text(self.result_availability),
+        )
+        object.__setattr__(
+            self, "receipt_availability",
+            _clean_optional_text(self.receipt_availability),
+        )
+        object.__setattr__(
+            self, "artifact_availability",
+            _clean_optional_text(self.artifact_availability),
+        )
+        object.__setattr__(
+            self, "granted_permission_summary",
+            _clean_optional_text(self.granted_permission_summary),
+        )
+        object.__setattr__(
+            self, "result_summary",
+            _clean_optional_text(self.result_summary),
+        )
+        object.__setattr__(
+            self, "failure_reason",
+            _clean_optional_text(self.failure_reason),
+        )
+        object.__setattr__(
+            self, "updated_at", _clean_optional_text(self.updated_at)
+        )
+        object.__setattr__(self, "metadata", _clean_mapping(self.metadata))
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "operator_evidence_id": self.operator_evidence_id,
+            "invocation_id": self.invocation_id,
+            "source_thread_id": self.source_thread_id,
+            "source_message_id": self.source_message_id,
+            "harness_id": self.harness_id,
+            "evidence_state": self.evidence_state,
+            "policy_decision_summary": self.policy_decision_summary,
+            "permission_posture": self.permission_posture,
+            "owner_account_id": self.owner_account_id,
+            "guardian_boundary": self.guardian_boundary.to_payload(),
+            "validation_status": self.validation_status,
+            "redaction_state": self.redaction_state,
+            "created_at": self.created_at,
+            "request_id": self.request_id,
+            "attempt_id": self.attempt_id,
+            "adapter_id": self.adapter_id,
+            "policy_decision_id": self.policy_decision_id,
+            "result_return_id": self.result_return_id,
+            "receipt_id": self.receipt_id,
+            "artifact_id": self.artifact_id,
+            "command_run_id": self.command_run_id,
+            "result_availability": self.result_availability,
+            "receipt_availability": self.receipt_availability,
+            "artifact_availability": self.artifact_availability,
+            "granted_permission_summary": self.granted_permission_summary,
+            "result_summary": self.result_summary,
+            "failure_reason": self.failure_reason,
+            "updated_at": self.updated_at,
+            "metadata": copy.deepcopy(self.metadata),
+        }
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any] | None
+    ) -> PiInvocationOperatorEvidence:
+        data = _payload_from_mapping(payload)
+        boundary = data.get("guardian_boundary")
+        if boundary is None:
+            boundary = {
+                "owner_account_id": data.get("owner_account_id")
+                or data.get("account_id")
+                or ""
+            }
+        return cls(
+            operator_evidence_id=data.get("operator_evidence_id")
+            or data.get("id")
+            or "",
+            invocation_id=data.get("invocation_id") or "",
+            source_thread_id=data.get("source_thread_id") or "",
+            source_message_id=data.get("source_message_id") or "",
+            harness_id=data.get("harness_id") or "",
+            evidence_state=data.get("evidence_state") or "",
+            policy_decision_summary=data.get("policy_decision_summary") or "",
+            permission_posture=data.get("permission_posture") or "",
+            owner_account_id=data.get("owner_account_id")
+            or data.get("account_id")
+            or "",
+            guardian_boundary=boundary,
+            validation_status=data.get("validation_status") or "",
+            redaction_state=data.get("redaction_state") or "",
+            created_at=data.get("created_at") or "",
+            request_id=data.get("request_id"),
+            attempt_id=data.get("attempt_id"),
+            adapter_id=data.get("adapter_id"),
+            policy_decision_id=data.get("policy_decision_id"),
+            result_return_id=data.get("result_return_id"),
+            receipt_id=data.get("receipt_id"),
+            artifact_id=data.get("artifact_id"),
+            command_run_id=data.get("command_run_id"),
+            result_availability=data.get("result_availability"),
+            receipt_availability=data.get("receipt_availability"),
+            artifact_availability=data.get("artifact_availability"),
+            granted_permission_summary=data.get(
+                "granted_permission_summary"
+            ),
+            result_summary=data.get("result_summary"),
+            failure_reason=data.get("failure_reason"),
+            updated_at=data.get("updated_at"),
+            metadata=_clean_mapping(data.get("metadata")),
+        )
+
+
 __all__ = [
     "PiGuardianBoundary",
     "PiPermissionGrant",
@@ -1325,6 +1541,7 @@ __all__ = [
     "PiHarnessResult",
     "PiInvocationPolicyDecision",
     "PiInvocationResultReturn",
+    "PiInvocationOperatorEvidence",
     "PiInvocationValidationResult",
     "PiHarnessResultClass",
     "PiInvocationEnvelopeStatus",

@@ -19,13 +19,16 @@ Define and implement a governed, bounded, operator-visible Pi/Coder invocation s
 | C04-T003 | docs | `go` | `9468eeacd` / `3cbd4ad8f` | Proof matrix — state ladder, 27-row core boundary matrix, 10-class evidence matrix, 15-condition gate matrix, lineage/receipt/artifact/operator/redaction proof requirements |
 | C04-T004 | backend | `go` | `74e137511` | Contract gap repair — contracts + validation already existed; added 8 boundary tests (23 total) |
 | C04-T005 | backend | `go` | `32b89df06` | Policy decision contract — PiInvocationPolicyDecision, validation helper, 21 tests (44 total) |
-| C04-T006 | backend | `go` | `TBD` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
+| C04-T006 | backend | `go` | `c4e63a55f` / `b4284b5e8` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
+| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
 | C04-T002 | docs | planned | — | Define Pi/Coder invocation boundary acceptance contract |
 | C04-T003 | docs | planned | — | Envelope preview contract |
 | C04-T004 | docs | planned | — | Validation-only run mode contract |
 | C04-T005 | backend | `go` | `32b89df06` | Policy decision contract — PiInvocationPolicyDecision, validation helper, 21 tests (44 total) |
-| C04-T006 | backend | `go` | `TBD` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
+| C04-T006 | backend | `go` | `c4e63a55f` / `b4284b5e8` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
+| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
 | C04-T006 | frontend | planned | — | Envelope preview UI scaffold |
+| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
 | C04-T007 | frontend | planned | — | Validation-only run mode UI scaffold |
 | C04-T008 | proof | planned | — | C04 integration proof and closeout |
 
