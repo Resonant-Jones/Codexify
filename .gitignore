@@ -187,6 +187,37 @@ MiniMax-MCP-main/
 # Local exports / data dumps
 conversations.json
 
+# Local OpenAI export corpus and forensic outputs
+local_exports/openai/*
+!local_exports/openai/README.md
+!local_exports/openai/.gitkeep
+
+export_scraper/
+export_archaeology/
+openai_export_diagnostic.json
+openai_export_diagnostic.md
+dat_inventory.json
+dat_inventory.md
+
+# Raw OpenAI export folders copied to the repo root
+/OpenAI-export/
+/Unassigned/
+/__export_file_manifests__/
+/conversations__*/
+/files__*/
+/workspace*/
+
+# Opaque OpenAI export payloads in copied export folders. Keep this scoped so
+# future tests can still add intentional .dat fixtures elsewhere.
+/OpenAI-export/**/*.dat
+/Unassigned/**/*.dat
+/conversations__*/**/*.dat
+/files__*/**/*.dat
+/workspace*/**/*.dat
+
+# Local machine-only config
+.local/
+
 # Vendor repos (kept outside repo)
 boxbeyond-kutiraai/
 compound-mcp-server-main/
