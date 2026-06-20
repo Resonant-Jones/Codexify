@@ -10,6 +10,7 @@ from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiHarnessResult,
     PiInvocationEnvelope,
+    PiInvocationPolicyDecision,
     PiInvocationReceipt,
     PiInvocationValidationResult,
     PiPermissionGrant,
@@ -829,8 +830,89 @@ def validate_harness_result_against_receipt(
     return _result(reasons=reasons, metadata=metadata)
 
 
+def validate_pi_invocation_policy_decision(
+    decision: PiInvocationPolicyDecision,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    # Required fields
+    if not decision.policy_decision_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.invocation_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.source_thread_id or not decision.source_message_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
+        )
+    if not decision.harness_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+        )
+
+    # Bounded decision values
+    if decision.decision not in {"allowed", "denied", "blocked", "deferred"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+
+    # Permissions
+    if not decision.requested_permissions:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if decision.decision in {"denied", "blocked"} and decision.granted_permissions:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if decision.decision == "allowed":
+        requested = _permission_signatures(decision.requested_permissions)
+        granted = _permission_signatures(decision.granted_permissions)
+        for sig in granted:
+            if sig not in requested:
+                reasons.append(
+                    _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+                )
+                break
+
+    # Permission posture and validation/redaction
+    if not decision.permission_posture:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if not decision.validation_status:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.redaction_state:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+
+    # Guardian boundary
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        decision.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "policy_decision",
+        "policy_decision_id": decision.policy_decision_id,
+        "invocation_id": decision.invocation_id,
+        "source_thread_id": decision.source_thread_id,
+        "source_message_id": decision.source_message_id,
+        "harness_id": decision.harness_id,
+        "decision": decision.decision,
+        "permission_posture": decision.permission_posture,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
 __all__ = [
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",
     "validate_harness_result_against_receipt",
+    "validate_pi_invocation_policy_decision",
 ]
