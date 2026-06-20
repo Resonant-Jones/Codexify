@@ -10,6 +10,7 @@
 | C06-D006 | 2026-06-19 | `go` — command-run evidence card added via useCodingWorkOrders; 5 states, safe fields, no mutation, 8 tests, C06-T007 next | active |
 | C06-D007 | 2026-06-20 | `go` — standalone tool-turn evidence card via C05 route; explicit ID only, no fabrication, 5 states, 9 tests, C06-T008 next | active |
 | C06-D008 | 2026-06-20 | `go` — receipt evidence card via latest_receipt_id pointers; deferred linkage, 5 states, 8 tests, C06-T009 next | active |
+| C06-D009 | 2026-06-20 | `go` — C06 final composition proof consolidated; 7 surfaces, 8-task ledger, no-backend, no-mutation, 10 limitations, C06-T010 next | active |
 
 ---
 
@@ -231,3 +232,27 @@
 - **Revisit Trigger**:
   - C06-T009 final composition proof + closeout.
   - C05 receipt linkage wiring — then upgrade card.
+
+---
+
+### Decision: C06-D009
+
+- **Decision ID**: C06-D009
+- **Date**: 2026-06-20
+- **Decision**: `go`. C06 final composition proof consolidated. 8-task ledger complete. 7 workspace surfaces: HealthOverview, CodingWorkOrdersPanel, command-run evidence card, tool-turn evidence card, receipt evidence card, gaps card, safety boundary. No new backend routes. 12 mutation controls absent. 8 unsupported claims rejected. 10 deferred limitations recorded. Release boundary preserved.
+- **Reason**:
+  - C06-T001–T008 all gated `go` with commit evidence.
+  - No `guardian/` files changed in C06 card implementation commits — existing truth surfaces only.
+  - 58 CommandCenterShell tests pass. 128 broader tests pass. 0 backend tests affected.
+  - All cards read-only, truth-labeled, no mutation controls.
+  - Deferred: receipt linkage, receipt readback, EventConsole redaction.
+  - No release claim widened. Campaign not yet closed — C06-T010 closeout remains.
+- **Evidence**:
+  - `final-composition-proof.md` — 16-section proof artifact.
+  - `GuardianOperatorWorkspaceLens.tsx` — composes all 7 surfaces.
+  - `CommandCenterShell.test.tsx` — 58 tests.
+- **Consequence**:
+  - C06-T009 accepted. C06-T010 (campaign closeout) may proceed.
+- **Revisit Trigger**:
+  - C06-T010 closeout — verify all evidence and mark campaign closed.
+  - C05 receipt linkage wiring — upgrade receipt card.
