@@ -411,3 +411,48 @@ CommandCenterShell.test.tsx           41 passed (no new changes needed)
 ### Next Task
 **C06-T007: Add Guardian Operator Workspace standalone tool-turn evidence card**
 
+
+---
+
+## C06-T007: Tool-Turn Evidence Card (2026-06-20 09:30 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `fdd9eb9ac` | **Worktree**: clean
+
+### Files Created/Modified
+- `GuardianWorkspaceToolTurnEvidenceCard.tsx` — created
+- `GuardianOperatorWorkspaceLens.tsx` — static card replaced with live component
+- `CommandCenterShell.test.tsx` — 9 new tests
+- `backlog.md` — C06-T007 marked `go`
+
+### Source Decision
+Uses existing C05 read-only route `GET /api/guardian/commands/tool-turns/{message_id}/observability` only when an explicit `assistant_message_id` is available from `useCodingWorkOrders` data. No ID fabrication — only the explicit field is used.
+
+### Explicit Assistant Message ID
+Only `assistant_message_id` from work-order records is accepted. No inference from work_order_id, run_id, receipt_id, lease_id, list index, or timestamps. Test-proven: no tool-turns URL called when only non-message-id fields present.
+
+### States
+Loading, unavailable (no assistant_message_id), error, empty (no tool-turn evidence), available.
+
+### Safe Fields
+assistant_message_id, tool_turn_id, tool_turn_state, loop_stop_reason, command_run_id, command_id, command_status, command_result_summary, command_error_summary, evidence_durability. No raw args, secrets, prompts, extra_meta, result_json, stack traces.
+
+### No Mutation / No Execution
+Refresh button only. No dispatch, execute, retry, replay, approve, complete, create artifact, create receipt, run tool, invoke tool controls.
+
+### Truth-Labeling
+"does not prove autonomous delegation, Pi/Coder execution, recursive tool use, artifact creation, receipt creation, or work-order completion."
+
+### Validation
+```
+CommandCenterShell.test.tsx  50 passed (9 tool-turn + 41 existing)
+-t "CommandCenter|CodingWorkOrders|GuardianWorkspace"  120 passed, 753 skipped
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C06-T007 accepted. C06-T008 may proceed.
+
+### Next Task
+**C06-T008: Add Guardian Operator Workspace standalone receipt evidence card**

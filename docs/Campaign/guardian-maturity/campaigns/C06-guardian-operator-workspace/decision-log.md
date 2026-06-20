@@ -8,6 +8,7 @@
 | C06-D004 | 2026-06-19 | `go` — first live cards composed; HealthOverview + CodingWorkOrdersPanel in workspace; no new fetch, no mutation, C06-T005 next | active |
 | C06-D005 | 2026-06-19 | `go` — C06 composition proof consolidated; 2 live cards, no-new-fetch, no-mutation, truth-labeling, 10 limitations, C06-T006 next | active |
 | C06-D006 | 2026-06-19 | `go` — command-run evidence card added via useCodingWorkOrders; 5 states, safe fields, no mutation, 8 tests, C06-T007 next | active |
+| C06-D007 | 2026-06-20 | `go` — standalone tool-turn evidence card via C05 route; explicit ID only, no fabrication, 5 states, 9 tests, C06-T008 next | active |
 
 ---
 
@@ -176,4 +177,30 @@
 - **R1 addendum (2026-06-19)**: `python3 scripts/validate_docs.py` passed. All 41 shell tests + 111 broader pass. No frontend changes needed. Gate sealed.
 - **Revisit Trigger**:
   - C06-T007 standalone tool-turn evidence card.
+  - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D007
+
+- **Decision ID**: C06-D007
+- **Date**: 2026-06-20
+- **Decision**: `go`. Guardian Operator Workspace standalone tool-turn evidence card added. Uses existing C05 read-only route only when explicit `assistant_message_id` exists. No ID fabrication — only explicit field accepted. No new backend routes, no command invocation, no tool execution. 5 states, 9 tests. Release boundary preserved.
+- **Reason**:
+  - Card uses `useCodingWorkOrders` to locate explicit `assistant_message_id`.
+  - C05 route called only when ID exists — no fabrication.
+  - States: loading, unavailable (no ID), error, empty, available — all test-proven.
+  - Safe fields from C05 read model. No raw args/secrets/payloads.
+  - Refresh button only. No mutation/tool execution controls.
+  - Truth-labeled: 6 unsupported claims.
+  - 50 shell tests (9 new + 41 existing). 120 broader tests pass.
+  - Docs validator passed. Git diff --check clean.
+- **Evidence**:
+  - `GuardianWorkspaceToolTurnEvidenceCard.tsx` — 200 lines.
+  - `CommandCenterShell.test.tsx` — 9 new tests.
+- **Consequence**:
+  - C06-T007 accepted. Tool-turn evidence card is live in workspace.
+  - C06-T008 (standalone receipt card) may proceed.
+- **Revisit Trigger**:
+  - C06-T008 standalone receipt evidence card.
   - C06-T009 final C06 closeout.
