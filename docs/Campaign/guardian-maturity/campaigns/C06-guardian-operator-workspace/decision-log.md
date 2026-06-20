@@ -173,6 +173,7 @@
 - **Consequence**:
   - C06-T006 accepted. Command-run evidence card is live in workspace.
   - C06-T007 (standalone tool-turn card) may proceed.
+- **R1 addendum (2026-06-19)**: `python3 scripts/validate_docs.py` passed. All 41 shell tests + 111 broader pass. No frontend changes needed. Gate sealed.
 - **Revisit Trigger**:
   - C06-T007 standalone tool-turn evidence card.
   - C06-T009 final C06 closeout.
