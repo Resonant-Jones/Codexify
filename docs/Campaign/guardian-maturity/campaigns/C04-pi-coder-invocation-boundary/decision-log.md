@@ -91,3 +91,25 @@
   - C04-T004 receipt + artifact contract repair — verify against proof matrix.
   - Any C04 implementation task — cross-reference proof rows.
   - C04-T008 closeout — verify all proof matrix rows satisfied or explicitly deferred.
+
+---
+
+### Decision: C04-D004
+
+- **Decision ID**: C04-D004
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T001 audit categorized Pi/Coder contracts + validation + tests as `missing` in error. All contracts, validation helpers, and tests already existed. 15 original + 8 new boundary tests pass (23 total). No code behavior changed. Proof state corrected from `missing` to `contract_only (verified)`.
+- **Reason**:
+  - `guardian/pi/contracts.py`: `PiInvocationReceipt`, `PiInvocationArtifact`, `PiInvocationValidationResult`, `PiHarnessResult` — all present.
+  - `guardian/pi/validation.py`: `validate_invocation_envelope()`, `validate_receipt_against_envelope()`, `validate_harness_result_against_receipt()` — all present, deterministic.
+  - `tests/pi/test_pi_invocation_contracts.py`: 15 tests covering envelope, receipt, harness result, lineage, permissions, linkage, determinism, side-effect freedom, round-trip — all passing.
+  - Added 8 boundary tests: forbidden metadata, missing lineage fields, artifact shape, no-runtime-import, determinism.
+  - 23 tests total. No routes, persistence, execution, or frontend changes.
+- **Evidence**:
+  - `tests/pi/test_invocation_receipt_artifact_contracts.py` — 8 new tests.
+  - `pytest -v tests/pi/` — 23 passed.
+- **Consequence**:
+  - C04-T004 accepted. Core contracts are verified, not missing.
+  - C04-T005 (policy decision contract) may proceed.
+- **Revisit Trigger**:
+  - C04-T005 policy decision contract — define Guardian-owned decision semantics.

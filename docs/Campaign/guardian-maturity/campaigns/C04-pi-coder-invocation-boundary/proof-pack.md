@@ -109,3 +109,50 @@ All 24 required pre-reads available. No missing inputs.
 
 ### Next Task
 **C04-T004: Repair Pi/Coder invocation receipt and artifact contract gaps**
+
+---
+
+## C04-T004: Contract Gap Repair (2026-06-20 12:25 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `3cbd4ad8f` | **Worktree**: clean
+- **Key finding**: `guardian/pi/contracts.py` + `guardian/pi/validation.py` already contain comprehensive Pi/Coder contract types and deterministic validation helpers. `tests/pi/test_pi_invocation_contracts.py` already contained 15 passing tests covering envelope validation, receipt/envelope matching, harness result/receipt matching, owner lineage, permission posture, command bus linkage, determinism, side-effect freedom, and round-trip serialization. C04-T001 audit categorized these as `missing` in error.
+
+### Contract Gap Status
+- `PiInvocationReceipt`: ✅ Already exists — 13 required fields, from_payload/to_payload
+- `PiInvocationArtifact`: ✅ Already exists — 7 fields
+- `PiInvocationValidationResult`: ✅ Already exists — structured outcome class
+- `validate_invocation_envelope()`: ✅ Already exists — deterministic
+- `validate_receipt_against_envelope()`: ✅ Already exists — cross-validates receipt against envelope
+- `validate_harness_result_against_receipt()`: ✅ Already exists — cross-validates result against receipt
+
+### New Work
+Added `tests/pi/test_invocation_receipt_artifact_contracts.py` — 8 additional boundary tests:
+- Receipt artifact metadata does not silently accept forbidden keys
+- Receipt missing source_thread_id fails
+- Receipt missing source_message_id fails
+- Artifact with required fields passes construction
+- Artifact no raw payload fields present in payload
+- Importing guardian.pi does not import runtime routes
+- Envelope validation is deterministic
+- Receipt-against-envelope validation is deterministic
+
+### Full Test Suite
+```
+tests/pi/test_pi_invocation_contracts.py            15 passed
+tests/pi/test_invocation_receipt_artifact_contracts.py  8 passed
+Total: 23 passed
+```
+
+### No Runtime Behavior
+- No backend routes added.
+- No persistence schema changed.
+- No command invocation behavior added.
+- No Pi SDK/Coder execution added.
+- No frontend controls added.
+
+### Gate Decision
+**`go`** — C04-T004 accepted. C04-T005 may proceed.
+
+### Next Task
+**C04-T005: Define Pi/Coder policy decision contract**
