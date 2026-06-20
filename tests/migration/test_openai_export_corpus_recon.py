@@ -265,7 +265,7 @@ def test_recon_counts_keywords(tmp_path: Path):
         export_root,
         [
             _build_mapping_conversation(
-                [("user", "Using Codexify and Guardian for tasks.", 1.0)],
+                [("user", "Guardian helps Codexify and Codexify rocks.", 1.0)],
                 conversation_id="kw1",
             ),
             _build_mapping_conversation(
@@ -278,7 +278,9 @@ def test_recon_counts_keywords(tmp_path: Path):
     recon = OpenAIExportCorpusRecon()
     stats = recon.scan(export_root)
 
-    assert stats.keyword_counts["Codexify"] == 1
+    # Per-occurrence: "Codexify" appears twice in kw1.
+    assert stats.keyword_counts["Codexify"] == 2
+    # "Guardian" appears once in kw1, once in kw2 → 2 occurrences.
     assert stats.keyword_counts["Guardian"] == 2
     assert stats.keyword_counts["Scout"] == 1
     assert stats.keyword_counts.get("PulseOS", 0) == 0
