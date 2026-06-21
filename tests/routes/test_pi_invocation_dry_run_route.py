@@ -63,6 +63,11 @@ class TestValidDryRun:
         assert data["execution_performed"] is False
         assert data["persistence_performed"] is False
         assert data["release_support"] == "unsupported"
+        # Evidence field
+        assert "operator_evidence" in data
+        evidence = data["operator_evidence"]
+        assert isinstance(evidence, dict)
+        assert "evidence_state" in evidence
 
     def test_response_has_no_raw_payload_fields(self, monkeypatch: Any) -> None:
         client = _client(monkeypatch)

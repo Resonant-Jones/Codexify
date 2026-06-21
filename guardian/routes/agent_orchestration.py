@@ -370,11 +370,12 @@ async def pi_invocation_dry_run(
     """
     from guardian.pi.contracts import PiInvocationEnvelope
     from guardian.pi.validation import validate_invocation_envelope
+    from guardian.pi.evidence import build_operator_evidence_from_dry_run_response
 
     envelope = PiInvocationEnvelope.from_payload(body)
     result = validate_invocation_envelope(envelope)
 
-    return {
+    response = {
         "dry_run": True,
         "accepted": result.ok,
         "state": "validated" if result.ok else "validation_failed",
@@ -391,6 +392,17 @@ async def pi_invocation_dry_run(
         "harness_id": envelope.harness_id or None,
         "permission_posture": _safe_permission_summary(envelope),
     }
+
+    # Include safe operator evidence
+    response["operator_evidence"] = build_operator_evidence_from_dry_run_response(
+        response=response,
+        safe_invocation_id=envelope.invocation_id or None,
+        safe_source_thread_id=envelope.source_thread_id or None,
+        safe_source_message_id=envelope.source_message_id or None,
+        safe_harness_id=envelope.harness_id or None,
+    ).to_payload()
+
+    return response
 
 
 def _safe_permission_summary(envelope: Any) -> str | None:
