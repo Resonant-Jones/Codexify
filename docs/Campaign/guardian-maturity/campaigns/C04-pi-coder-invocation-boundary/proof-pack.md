@@ -453,3 +453,32 @@ No runtime tests — docs-only.
 
 ### Next Task
 **C04-T014: Implement Pi/Coder dry-run route-to-operator evidence adapter**
+
+---
+
+## C04-T014: Evidence Adapter Implemented (2026-06-20 01:55 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `a5e5170ba` | **Worktree**: clean
+
+### Files Created
+- `guardian/pi/evidence.py` — `build_operator_evidence_from_dry_run_response()` pure adapter
+- `tests/pi/test_operator_evidence_adapter.py` — 13 tests
+
+### Adapter
+Pure function. Maps dry-run response {dict|None} → `PiInvocationOperatorEvidence`. 6 evidence states. Forbidden key filter (22 keys). No I/O, no side effects.
+
+### Validation
+```
+adapter tests: 13 passed
+full Pi tests: 116 passed
+route tests: 14 passed
+git diff --check: clean
+python3 scripts/validate_docs.py: passed
+```
+
+### Gate Decision
+**`go`** — C04-T014 accepted. C04-T015 may proceed.
+
+### Next Task
+**C04-T015: Wire Pi/Coder dry-run evidence adapter into validation route response**
