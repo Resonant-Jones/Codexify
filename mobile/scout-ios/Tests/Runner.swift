@@ -404,6 +404,93 @@ struct ScoutTestRunner {
             check("Catalog transport error → 'failed' in msg", result.message.contains("failed"))
         }
 
+        // ── Guardian threads probe ───────────────────────────────
+
+        func threadsBody(count: Int = 2) -> Data {
+            let thread = """
+            {"id":1,"title":"Hello","summary":"A test thread","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-02T00:00:00Z"}
+            """
+            let threads = (0..<count).map { _ in thread }.joined(separator: ",")
+            return """
+            {"ok":true,"threads":[\(threads)],"limit":50,"offset":0,"next_offset":\(count),"has_more":false}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Threads probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, threadsBody())
+            }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: "key", session: session
+            )
+            check("Threads 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Threads 2xx → threads non-nil", result.threads != nil)
+            check("Threads 2xx → 2 threads", result.threads?.count == 2)
+            check("Threads 2xx → title 'Hello'", result.threads?.first?.title == "Hello")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Threads no header when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, threadsBody(count: 0))
+            }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Threads empty → threads empty", result.threads?.isEmpty == true)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Threads decode fail → threads nil", result.threads == nil)
+            check("Threads decode fail → httpStatus preserved", result.httpStatus == 200)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Threads 401 → threads nil", result.threads == nil)
+            check("Threads 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Threads timeout → threads nil", result.threads == nil)
+            check("Threads timeout → 'timed out' in msg", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutGuardianThreadsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Threads transport error → threads nil", result.threads == nil)
+            check("Threads transport error → 'failed' in msg", result.message.contains("failed"))
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
