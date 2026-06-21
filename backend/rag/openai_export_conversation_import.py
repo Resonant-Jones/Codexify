@@ -48,6 +48,13 @@ class ImportDiagnostics:
     skipped_records: list[dict[str, str]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     latest_source_timestamp: str | None = None
+    # Embedding phase (separate from text import)
+    embedding_mode: str = "defer"
+    embedding_candidates: int = 0
+    embedding_enqueued: int = 0
+    embedding_deferred: int = 0
+    embedding_failed: int = 0
+    text_import_complete: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +78,12 @@ class ImportDiagnostics:
             "skipped_records": self.skipped_records[:50],
             "errors": self.errors,
             "latest_source_timestamp": self.latest_source_timestamp,
+            "embedding_mode": self.embedding_mode,
+            "embedding_candidates": self.embedding_candidates,
+            "embedding_enqueued": self.embedding_enqueued,
+            "embedding_deferred": self.embedding_deferred,
+            "embedding_failed": self.embedding_failed,
+            "text_import_complete": self.text_import_complete,
         }
 
 
@@ -236,6 +249,7 @@ def import_openai_export_conversations(
     title_contains: str | None = None,
     diagnostic_dir: str | Path = "logs/openai_import",
     order: str = "file",
+    embedding_mode: str = "defer",
 ) -> ImportDiagnostics:
     """Import OpenAI export conversations into Codexify chat tables.
 
@@ -252,6 +266,7 @@ def import_openai_export_conversations(
         limit=limit,
         title_filter=title_contains,
         order=order,
+        embedding_mode=embedding_mode,
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -373,6 +388,7 @@ def import_openai_export_conversations(
         import_stats = ingest_chatgpt_conversation_records(
             all_conversations,
             user_id=user_id,
+            embedding_mode=embedding_mode,
         )
     except Exception as exc:
         diagnostics.errors.append(f"Import failed: {exc}")
@@ -390,6 +406,21 @@ def import_openai_export_conversations(
     diagnostics.messages_skipped_duplicate = (
         diagnostics.messages_discovered - diagnostics.messages_imported
     )
+    diagnostics.text_import_complete = True
+
+    # Capture embedding stats separately from text import
+    diagnostics.embedding_mode = import_stats.get(
+        "embedding_mode", embedding_mode
+    )
+    diagnostics.embedding_candidates = import_stats.get(
+        "embedding_candidates", 0
+    )
+    emb_persisted = import_stats.get("embeddings_persisted", 0)
+    emb_failed = import_stats.get("embeddings_failed", 0)
+    diagnostics.embedding_enqueued = emb_persisted
+    diagnostics.embedding_failed = emb_failed
+    if embedding_mode == "defer":
+        diagnostics.embedding_deferred = diagnostics.embedding_candidates
 
     diagnostics.completed_at = datetime.now(timezone.utc).isoformat()
     _write_diagnostics(diagnostics, diag_dir)
