@@ -213,3 +213,15 @@
 - **Evidence**: `git diff --check` clean. Docs validator passed.
 - **Consequence**: C04-T013 fully accepted. C04-T014 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D014-R1
+
+- **Decision ID**: C04-D014-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T014 evidence adapter governance closeout complete. `build_operator_evidence_from_dry_run_response()` at `guardian/pi/evidence.py`. Pure, deterministic, no I/O. Maps dry-run response to `PiInvocationOperatorEvidence`. 13 adapter + 116 Pi + 14 route tests pass. `guardian.pi` import ok. Release boundary preserved. C04-T015 next.
+- **Reason**: Prior C04-T014 output omitted governance closeout and import proof. R1 records all missing evidence. No code or test changes.
+- **Evidence**: 13 adapter + 116 Pi + 14 route tests pass. `guardian.pi` import ok. `git diff --check` clean. Docs validator passed.
+- **Consequence**: C04-T014 fully accepted. C04-T015 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
