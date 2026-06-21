@@ -231,3 +231,45 @@ No Pi SDK, no Coder, no command bus, no worker, no transcript, no receipt, no ar
 
 ### Next Task
 **C04-T008c: Close Pi/Coder dry-run route proof**
+
+---
+
+## C04-T008b-R2: Side-Effect Proof Addendum (2026-06-20 13:20 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `5594f1565` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: 7 no-side-effect proofs not explicitly reported.
+
+### Route Source Inspection
+The `pi_invocation_dry_run` route (lines 355-397 of `agent_orchestration.py`) imports only:
+- `guardian.pi.contracts.PiInvocationEnvelope`
+- `guardian.pi.validation.validate_invocation_envelope`
+
+It calls only `PiInvocationEnvelope.from_payload()` and `validate_invocation_envelope()`, and returns a dict. No other functions or modules are imported or called.
+
+### Missing No-Side-Effect Proofs
+
+| Boundary | Target exists in codebase? | Route imports it? | Route calls it? | Proof |
+|----------|---------------------------|-------------------|-----------------|-------|
+| no Pi SDK behavior | Not found in codebase (C04-T001) | ❌ | ❌ | Source-verified |
+| no Coder execution | Not found in codebase (C04-T001) | ❌ | ❌ | Source-verified |
+| no worker enqueue | `guardian.workers.chat_worker` exists (separate module) | ❌ | ❌ | Source-verified |
+| no transcript persistence | `guardian.workers.chat_worker` handles chat completion, not invoked | ❌ | ❌ | Source-verified |
+| no receipt creation | `WorkOrderResultReceipt` model exists (C03), not imported | ❌ | ❌ | Source-verified |
+| no artifact creation | No Pi/Coder artifact model exists (C04-T001) | ❌ | ❌ | Source-verified |
+| no database write | `_store` in module but not called (test-proven in R1) | ❌ | ❌ | Test-proven + source-verified |
+
+### Validation
+```
+pytest tests/routes/test_pi_invocation_dry_run_route.py  14 passed (unchanged)
+pytest tests/pi/                                           90 passed (unchanged)
+python -c "import guardian.pi"                             ok (unchanged)
+git diff --check                                            clean
+python3 scripts/validate_docs.py                            passed
+```
+
+### Gate Decision
+**`go`** — C04-T008b-R2 accepted. All side-effect proofs sealed. C04-T008c may proceed.
+
+### Next Task
+**C04-T008c: Close Pi/Coder dry-run route proof**
