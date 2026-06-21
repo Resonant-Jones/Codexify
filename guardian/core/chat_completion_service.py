@@ -161,6 +161,126 @@ def _extract_latest_turn_message_id(task: Any) -> int | None:
     return value if value > 0 else None
 
 
+# webui stores the latest user turn as "[username]: <message>" and the
+# "@guardian" mention is appended inline. Both tokens are noise to the embedder
+# and dominate the cosine match against the knowledge base, so strip them from
+# the retrieval query only. The user_id is still passed to the system prompt
+# builder via bundle.user_id / task.user_id so identity is preserved.
+_LEADING_USERNAME_TAG_RE = re.compile(r"^\s*\[[^\]\n]{1,40}\]:\s*")
+_GUARDIAN_MENTION_RE = re.compile(r"@guardian\b", re.IGNORECASE)
+
+
+def _clean_retrieval_query(raw: str | None) -> str:
+    """
+    Strip the leading `[username]: ` sender tag and any `@guardian` mention
+    from a user message before it is sent to the vector store as the
+    retrieval query. Returns a whitespace-collapsed string.
+
+    Empty / non-string input returns "" so callers can pass optional content
+    safely. Attachment/doc tiles are extracted earlier by
+    `render_content_for_inference` and survive the strip.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    cleaned = _LEADING_USERNAME_TAG_RE.sub("", raw, count=1)
+    cleaned = _GUARDIAN_MENTION_RE.sub("", cleaned)
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip()
+
+
+def _extract_finish_reason(result: dict[str, Any] | None) -> str | None:
+    """
+    Best-effort extraction of `finish_reason` from a completion result.
+
+    `call_local` / `call_groq` return only the assistant text string, so this
+    will usually be None. When the underlying provider response is preserved
+    on the result (e.g. some tool-decision paths or wrapped responses), the
+    OpenAI-style `choices[0].finish_reason` is surfaced here.
+    """
+    if not isinstance(result, dict):
+        return None
+    raw = result.get("raw")
+    if isinstance(raw, dict):
+        choices = raw.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                reason = first.get("finish_reason")
+                if reason:
+                    return str(reason)
+    execution = result.get("execution")
+    if isinstance(execution, dict):
+        reason = execution.get("finish_reason")
+        if reason:
+            return str(reason)
+    return None
+
+
+def _summarize_retrieval_bundle(bundle: Any) -> dict[str, Any]:
+    """
+    Compact summary of a retrieval bundle for diagnostic logging. Counts the
+    number of hits per channel (semantic/memory/graph/personal-facts) so you
+    can see at a glance whether context actually made it into the prompt.
+    """
+    if not isinstance(bundle, dict):
+        return {"present": False}
+    summary: dict[str, Any] = {"present": True}
+    for key in ("semantic", "memory", "graph", "personal_facts", "verified_personal_facts"):
+        value = bundle.get(key)
+        if isinstance(value, list):
+            summary[key] = len(value)
+        elif value:
+            summary[key] = "present"
+        else:
+            summary[key] = 0
+    query_value = bundle.get("retrieval_query")
+    if isinstance(query_value, str):
+        summary["retrieval_query_chars"] = len(query_value)
+    return summary
+
+
+def _log_completion_diagnostics(
+    *,
+    task: Any,
+    provider: Any,
+    model: Any,
+    bundle: Any,
+    assistant_text: str,
+    result: dict[str, Any],
+) -> None:
+    """
+    Emit a single structured log line per completion with what the model
+    actually returned. Used to diagnose "messages truncated in the UI":
+    if `assistant_text_length` is small and `finish_reason == "length"`,
+    the model hit its output cap (look at LOCAL_MAX_TOKENS / provider
+    default). If `finish_reason` is None, the providers didn't surface it
+    — that's normal for Codexify's current local/groq paths.
+    """
+    try:
+        assistant_length = len(assistant_text or "")
+        finish_reason = _extract_finish_reason(result)
+        bundle_summary = _summarize_retrieval_bundle(bundle)
+        request_id = (
+            str(getattr(task, "task_id", "") or "").strip()
+            or str(result.get("requestId") or "").strip()
+            or None
+        )
+        logger.info(
+            "chat.completion.finished",
+            extra={
+                "provider": str(provider) if provider else None,
+                "model": str(model) if model else None,
+                "request_id": request_id,
+                "assistant_text_length": assistant_length,
+                "finish_reason": finish_reason,
+                "retrieval_bundle": bundle_summary,
+            },
+        )
+    except Exception:
+        # Diagnostics must never break the completion path.
+        logger.exception("chat.completion.diagnostics_failed")
+
+
 def _command_bus_app() -> Any:
     from guardian.guardian_api import app as guardian_app
 
@@ -3547,7 +3667,12 @@ async def build_messages_for_llm(
 
     conversation_messages = [*history_messages, latest_turn]
     # Retrieval must follow the latest user turn, not earlier history.
-    retrieval_query = render_content_for_inference(latest_turn.get("content"))
+    # Strip the "[username]: " sender tag and any "@guardian" mention from the
+    # query so they don't dominate the embedding match against the KB. The
+    # user_id is still threaded through to the system prompt separately.
+    retrieval_query = _clean_retrieval_query(
+        render_content_for_inference(latest_turn.get("content"))
+    )
     latest_turn_trace_fields = _latest_turn_trace_fields(
         latest_turn,
         retrieval_query=retrieval_query,
@@ -4710,6 +4835,14 @@ def run_chat_completion_task(
         cancel_check=cancel_check,
     )
     assistant_text = str(result.get("assistant_text") or "")
+    _log_completion_diagnostics(
+        task=task,
+        provider=provider,
+        model=model,
+        bundle=bundle,
+        assistant_text=assistant_text,
+        result=result,
+    )
     payload_summary = dict(result.get("payload_summary") or payload_summary)
     payload_summary["requested_provider"] = requested_provider
     payload_summary["requested_model"] = requested_model
