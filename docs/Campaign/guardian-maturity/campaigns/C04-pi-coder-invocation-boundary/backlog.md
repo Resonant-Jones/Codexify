@@ -30,10 +30,10 @@ Define and implement a governed, bounded, operator-visible Pi/Coder invocation s
 | C04-T006 | frontend | planned | — | Envelope preview UI scaffold |
 | C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
 | C04-T007 | frontend | planned | — | Validation-only run mode UI scaffold |
-| C04-T008b | backend | planned | — | Add Pi/Coder validation-only dry-run route |
+| C04-T008b | backend | `go` | `da966c060` | Pi/Coder validation-only dry-run route — POST /api/agents/pi-invocation/dry-run, 9 route tests |
 | C04-T008c | proof | planned | — | Close Pi/Coder dry-run route proof |
 | C04-T008a | docs | `go` | `TBD` | Route seam inspection — route ownership, auth, response patterns, hazards, contract, 15-test matrix |
-| C04-T008b | backend | planned | — | Add Pi/Coder validation-only dry-run route |
+| C04-T008b | backend | `go` | `da966c060` | Pi/Coder validation-only dry-run route — POST /api/agents/pi-invocation/dry-run, 9 route tests |
 | C04-T008c | proof | planned | — | Close Pi/Coder dry-run route proof |
 C04-T008 was split into C04-T008a, C04-T008b, C04-T008c (see route-dry-run-seam-inspection.md)
 
