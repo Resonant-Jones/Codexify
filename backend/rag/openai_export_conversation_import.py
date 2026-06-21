@@ -33,6 +33,7 @@ class ImportDiagnostics:
     limit: int | None
     title_filter: str | None
     started_at: str
+    order: str = "file"
     completed_at: str = ""
     export_format: str = "unknown"
     conversations_discovered: int = 0
@@ -54,6 +55,7 @@ class ImportDiagnostics:
             "dry_run": self.dry_run,
             "limit": self.limit,
             "title_filter": self.title_filter,
+            "order": self.order,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "export_format": self.export_format,
@@ -173,6 +175,40 @@ def _matches_title_filter(conv: dict[str, Any], filter_text: str) -> bool:
     return filter_text.lower() in title
 
 
+def _source_timestamp(conv: dict[str, Any], key: str = "update_time") -> float:
+    """Extract a sortable timestamp from a conversation record."""
+    for ts_key in (key, "create_time", "update_time"):
+        val = conv.get(ts_key)
+        if isinstance(val, (int, float)):
+            ts = float(val)
+            return ts / 1000.0 if ts > 1_000_000_000_000 else ts
+    return 0.0
+
+
+def _sort_conversations(
+    conversations: list[dict[str, Any]],
+    order: str,
+) -> list[dict[str, Any]]:
+    if order == "newest":
+        return sorted(
+            conversations,
+            key=lambda c: _source_timestamp(c, "update_time"),
+            reverse=True,
+        )
+    elif order == "oldest":
+        return sorted(
+            conversations,
+            key=lambda c: _source_timestamp(c, "create_time"),
+        )
+    elif order == "updated":
+        return sorted(
+            conversations,
+            key=lambda c: _source_timestamp(c, "update_time"),
+            reverse=True,
+        )
+    return conversations  # "file" — adapter natural order
+
+
 def _compute_latest_timestamp(
     conversations: list[dict[str, Any]],
 ) -> str | None:
@@ -199,6 +235,7 @@ def import_openai_export_conversations(
     limit: int | None = None,
     title_contains: str | None = None,
     diagnostic_dir: str | Path = "logs/openai_import",
+    order: str = "file",
 ) -> ImportDiagnostics:
     """Import OpenAI export conversations into Codexify chat tables.
 
@@ -214,6 +251,7 @@ def import_openai_export_conversations(
         dry_run=dry_run,
         limit=limit,
         title_filter=title_contains,
+        order=order,
         started_at=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -257,6 +295,9 @@ def import_openai_export_conversations(
         return diagnostics
 
     diagnostics.conversations_discovered = len(all_conversations)
+
+    # --- Sort by order ---
+    all_conversations = _sort_conversations(all_conversations, order)
 
     # --- Apply title filter ---
     if title_contains:
