@@ -400,3 +400,30 @@ pnpm lint: not available — no frontend lint script
 
 ### Next Task
 **C04-T012: Wire Pi/Coder dry-run helper into read-only operator validation flow**
+
+---
+
+## C04-T012: Validation Flow Wired (2026-06-20 01:30 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `9bd9d2ac3` | **Worktree**: clean
+
+### Files Modified
+- `GuardianWorkspacePiCoderDryRunCard.tsx` — interactive validation flow via `validatePiCoderDryRun()`
+- `CommandCenterShell.test.tsx` — updated for interactive card (65 tests pass)
+
+### UI Wiring
+Card now has envelope textarea + "Validate dry-run" button. Calls `validatePiCoderDryRun()`. Renders safe response fields (accepted/rejected, validation_status, errors, warnings, dry_run, execution_performed, persistence_performed). No direct fetch. No global state writes. No forbidden controls.
+
+### Validation
+```
+CommandCenterShell.test.tsx  65 passed
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C04-T012 accepted. C04-T013 may proceed.
+
+### Next Task
+**C04-T013: Define Pi/Coder dry-run route-to-operator evidence seam**
