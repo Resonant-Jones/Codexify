@@ -177,3 +177,15 @@
 - **Evidence**: 103 Pi tests pass. `guardian.pi` import ok. `git diff --check` clean. Docs validator passed.
 - **Consequence**: C04-T010 fully accepted. C04-T011 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D011-R2
+
+- **Decision ID**: C04-D011-R2
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T011 API helper governance closeout complete. `validatePiCoderDryRun()` at `frontend/src/api/piCoderDryRun.ts`. Targets `POST /api/agents/pi-invocation/dry-run`. Validation-only. No forbidden exports. Card remains static/read-only, not wired. No runtime or frontend changes. Release boundary preserved. C04-T012 next.
+- **Reason**: Prior R1 closeout omitted decision-log entry and backlog consistency update. R2 records the missing governance metadata. No code or test changes.
+- **Evidence**: 66 shell tests pass. `git diff --check` clean. Docs validator passed.
+- **Consequence**: C04-T011 fully accepted. C04-T012 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
