@@ -1,0 +1,35 @@
+# CPU-safe dependency set for Guardian CI backend validation.
+#
+# Keep this file separate from backend/requirements.txt. The backend lock is
+# used by local/Docker runtime paths and includes optional AI/runtime packages
+# from requirements/ai.in, including torch/torchvision/MLX. GitHub's
+# ubuntu-latest backend job validates deterministic route/export behavior and
+# should not install the GPU-oriented stack.
+
+-r ../requirements/base.in
+-r ../requirements/dev.in
+
+# Route/test imports not currently represented in pyproject.toml or base.in.
+httpx
+python-multipart
+PyJWT
+pypdf
+pillow
+pydub
+psutil
+sse-starlette
+
+# Cloud-provider clients used by mocked route paths. These are API clients only;
+# they do not pull local inference/GPU wheels.
+groq
+litellm
+openai
+
+# Graph adapter imports are exercised in backend tests, but the graph backend
+# remains disabled/no-op unless explicitly configured.
+neo4j
+neomodel
+
+# Lightweight retrieval helpers used by deterministic tests.
+markdownify
+rank-bm25
