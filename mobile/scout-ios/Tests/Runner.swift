@@ -127,6 +127,8 @@ struct ScoutTestRunner {
             check("2xx+key → .authenticated", result.authenticationState == .authenticated)
             check("2xx+key → connectedAt set", result.connectedAt != nil)
             check("2xx+key → 'authenticated' in message", result.message.contains("authenticated"))
+            check("2xx+key → latency non-nil", result.latencyMilliseconds != nil)
+            check("2xx+key → latency >= 0", (result.latencyMilliseconds ?? -1) >= 0)
         }
 
         do {
@@ -183,6 +185,7 @@ struct ScoutTestRunner {
             check("timeout → .unreachable", result.validationState == .unreachable)
             check("timeout → 'timed out' in msg", result.message.contains("timed out"))
             check("timeout → connectedAt nil", result.connectedAt == nil)
+            check("timeout → latency nil", result.latencyMilliseconds == nil)
         }
 
         do {
@@ -271,6 +274,7 @@ struct ScoutTestRunner {
             check("empty URL → .invalidConfiguration",
                   result.validationState == .invalidConfiguration)
             check("empty URL → 'empty' in msg", result.message.contains("empty"))
+            check("empty URL → latency nil", result.latencyMilliseconds == nil)
         }
 
         // ── Summary ────────────────────────────────────────────────
