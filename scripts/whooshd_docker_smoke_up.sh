@@ -9,6 +9,7 @@
 # Usage:
 #   bash scripts/whooshd_docker_smoke_up.sh
 #   bash scripts/whooshd_docker_smoke_up.sh minimal   # db redis migrator backend worker-chat only
+#   bash scripts/whooshd_docker_smoke_up.sh minimal --detach
 #
 # Environment:
 #   The script expects Whoosh'd to be running on the Docker host
@@ -35,11 +36,48 @@ echo "════════════════════════�
 echo "  Codexify + Whoosh'd Docker Smoke Path"
 echo "═══════════════════════════════════════════════════════"
 
-# ── Step 0: Check prerequisites ──
-if ! command -v docker &>/dev/null; then
-    echo -e "${RED}[FAIL] docker is not available${NC}"
+fail_prereq() {
+    echo -e "  ${RED}[FAIL]${NC} $1"
     exit 1
-fi
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || fail_prereq "$1 is not available"
+}
+
+MODE="full"
+DETACH=0
+
+for arg in "$@"; do
+    case "$arg" in
+        full|minimal)
+            MODE="$arg"
+            ;;
+        --detach|-d)
+            DETACH=1
+            ;;
+        -h|--help)
+            sed -n '1,18p' "$0"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}[FAIL] unknown argument: $arg${NC}"
+            echo "Usage: bash scripts/whooshd_docker_smoke_up.sh [full|minimal] [--detach]"
+            exit 1
+            ;;
+    esac
+done
+
+# ── Step 0: Check prerequisites ──
+echo ""
+echo "── Step 0: Check prerequisites ──"
+require_cmd docker
+require_cmd curl
+require_cmd python3
+
+docker compose version >/dev/null 2>&1 || fail_prereq "docker compose v2 is not available"
+docker info >/dev/null 2>&1 || fail_prereq "Docker daemon is not reachable. Start Docker Desktop and retry."
+echo -e "  ${GREEN}[OK]${NC} docker, docker compose, curl, and python3 are available"
 
 # ── Step 1: Ensure Whoosh'd is running ──
 echo ""
@@ -50,6 +88,28 @@ bash "$REPO_SCRIPT_DIR/whooshd_ensure.sh" || {
     echo -e "  ${RED}[FAIL]${NC} Could not start Whoosh'd. See above for details."
     exit 1
 }
+
+# ── Step 1b: Confirm smoke model inventory ──
+echo ""
+echo "── Step 1b: Confirm Whoosh'd model inventory ──"
+WHOOSHD_HOST_BASE="${WHOOSHD_HOST_BASE:-http://127.0.0.1:8000}"
+SMOKE_MODEL="${LOCAL_CHAT_MODEL:-gemma-4-e4b-it-4bit}"
+MODEL_PAYLOAD="$(curl -sf --max-time 5 "$WHOOSHD_HOST_BASE/v1/models" 2>/dev/null || curl -sf --max-time 5 "$WHOOSHD_HOST_BASE/api/tags" 2>/dev/null || true)"
+
+if [ -z "$MODEL_PAYLOAD" ]; then
+    echo -e "  ${RED}[FAIL]${NC} Whoosh'd is healthy but model inventory is not reachable"
+    echo "  Tried: $WHOOSHD_HOST_BASE/v1/models and $WHOOSHD_HOST_BASE/api/tags"
+    exit 1
+fi
+
+if printf '%s' "$MODEL_PAYLOAD" | grep -q "$SMOKE_MODEL"; then
+    echo -e "  ${GREEN}[OK]${NC} Whoosh'd advertises $SMOKE_MODEL"
+else
+    echo -e "  ${RED}[FAIL]${NC} Whoosh'd model inventory does not advertise $SMOKE_MODEL"
+    echo "  Inventory:"
+    printf '%s\n' "$MODEL_PAYLOAD" | python3 -m json.tool 2>/dev/null || printf '%s\n' "$MODEL_PAYLOAD"
+    exit 1
+fi
 
 # ── Step 2: Clean stale Codexify containers ──
 echo ""
@@ -144,13 +204,19 @@ echo -e "${GREEN}  All contract assertions passed${NC}"
 echo ""
 echo "── Step 6: Start Docker Compose ──"
 
-MODE="${1:-full}"
-
 if [ "$MODE" = "minimal" ]; then
     echo "  Launching minimal smoke stack (db redis migrator backend worker-chat)..."
-    docker compose $COMPOSE_FILES up --build \
+    DETACH_ARGS=()
+    if [ "$DETACH" -eq 1 ]; then
+        DETACH_ARGS=(-d)
+    fi
+    docker compose $COMPOSE_FILES up --build "${DETACH_ARGS[@]}" \
         db redis migrator backend worker-chat
 else
     echo "  Launching full stack..."
-    docker compose $COMPOSE_FILES up --build
+    DETACH_ARGS=()
+    if [ "$DETACH" -eq 1 ]; then
+        DETACH_ARGS=(-d)
+    fi
+    docker compose $COMPOSE_FILES up --build "${DETACH_ARGS[@]}"
 fi

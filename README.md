@@ -35,6 +35,8 @@ If you want to **run Codexify locally** with the least friction:
   * UI: [http://localhost:5173](http://localhost:5173)
   * API docs: [http://localhost:8888/docs](http://localhost:8888/docs)
 
+For Zac's Mac Studio / Whoosh'd beta bring-up, use the narrow operator path in [`docs/Ops/ZAC_MAC_STUDIO_LOCAL_BRINGUP.md`](docs/Ops/ZAC_MAC_STUDIO_LOCAL_BRINGUP.md). It stays on the supported Docker Compose path and does not imply Pattern/Instance sync or federation support.
+
 If you want to **contribute code**, start with:
 
 * Backend routes: `guardian/routes/`
