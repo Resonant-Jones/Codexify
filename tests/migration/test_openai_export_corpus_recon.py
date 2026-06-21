@@ -199,6 +199,86 @@ def test_recon_scans_legacy_conversations_json(tmp_path: Path):
     assert stats.parse_failures == 0
 
 
+def test_recon_scans_legacy_filename_conversations_json(tmp_path: Path):
+    export_root = tmp_path / "legacy"
+    export_root.mkdir()
+    _write_conversations_json(
+        export_root,
+        [
+            _build_mapping_conversation(
+                [("user", "Legacy hello", 1.0), ("assistant", "Legacy reply", 2.0)],
+                conversation_id="legacy-conv",
+                title="Legacy Conversation",
+            )
+        ],
+        filename="conversations.json",
+    )
+
+    recon = OpenAIExportCorpusRecon()
+    stats = recon.scan(export_root)
+
+    assert stats.conversations_found == 1
+    assert stats.messages_scanned == 2
+    assert stats.conversations[0].conversation_id == "legacy-conv"
+    assert stats.conversations[0].title == "Legacy Conversation"
+
+
+def test_recon_scans_json_payload_inside_dat_file(tmp_path: Path):
+    export_root = tmp_path / "dat-json"
+    export_root.mkdir()
+    (export_root / "file-000000.dat").write_text(
+        json.dumps(
+            [
+                _build_mapping_conversation(
+                    [("user", "Opaque JSON data", 1704067200.0)],
+                    conversation_id="dat-conv",
+                    title="DAT Conversation",
+                )
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    recon = OpenAIExportCorpusRecon()
+    stats = recon.scan(export_root)
+
+    assert stats.json_like_files == 1
+    assert stats.conversations_found == 1
+    assert stats.messages_scanned == 1
+    assert stats.conversations[0].conversation_id == "dat-conv"
+
+
+def test_recon_scans_jsonl_payload_inside_dat_file(tmp_path: Path):
+    export_root = tmp_path / "dat-jsonl"
+    export_root.mkdir()
+    records = [
+        _build_messages_container(
+            [
+                {
+                    "id": "m1",
+                    "role": "user",
+                    "content": "JSONL Guardian note",
+                    "created_at": 1704067200.0,
+                }
+            ],
+            conversation_id="jsonl-conv",
+            title="JSONL Conversation",
+        )
+    ]
+    (export_root / "opaque.dat").write_text(
+        "\n".join(json.dumps(item) for item in records),
+        encoding="utf-8",
+    )
+
+    recon = OpenAIExportCorpusRecon()
+    stats = recon.scan(export_root)
+
+    assert stats.json_like_files == 1
+    assert stats.conversations_found == 1
+    assert stats.messages_scanned == 1
+    assert stats.keyword_counts["Guardian"] == 1
+
+
 def test_recon_handles_multiple_conversation_shards(tmp_path: Path):
     export_root = tmp_path / "sharded"
     export_root.mkdir()
@@ -483,7 +563,7 @@ def test_recon_distinguishes_orphan_vs_workspace_assets(tmp_path: Path):
     stats = recon.scan(export_root)
 
     assert stats.assets_found == 3
-    assert stats.orphan_assets_found == 1  # only the Unassigned one
+    assert stats.orphan_assets_found == 3  # V1 has not correlated asset links.
 
 
 def test_recon_asset_size_bucket_counts(tmp_path: Path):
@@ -665,7 +745,7 @@ def test_run_corpus_recon_full_pipeline(tmp_path: Path):
     assert stats.conversations_found == 2
     assert stats.messages_scanned == 5
     assert stats.assets_found == 3
-    assert stats.orphan_assets_found == 1
+    assert stats.orphan_assets_found == 3
     assert stats.messages_by_year[2024] == 5
     assert stats.keyword_counts.get("Guardian", 0) > 0
     assert stats.keyword_counts.get("Codexify", 0) > 0
