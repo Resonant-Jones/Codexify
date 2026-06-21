@@ -141,3 +141,15 @@
 - **Evidence**: 14 route tests + 90 Pi tests + import proof + git diff clean + docs validator passed.
 - **Consequence**: C04-T008b fully accepted. C04-T008c may proceed.
 - **Revisit Trigger**: None — closeout is final.
+
+---
+
+### Decision: C04-D008b-R3
+
+- **Decision ID**: C04-D008b-R3
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T008b governance closeout complete. R2 side-effect proofs accepted. Route remains `POST /api/agents/pi-invocation/dry-run`, validation-only, dry-run only. No Pi SDK, Coder, worker, transcript, receipt, artifact, DB, _store, _event_publisher, or frontend. Release boundary preserved. C04-T008c next.
+- **Reason**: Prior R2 closeout omitted decision-log addendum and backlog consistency update. R3 records the missing governance metadata. No code or test changes.
+- **Evidence**: 14 route tests + 90 Pi tests pass. `git diff --check` clean. Docs validator passed. C04-T008b-R2 proof-pack section already records full side-effect boundary.
+- **Consequence**: C04-T008b fully accepted. C04-T008c may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
