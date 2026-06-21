@@ -6,6 +6,7 @@ struct ScoutEndpointConnectivityResult {
     let message: String
     let connectedAt: Date?
     let snapshot: ScoutHealthSnapshot?
+    let latencyMilliseconds: Int?
 }
 
 struct ScoutEndpointConnectivityProbe {
@@ -19,7 +20,8 @@ struct ScoutEndpointConnectivityProbe {
                 authenticationState: endpoint.authenticationState,
                 message: "Base URL is empty.",
                 connectedAt: nil,
-                snapshot: nil
+                snapshot: nil,
+                latencyMilliseconds: nil
             )
         }
 
@@ -34,7 +36,8 @@ struct ScoutEndpointConnectivityProbe {
                 authenticationState: endpoint.authenticationState,
                 message: "Malformed health-check URL. Check the base URL.",
                 connectedAt: nil,
-                snapshot: nil
+                snapshot: nil,
+                latencyMilliseconds: nil
             )
         }
 
@@ -47,8 +50,11 @@ struct ScoutEndpointConnectivityProbe {
             request.setValue(key, forHTTPHeaderField: "X-API-Key")
         }
 
+        let requestStart = Date()
+
         do {
             let (data, response) = try await session.data(for: request)
+            let latencyMs = Int(requestStart.distance(to: Date()) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return ScoutEndpointConnectivityResult(
@@ -56,7 +62,8 @@ struct ScoutEndpointConnectivityProbe {
                     authenticationState: endpoint.authenticationState,
                     message: "Unexpected response type from server.",
                     connectedAt: nil,
-                    snapshot: nil
+                    snapshot: nil,
+                    latencyMilliseconds: latencyMs
                 )
             }
 
@@ -73,7 +80,8 @@ struct ScoutEndpointConnectivityProbe {
                         authenticationState: .authenticated,
                         message: "Vault is reachable and authenticated (HTTP \(statusCode)).",
                         connectedAt: Date(),
-                        snapshot: healthSnapshot
+                        snapshot: healthSnapshot,
+                        latencyMilliseconds: latencyMs
                     )
                 } else {
                     return ScoutEndpointConnectivityResult(
@@ -81,7 +89,8 @@ struct ScoutEndpointConnectivityProbe {
                         authenticationState: .unconfigured,
                         message: "Vault is reachable, but no API key was used (HTTP \(statusCode)).",
                         connectedAt: Date(),
-                        snapshot: healthSnapshot
+                        snapshot: healthSnapshot,
+                        latencyMilliseconds: latencyMs
                     )
                 }
             case 401, 403:
@@ -90,7 +99,8 @@ struct ScoutEndpointConnectivityProbe {
                     authenticationState: .authRequired,
                     message: "Vault is reachable but authentication is required (HTTP \(statusCode)).",
                     connectedAt: Date(),
-                    snapshot: nil
+                    snapshot: nil,
+                    latencyMilliseconds: latencyMs
                 )
             default:
                 return ScoutEndpointConnectivityResult(
@@ -98,7 +108,8 @@ struct ScoutEndpointConnectivityProbe {
                     authenticationState: endpoint.authenticationState,
                     message: "Vault returned unexpected status (HTTP \(statusCode)).",
                     connectedAt: nil,
-                    snapshot: nil
+                    snapshot: nil,
+                    latencyMilliseconds: latencyMs
                 )
             }
         } catch let error as URLError where error.code == .timedOut {
@@ -107,7 +118,8 @@ struct ScoutEndpointConnectivityProbe {
                 authenticationState: endpoint.authenticationState,
                 message: "Connection timed out after 5 seconds. Vault may be offline or unreachable.",
                 connectedAt: nil,
-                snapshot: nil
+                snapshot: nil,
+                latencyMilliseconds: nil
             )
         } catch {
             return ScoutEndpointConnectivityResult(
@@ -115,7 +127,8 @@ struct ScoutEndpointConnectivityProbe {
                 authenticationState: endpoint.authenticationState,
                 message: "Connection failed: \(error.localizedDescription)",
                 connectedAt: nil,
-                snapshot: nil
+                snapshot: nil,
+                latencyMilliseconds: nil
             )
         }
     }

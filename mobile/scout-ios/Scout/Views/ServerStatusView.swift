@@ -153,6 +153,16 @@ struct ServerStatusView: View {
                 .font(.subheadline)
             }
 
+            if let latency = result.latencyMilliseconds {
+                HStack {
+                    Text("Latency")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(latency) ms")
+                }
+                .font(.subheadline)
+            }
+
             Text(result.message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
