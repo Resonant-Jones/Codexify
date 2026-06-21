@@ -1061,6 +1061,30 @@ describe("CommandCenterShell", () => {
       expect(text).toContain("receipt creation");
       expect(text).toContain("work-order completion");
     });
+
+    it("API helper module exports no forbidden names", async () => {
+      const mod = await import("@/api/piCoderDryRun");
+      const forbidden = [
+        "executePiCoder", "runPiCoder", "dispatchPiCoder", "retryPiCoder",
+        "replayPiCoder", "approvePiCoder", "completePiCoder",
+        "createPiCoderReceipt", "createPiCoderArtifact",
+        "invokePiCoderTool", "mergePiCoder", "markPiCoderComplete",
+      ];
+      for (const name of forbidden) {
+        expect(mod).not.toHaveProperty(name);
+      }
+      expect(mod).toHaveProperty("validatePiCoderDryRun");
+    });
+
+    it("API helper card not wired to interactive controls", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
+      const inputs = card.querySelectorAll("input");
+      const textareas = card.querySelectorAll("textarea");
+      expect(inputs.length).toBe(0);
+      expect(textareas.length).toBe(0);
+    });
   });
 
   describe("readInitialDelegationIntentId", () => {
