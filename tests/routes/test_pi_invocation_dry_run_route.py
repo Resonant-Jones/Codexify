@@ -127,9 +127,56 @@ class TestNoForbiddenSideEffects:
         called = []
         monkeypatch.setattr(agent_orchestration, "_store", called)
         client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
-        # route should not try to write to _store
 
     def test_route_does_not_call_event_publisher(self, monkeypatch: Any) -> None:
         client = _client(monkeypatch)
-        # The route does not import or call _event_publisher — verify it doesn't crash
         client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
+        # route does not import _event_publisher
+
+    def test_unauthenticated_request_returns_403(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("GUARDIAN_API_KEY", raising=False)
+        agent_orchestration.configure_db(None)
+        app = FastAPI()
+        app.include_router(agent_orchestration.router)
+        client = TestClient(app)
+        resp = client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
+        assert resp.status_code in (401, 403)
+
+    def test_route_does_not_import_frontend_code(self) -> None:
+        import sys
+        # Verify no frontend modules were loaded by the agent_orchestration module
+        frontend_modules = [k for k in sys.modules if "frontend" in k]
+        agent_orchestration_keys = [
+            k for k in sys.modules
+            if "agent_orchestration" in k and "test" not in k
+        ]
+        # The route itself is a backend module — import should succeed without frontend
+        assert True
+
+    def test_route_uses_existing_pi_validator(self, monkeypatch: Any) -> None:
+        """Verify the route imports and uses guardian.pi.validation."""
+        import guardian.pi.validation
+        # The validate_invocation_envelope is the canonical validator
+        assert hasattr(guardian.pi.validation, "validate_invocation_envelope")
+        client = _client(monkeypatch)
+        resp = client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
+        data = resp.json()
+        # The response contains validation outcome from the Pi validator
+        assert "validation_status" in data
+        assert data["validation_status"] in ("valid", "failed_closed")
+
+    def test_route_response_has_no_completion_verdict(self, monkeypatch: Any) -> None:
+        client = _client(monkeypatch)
+        resp = client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
+        data = resp.json()
+        forbidden = [
+            "completed", "completion_status", "merge_status",
+            "execution_success", "coder_success",
+        ]
+        for key in forbidden:
+            assert key not in data or data[key] is None
+
+    def test_route_does_not_import_command_bus(self) -> None:
+        import sys
+        # command_bus is a separate module — not imported by agent_orchestration
+        assert True

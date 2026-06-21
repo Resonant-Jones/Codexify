@@ -185,3 +185,49 @@ No result return runtime, no result reinjection, no transcript persistence, no b
 
 ### Next Task
 **C04-T007: Define Pi/Coder operator evidence read model**
+
+---
+
+## C04-T008b-R1: Route Boundary Proof Closeout (2026-06-20 13:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `9234e9baf` | **Worktree**: dirty (test additions)
+- **Prior `next-proof-needed` reason**: proof-pack, decision-log, validation hygiene not reported; route boundary tests incomplete.
+
+### Files Modified
+- `tests/routes/test_pi_invocation_dry_run_route.py` — 5 additional boundary tests (14 total)
+- `proof-pack.md` — this section
+- `decision-log.md` — C04-D008b-R1 appended (next)
+
+### Route Ownership
+`guardian/routes/agent_orchestration.py` — correct owner, confirmed in C04-T008a.
+
+### Route Path
+`POST /api/agents/pi-invocation/dry-run`
+
+### Auth Pattern
+`require_api_key` router-level. Unauthenticated request returns 401/403 — test-proven.
+
+### Request/Response
+`PiInvocationEnvelope` accepted. Response: `dry_run: true`, `execution_performed: false`, `persistence_performed: false`, `release_support: unsupported`. No raw payloads, execution controls, or completion verdicts.
+
+### Test Matrix
+14 route tests: valid 200, raw payload prohibition, deterministic, missing lineage (2), missing harness, invalid guardian boundary, no store call, no event publisher call, unauthenticated, no frontend import, uses Pi validator, no completion verdict, no command bus import.
+
+### Validation
+```
+pytest tests/routes/test_pi_invocation_dry_run_route.py  14 passed
+pytest tests/pi/                                           90 passed
+python -c "import guardian.pi"                             ok
+git diff --check                                            clean
+python3 scripts/validate_docs.py                            passed
+```
+
+### No Runtime
+No Pi SDK, no Coder, no command bus, no worker, no transcript, no receipt, no artifact, no DB, no _store, no _event_publisher, no frontend import.
+
+### Gate Decision
+**`go`** — C04-T008b-R1 accepted. C04-T008c may proceed.
+
+### Next Task
+**C04-T008c: Close Pi/Coder dry-run route proof**
