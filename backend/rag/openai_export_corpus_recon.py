@@ -318,7 +318,6 @@ class OpenAIExportCorpusRecon:
         # Classify all files
         json_files: list[OpenAIExportFileRecord] = []
         asset_files: list[OpenAIExportFileRecord] = []
-        parse_failures: list[str] = []
 
         for record in inventory.files:
             kind = record.detected_kind
@@ -326,15 +325,14 @@ class OpenAIExportCorpusRecon:
 
             if kind in {"json_object", "json_array", "jsonl"}:
                 json_files.append(record)
-                if not record.parse_success:
-                    parse_failures.append(record.path)
-                    stats.parse_failures += 1
-                    stats.failed_paths.append(
-                        {
-                            "path": record.path,
-                            "error": record.parse_error or "unknown",
-                        }
-                    )
+            elif kind == "invalid_json":
+                stats.parse_failures += 1
+                stats.failed_paths.append(
+                    {
+                        "path": record.path,
+                        "error": record.parse_error or "invalid_json",
+                    }
+                )
             elif kind in {
                 "image_png",
                 "image_jpeg",
@@ -360,38 +358,28 @@ class OpenAIExportCorpusRecon:
 
         stats.json_like_files = len(json_files)
 
-        # Extract conversations from JSON files
+        # Extract conversations from sniffed JSON/JSONL files. Do not assume
+        # legacy conversations.json or modern conversations-*.json names.
         all_conversations: list[ReconConversation] = []
-        conversation_json_files: set[str] = set()
 
         for record in json_files:
-            if not record.parse_success:
-                continue
-            path_lower = Path(record.path).name.lower()
-            if path_lower.startswith("conversations-") and path_lower.endswith(
-                ".json"
-            ):
-                conversation_json_files.add(record.path)
-
-        # Parse conversation shards
-        for record in json_files:
-            if record.path not in conversation_json_files:
-                continue
             try:
-                payload = json.loads(
-                    Path(record.absolute_path).read_text(encoding="utf-8-sig")
-                )
-            except Exception:
+                payloads = list(_iter_json_payloads(record))
+            except Exception as exc:
                 stats.parse_failures += 1
                 stats.failed_paths.append(
-                    {"path": record.path, "error": "json_parse_failed"}
+                    {"path": record.path, "error": str(exc) or "json_parse_failed"}
                 )
                 continue
 
-            for conv in self._iter_conversations_from_payload(payload):
-                recon_conv = self._build_recon_conversation(conv)
-                if recon_conv:
-                    all_conversations.append(recon_conv)
+            before = len(all_conversations)
+            for payload in payloads:
+                for conv in self._iter_conversations_from_payload(payload):
+                    recon_conv = self._build_recon_conversation(conv)
+                    if recon_conv:
+                        all_conversations.append(recon_conv)
+            if len(all_conversations) == before:
+                stats.skipped_files += 1
 
         stats.conversations = all_conversations
         stats.conversations_found = len(all_conversations)
@@ -457,9 +445,9 @@ class OpenAIExportCorpusRecon:
             else:
                 stats.non_sharded_count += 1
 
-            # Orphan check: assets NOT in a workspace or files directory
-            if not _is_workspace_or_files_asset(record.path):
-                stats.orphan_assets_found += 1
+            # V1 recon does not perform manifest correlation, so assets are
+            # inventory-preserved as orphaned until a later pass links them.
+            stats.orphan_assets_found += 1
 
         return stats
 
@@ -845,6 +833,19 @@ def _coerce_epoch_seconds(value: Any) -> float | None:
         except ValueError:
             pass
     return None
+
+
+def _iter_json_payloads(record: OpenAIExportFileRecord) -> Iterator[Any]:
+    path = Path(record.absolute_path)
+    if record.detected_kind in {"json_object", "json_array"}:
+        yield json.loads(path.read_text(encoding="utf-8-sig"))
+        return
+    if record.detected_kind == "jsonl":
+        with path.open("r", encoding="utf-8-sig") as fh:
+            for line in fh:
+                raw = line.strip()
+                if raw:
+                    yield json.loads(raw)
 
 
 def _linearize_mainline(
