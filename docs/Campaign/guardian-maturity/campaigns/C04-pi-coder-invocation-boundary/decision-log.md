@@ -165,3 +165,15 @@
 - **Evidence**: 64 shell tests. `git diff --check` clean. `python3 scripts/validate_docs.py` passed.
 - **Consequence**: C04-T009 fully accepted. C04-T010 may proceed.
 - **Revisit Trigger**: None — proof closeout is final.
+
+---
+
+### Decision: C04-D010
+
+- **Decision ID**: C04-D010
+- **Date**: 2026-06-20
+- **Decision**: `go`. Pi/Coder dry-run fixture pack complete. 7 fixture functions at `tests/fixtures/pi/__init__.py`. Valid fixture loads into `PiInvocationEnvelope` and passes `validate_invocation_envelope()`. Invalid fixtures fail validation. Response fixtures preserve dry-run truth. No raw payloads, execution controls, or completion verdicts. Route tests reuse the valid fixture. 103 Pi tests pass. `guardian.pi` import ok. Frontend fixture reuse deferred. No backend route, frontend, or runtime changes. Release boundary preserved.
+- **Reason**: Prior C04-T010 output omitted governance closeout. Full Pi tests (103 passed including 13 fixture + 90 existing) and `guardian.pi` import confirmed. Decision-log and backlog now consistent.
+- **Evidence**: 103 Pi tests pass. `guardian.pi` import ok. `git diff --check` clean. Docs validator passed.
+- **Consequence**: C04-T010 fully accepted. C04-T011 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
