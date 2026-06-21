@@ -1021,7 +1021,8 @@ describe("CommandCenterShell", () => {
       render(<CommandCenterShell {...defaultProps} />);
       fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
       const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
-      expect(within(card).getByText(/accepted for dry-run validation/)).toBeInTheDocument();
+      const text = card.textContent || "";
+      expect(text).toContain("accepted for dry-run validation");
     });
 
     it("renders deferred interactive state", () => {
