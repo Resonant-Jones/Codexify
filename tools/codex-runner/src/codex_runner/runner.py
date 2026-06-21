@@ -39,6 +39,18 @@ LEGACY_TASK_PATH_PATTERN = re.compile(
 
 CAMPAIGN_SCHEMA_RESOURCE = "resources/schemas/campaign_output.schema.json"
 TASK_RESULT_SCHEMA_RESOURCE = "resources/schemas/task_result.schema.json"
+CODEX_CLI_MISSING_MESSAGE = (
+    "Codex CLI preflight failed: `codex` was not found on PATH.\n\n"
+    "Install the OpenAI Codex CLI, then authenticate it in the same user "
+    "account that runs codex-runner:\n"
+    "  - Install: `curl -fsSL https://chatgpt.com/codex/install.sh | sh`, "
+    "`npm install -g @openai/codex`, or `brew install --cask codex`.\n"
+    "  - Authenticate: run `codex login` for ChatGPT sign-in, or "
+    "`codex login --api-key <OPENAI_API_KEY>` for API-key auth.\n"
+    "  - Verify: `codex login status` and "
+    "`codex exec \"Return only: OK\"`.\n\n"
+    "After `command -v codex` resolves in this shell, rerun codex-runner."
+)
 
 
 class RunnerError(RuntimeError):
@@ -74,10 +86,7 @@ class RunnerResources:
 def ensure_codex_available() -> None:
     """Ensure the Codex CLI is installed and on PATH."""
     if shutil.which("codex") is None:
-        raise RunnerError(
-            "codex executable not found on PATH. Install the Codex CLI "
-            "and authenticate it before running codex-runner."
-        )
+        raise RunnerError(CODEX_CLI_MISSING_MESSAGE)
 
 
 def run_cmd(
@@ -101,10 +110,7 @@ def run_cmd(
     except FileNotFoundError as exc:
         binary = args[0]
         if binary == "codex":
-            raise RunnerError(
-                "codex executable not found on PATH. Install the Codex CLI "
-                "and authenticate it before running codex-runner."
-            ) from exc
+            raise RunnerError(CODEX_CLI_MISSING_MESSAGE) from exc
         if binary == "git":
             raise RunnerError(
                 "git executable not found on PATH. Install Git to continue."
