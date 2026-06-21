@@ -145,7 +145,18 @@ def test_codex_executor_missing_binary_becomes_not_found(
         == ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value
     )
     assert result.failure.failure_class == "FileNotFoundError"
-    assert result.error_message == "Codex binary not found: codex"
+    assert result.error_message is not None
+    assert "Codex executable not found on PATH: codex" in result.error_message
+    assert "npm install -g @openai/codex" in result.error_message
+    assert result.failure.details["recovery_doc"] == (
+        "codex_runner/README.md#codex-cli-install-and-auth-recovery"
+    )
+    assert result.failure.details["recovery_steps"] == [
+        "Install the official Codex CLI: npm install -g @openai/codex",
+        "Authenticate the same shell user that runs Codexify: codex login",
+        "Verify PATH and auth before retrying: codex --version && codex exec 'ping'",
+        "If Codex is installed outside PATH, set CODEXIFY_CODEX_BIN to the absolute codex executable path.",
+    ]
     assert result.failure.provenance["request_id"] == "delegation-1"
 
 

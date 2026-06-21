@@ -202,6 +202,8 @@ def test_health_executors_includes_required_fields(test_client):
         assert "supports_direct_provider_config" in executor
         assert "supported_auth_modes" in executor
         assert "status_detail" in executor
+        assert "recovery_steps" in executor
+        assert "recovery_doc" in executor
 
 
 def test_health_executors_preserves_release_posture(test_client):
@@ -241,3 +243,33 @@ def test_health_executors_availability_states_are_valid(test_client):
     valid_states = {"ready", "degraded", "unavailable", "not_installed"}
     for executor in executors:
         assert executor["availability_state"] in valid_states
+
+
+def test_health_executors_codex_missing_path_includes_recovery(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.delenv("CODEXIFY_CODEX_BIN", raising=False)
+    monkeypatch.setattr(
+        "guardian.core.executors.health.shutil.which",
+        lambda _binary: None,
+    )
+
+    response = test_client.get("/api/health/executors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    executors = {e["executor_id"]: e for e in payload["executors"]}
+    codex = executors["codex"]
+
+    assert codex["installed"] is False
+    assert codex["availability_state"] == "not_installed"
+    assert codex["recovery_doc"] == (
+        "codex_runner/README.md#codex-cli-install-and-auth-recovery"
+    )
+    assert codex["recovery_steps"] == [
+        "Install the official Codex CLI: npm install -g @openai/codex",
+        "Authenticate the same shell user that runs Codexify: codex login",
+        "Verify PATH and auth before retrying: codex --version && codex exec 'ping'",
+        "If Codex is installed outside PATH, set CODEXIFY_CODEX_BIN to the absolute codex executable path.",
+    ]
