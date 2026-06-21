@@ -225,3 +225,15 @@
 - **Evidence**: 13 adapter + 116 Pi + 14 route tests pass. `guardian.pi` import ok. `git diff --check` clean. Docs validator passed.
 - **Consequence**: C04-T014 fully accepted. C04-T015 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D015-R1
+
+- **Decision ID**: C04-D015-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T015 route wiring governance closeout complete. `POST /api/agents/pi-invocation/dry-run` now includes `operator_evidence` via `build_operator_evidence_from_dry_run_response()`. Route remains validation-only, side-effect-free. `guardian.pi` and `agent_orchestration` imports ok. No frontend rendering added. Release boundary preserved. C04-T016 next.
+- **Reason**: Prior C04-T015 output omitted governance closeout and import proofs. R1 added `__init__.py` export + all governance records. Route remains side-effect-free.
+- **Evidence**: 14 route + 116 Pi tests pass. Imports ok. `git diff --check` clean. Docs validator passed.
+- **Consequence**: C04-T015 fully accepted. C04-T016 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.

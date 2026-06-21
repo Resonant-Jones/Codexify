@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from guardian.pi.tokens import (
     PI_HARNESS_RESULT_CLASSES,
+    PI_HARNESS_RESULT_CLASSES,
     PI_INVOCATION_ENVELOPE_STATUSES,
     PI_INVOCATION_RECEIPT_STATUSES,
     PI_INVOCATION_RECEIPT_TERMINAL_STATUSES,
@@ -28,6 +29,7 @@ from guardian.pi.tokens import (
     normalize_pi_validation_outcome,
 )
 
+from guardian.pi.evidence import build_operator_evidence_from_dry_run_response  # noqa: F401
 __all__ = [
     "PI_HARNESS_RESULT_CLASSES",
     "PI_INVOCATION_ENVELOPE_STATUSES",
@@ -47,4 +49,5 @@ __all__ = [
     "normalize_pi_provider_lane_class",
     "normalize_pi_receipt_status",
     "normalize_pi_validation_outcome",
+    "build_operator_evidence_from_dry_run_response",
 ]
