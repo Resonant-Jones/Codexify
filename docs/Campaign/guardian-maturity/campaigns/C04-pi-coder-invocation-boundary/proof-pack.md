@@ -510,3 +510,30 @@ python3 scripts/validate_docs.py: passed
 
 ### Next Task
 **C04-T016: Render Pi/Coder dry-run operator evidence in validation card**
+
+---
+
+## C04-T016: Operator Evidence Rendered (2026-06-20 02:20 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `0b2b9731b` | **Worktree**: clean
+
+### Files Modified
+- `piCoderDryRun.ts` — `operator_evidence` field added to response type
+- `GuardianWorkspacePiCoderDryRunCard.tsx` — renders operator evidence section after validation
+
+### Rendering
+Card now shows `Operator evidence` section with evidence_state, validation_status, and boundary copy. Read-only. No execution controls. No raw payload rendering.
+
+### Validation
+```
+CommandCenterShell.test.tsx  65 passed
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C04-T016 accepted. C04-T017 may proceed.
+
+### Next Task
+**C04-T017: Close Pi/Coder dry-run operator evidence loop proof**
