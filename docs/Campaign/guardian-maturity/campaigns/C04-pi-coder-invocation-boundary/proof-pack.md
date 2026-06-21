@@ -427,3 +427,29 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C04-T013: Define Pi/Coder dry-run route-to-operator evidence seam**
+
+---
+
+## C04-T013: Evidence Seam Defined (2026-06-20 01:40 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `c2380a428` | **Worktree**: clean
+
+### Files Created
+- `route-to-operator-evidence-seam.md` — 17 sections: field mapping, safe rendering rules, prohibited claims, failure states, proof requirements, acceptance criteria
+
+### Seam Summary
+Defines how dry-run route response maps to `PiInvocationOperatorEvidence`. 6 evidence states. 16-row field mapping table. 13 forbidden mappings. 8 allowed + 14 prohibited rendering rules. 12 prohibited claims. 6 failure/partial states. 15 future proof requirements. 3 open questions. No implementation — C04-T014 next.
+
+### Validation
+```
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+No runtime tests — docs-only.
+
+### Gate Decision
+**`go`** — C04-T013 accepted. C04-T014 may proceed.
+
+### Next Task
+**C04-T014: Implement Pi/Coder dry-run route-to-operator evidence adapter**
