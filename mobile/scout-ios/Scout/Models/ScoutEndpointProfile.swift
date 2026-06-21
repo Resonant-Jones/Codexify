@@ -102,7 +102,7 @@ struct ScoutEndpointProfile: Identifiable, Equatable, Codable {
         if trimmedURL.isEmpty {
             errors.append(.missingBaseURL)
         } else if let url = URL(string: trimmedURL) {
-            guard let scheme = url.scheme?.lowercased(), scheme == "https" else {
+            if let scheme = url.scheme?.lowercased(), scheme != "https" {
                 errors.append(.unsupportedScheme)
             }
         } else {
