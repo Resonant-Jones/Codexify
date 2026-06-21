@@ -84,5 +84,28 @@ primary keys. Import is idempotent — rerunning does not duplicate records.
 
 Diagnostics are written to `logs/openai_import/`.
 
+### Embedding behavior
+
+By default, embeddings are **deferred** — text import completes quickly
+and embeddings are handled later by the normal chat embedding worker.
+
+- `--embedding-mode defer` (default): skip inline enqueue, workers backfill
+- `--embedding-mode enqueue`: best-effort enqueue after import
+- `--embedding-mode off`: no enqueue, no error reported
+
+Example:
+
+```bash
+python -m scripts.chatgpt_import.cli_migrate import:openai-conversations \
+  --path local_exports/openai/OpenAI-export \
+  --order newest --limit 500
+```
+
+### Ordering
+
+- `--order file` (default): adapter natural order
+- `--order newest`: most recently updated first
+- `--order oldest`: oldest created first
+
 **Warning**: Raw OpenAI export contents remain gitignored. Never commit
 private export payloads, diagnostic outputs, or import logs.
