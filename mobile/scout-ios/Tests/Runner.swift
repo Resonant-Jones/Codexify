@@ -491,6 +491,92 @@ struct ScoutTestRunner {
             check("Threads transport error → 'failed' in msg", result.message.contains("failed"))
         }
 
+        // ── Guardian messages probe ──────────────────────────────
+
+        func messagesBody() -> Data {
+            """
+            {"ok":true,"total":2,"messages":[{"id":1,"role":"user","content":"Hello","created_at":"2024-01-01T00:00:00Z"},{"id":2,"role":"assistant","content":"Hi there!","created_at":"2024-01-01T00:00:01Z"}]}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Messages probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, messagesBody())
+            }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: "key", session: session
+            )
+            check("Messages 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Messages 2xx → messages non-nil", result.messages != nil)
+            check("Messages 2xx → 2 messages", result.messages?.count == 2)
+            check("Messages 2xx → role 'user'", result.messages?.first?.role == "user")
+            check("Messages 2xx → content 'Hello'", result.messages?.first?.content == "Hello")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Messages no header when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, """
+                {"ok":true,"total":0,"messages":[]}
+                """.data(using: .utf8)!)
+            }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Messages empty → messages empty", result.messages?.isEmpty == true)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Messages decode fail → messages nil", result.messages == nil)
+            check("Messages decode fail → httpStatus preserved", result.httpStatus == 200)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Messages 401 → messages nil", result.messages == nil)
+            check("Messages 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Messages timeout → messages nil", result.messages == nil)
+            check("Messages timeout → 'timed out' in msg", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Messages transport error → messages nil", result.messages == nil)
+            check("Messages transport error → 'failed' in msg", result.message.contains("failed"))
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
