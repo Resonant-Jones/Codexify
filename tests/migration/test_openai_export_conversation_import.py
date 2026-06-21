@@ -754,3 +754,255 @@ def test_existing_native_chat_not_modified(tmp_path: Path):
     )
 
     assert diag.dry_run is True
+
+
+# --- Embedding mode tests ---
+
+
+def test_default_embedding_mode_is_defer(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """Default import uses deferred embedding mode."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Test", 1.0)])],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.embedding_mode == "defer"
+    assert diag.text_import_complete is True
+    assert diag.conversations_imported == 1
+    assert diag.embedding_deferred >= 0
+
+
+def test_embedding_mode_defer_writes_text(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """Text threads/messages are written even when embeddings are deferred."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Deferred test", 1.0)])],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        embedding_mode="defer",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.text_import_complete is True
+    assert diag.conversations_imported == 1
+    assert diag.messages_imported == 1
+    assert len(import_store.threads) == 1
+    assert len(import_store.messages) == 1
+
+
+def test_embedding_mode_off_skips_enqueue(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """--embedding-mode off skips enqueue and reports it."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Off test", 1.0)])],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        embedding_mode="off",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.embedding_mode == "off"
+    assert diag.text_import_complete is True
+    assert diag.conversations_imported == 1
+    assert diag.embedding_enqueued == 0
+
+
+def test_embedding_mode_enqueue_in_bounded_way(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """--embedding-mode enqueue attempts enqueue but text import completes."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Enqueue test", 1.0)])],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        embedding_mode="enqueue",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.embedding_mode == "enqueue"
+    assert diag.text_import_complete is True
+    assert diag.conversations_imported == 1
+
+
+def test_embedding_failure_does_not_fail_text_import(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """Redis/embedding failure does not block text import completion."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Resilient test", 1.0)])],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        embedding_mode="enqueue",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.text_import_complete is True
+    assert diag.conversations_imported == 1
+    assert len(diag.errors) == 0
+
+
+def test_diagnostics_report_embedding_phase_separately(
+    tmp_path: Path,
+):
+    """Diagnostics separate text import from embedding status."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation([("user", "Diag test", 1.0)])],
+    )
+    diag_dir = tmp_path / "logs/openai_import"
+
+    import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        embedding_mode="defer",
+        dry_run=True,
+        diagnostic_dir=diag_dir,
+    )
+
+    json_files = list(diag_dir.glob("import_diagnostics_*.json"))
+    assert len(json_files) == 1
+    diag_data = json.loads(json_files[0].read_text())
+
+    assert "text_import_complete" in diag_data
+    assert "embedding_mode" in diag_data
+    assert diag_data["embedding_mode"] == "defer"
+    assert "embedding_candidates" in diag_data
+
+
+def test_order_flags_work_with_embedding_deferral(
+    tmp_path: Path,
+    import_store: ImportStore,
+):
+    """--order flags work correctly with deferred embedding."""
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [
+            _build_mapping_conversation(
+                [("user", "Old", 1000.0)],
+                conversation_id="old-conv",
+                title="Oldest",
+            ),
+            _build_mapping_conversation(
+                [("user", "New", 2000.0)],
+                conversation_id="new-conv",
+                title="Newest",
+            ),
+        ],
+    )
+
+    diag = import_openai_export_conversations(
+        export_root,
+        user_id="tester",
+        order="newest",
+        embedding_mode="defer",
+        diagnostic_dir=tmp_path / "diag",
+    )
+
+    assert diag.text_import_complete is True
+    assert diag.embedding_mode == "defer"
+    assert diag.conversations_imported == 2
+
+
+def test_idempotent_rerun_with_deferred_embeddings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    import_modules: ImportModules,
+):
+    """Idempotent re-run works with deferred embedding mode."""
+    store = ImportStore()
+    monkeypatch.setattr(import_modules.dependencies, "chatlog_db", store)
+    monkeypatch.setattr(
+        import_modules.dependencies, "init_database", lambda: store
+    )
+    monkeypatch.setattr(
+        import_modules.chatgpt_migration,
+        "_persist_temporal_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+
+    find_thread_calls: list = []
+
+    def _find_thread(db, *, user_id, source_thread_id):
+        find_thread_calls.append((user_id, source_thread_id))
+        if len(find_thread_calls) > 1:
+            return 1
+        return None
+
+    def _find_message(db, thread_id, source_message_id):
+        if len(find_thread_calls) > 1:
+            return {"id": 999, "extra_meta": {}}
+        return None
+
+    monkeypatch.setattr(
+        import_modules.chatgpt_migration,
+        "_find_existing_thread_for_source",
+        _find_thread,
+    )
+    monkeypatch.setattr(
+        import_modules.chatgpt_migration,
+        "_find_existing_message_for_source",
+        _find_message,
+    )
+
+    export_root = tmp_path / "export"
+    _write_conversations_json(
+        export_root,
+        [_build_mapping_conversation(
+            [("user", "A", 1.0)],
+            conversation_id="stable",
+            title="Stable",
+        )],
+    )
+
+    first = import_openai_export_conversations(
+        export_root, user_id="tester",
+        embedding_mode="defer",
+        diagnostic_dir=tmp_path / "diag1",
+    )
+    second = import_openai_export_conversations(
+        export_root, user_id="tester",
+        embedding_mode="defer",
+        diagnostic_dir=tmp_path / "diag2",
+    )
+
+    assert first.conversations_imported == 1
+    assert first.embedding_mode == "defer"
+    assert second.conversations_imported == 0

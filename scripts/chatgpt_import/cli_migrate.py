@@ -396,6 +396,11 @@ def import_openai_conversations(
         "--order",
         help="Import order: file (default), newest, oldest, updated",
     ),
+    embedding_mode: str = typer.Option(
+        "defer",
+        "--embedding-mode",
+        help="Embedding behavior: defer (default), enqueue, off",
+    ),
 ):
     """
     Import OpenAI export conversations into Codexify-native chat threads.
@@ -427,6 +432,7 @@ def import_openai_conversations(
         title_contains=title_contains,
         diagnostic_dir=diagnostic_dir,
         order=order,
+        embedding_mode=embedding_mode,
     )
 
     print_header()

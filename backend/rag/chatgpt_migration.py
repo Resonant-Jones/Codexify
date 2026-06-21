@@ -1755,9 +1755,17 @@ def ingest_chatgpt_export(
 
 
 def ingest_chatgpt_conversation_records(
-    data: List[Dict[str, Any]], user_id: Optional[str] = None
+    data: List[Dict[str, Any]],
+    user_id: Optional[str] = None,
+    embedding_mode: str = "enqueue",
 ) -> Dict[str, int]:
-    """Ingest validated ChatGPT-shaped conversation records."""
+    """Ingest validated ChatGPT-shaped conversation records.
+
+    embedding_mode controls inline embedding enqueue behavior:
+    - "defer": skip inline enqueue, leave embeddings to worker backfill
+    - "enqueue": best-effort enqueue after import (backward-compatible default)
+    - "off": skip inline enqueue, report as explicitly disabled
+    """
     if not user_id:
         raise ValueError(
             "ingest_chatgpt_conversation_records requires a valid user_id (got None or empty)"
@@ -1853,13 +1861,30 @@ def ingest_chatgpt_conversation_records(
             logger.error("Failed to import conversation: %s", e)
             continue
 
-    embedding_diagnostics = _process_chatgpt_embedding_batches(
-        chatlog_db=chatlog_db,
-        items=pending_embed_items,
-        message_ids=pending_embed_message_ids,
-        operation="import",
-        failure_reason="embedding_coverage_degraded",
-    )
+    embedding_diagnostics: Dict[str, Any] = {
+        "embedding_candidates": len(pending_embed_items),
+        "embeddings_persisted": 0,
+        "embeddings_failed": 0,
+        "embedding_coverage_degraded": False,
+        "embedding_mode": embedding_mode,
+    }
+
+    if embedding_mode in ("defer", "off"):
+        if pending_embed_items:
+            logger.info(
+                "ChatGPT import embedding %s: %d candidates deferred to worker backfill",
+                embedding_mode,
+                len(pending_embed_items),
+            )
+    elif embedding_mode == "enqueue":
+        embedding_diagnostics = _process_chatgpt_embedding_batches(
+            chatlog_db=chatlog_db,
+            items=pending_embed_items,
+            message_ids=pending_embed_message_ids,
+            operation="import",
+            failure_reason="embedding_coverage_degraded",
+        )
+    embedding_diagnostics["embedding_mode"] = embedding_mode
 
     return {
         "threads_imported": threads_count,
