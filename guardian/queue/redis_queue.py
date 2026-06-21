@@ -88,6 +88,8 @@ class _InMemoryRedis:
         self._expiries: dict[str, float] = {}
         self._lists: dict[str, list[str]] = {}
         self._sets: dict[str, set[str]] = {}
+        self._streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        self._stream_counter: dict[str, int] = {}
 
     def _now(self) -> float:
         return time.time()
@@ -200,6 +202,36 @@ class _InMemoryRedis:
                 bucket.remove(value)
                 removed += 1
         return removed
+
+    def xadd(
+        self, name: str, fields: dict[str, str], id: str = "*"
+    ) -> str:
+        counter = self._stream_counter.get(name, 0) + 1
+        self._stream_counter[name] = counter
+        entry_id = f"{int(self._now() * 1000)}-{counter}"
+        self._streams.setdefault(name, []).append(
+            (entry_id, {k: str(v) for k, v in fields.items()})
+        )
+        return entry_id
+
+    def xread(
+        self,
+        streams: dict[str, str],
+        block: int = 0,
+        count: int = 0,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        results: list[tuple[str, list[tuple[str, dict[str, str]]]]] = []
+        for key, last_id in streams.items():
+            entries = self._streams.get(key, [])
+            filtered: list[tuple[str, dict[str, str]]] = []
+            for eid, fields in entries:
+                if eid > last_id:
+                    filtered.append((eid, dict(fields)))
+            if count and len(filtered) > count:
+                filtered = filtered[:count]
+            if filtered:
+                results.append((key, filtered))
+        return results
 
 
 def _is_mock_client(client: Any) -> bool:
