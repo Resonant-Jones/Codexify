@@ -29,7 +29,7 @@ Define and implement a governed, bounded, operator-visible Pi/Coder invocation s
 | C04-T011 | frontend | `go` | `8f617fe5e` | Dry-run API helper — validatePiCoderDryRun(), typed request/response, no forbidden exports |
 | C04-T012 | frontend | `go` | `a77b3367b` | Validation flow wired — interactive card with envelope textarea + Validate dry-run button |
 | C04-T013 | docs | `go` | `b18a05ba1` | Route-to-operator evidence seam — field mapping, safe rendering rules, prohibited claims, proof requirements |
-| C04-T014 | impl | planned | — | Implement Pi/Coder dry-run route-to-operator evidence adapter |
+| C04-T014 | impl | `go` | `6fc146700` | Evidence adapter — build_operator_evidence_from_dry_run_response(), pure, 13 tests (116 Pi) |
 
 ## Next Task
 
