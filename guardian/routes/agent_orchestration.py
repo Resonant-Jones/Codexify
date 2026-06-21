@@ -351,6 +351,63 @@ async def execute_coding_task(
     }
 
 
+@router.post("/pi-invocation/dry-run")
+async def pi_invocation_dry_run(
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate a proposed Pi/Coder invocation envelope without executing.
+
+    This is a dry-run-only route. It does NOT:
+      - call Pi SDK
+      - call Coder
+      - execute adapters
+      - enqueue workers
+      - call _store or _event_publisher
+      - write to the database
+      - create receipts or artifacts
+      - persist result-return records
+      - write transcript messages
+    """
+    from guardian.pi.contracts import PiInvocationEnvelope
+    from guardian.pi.validation import validate_invocation_envelope
+
+    envelope = PiInvocationEnvelope.from_payload(body)
+    result = validate_invocation_envelope(envelope)
+
+    return {
+        "dry_run": True,
+        "accepted": result.ok,
+        "state": "validated" if result.ok else "validation_failed",
+        "validation_status": result.validation_outcome,
+        "errors": list(result.failure_reasons),
+        "warnings": [],
+        "redaction_state": "clean",
+        "release_support": "unsupported",
+        "execution_performed": False,
+        "persistence_performed": False,
+        "invocation_id": envelope.invocation_id or None,
+        "source_thread_id": envelope.source_thread_id or None,
+        "source_message_id": envelope.source_message_id or None,
+        "harness_id": envelope.harness_id or None,
+        "permission_posture": _safe_permission_summary(envelope),
+    }
+
+
+def _safe_permission_summary(envelope: Any) -> str | None:
+    """Return a safe permission summary without raw payloads."""
+    try:
+        requested = envelope.requested_permissions
+        if not requested:
+            return None
+        return ", ".join(
+            p.permission
+            for p in requested
+            if hasattr(p, "permission") and p.permission
+        ) or None
+    except Exception:
+        return None
+
+
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str) -> dict[str, Any]:
     run = _store.get_run(run_id)
