@@ -5,6 +5,7 @@ struct ScoutEndpointConnectivityResult {
     let authenticationState: ScoutEndpointAuthenticationState
     let message: String
     let connectedAt: Date?
+    let snapshot: ScoutHealthSnapshot?
 }
 
 struct ScoutEndpointConnectivityProbe {
@@ -17,7 +18,8 @@ struct ScoutEndpointConnectivityProbe {
                 validationState: .invalidConfiguration,
                 authenticationState: endpoint.authenticationState,
                 message: "Base URL is empty.",
-                connectedAt: nil
+                connectedAt: nil,
+                snapshot: nil
             )
         }
 
@@ -31,7 +33,8 @@ struct ScoutEndpointConnectivityProbe {
                 validationState: .invalidConfiguration,
                 authenticationState: endpoint.authenticationState,
                 message: "Malformed health-check URL. Check the base URL.",
-                connectedAt: nil
+                connectedAt: nil,
+                snapshot: nil
             )
         }
 
@@ -45,18 +48,22 @@ struct ScoutEndpointConnectivityProbe {
         }
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return ScoutEndpointConnectivityResult(
                     validationState: .unreachable,
                     authenticationState: endpoint.authenticationState,
                     message: "Unexpected response type from server.",
-                    connectedAt: nil
+                    connectedAt: nil,
+                    snapshot: nil
                 )
             }
 
             let statusCode = httpResponse.statusCode
+            let healthSnapshot = (200..<300).contains(statusCode)
+                ? try? JSONDecoder().decode(ScoutHealthSnapshot.self, from: data)
+                : nil
 
             switch statusCode {
             case 200..<300:
@@ -65,14 +72,16 @@ struct ScoutEndpointConnectivityProbe {
                         validationState: .reachable,
                         authenticationState: .authenticated,
                         message: "Vault is reachable and authenticated (HTTP \(statusCode)).",
-                        connectedAt: Date()
+                        connectedAt: Date(),
+                        snapshot: healthSnapshot
                     )
                 } else {
                     return ScoutEndpointConnectivityResult(
                         validationState: .reachable,
                         authenticationState: .unconfigured,
                         message: "Vault is reachable, but no API key was used (HTTP \(statusCode)).",
-                        connectedAt: Date()
+                        connectedAt: Date(),
+                        snapshot: healthSnapshot
                     )
                 }
             case 401, 403:
@@ -80,14 +89,16 @@ struct ScoutEndpointConnectivityProbe {
                     validationState: .reachable,
                     authenticationState: .authRequired,
                     message: "Vault is reachable but authentication is required (HTTP \(statusCode)).",
-                    connectedAt: Date()
+                    connectedAt: Date(),
+                    snapshot: nil
                 )
             default:
                 return ScoutEndpointConnectivityResult(
                     validationState: .unreachable,
                     authenticationState: endpoint.authenticationState,
                     message: "Vault returned unexpected status (HTTP \(statusCode)).",
-                    connectedAt: nil
+                    connectedAt: nil,
+                    snapshot: nil
                 )
             }
         } catch let error as URLError where error.code == .timedOut {
@@ -95,14 +106,16 @@ struct ScoutEndpointConnectivityProbe {
                 validationState: .unreachable,
                 authenticationState: endpoint.authenticationState,
                 message: "Connection timed out after 5 seconds. Vault may be offline or unreachable.",
-                connectedAt: nil
+                connectedAt: nil,
+                snapshot: nil
             )
         } catch {
             return ScoutEndpointConnectivityResult(
                 validationState: .unreachable,
                 authenticationState: endpoint.authenticationState,
                 message: "Connection failed: \(error.localizedDescription)",
-                connectedAt: nil
+                connectedAt: nil,
+                snapshot: nil
             )
         }
     }
