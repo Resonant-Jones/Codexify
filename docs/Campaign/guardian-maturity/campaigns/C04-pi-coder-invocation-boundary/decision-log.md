@@ -189,3 +189,15 @@
 - **Evidence**: 66 shell tests pass. `git diff --check` clean. Docs validator passed.
 - **Consequence**: C04-T011 fully accepted. C04-T012 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D012-R1
+
+- **Decision ID**: C04-D012-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T012 Pi/Coder dry-run validation flow governance closeout complete. Card at `frontend/src/features/guardianWorkspace/GuardianWorkspacePiCoderDryRunCard.tsx` wired to `validatePiCoderDryRun()` at `frontend/src/api/piCoderDryRun.ts`. Targets `POST /api/agents/pi-invocation/dry-run`. Validation-only, dry-run only. "Validate dry-run" button. No execution controls, raw payloads, or direct fetch. Release boundary preserved. C04-T013 next.
+- **Reason**: Prior R1 closeout omitted decision-log and backlog entries. R2 records missing governance. No code or test changes.
+- **Evidence**: 65 shell tests pass. `git diff --check` clean. Docs validator passed. `pnpm lint` unavailable.
+- **Consequence**: C04-T012 fully accepted. C04-T013 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
