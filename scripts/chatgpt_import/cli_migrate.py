@@ -391,6 +391,11 @@ def import_openai_conversations(
         "--diagnostic-dir",
         help="Directory for import diagnostic reports",
     ),
+    order: str = typer.Option(
+        "file",
+        "--order",
+        help="Import order: file (default), newest, oldest, updated",
+    ),
 ):
     """
     Import OpenAI export conversations into Codexify-native chat threads.
@@ -421,6 +426,7 @@ def import_openai_conversations(
         limit=limit,
         title_contains=title_contains,
         diagnostic_dir=diagnostic_dir,
+        order=order,
     )
 
     print_header()
