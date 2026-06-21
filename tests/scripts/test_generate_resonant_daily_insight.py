@@ -291,6 +291,26 @@ def test_metadata_includes_date_and_sources(tmp_path: Path) -> None:
     assert "local source material" in content
 
 
+def test_rerun_same_inputs_produces_identical_output(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    src = _make_markdown_file(
+        tmp_path,
+        "stable.md",
+        "# Stable Source\n\nThis source should render identically across runs.\n",
+    )
+
+    first = _run_cli("2026-05-13", [src], output_dir, force=True)
+    assert first.returncode == 0, first.stderr
+    first_content = _read_insight(output_dir / "2026-05-13.md")
+
+    second = _run_cli("2026-05-13", [src], output_dir, force=True)
+    assert second.returncode == 0, second.stderr
+    second_content = _read_insight(output_dir / "2026-05-13.md")
+
+    assert first_content == second_content
+    assert "**Generated:** 2026-05-13T00:00:00Z" in first_content
+
+
 # ---------------------------------------------------------------------------
 # no unsupported claims
 # ---------------------------------------------------------------------------

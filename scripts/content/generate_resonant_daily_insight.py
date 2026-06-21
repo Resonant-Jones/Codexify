@@ -178,7 +178,11 @@ def generate_daily_insight(
         )
 
     # -- build metadata ------------------------------------------------------
-    generated_at = datetime.datetime.now(datetime.timezone.utc)
+    generated_at = datetime.datetime.combine(
+        date_obj,
+        datetime.time.min,
+        tzinfo=datetime.timezone.utc,
+    )
     final_title = title or f"Daily Insight — {date_str}"
 
     # -- build signal section ------------------------------------------------
