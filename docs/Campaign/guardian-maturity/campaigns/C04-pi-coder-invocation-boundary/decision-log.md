@@ -201,3 +201,15 @@
 - **Evidence**: 65 shell tests pass. `git diff --check` clean. Docs validator passed. `pnpm lint` unavailable.
 - **Consequence**: C04-T012 fully accepted. C04-T013 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D013-R1
+
+- **Decision ID**: C04-D013-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T013 route-to-operator evidence seam governance closeout complete. Seam at `route-to-operator-evidence-seam.md` maps `POST /api/agents/pi-invocation/dry-run` to `PiInvocationOperatorEvidence`. 17 sections: field mapping, safe rendering rules, prohibited claims, failure states, proof requirements. No implementation. No code/test/runtime changes. Release boundary preserved. C04-T014 next.
+- **Reason**: Prior C04-T013 output omitted governance closeout. R1 records missing decision-log and backlog consistency. No code or test changes.
+- **Evidence**: `git diff --check` clean. Docs validator passed.
+- **Consequence**: C04-T013 fully accepted. C04-T014 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
