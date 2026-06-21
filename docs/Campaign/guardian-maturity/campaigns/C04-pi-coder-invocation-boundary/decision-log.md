@@ -237,3 +237,15 @@
 - **Evidence**: 14 route + 116 Pi tests pass. Imports ok. `git diff --check` clean. Docs validator passed.
 - **Consequence**: C04-T015 fully accepted. C04-T016 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D016-R1
+
+- **Decision ID**: C04-D016-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T016 operator evidence rendering governance closeout complete. Card renders `Operator evidence` section with evidence_state, validation_status, and boundary copy. Read-only. No execution controls. No raw payload rendering. Backend route + adapter unchanged. 14 route tests + 65 shell tests pass. Release boundary preserved. C04-T017 next.
+- **Reason**: Prior C04-T016 output omitted governance closeout. R1 records backend test regression proof, API type proof, card rendering proof, and full governance metadata. No code changes needed.
+- **Evidence**: 14 route + 65 shell tests pass. Backend files unchanged. `git diff --check` clean. Docs validator passed. `pnpm lint` unavailable.
+- **Consequence**: C04-T016 fully accepted. C04-T017 may proceed.
+- **Revisit Trigger**: None — governance closeout is final.
