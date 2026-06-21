@@ -273,3 +273,40 @@ python3 scripts/validate_docs.py                            passed
 
 ### Next Task
 **C04-T008c: Close Pi/Coder dry-run route proof**
+
+---
+
+## C04-T009-R1: Operator Surface Proof Closeout (2026-06-20 00:50 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `493d1ca75` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: proof-pack, decision-log, backlog, git diff, docs validation, and redaction proof not reported.
+
+### UI Surface
+`GuardianWorkspacePiCoderDryRunCard` exists — static, read-only. No API helper added. No interactive route call yet. Renders truth labels (Validation only, No execution performed, No persistence performed, Release support: unsupported). Accepted means accepted for dry-run validation only. Interactive validation input explicitly deferred. Route path `POST /api/agents/pi-invocation/dry-run` displayed.
+
+### Forbidden Controls
+No Execute, Run, Dispatch, Retry, Replay, Approve, Complete, Create receipt, Create artifact, Invoke tool, Merge, Mark complete — test-proven.
+
+### Raw Payload Redaction
+Card is static — no raw payload rendering possible. No raw_args, extra_meta, result_json, hidden_prompt, system_prompt, raw_diff, raw_patch fields in component.
+
+### Unsupported Claims
+Card truth-labels: autonomous delegation, Pi/Coder execution, recursive tool use, artifact creation, receipt creation, work-order completion — test-proven.
+
+### Validation
+```
+CommandCenterShell.test.tsx  64 passed (6 Pi/Coder + 58 existing)
+git diff --check               clean
+python3 scripts/validate_docs.py passed
+pnpm lint: not run — no frontend lint script available
+```
+
+### No Runtime
+No backend route, persistence, execution, or frontend execution controls added.
+
+### Gate Decision
+**`go`** — C04-T009-R1 accepted. C04-T010 may proceed.
+
+### Next Task
+**C04-T010: Define Pi/Coder dry-run request fixture pack**
