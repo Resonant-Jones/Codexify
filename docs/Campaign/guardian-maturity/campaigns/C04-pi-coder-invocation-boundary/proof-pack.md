@@ -310,3 +310,33 @@ No backend route, persistence, execution, or frontend execution controls added.
 
 ### Next Task
 **C04-T010: Define Pi/Coder dry-run request fixture pack**
+
+---
+
+## C04-T010: Dry-Run Fixture Pack (2026-06-20 01:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `c02620f9e` | **Worktree**: clean
+
+### Files Created
+- `tests/fixtures/pi/__init__.py` — 7 fixture functions
+- `tests/pi/test_dry_run_request_fixtures.py` — 13 fixture tests
+- `tests/routes/test_pi_invocation_dry_run_route.py` — updated to use valid fixture
+
+### Fixture Inventory
+7 functions: valid, missing-lineage, forbidden-raw-payload, forbidden-execution-control, forbidden-completion-collapse, accepted response, rejected response. All synthetic, deterministic, no secrets.
+
+### Validation
+```
+fixture tests: 13 passed
+route tests: 14 passed (1 updated to use fixture)
+total: 27 passed
+git diff --check clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C04-T010 accepted. C04-T011 may proceed.
+
+### Next Task
+**C04-T011: Define Pi/Coder dry-run API helper contract**
