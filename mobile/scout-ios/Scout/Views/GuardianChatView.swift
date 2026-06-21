@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct TaskNav: Hashable {
+    let taskId: String
+    let threadId: Int
+}
+
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var threads: [ScoutChatThreadSummary]?
@@ -108,7 +113,7 @@ struct GuardianChatView: View {
                 ThreadMessagesView(threadId: threadId)
             }
             .navigationDestination(for: TaskNav.self) { nav in
-                TaskEventsView(taskId: nav.taskId)
+                TaskEventsView(taskId: nav.taskId, threadId: nav.threadId)
             }
             .onAppear {
                 if !storedProfileData.isEmpty {
@@ -276,7 +281,7 @@ private struct ThreadMessagesView: View {
                 .disabled(isRequestingCompletion)
 
                 if let taskId = completionTaskId {
-                    NavigationLink(value: TaskNav(taskId: taskId)) {
+                    NavigationLink(value: TaskNav(taskId: taskId, threadId: threadId)) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Task accepted: \(taskId)")
                                 .font(.caption)
@@ -430,6 +435,7 @@ private struct ThreadMessagesView: View {
 
 private struct TaskEventsView: View {
     let taskId: String
+    let threadId: Int
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var events: [ScoutTaskEvent] = []
@@ -531,6 +537,33 @@ private struct TaskEventsView: View {
         }
     }
 
+    private func handleTerminalEvent(_ eventType: String) async {
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        switch eventType {
+        case "task.completed":
+            _ = await ScoutGuardianThreadMessagesProbe.probe(
+                endpoint: profile, threadId: threadId, apiKey: apiKey
+            )
+            statusMessage = "Task completed. Messages refreshed."
+        case "task.failed":
+            statusMessage = "Task failed. No assistant message was synthesized."
+        case "task.cancelled":
+            statusMessage = "Task cancelled. No assistant message was synthesized."
+        default:
+            break
+        }
+    }
+
     private func connect() async {
         guard !storedProfileData.isEmpty else {
             streamError = "No endpoint configured."
@@ -559,7 +592,7 @@ private struct TaskEventsView: View {
             for try await event in stream {
                 events.append(event)
                 if event.isTerminal {
-                    statusMessage = "Task reached terminal state: \(event.eventType ?? "unknown")"
+                    await handleTerminalEvent(event.eventType ?? "unknown")
                     break
                 }
             }

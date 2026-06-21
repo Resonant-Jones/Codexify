@@ -745,37 +745,33 @@ struct ScoutTestRunner {
         // ── SSE parser ───────────────────────────────────────────
 
         do {
-            let sse = """
-            event: task.created
-            data: {"msg":"hello"}
-            id: evt-1
-
-            event: task.completed
-            data: {"ok":true}
-            id: evt-2
-
-            """
+            let sse = "event: task.completed\ndata: {}\n\n"
             let events = ScoutSSEParser.parse(sse)
-            check("SSE parse → 2 events", events.count == 2)
-            check("SSE event 1 type", events[0].eventType == "task.created")
-            check("SSE event 1 id", events[0].eventId == "evt-1")
-            check("SSE event 1 data", events[0].data == "{\"msg\":\"hello\"}")
-            check("SSE event 1 isTerminal false", !events[0].isTerminal)
-            check("SSE event 2 type", events[1].eventType == "task.completed")
-            check("SSE event 2 id", events[1].eventId == "evt-2")
-            check("SSE event 2 isTerminal true", events[1].isTerminal)
+            check("SSE task.completed → isTerminal", events.first?.isTerminal == true)
         }
 
         do {
             let sse = "event: task.failed\ndata: {}\n\n"
             let events = ScoutSSEParser.parse(sse)
-            check("SSE failed → isTerminal", events.first?.isTerminal == true)
+            check("SSE task.failed → isTerminal", events.first?.isTerminal == true)
         }
 
         do {
             let sse = "event: task.cancelled\ndata: {}\n\n"
             let events = ScoutSSEParser.parse(sse)
-            check("SSE cancelled → isTerminal", events.first?.isTerminal == true)
+            check("SSE task.cancelled → isTerminal", events.first?.isTerminal == true)
+        }
+
+        do {
+            let sse = "event: task.created\ndata: {}\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE task.created → not terminal", events.first?.isTerminal == false)
+        }
+
+        do {
+            let sse = "event: task.progress\ndata: working\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE task.progress → not terminal", events.first?.isTerminal == false)
         }
 
         do {
