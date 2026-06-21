@@ -1,5 +1,7 @@
 import json
 import logging
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -15,6 +17,10 @@ from guardian.core.dependencies import (
 from guardian.services.account_restore import (
     AccountRestoreError,
     AccountRestoreService,
+)
+from backend.rag.openai_export_adapter import (
+    diagnose_openai_export_path,
+    import_openai_export_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,6 +151,78 @@ def _detect_export_format_parsed(data: Any) -> str:
     return "unknown"
 
 
+def _safe_upload_basename(filename: str | None, fallback: str) -> str:
+    if not filename:
+        return fallback
+    normalized = filename.replace("\\", "/")
+    name = Path(normalized).name.strip()
+    return name or fallback
+
+
+def _is_openai_dat_upload(filename: str | None) -> bool:
+    name = _safe_upload_basename(filename, "")
+    return Path(name).suffix.lower() == ".dat"
+
+
+def _has_importable_openai_conversation(report: Any) -> bool:
+    return any(
+        record.conversation_candidate
+        and record.detected_kind in {"json_object", "json_array", "jsonl"}
+        for record in report.inventory.files
+    )
+
+
+def _to_migration_stats(stats: dict[str, Any]) -> MigrationStats:
+    return MigrationStats(
+        threads_imported=stats["threads_imported"],
+        messages_imported=stats["messages_imported"],
+        projects_created=stats.get("projects_created"),
+        projects_reused=stats.get("projects_reused"),
+        messages_filtered=stats.get("messages_filtered"),
+        embedding_candidates=int(stats.get("embedding_candidates", 0)),
+        embeddings_persisted=int(stats.get("embeddings_persisted", 0)),
+        embeddings_failed=int(stats.get("embeddings_failed", 0)),
+        embedding_coverage_degraded=bool(
+            stats.get("embedding_coverage_degraded", False)
+        ),
+    )
+
+
+def _import_openai_dat_upload(
+    content: bytes,
+    *,
+    filename: str | None,
+    user_id: str,
+) -> dict[str, Any]:
+    safe_name = _safe_upload_basename(filename, "openai-export-upload.dat")
+    with TemporaryDirectory(prefix="codexify-openai-upload-") as tmpdir:
+        upload_path = Path(tmpdir) / safe_name
+        upload_path.write_bytes(content)
+
+        report = diagnose_openai_export_path(upload_path)
+        if (
+            report.inventory.detected_format != "sharded"
+            or not _has_importable_openai_conversation(report)
+        ):
+            raise ValueError(
+                "Unsupported OpenAI .dat upload: the single uploaded .dat file "
+                "is not a readable JSON/JSONL conversation shard. Full sharded "
+                "export folders cannot be represented by this upload route; use "
+                "the path-based OpenAI export import tool for folder imports."
+            )
+
+        stats = import_openai_export_path(upload_path, user_id=user_id)
+        if (
+            int(stats.get("conversation_records", 0)) <= 0
+            and int(stats.get("threads_imported", 0)) <= 0
+            and int(stats.get("messages_imported", 0)) <= 0
+        ):
+            raise ValueError(
+                "OpenAI .dat upload did not contain importable conversation records."
+            )
+        return stats
+
+
 @router.post("/api/upload-chatgpt-export", response_model=MigrationStats)
 @router.post("/upload-chatgpt-export", response_model=MigrationStats)
 async def upload_chatgpt_export(
@@ -153,10 +231,11 @@ async def upload_chatgpt_export(
     api_key: str = Depends(require_api_key),
 ):
     """
-    Import a ChatGPT or Claude export file (JSON).
+    Import a ChatGPT, Claude, or single-file OpenAI conversation export.
 
     Auto-detects format: ChatGPT exports (with 'mapping' field) or
-    Claude exports (with 'chat_messages' field).
+    Claude exports (with 'chat_messages' field). Modern OpenAI .dat uploads
+    are diagnosed and imported through the OpenAI export adapter.
 
     Canonical path: /api/upload-chatgpt-export
     Legacy alias: /upload-chatgpt-export
@@ -172,6 +251,15 @@ async def upload_chatgpt_export(
 
         content = bytes(chunks)
 
+        if _is_openai_dat_upload(file.filename):
+            return _to_migration_stats(
+                _import_openai_dat_upload(
+                    content,
+                    filename=file.filename,
+                    user_id=user_id,
+                )
+            )
+
         # Parse and detect export format
         try:
             parsed = json.loads(content)
@@ -180,10 +268,8 @@ async def upload_chatgpt_export(
                 "Invalid JSON file: unable to parse uploaded content."
             )
 
-        # Auto-detect export format (default to ChatGPT for backward compatibility)
+        # Auto-detect export format without guessing unsupported shapes.
         export_format = _detect_export_format_parsed(parsed)
-        if export_format == "unknown":
-            export_format = "chatgpt"
 
         if export_format == "claude":
             stats = ingest_claude_export(content, user_id=user_id)
@@ -191,23 +277,12 @@ async def upload_chatgpt_export(
             stats = ingest_chatgpt_export(content, user_id=user_id)
         else:
             raise ValueError(
-                "Unrecognized export format. Expected a ChatGPT export (with 'mapping' field) "
-                "or a Claude export (with 'chat_messages' field)."
+                "Unsupported or ambiguous migration upload. Expected a legacy "
+                "ChatGPT conversations JSON export, a Claude JSON export, or "
+                "a modern OpenAI .dat conversation shard."
             )
 
-        return MigrationStats(
-            threads_imported=stats["threads_imported"],
-            messages_imported=stats["messages_imported"],
-            projects_created=stats.get("projects_created"),
-            projects_reused=stats.get("projects_reused"),
-            messages_filtered=stats.get("messages_filtered"),
-            embedding_candidates=int(stats.get("embedding_candidates", 0)),
-            embeddings_persisted=int(stats.get("embeddings_persisted", 0)),
-            embeddings_failed=int(stats.get("embeddings_failed", 0)),
-            embedding_coverage_degraded=bool(
-                stats.get("embedding_coverage_degraded", False)
-            ),
-        )
+        return _to_migration_stats(stats)
     except HTTPException:
         # Re-raise HTTPExceptions without catching them
         raise
