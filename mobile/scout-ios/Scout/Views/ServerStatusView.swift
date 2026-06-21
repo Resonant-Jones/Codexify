@@ -6,6 +6,7 @@ struct ServerStatusView: View {
     @State private var result: ScoutEndpointConnectivityResult?
     @State private var isProbing = false
     @State private var keychainError: String?
+    @State private var llmResult: ScoutLLMHealthResult?
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -132,6 +133,66 @@ struct ServerStatusView: View {
                                     .truncationMode(.middle)
                             }
                         }
+
+                        if let llm = llmResult {
+                            Divider()
+
+                            if let httpStatus = llm.httpStatus {
+                                HStack {
+                                    Text("LLM HTTP Status")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(httpStatus)")
+                                }
+                                .font(.subheadline)
+                            }
+
+                            if let llmLatency = llm.latencyMilliseconds {
+                                HStack {
+                                    Text("LLM Probe Latency")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(llmLatency) ms")
+                                }
+                                .font(.subheadline)
+                            }
+
+                            if let snapshot = llm.snapshot {
+                                if let status = snapshot.status {
+                                    HStack {
+                                        Text("LLM Health Status")
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(status)
+                                    }
+                                    .font(.subheadline)
+                                }
+
+                                if let provider = snapshot.provider {
+                                    HStack {
+                                        Text("Provider")
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(provider)
+                                    }
+                                    .font(.subheadline)
+                                }
+
+                                if let model = snapshot.model {
+                                    HStack {
+                                        Text("Model")
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(model)
+                                    }
+                                    .font(.subheadline)
+                                }
+                            }
+
+                            Text(llm.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } else if let error = keychainError {
                     Section("Authentication") {
@@ -185,6 +246,7 @@ struct ServerStatusView: View {
         isProbing = true
         keychainError = nil
         result = nil
+        llmResult = nil
 
         let apiKey: String?
         do {
@@ -195,6 +257,7 @@ struct ServerStatusView: View {
         }
 
         result = await ScoutEndpointConnectivityProbe.probe(endpoint: profile, apiKey: apiKey)
+        llmResult = await ScoutLLMHealthProbe.probe(endpoint: profile, apiKey: apiKey)
         isProbing = false
     }
 

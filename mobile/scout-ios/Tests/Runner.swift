@@ -277,6 +277,70 @@ struct ScoutTestRunner {
             check("empty URL → latency nil", result.latencyMilliseconds == nil)
         }
 
+        // ── LLM health probe ──────────────────────────────────────
+
+        func llmBody() -> Data {
+            """
+            {"status":"ok","service":"llm","timestamp":"2024-01-01T00:00:00Z","provider":"local","model":"gemma2:2b"}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("LLM probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, llmBody())
+            }
+            let result = await ScoutLLMHealthProbe.probe(
+                endpoint: makeEndpoint(), apiKey: "key", session: session
+            )
+            check("LLM 2xx → httpStatus 200", result.httpStatus == 200)
+            check("LLM 2xx → latency non-nil", result.latencyMilliseconds != nil)
+            check("LLM 2xx → latency >= 0", (result.latencyMilliseconds ?? -1) >= 0)
+            check("LLM 2xx → snapshot not nil", result.snapshot != nil)
+            check("LLM 2xx → provider == 'local'", result.snapshot?.provider == "local")
+            check("LLM 2xx → model == 'gemma2:2b'", result.snapshot?.model == "gemma2:2b")
+            check("LLM 2xx → status == 'ok'", result.snapshot?.status == "ok")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutLLMHealthProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("LLM decode fail → snapshot nil", result.snapshot == nil)
+            check("LLM decode fail → httpStatus preserved", result.httpStatus == 200)
+            check("LLM decode fail → latency present", result.latencyMilliseconds != nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutLLMHealthProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("LLM timeout → latency nil", result.latencyMilliseconds == nil)
+            check("LLM timeout → snapshot nil", result.snapshot == nil)
+            check("LLM timeout → httpStatus nil", result.httpStatus == nil)
+            check("LLM timeout → 'timed out' in msg", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutLLMHealthProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("LLM transport error → latency nil", result.latencyMilliseconds == nil)
+            check("LLM transport error → snapshot nil", result.snapshot == nil)
+            check("LLM transport error → 'failed' in msg", result.message.contains("failed"))
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
