@@ -157,6 +157,37 @@ struct ServerStatusView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
+
+            if let snapshot = result.snapshot {
+                Divider()
+                    .padding(.vertical, 4)
+
+                HStack {
+                    Text("Service")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(snapshot.service)
+                }
+                .font(.subheadline)
+
+                HStack {
+                    Text("Health")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(snapshot.status)
+                }
+                .font(.subheadline)
+
+                HStack {
+                    Text("Timestamp")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(snapshot.timestamp)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
         }
     }
 }
