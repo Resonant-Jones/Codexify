@@ -158,6 +158,9 @@ private struct ThreadMessagesView: View {
     @State private var composeText = ""
     @State private var isSending = false
     @State private var sendMessage: String?
+    @State private var isRequestingCompletion = false
+    @State private var completionMessage: String?
+    @State private var completionTaskId: String?
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -251,6 +254,43 @@ private struct ThreadMessagesView: View {
             }
 
             Section {
+                Button {
+                    completionMessage = nil
+                    completionTaskId = nil
+                    Task { await requestCompletion() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isRequestingCompletion {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        }
+                        Image(systemName: "sparkles")
+                        Text("Request Guardian Response")
+                        Spacer()
+                    }
+                }
+                .disabled(isRequestingCompletion)
+
+                if let taskId = completionTaskId {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Task accepted: \(taskId)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Use Refresh Messages to check for the Guardian response.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let msg = completionMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(msg == "Completion accepted by Vault." ? .green : .secondary)
+                }
+            }
+
+            Section {
                 HStack {
                     TextField("Type a message…", text: $composeText)
                         .disabled(isSending)
@@ -274,6 +314,32 @@ private struct ThreadMessagesView: View {
         .onAppear {
             Task { await loadMessages() }
         }
+    }
+
+    private func requestCompletion() async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isRequestingCompletion = true
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            completionMessage = "Could not load saved endpoint profile."
+            isRequestingCompletion = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutGuardianCompleteThreadService.complete(
+            endpoint: profile, threadId: threadId, apiKey: apiKey
+        )
+        completionMessage = result.message
+        completionTaskId = result.taskId
+        isRequestingCompletion = false
     }
 
     private func sendContent(_ text: String) async {
