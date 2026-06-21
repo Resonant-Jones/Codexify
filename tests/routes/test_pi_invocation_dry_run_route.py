@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from guardian.routes import agent_orchestration
+from tests.fixtures.pi import valid_pi_dry_run_envelope_payload
 
 
 def _client(monkeypatch: Any) -> TestClient:
@@ -54,7 +55,7 @@ def _envelope(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
 class TestValidDryRun:
     def test_valid_envelope_returns_200_and_dry_run_true(self, monkeypatch: Any) -> None:
         client = _client(monkeypatch)
-        resp = client.post("/api/agents/pi-invocation/dry-run", json=_envelope())
+        resp = client.post("/api/agents/pi-invocation/dry-run", json=valid_pi_dry_run_envelope_payload())
         assert resp.status_code == 200
         data = resp.json()
         assert data["dry_run"] is True
