@@ -5,6 +5,10 @@ struct TaskNav: Hashable {
     let threadId: Int
 }
 
+struct DocumentDetailNav: Hashable {
+    let documentId: String
+}
+
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var threads: [ScoutChatThreadSummary]?
@@ -115,6 +119,9 @@ struct GuardianChatView: View {
             .navigationDestination(for: TaskNav.self) { nav in
                 TaskEventsView(taskId: nav.taskId, threadId: nav.threadId)
             }
+            .navigationDestination(for: DocumentDetailNav.self) { nav in
+                DocumentDetailView(documentId: nav.documentId)
+            }
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadThreads() }
@@ -169,6 +176,9 @@ private struct ThreadMessagesView: View {
     @State private var isRequestingCompletion = false
     @State private var completionMessage: String?
     @State private var completionTaskId: String?
+    @State private var documents: [ScoutThreadDocumentSummary]?
+    @State private var docMessage: String?
+    @State private var isLoadingDocs = false
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -251,6 +261,72 @@ private struct ThreadMessagesView: View {
                     }
                 }
                 .disabled(isLoading)
+            }
+
+            // Thread Documents section
+            if isLoadingDocs {
+                Section {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 8)
+                        Text("Loading documents…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let msg = docMessage {
+                Section {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let docs = documents, !docs.isEmpty {
+                Section("Thread Documents") {
+                    ForEach(docs, id: \.id) { doc in
+                        NavigationLink(value: DocumentDetailNav(documentId: doc.id ?? "")) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(doc.title ?? doc.id ?? "Untitled")
+                                    .font(.body)
+                                    .lineLimit(1)
+                                HStack {
+                                    if let relation = doc.relation {
+                                        Text(relation)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let created = doc.created_at {
+                                        Text(created)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Button {
+                    Task { await loadDocuments() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isLoadingDocs {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        }
+                        Image(systemName: "doc.on.doc")
+                        Text("Refresh Documents")
+                        Spacer()
+                    }
+                }
+                .disabled(isLoadingDocs)
             }
 
             if let sendMsg = sendMessage {
@@ -410,6 +486,35 @@ private struct ThreadMessagesView: View {
             statusMessage = result.message
         }
         isLoading = false
+    }
+
+    private func loadDocuments() async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isLoadingDocs = true
+        docMessage = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            docMessage = "Could not load saved endpoint profile."
+            isLoadingDocs = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutThreadDocumentsProbe.probe(
+            endpoint: profile, threadId: threadId, apiKey: apiKey
+        )
+        documents = result.documents
+        if result.documents == nil {
+            docMessage = result.message
+        }
+        isLoadingDocs = false
     }
 
     private func roleLabel(_ role: String?) -> String {
@@ -601,6 +706,126 @@ private struct TaskEventsView: View {
         }
 
         isConnected = false
+    }
+}
+
+// MARK: - Document Detail View
+
+private struct DocumentDetailView: View {
+    let documentId: String
+
+    @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @State private var detail: ScoutDocumentDetail?
+    @State private var statusMessage: String?
+    @State private var isLoading = false
+
+    private let keychainStore = ScoutKeychainStore()
+
+    var body: some View {
+        List {
+            if isLoading {
+                Section {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 8)
+                        Text("Loading document…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let msg = statusMessage, detail == nil {
+                Section {
+                    Text(msg)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let detail = detail {
+                Section("Info") {
+                    if let filename = detail.filename {
+                        HStack {
+                            Text("Filename")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(filename)
+                                .lineLimit(1)
+                        }
+                    }
+                    if let mime = detail.mime_type {
+                        HStack {
+                            Text("Type")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(mime)
+                        }
+                    }
+                    if let size = detail.filesize {
+                        HStack {
+                            Text("Size")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(formatFileSize(size))
+                        }
+                    }
+                    if let created = detail.created_at {
+                        HStack {
+                            Text("Created")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(created)
+                                .font(.caption)
+                        }
+                    }
+                }
+
+                if let text = detail.parsed_text, !text.isEmpty {
+                    Section("Content") {
+                        Text(text)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Document")
+        .onAppear {
+            Task { await loadDetail() }
+        }
+    }
+
+    private func loadDetail() async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isLoading = true
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            statusMessage = "Could not load saved endpoint profile."
+            isLoading = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutDocumentDetailProbe.probe(
+            endpoint: profile, documentId: documentId, apiKey: apiKey
+        )
+        detail = result.detail
+        if result.detail == nil {
+            statusMessage = result.message
+        }
+        isLoading = false
+    }
+
+    private func formatFileSize(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024) }
+        return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
     }
 }
 

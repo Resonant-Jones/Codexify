@@ -794,6 +794,147 @@ struct ScoutTestRunner {
             check("SSE empty → 0 events", events.isEmpty)
         }
 
+        // ── Thread documents probe ───────────────────────────────
+
+        func docsBody() -> Data {
+            """
+            {"ok":true,"documents":[{"id":"doc-1","title":"report.pdf","relation":"attached","created_at":"2024-01-01T00:00:00Z"},{"id":"doc-2","title":"notes.txt","relation":"autosave","created_at":"2024-01-02T00:00:00Z"}]}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Docs probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, docsBody())
+            }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: "key", session: session
+            )
+            check("Docs 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Docs 2xx → 2 documents", result.documents?.count == 2)
+            check("Docs 2xx → title 'report.pdf'", result.documents?.first?.title == "report.pdf")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Docs no X-API-Key when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, """
+                {"ok":true,"documents":[]}
+                """.data(using: .utf8)!)
+            }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Docs empty → documents empty", result.documents?.isEmpty == true)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Docs decode fail → documents nil", result.documents == nil)
+            check("Docs decode fail → httpStatus preserved", result.httpStatus == 200)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Docs 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Docs timeout → documents nil", result.documents == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutThreadDocumentsProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Docs transport error → documents nil", result.documents == nil)
+        }
+
+        // ── Document detail probe ─────────────────────────────────
+
+        func detailBody() -> Data {
+            """
+            {"id":"doc-1","document_id":"doc-1","filename":"report.pdf","mime_type":"application/pdf","filesize":12345,"src_url":"https://example.com/report.pdf","parsed_text":"Document content here.","created_at":"2024-01-01T00:00:00Z"}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Detail probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, detailBody())
+            }
+            let result = await ScoutDocumentDetailProbe.probe(
+                endpoint: makeEndpoint(), documentId: "doc-1", apiKey: "key", session: session
+            )
+            check("Detail 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Detail 2xx → detail not nil", result.detail != nil)
+            check("Detail → filename 'report.pdf'", result.detail?.filename == "report.pdf")
+            check("Detail → filesize 12345", result.detail?.filesize == 12345)
+            check("Detail → parsed_text present", result.detail?.parsed_text == "Document content here.")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutDocumentDetailProbe.probe(
+                endpoint: makeEndpoint(), documentId: "doc-x", apiKey: nil, session: session
+            )
+            check("Detail decode fail → detail nil", result.detail == nil)
+            check("Detail decode fail → message includes 'unavailable'", result.message.contains("unavailable"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutDocumentDetailProbe.probe(
+                endpoint: makeEndpoint(), documentId: "doc-x", apiKey: nil, session: session
+            )
+            check("Detail 401 → auth message", result.message.contains("Authentication required"))
+            check("Detail 401 → detail nil", result.detail == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutDocumentDetailProbe.probe(
+                endpoint: makeEndpoint(), documentId: "doc-x", apiKey: nil, session: session
+            )
+            check("Detail timeout → detail nil", result.detail == nil)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
