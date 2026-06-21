@@ -653,6 +653,95 @@ struct ScoutTestRunner {
             check("Send transport error → messageId nil", result.messageId == nil)
         }
 
+        // ── Completion request service ───────────────────────────
+
+        func completeSuccessBody() -> Data {
+            """
+            {"ok":true,"acceptance_status":"accepted","task_id":"task-abc-123","turn_id":"turn-1","messages_url":"/api/chat/1/messages","trace_url":"/api/chat/debug/rag-trace/1/latest"}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Complete uses POST", request.httpMethod == "POST")
+                check("Complete targets /api/chat/*/complete",
+                      request.url?.absoluteString.contains("/api/chat/1/complete") == true)
+                check("Complete has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                check("Complete has Content-Type", request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, completeSuccessBody())
+            }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: "key", session: session
+            )
+            check("Complete 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Complete 2xx → taskId decoded", result.taskId == "task-abc-123")
+            check("Complete 2xx → turnId decoded", result.turnId == "turn-1")
+            check("Complete 2xx → messagesUrl decoded", result.messagesUrl == "/api/chat/1/messages")
+            check("Complete 2xx → acceptanceStatus 'accepted'", result.acceptanceStatus == "accepted")
+            check("Complete 2xx → 'accepted' message", result.message.contains("accepted"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Complete no X-API-Key when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, completeSuccessBody())
+            }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Complete no-key → taskId still decoded", result.taskId != nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Complete 401 → auth message", result.message.contains("Authentication required"))
+            check("Complete 401 → taskId nil", result.taskId == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Complete 429 → 'in progress'", result.message.contains("already in progress"))
+            check("Complete 429 → taskId nil", result.taskId == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Complete timeout → 'timed out'", result.message.contains("timed out"))
+            check("Complete timeout → taskId nil", result.taskId == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutGuardianCompleteThreadService.complete(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Complete transport error → 'failed'", result.message.contains("failed"))
+            check("Complete transport error → taskId nil", result.taskId == nil)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
