@@ -37,7 +37,7 @@ struct ServerStatusView: View {
                     }
                 }
 
-                Section("Status") {
+                Section("Reachability") {
                     if isProbing {
                         HStack {
                             ProgressView()
@@ -46,7 +46,17 @@ struct ServerStatusView: View {
                                 .foregroundStyle(.secondary)
                         }
                     } else if let result = result {
-                        statusContent(for: result)
+                        HStack(spacing: 8) {
+                            Image(systemName: result.validationState == .reachable
+                                  ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(result.validationState == .reachable ? .green : .red)
+                            Text(result.validationState.title)
+                                .fontWeight(.semibold)
+                        }
+
+                        Text(result.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } else if profile != nil {
                         Text("Tap Refresh to check server status.")
                             .foregroundStyle(.secondary)
@@ -58,8 +68,73 @@ struct ServerStatusView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
 
-                    if let error = keychainError {
+                if let result = result {
+                    Section("Authentication") {
+                        HStack {
+                            Text(result.authenticationState.title)
+                            Spacer()
+                        }
+
+                        if let error = keychainError {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                        }
+                    }
+
+                    Section("Probe Evidence") {
+                        if let connectedAt = result.connectedAt {
+                            HStack {
+                                Text("Last connected")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(connectedAt.formatted(date: .abbreviated, time: .shortened))
+                            }
+                            .font(.subheadline)
+                        }
+
+                        if let latency = result.latencyMilliseconds {
+                            HStack {
+                                Text("Latency")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(latency) ms")
+                            }
+                            .font(.subheadline)
+                        }
+
+                        if let snapshot = result.snapshot {
+                            HStack {
+                                Text("Service")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(snapshot.service)
+                            }
+                            .font(.subheadline)
+
+                            HStack {
+                                Text("Health")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(snapshot.status)
+                            }
+                            .font(.subheadline)
+
+                            HStack {
+                                Text("Timestamp")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(snapshot.timestamp)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+                } else if let error = keychainError {
+                    Section("Authentication") {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                             .font(.caption)
@@ -123,83 +198,6 @@ struct ServerStatusView: View {
         isProbing = false
     }
 
-    @ViewBuilder
-    private func statusContent(for result: ScoutEndpointConnectivityResult) -> some View {
-        let isReachable = result.validationState == .reachable
-
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: isReachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(isReachable ? .green : .red)
-                Text(result.validationState.title)
-                    .fontWeight(.semibold)
-            }
-
-            HStack {
-                Text("Authentication")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(result.authenticationState.title)
-            }
-            .font(.subheadline)
-
-            if let connectedAt = result.connectedAt {
-                HStack {
-                    Text("Last connected")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(connectedAt.formatted(date: .abbreviated, time: .shortened))
-                }
-                .font(.subheadline)
-            }
-
-            if let latency = result.latencyMilliseconds {
-                HStack {
-                    Text("Latency")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(latency) ms")
-                }
-                .font(.subheadline)
-            }
-
-            Text(result.message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
-
-            if let snapshot = result.snapshot {
-                Divider()
-                    .padding(.vertical, 4)
-
-                HStack {
-                    Text("Service")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(snapshot.service)
-                }
-                .font(.subheadline)
-
-                HStack {
-                    Text("Health")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(snapshot.status)
-                }
-                .font(.subheadline)
-
-                HStack {
-                    Text("Timestamp")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(snapshot.timestamp)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-    }
 }
 
 #Preview {
