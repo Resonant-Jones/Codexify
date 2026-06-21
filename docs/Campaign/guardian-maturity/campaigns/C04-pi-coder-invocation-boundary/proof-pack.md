@@ -369,3 +369,34 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C04-T012: Wire Pi/Coder dry-run helper into read-only operator validation flow**
+
+---
+
+## C04-T011-R1: API Helper Proof Closeout (2026-06-20 01:20 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `5ca608a15` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: focused API helper tests, decision-log, backlog, and lint status not reported.
+
+### Helper Tests Added
+2 new shell tests: forbidden export check (12 names absent, `validatePiCoderDryRun` present), no interactive controls wired (0 inputs, 0 textareas in card).
+
+### Response Type Proof
+`PiCoderDryRunResponse` type: safe fields only. No raw payloads, execution controls, or completion verdicts — import-time type check in shell test.
+
+### No UI Wiring
+Card remains static — 0 inputs, 0 textareas. No API helper call in the card component.
+
+### Validation
+```
+CommandCenterShell.test.tsx  66 passed (2 API helper + 64 existing)
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+pnpm lint: not available — no frontend lint script
+```
+
+### Gate Decision
+**`go`** — C04-T011-R1 accepted. C04-T012 may proceed.
+
+### Next Task
+**C04-T012: Wire Pi/Coder dry-run helper into read-only operator validation flow**
