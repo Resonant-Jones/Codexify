@@ -10,7 +10,7 @@ struct ScoutEndpointConnectivityResult {
 
 struct ScoutEndpointConnectivityProbe {
 
-    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil) async -> ScoutEndpointConnectivityResult {
+    static func probe(endpoint: ScoutEndpointProfile, apiKey: String? = nil, session: URLSession = .shared) async -> ScoutEndpointConnectivityResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !urlString.isEmpty else {
@@ -28,7 +28,7 @@ struct ScoutEndpointConnectivityProbe {
         }
         urlString += "/health"
 
-        guard let url = URL(string: urlString) else {
+        guard let url = URL(string: urlString), let scheme = url.scheme, !scheme.isEmpty, url.host != nil else {
             return ScoutEndpointConnectivityResult(
                 validationState: .invalidConfiguration,
                 authenticationState: endpoint.authenticationState,
@@ -48,7 +48,7 @@ struct ScoutEndpointConnectivityProbe {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return ScoutEndpointConnectivityResult(
