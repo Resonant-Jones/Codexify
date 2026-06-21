@@ -1,5 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { test, expect } from '@playwright/test';
 
 type ThreadRecord = {
   id: number;
@@ -19,8 +23,36 @@ type MessageRecord = {
   created_at: string;
 };
 
+type ImportFixtureCase = {
+  label: string;
+  fixtureUrl: string;
+  expectedFilename: string;
+  contentMarkers: string[];
+};
+
+const IMPORT_FIXTURE_CASES: ImportFixtureCase[] = [
+  {
+    label: 'legacy ChatGPT export',
+    fixtureUrl: './fixtures/chatgpt_export_sample.json',
+    expectedFilename: 'chatgpt_export_sample.json',
+    contentMarkers: ['"mapping"', 'Migration anchor code: ORCHID-POLARIS-719.'],
+  },
+  {
+    label: 'modern sharded OpenAI export',
+    fixtureUrl:
+      './fixtures/openai_sharded_export/conversations__abcd.part-0001/file_0000000000000001.dat',
+    expectedFilename: 'file_0000000000000001.dat',
+    contentMarkers: [
+      '"conversation_id": "sharded-thread"',
+      '"messages"',
+      'Migration anchor code: ORCHID-POLARIS-719.',
+    ],
+  },
+];
+
 test.describe('ChatGPT migration import', () => {
-  test('imports and recalls a fact through post-import completion', async ({ page, context }) => {
+  for (const importFixture of IMPORT_FIXTURE_CASES) {
+    test(`imports ${importFixture.label} and recalls a fact through post-import completion`, async ({ page, context }) => {
     await context.addInitScript(() => {
       localStorage.setItem('cfy.lastView', 'settings');
     });
@@ -42,6 +74,8 @@ test.describe('ChatGPT migration import', () => {
     let legacyUploadHits = 0;
     let completionHits = 0;
     let completedThreadId: number | null = null;
+    let uploadedMultipartBody = '';
+    let uploadedContentType = '';
     let nextMessageId = 2000;
     let imported = false;
 
@@ -138,6 +172,8 @@ test.describe('ChatGPT migration import', () => {
       if (path === '/api/upload-chatgpt-export') {
         expect(request.method()).toBe('POST');
         canonicalUploadHits += 1;
+        uploadedContentType = request.headers()['content-type'] ?? '';
+        uploadedMultipartBody = request.postDataBuffer()?.toString('utf8') ?? '';
         imported = true;
         installImportedThread();
         await route.fulfill({
@@ -283,28 +319,38 @@ test.describe('ChatGPT migration import', () => {
     const settingsTab = page.getByRole('button', { name: 'Settings' }).first();
     await expect(settingsTab).toBeVisible({ timeout: 20000 });
     await settingsTab.click();
-    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible();
 
-    const dataTab = page.getByRole('button', { name: 'Data' }).first();
+    const dataTab = page.getByRole('tab', { name: 'Data' }).first();
     await dataTab.click();
-    await expect(page.getByText('ChatGPT Migration')).toBeVisible();
+    await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import from ChatGPT' });
+    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
     await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
 
     const fixturePath = fileURLToPath(
-      new URL('./fixtures/chatgpt_export_sample.json', import.meta.url)
+      new URL(importFixture.fixtureUrl, import.meta.url)
     );
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(fixturePath);
+    await expect(page.getByText(importFixture.expectedFilename)).toBeVisible();
+    const selectedFileText = await fileInput.evaluate(async (element) => {
+      const input = element as HTMLInputElement;
+      return (await input.files?.item(0)?.text()) ?? '';
+    });
+    for (const marker of importFixture.contentMarkers) {
+      expect(selectedFileText).toContain(marker);
+    }
 
     await page.getByRole('button', { name: 'Upload & Migrate' }).click();
     await expect(page.getByText(/Migration Successful/i)).toBeVisible();
     await expect.poll(() => canonicalUploadHits).toBe(1);
     expect(legacyUploadHits).toBe(0);
+    expect(uploadedContentType).toContain('multipart/form-data');
+    expect(uploadedMultipartBody).toContain(`filename="${importFixture.expectedFilename}"`);
 
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toHaveCount(0);
@@ -327,7 +373,8 @@ test.describe('ChatGPT migration import', () => {
     await expect.poll(() => completionHits).toBeGreaterThan(0);
     await expect.poll(() => completedThreadId).toBe(importedThread.id);
     await expect(page.getByText(recalledAnswer)).toBeVisible({ timeout: 20000 });
-  });
+    });
+  }
 
   test('accepts large exports without size gating', async ({ page, context }) => {
     await context.addInitScript(() => {
@@ -441,37 +488,40 @@ test.describe('ChatGPT migration import', () => {
     const settingsTab = page.getByRole('button', { name: 'Settings' }).first();
     await expect(settingsTab).toBeVisible({ timeout: 20000 });
     await settingsTab.click();
-    await expect(page.getByRole('button', { name: 'Appearance' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible();
 
-    const dataTab = page.getByRole('button', { name: 'Data' }).first();
+    const dataTab = page.getByRole('tab', { name: 'Data' }).first();
     await dataTab.click();
-    await expect(page.getByText('ChatGPT Migration')).toBeVisible();
+    await expect(page.getByText('Migrate from ChatGPT')).toBeVisible();
 
-    const importButton = page.getByRole('button', { name: 'Import from ChatGPT' });
+    const importButton = page.getByRole('button', { name: 'Import ChatGPT history' });
     await expect(importButton).toBeVisible();
     await importButton.click();
 
     await expect(page.getByRole('heading', { name: 'Import from ChatGPT' })).toBeVisible();
 
+    const tempDir = mkdtempSync(join(tmpdir(), 'codexify-chatgpt-import-'));
+    const largeFixturePath = join(tempDir, 'chatgpt_export_large.json');
     const largePayload = Buffer.alloc(51 * 1024 * 1024, ' ');
+    writeFileSync(largeFixturePath, largePayload);
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles({
-      name: 'chatgpt_export_large.json',
-      mimeType: 'application/json',
-      buffer: largePayload,
-    });
+    try {
+      await fileInput.setInputFiles(largeFixturePath);
 
-    await expect(page.getByText('chatgpt_export_large.json')).toBeVisible();
-    await expect(
-      page.getByText('Large ChatGPT exports are accepted.')
-    ).toBeVisible();
-    await expect(
-      page.getByText('Export file exceeds 50MB limit.')
-    ).toHaveCount(0);
+      await expect(page.getByText('chatgpt_export_large.json')).toBeVisible();
+      await expect(
+        page.getByText('Large ChatGPT exports are accepted.')
+      ).toBeVisible();
+      await expect(
+        page.getByText('Export file exceeds 50MB limit.')
+      ).toHaveCount(0);
 
-    const uploadButton = page.getByRole('button', { name: 'Upload & Migrate' });
-    await expect(uploadButton).toBeEnabled();
-    await uploadButton.click();
-    await expect.poll(() => uploadHits).toBe(1);
+      const uploadButton = page.getByRole('button', { name: 'Upload & Migrate' });
+      await expect(uploadButton).toBeEnabled();
+      await uploadButton.click();
+      await expect.poll(() => uploadHits).toBe(1);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
