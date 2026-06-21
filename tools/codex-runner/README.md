@@ -9,7 +9,46 @@ with `codex exec`.
 ## Prereqs
 - Python >= 3.10
 - Git installed and available on PATH
-- Codex CLI installed and authenticated per Codex CLI docs
+- OpenAI Codex CLI installed, authenticated, and available as `codex` on PATH
+
+## Codex CLI setup
+Run these checks from the same shell or service account that will launch
+`codex-runner`.
+
+1. Install the official OpenAI Codex CLI using one supported path:
+   ```bash
+   curl -fsSL https://chatgpt.com/codex/install.sh | sh
+   ```
+   ```bash
+   npm install -g @openai/codex
+   ```
+   ```bash
+   brew install --cask codex
+   ```
+
+2. Confirm the binary is visible:
+   ```bash
+   command -v codex
+   codex --version
+   ```
+
+3. Authenticate the CLI:
+   ```bash
+   codex login
+   ```
+   For API-key auth instead of browser/ChatGPT sign-in:
+   ```bash
+   codex login --api-key "$OPENAI_API_KEY"
+   ```
+
+4. Verify non-interactive runner access before launching:
+   ```bash
+   codex login status
+   codex exec "Return only: OK"
+   ```
+
+If `codex` is missing from PATH, `codex-runner` stops before invoking the
+model and prints the install, auth, and verification steps above.
 
 ## Usage
 ```bash

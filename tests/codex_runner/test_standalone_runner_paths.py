@@ -79,3 +79,25 @@ def test_validate_campaign_payload_accepts_legacy_paths() -> None:
     }
 
     runner.validate_campaign_payload(payload)
+
+
+def test_ensure_codex_available_explains_install_auth_and_verify(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(runner.shutil, "which", lambda binary: None)
+
+    try:
+        runner.ensure_codex_available()
+    except runner.RunnerError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected RunnerError when codex is missing")
+
+    assert "Codex CLI preflight failed" in message
+    assert "curl -fsSL https://chatgpt.com/codex/install.sh | sh" in message
+    assert "npm install -g @openai/codex" in message
+    assert "brew install --cask codex" in message
+    assert "codex login" in message
+    assert "codex login --api-key <OPENAI_API_KEY>" in message
+    assert "codex login status" in message
+    assert 'codex exec "Return only: OK"' in message
