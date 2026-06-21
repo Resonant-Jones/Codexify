@@ -129,3 +129,15 @@
   - `python3 scripts/validate_docs.py` — passed.
 - **Consequence**: C04-T006 fully accepted. C04-T007 may proceed.
 - **Revisit Trigger**: None — validation closeout is final.
+
+---
+
+### Decision: C04-D008b-R1
+
+- **Decision ID**: C04-D008b-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T008b route boundary proof closeout complete. 14 route tests + 90 Pi contract tests pass. `require_api_key` auth proven. Dry-run response contract safe and bounded. No Pi SDK, Coder, command bus, worker, transcript, receipt, artifact, DB, _store, _event_publisher, or frontend import. Release boundary preserved.
+- **Reason**: Prior C04-T008b output omitted proof hygiene. Added 5 boundary tests (unauthenticated, no completion verdict, uses Pi validator, no command bus import, no frontend import). All validation passes.
+- **Evidence**: 14 route tests + 90 Pi tests + import proof + git diff clean + docs validator passed.
+- **Consequence**: C04-T008b fully accepted. C04-T008c may proceed.
+- **Revisit Trigger**: None — closeout is final.
