@@ -191,7 +191,14 @@ class CodexifyEmbedder:
                 "count": len(docs),
             }
 
-    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        *,
+        namespace: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         """Search the vector store for the query."""
         if self.store != "chroma":
             raise NotImplementedError(
@@ -201,20 +208,38 @@ class CodexifyEmbedder:
         if self._chroma_collection is None:
             raise RuntimeError("Chroma collection not initialized")
 
-        # Embed the query
         query_embeddings = self.embed_texts([query])
 
-        # Query Chroma
-        results = self._chroma_collection.query(
-            query_embeddings=query_embeddings, n_results=k
-        )
+        where_filter: dict[str, Any] | None = None
+        conditions: list[dict[str, Any]] = []
+        conditions.append({"source": {"$ne": "chat"}})
+        if namespace:
+            conditions.append({"namespace": namespace})
+        if user_id:
+            conditions.append({"user_id": user_id})
+        if len(conditions) > 1:
+            where_filter = {"$and": conditions}
+        elif len(conditions) == 1:
+            where_filter = conditions[0]
 
-        # Format results to match the expected output structure
-        # Chroma returns lists of lists (one per query), we only have one query
-        formatted_results = []
+        fetch_k = min(k * 3, 30)
+        query_kwargs: dict[str, Any] = {
+            "query_embeddings": query_embeddings,
+            "n_results": fetch_k,
+        }
+        if where_filter:
+            query_kwargs["where"] = where_filter
+
+        try:
+            results = self._chroma_collection.query(**query_kwargs)
+        except Exception:
+            results = self._chroma_collection.query(
+                query_embeddings=query_embeddings, n_results=fetch_k
+            )
+
+        formatted_results: list[dict[str, Any]] = []
 
         if results and results["documents"]:
-            # Unpack the first (and only) query result
             docs = results["documents"][0]
             metas = (
                 results["metadatas"][0]
@@ -227,15 +252,27 @@ class CodexifyEmbedder:
                 else [0.0] * len(docs)
             )
 
+            seen_texts: set[str] = set()
+            doc_results: list[dict[str, Any]] = []
+            chat_results: list[dict[str, Any]] = []
+
             for doc, meta, dist in zip(docs, metas, distances):
-                formatted_results.append(
-                    {
-                        "text": doc,
-                        "meta": meta,
-                        "score": 1.0
-                        - dist,  # Convert distance to similarity score roughly
-                    }
-                )
+                if doc in seen_texts:
+                    continue
+                seen_texts.add(doc)
+                entry = {
+                    "text": doc,
+                    "meta": meta,
+                    "metadata": meta,
+                    "user_id": meta.get("user_id", ""),
+                    "score": 1.0 - dist,
+                }
+                if meta.get("source") == "chat":
+                    chat_results.append(entry)
+                else:
+                    doc_results.append(entry)
+
+            formatted_results = (doc_results + chat_results)[:k]
 
         return formatted_results
 
