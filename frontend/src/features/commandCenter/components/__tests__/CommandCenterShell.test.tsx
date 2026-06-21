@@ -999,6 +999,69 @@ describe("CommandCenterShell", () => {
     });
   });
 
+  describe("Guardian Workspace Pi/Coder dry-run card", () => {
+    it("renders Pi/Coder dry-run validation section in workspace", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByText("Pi/Coder dry-run validation")).toBeInTheDocument();
+      expect(screen.getByTestId("guardian-workspace-pi-coder-dry-run")).toBeInTheDocument();
+    });
+
+    it("renders validation-only truth labels", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const labels = screen.getByTestId("pi-coder-dry-run-labels");
+      expect(within(labels).getByText("Validation only")).toBeInTheDocument();
+      expect(within(labels).getByText("No execution performed")).toBeInTheDocument();
+      expect(within(labels).getByText("No persistence performed")).toBeInTheDocument();
+      expect(within(labels).getByText("Release support: unsupported")).toBeInTheDocument();
+    });
+
+    it("renders accepted-for-validation-only copy", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
+      expect(within(card).getByText(/accepted for dry-run validation/)).toBeInTheDocument();
+    });
+
+    it("renders deferred interactive state", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      expect(screen.getByTestId("pi-coder-dry-run-deferred")).toBeInTheDocument();
+    });
+
+    it("has no forbidden execution controls", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
+      const buttons = card.querySelectorAll("button");
+      const forbidden = [
+        "execute", "dispatch", "retry", "replay", "approve",
+        "complete", "create receipt", "create artifact", "invoke tool",
+        "merge", "mark complete",
+      ];
+      for (const btn of Array.from(buttons)) {
+        const text = (btn.textContent || "").toLowerCase();
+        for (const label of forbidden) {
+          expect(text).not.toContain(label);
+        }
+      }
+    });
+
+    it("truth-labels unsupported execution claims", () => {
+      render(<CommandCenterShell {...defaultProps} />);
+      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
+      const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
+      const text = card.textContent || "";
+      expect(text).toContain("autonomous delegation");
+      expect(text).toContain("Pi/Coder execution");
+      expect(text).toContain("recursive tool use");
+      expect(text).toContain("artifact creation");
+      expect(text).toContain("receipt creation");
+      expect(text).toContain("work-order completion");
+    });
+  });
+
   describe("readInitialDelegationIntentId", () => {
     it("readInitialDelegationIntentId_supports_guardian_delegation_intent_id", () => {
       vi.stubGlobal("location", {

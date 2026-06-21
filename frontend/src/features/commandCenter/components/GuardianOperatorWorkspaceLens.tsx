@@ -5,6 +5,7 @@ import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWor
 import GuardianWorkspaceCommandRunEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceCommandRunEvidenceCard";
 import GuardianWorkspaceToolTurnEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceToolTurnEvidenceCard";
 import GuardianWorkspaceReceiptEvidenceCard from "@/features/commandCenter/components/GuardianWorkspaceReceiptEvidenceCard";
+import GuardianWorkspacePiCoderDryRunCard from "@/features/commandCenter/components/GuardianWorkspacePiCoderDryRunCard";
 import type { CommandCenterHealthItem } from "@/features/commandCenter/types";
 
 /** Read-only Guardian Operator Workspace lens.
@@ -76,6 +77,11 @@ export default function GuardianOperatorWorkspaceLens(props: GuardianOperatorWor
       {/* ── Receipt evidence card (live composition) ── */}
       <Section title="Receipt evidence">
         <GuardianWorkspaceReceiptEvidenceCard />
+      </Section>
+
+      {/* ── Pi/Coder dry-run card ── */}
+      <Section title="Pi/Coder dry-run validation">
+        <GuardianWorkspacePiCoderDryRunCard />
       </Section>
 
       {/* ── Runtime / health card (live composition) ── */}
