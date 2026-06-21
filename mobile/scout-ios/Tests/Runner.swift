@@ -341,6 +341,69 @@ struct ScoutTestRunner {
             check("LLM transport error → 'failed' in msg", result.message.contains("failed"))
         }
 
+        // ── LLM catalog probe ────────────────────────────────────
+
+        func catalogBody() -> Data {
+            """
+            {"providers":[{"id":"local","displayName":"Local","enabled":true,"available":true,"models":[{"id":"gemma2:2b","displayName":"Gemma 2B"},{"id":"llama3.2","displayName":"Llama 3.2"}]}]}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Catalog probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, catalogBody())
+            }
+            let result = await ScoutLLMCatalogProbe.probe(
+                endpoint: makeEndpoint(), apiKey: "key", session: session
+            )
+            check("Catalog 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Catalog 2xx → latency non-nil", result.latencyMilliseconds != nil)
+            check("Catalog 2xx → latency >= 0", (result.latencyMilliseconds ?? -1) >= 0)
+            check("Catalog 2xx → snapshot not nil", result.snapshot != nil)
+            check("Catalog → 2 models", result.snapshot?.providers?.first?.models?.count == 2)
+            check("Catalog → provider id 'local'", result.snapshot?.providers?.first?.id == "local")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutLLMCatalogProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Catalog decode fail → snapshot nil", result.snapshot == nil)
+            check("Catalog decode fail → httpStatus preserved", result.httpStatus == 200)
+            check("Catalog decode fail → latency present", result.latencyMilliseconds != nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutLLMCatalogProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Catalog timeout → latency nil", result.latencyMilliseconds == nil)
+            check("Catalog timeout → snapshot nil", result.snapshot == nil)
+            check("Catalog timeout → httpStatus nil", result.httpStatus == nil)
+            check("Catalog timeout → 'timed out' in msg", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutLLMCatalogProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Catalog transport error → latency nil", result.latencyMilliseconds == nil)
+            check("Catalog transport error → snapshot nil", result.snapshot == nil)
+            check("Catalog transport error → 'failed' in msg", result.message.contains("failed"))
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
