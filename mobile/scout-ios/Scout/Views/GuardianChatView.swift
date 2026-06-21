@@ -155,6 +155,9 @@ private struct ThreadMessagesView: View {
     @State private var statusMessage: String?
     @State private var keychainError: String?
     @State private var isLoading = false
+    @State private var composeText = ""
+    @State private var isSending = false
+    @State private var sendMessage: String?
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -238,10 +241,67 @@ private struct ThreadMessagesView: View {
                 }
                 .disabled(isLoading)
             }
+
+            if let sendMsg = sendMessage {
+                Section {
+                    Text(sendMsg)
+                        .font(.caption)
+                        .foregroundStyle(sendMsg == "Message sent." ? .green : .secondary)
+                }
+            }
+
+            Section {
+                HStack {
+                    TextField("Type a message…", text: $composeText)
+                        .disabled(isSending)
+
+                    if isSending {
+                        ProgressView()
+                            .padding(.horizontal, 4)
+                    }
+
+                    Button("Send") {
+                        let text = composeText
+                        composeText = ""
+                        sendMessage = nil
+                        Task { await sendContent(text) }
+                    }
+                    .disabled(composeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+                }
+            }
         }
         .navigationTitle("Thread \(threadId)")
         .onAppear {
             Task { await loadMessages() }
+        }
+    }
+
+    private func sendContent(_ text: String) async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isSending = true
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            sendMessage = "Could not load saved endpoint profile."
+            isSending = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutGuardianSendMessageService.send(
+            endpoint: profile, threadId: threadId, content: text, apiKey: apiKey
+        )
+        sendMessage = result.message
+        isSending = false
+
+        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
+            await loadMessages()
         }
     }
 

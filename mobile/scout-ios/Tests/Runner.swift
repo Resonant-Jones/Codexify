@@ -577,6 +577,82 @@ struct ScoutTestRunner {
             check("Messages transport error → 'failed' in msg", result.message.contains("failed"))
         }
 
+        // ── Send message service ─────────────────────────────────
+
+        func sendSuccessBody() -> Data {
+            """
+            {"ok":true,"message":{"id":42,"role":"user","content":"Hello"}}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            var requestCaptured = false
+            _mockHandler = { request in
+                requestCaptured = true
+                check("Send has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                check("Send is POST", request.httpMethod == "POST")
+                check("Send has Content-Type", request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, sendSuccessBody())
+            }
+            let result = await ScoutGuardianSendMessageService.send(
+                endpoint: makeEndpoint(), threadId: 1, content: "Hello", apiKey: "key", session: session
+            )
+            check("Send request was made", requestCaptured)
+            check("Send 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Send 2xx → messageId 42", result.messageId == 42)
+            check("Send 2xx → 'Message sent'", result.message == "Message sent.")
+        }
+
+        do {
+            let session = makeSession()
+            var requestCaptured = false
+            _mockHandler = { _ in
+                requestCaptured = true
+                let r = HTTPURLResponse(url: URL(string: "https://vault.example.com/api/chat/1/messages")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianSendMessageService.send(
+                endpoint: makeEndpoint(), threadId: 1, content: "", apiKey: nil, session: session
+            )
+            check("Send empty → no request", !requestCaptured)
+            check("Send empty → 'empty' in msg", result.message.contains("empty"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutGuardianSendMessageService.send(
+                endpoint: makeEndpoint(), threadId: 1, content: "Hi", apiKey: nil, session: session
+            )
+            check("Send 401 → auth message", result.message.contains("Authentication required"))
+            check("Send 401 → messageId nil", result.messageId == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutGuardianSendMessageService.send(
+                endpoint: makeEndpoint(), threadId: 1, content: "Hi", apiKey: nil, session: session
+            )
+            check("Send timeout → 'timed out'", result.message.contains("timed out"))
+            check("Send timeout → messageId nil", result.messageId == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutGuardianSendMessageService.send(
+                endpoint: makeEndpoint(), threadId: 1, content: "Hi", apiKey: nil, session: session
+            )
+            check("Send transport error → 'failed'", result.message.contains("failed"))
+            check("Send transport error → messageId nil", result.messageId == nil)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
