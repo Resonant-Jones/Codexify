@@ -153,3 +153,15 @@
 - **Evidence**: 14 route tests + 90 Pi tests pass. `git diff --check` clean. Docs validator passed. C04-T008b-R2 proof-pack section already records full side-effect boundary.
 - **Consequence**: C04-T008b fully accepted. C04-T008c may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D009-R1
+
+- **Decision ID**: C04-D009-R1
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04-T009 Pi/Coder dry-run operator read surface proof closeout complete. Static card in Guardian Workspace. Truth labels: Validation only, No execution performed, No persistence performed, Release support: unsupported. Accepted means dry-run validation only. Interactive validation input deferred. No API helper. No execution controls. No raw payloads. 64 shell tests pass. `git diff --check` clean. Docs validator passed. Release boundary preserved.
+- **Reason**: Prior C04-T009 output omitted proof hygiene. Card is static, read-only, correctly labeled, and already test-proven for forbidden controls and unsupported claims. No code changes needed.
+- **Evidence**: 64 shell tests. `git diff --check` clean. `python3 scripts/validate_docs.py` passed.
+- **Consequence**: C04-T009 fully accepted. C04-T010 may proceed.
+- **Revisit Trigger**: None — proof closeout is final.
