@@ -10,36 +10,30 @@ Define and implement a governed, bounded, operator-visible Pi/Coder invocation s
 
 ## Status
 
-**Gate**: `go` — C04-T001 accepted. Campaign active.
+**Gate**: `go` — Campaign active.
 
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
-| C04-T001 | audit | `go` | `e4b68e685` | Pi/Coder invocation boundary seam audit — contracts, implementation, runtime proven/not-proven, risks, backlog |
-| C04-T002 | docs | `go` | `875e5266c` / `c5c0d5931` | Acceptance contract — state model, 15 criteria, 18-row proof matrix, 13 prohibited shortcuts, 7 proof classes, failure/blocker rules |
-| C04-T003 | docs | `go` | `9468eeacd` / `3cbd4ad8f` | Proof matrix — state ladder, 27-row core boundary matrix, 10-class evidence matrix, 15-condition gate matrix, lineage/receipt/artifact/operator/redaction proof requirements |
+| C04-T001 | audit | `go` | `e4b68e685` | Seam audit — contracts, implementation, runtime proven/not-proven, risks, backlog |
+| C04-T002 | docs | `go` | `875e5266c` | Acceptance contract — state model, 15 criteria, 18-row proof matrix, 13 shortcuts, 7 proof classes, failure/blocker rules |
+| C04-T003 | docs | `go` | `9468eeacd` | Proof matrix — state ladder, 27-row core boundary matrix, 10-class evidence matrix, 15-condition gate matrix |
 | C04-T004 | backend | `go` | `74e137511` | Contract gap repair — contracts + validation already existed; added 8 boundary tests (23 total) |
 | C04-T005 | backend | `go` | `32b89df06` | Policy decision contract — PiInvocationPolicyDecision, validation helper, 21 tests (44 total) |
-| C04-T006 | backend | `go` | `c4e63a55f` / `b4284b5e8` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
-| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
-| C04-T002 | docs | planned | — | Define Pi/Coder invocation boundary acceptance contract |
-| C04-T003 | docs | planned | — | Envelope preview contract |
-| C04-T004 | docs | planned | — | Validation-only run mode contract |
-| C04-T005 | backend | `go` | `32b89df06` | Policy decision contract — PiInvocationPolicyDecision, validation helper, 21 tests (44 total) |
-| C04-T006 | backend | `go` | `c4e63a55f` / `b4284b5e8` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
-| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
-| C04-T006 | frontend | planned | — | Envelope preview UI scaffold |
-| C04-T007 | backend | `go` | `TBD` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
-| C04-T007 | frontend | planned | — | Validation-only run mode UI scaffold |
-| C04-T008b | backend | `go` | `da966c060` | Pi/Coder validation-only dry-run route — POST /api/agents/pi-invocation/dry-run, 9 route tests |
-| C04-T008c | proof | planned | — | Close Pi/Coder dry-run route proof |
-| C04-T008a | docs | `go` | `TBD` | Route seam inspection — route ownership, auth, response patterns, hazards, contract, 15-test matrix |
-| C04-T008b | backend | `go` | `da966c060` | Pi/Coder validation-only dry-run route — POST /api/agents/pi-invocation/dry-run, 9 route tests |
-| C04-T008c | proof | planned | — | Close Pi/Coder dry-run route proof |
-C04-T008 was split into C04-T008a, C04-T008b, C04-T008c (see route-dry-run-seam-inspection.md)
+| C04-T006 | backend | `go` | `c4e63a55f` | Result return contract — PiInvocationResultReturn, validation helper, 22 tests (66 total) |
+| C04-T007 | backend | `go` | `1c7a386ca` | Operator evidence read model — PiInvocationOperatorEvidence, validation helper, 24 tests (90 total) |
+| C04-T008a | docs | `go` | `340c9501e` | Route seam inspection — route ownership, auth, response patterns, hazards, contract, test matrix |
+| C04-T008b | backend | `go` | `da966c060` | Validation-only dry-run route — POST /api/agents/pi-invocation/dry-run, 14 route tests |
+| C04-T008c | proof | `go` | `ace560585` | Dry-run route proof closeout — route path, ownership, auth, contracts, 13 side-effect boundaries |
+| C04-T009 | frontend | `go` | `493d1ca75` | Dry-run operator read surface — static card with truth labels, validation-only, no execution controls |
+| C04-T010 | test | `go` | `bad0eaf5a` | Dry-run fixture pack — 7 fixture functions, 13 fixture tests, route test reuse |
+| C04-T011 | frontend | `go` | `8f617fe5e` | Dry-run API helper — validatePiCoderDryRun(), typed request/response, no forbidden exports |
+| C04-T012 | frontend | `go` | `a77b3367b` | Validation flow wired — interactive card with envelope textarea + Validate dry-run button |
+| C04-T013 | docs | `go` | `b18a05ba1` | Route-to-operator evidence seam — field mapping, safe rendering rules, prohibited claims, proof requirements |
+| C04-T014 | impl | planned | — | Implement Pi/Coder dry-run route-to-operator evidence adapter |
 
 ## Next Task
 
-**C04-T002: Define Pi/Coder invocation boundary acceptance contract**
+**C04-T014: Implement Pi/Coder dry-run route-to-operator evidence adapter**
 
 ## Campaign Status
 
