@@ -482,3 +482,31 @@ python3 scripts/validate_docs.py: passed
 
 ### Next Task
 **C04-T015: Wire Pi/Coder dry-run evidence adapter into validation route response**
+
+---
+
+## C04-T015: Route Wired to Evidence (2026-06-20 02:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `c532f8558` | **Worktree**: clean
+
+### Files Modified
+- `agent_orchestration.py` — route now includes `operator_evidence` via `build_operator_evidence_from_dry_run_response()`
+- `test_pi_invocation_dry_run_route.py` — updated to assert `operator_evidence` field presence
+
+### Wiring
+Route calls pure adapter, includes `operator_evidence` in response. Response preserves all dry-run truth. No side effects.
+
+### Validation
+```
+route + adapter tests: 27 passed
+full Pi tests: 116 passed
+git diff --check: clean
+python3 scripts/validate_docs.py: passed
+```
+
+### Gate Decision
+**`go`** — C04-T015 accepted. C04-T016 may proceed.
+
+### Next Task
+**C04-T016: Render Pi/Coder dry-run operator evidence in validation card**
