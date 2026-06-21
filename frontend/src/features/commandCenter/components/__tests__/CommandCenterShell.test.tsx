@@ -1012,6 +1012,7 @@ describe("CommandCenterShell", () => {
       fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
       const labels = screen.getByTestId("pi-coder-dry-run-labels");
       expect(within(labels).getByText("Validation only")).toBeInTheDocument();
+      expect(within(labels).getByText("Dry-run only")).toBeInTheDocument();
       expect(within(labels).getByText("No execution performed")).toBeInTheDocument();
       expect(within(labels).getByText("No persistence performed")).toBeInTheDocument();
       expect(within(labels).getByText("Release support: unsupported")).toBeInTheDocument();
@@ -1025,10 +1026,11 @@ describe("CommandCenterShell", () => {
       expect(text).toContain("accepted for dry-run validation");
     });
 
-    it("renders deferred interactive state", () => {
+    it("renders validate button and envelope textarea", () => {
       render(<CommandCenterShell {...defaultProps} />);
       fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
-      expect(screen.getByTestId("pi-coder-dry-run-deferred")).toBeInTheDocument();
+      expect(screen.getByTestId("pi-coder-dry-run-validate")).toBeInTheDocument();
+      expect(screen.getByTestId("pi-coder-dry-run-envelope")).toBeInTheDocument();
     });
 
     it("has no forbidden execution controls", () => {
@@ -1074,16 +1076,6 @@ describe("CommandCenterShell", () => {
         expect(mod).not.toHaveProperty(name);
       }
       expect(mod).toHaveProperty("validatePiCoderDryRun");
-    });
-
-    it("API helper card not wired to interactive controls", () => {
-      render(<CommandCenterShell {...defaultProps} />);
-      fireEvent.click(screen.getByTestId("command-center-rail-item-guardian-workspace"));
-      const card = screen.getByTestId("guardian-workspace-pi-coder-dry-run");
-      const inputs = card.querySelectorAll("input");
-      const textareas = card.querySelectorAll("textarea");
-      expect(inputs.length).toBe(0);
-      expect(textareas.length).toBe(0);
     });
   });
 
