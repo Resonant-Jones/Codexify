@@ -352,6 +352,100 @@ def export_recon(
     )
 
 
+@app.command("import:openai-conversations")
+def import_openai_conversations(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Diagnose and report without writing to the database",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        "-n",
+        help="Limit import to the first N conversations",
+        min=1,
+    ),
+    title_contains: Optional[str] = typer.Option(
+        None,
+        "--title-contains",
+        help="Filter conversations by title substring (case-insensitive)",
+    ),
+    user_id: Optional[str] = typer.Option(
+        None,
+        "--user-id",
+        help="Codexify user_id to import into; defaults to local identity",
+    ),
+    diagnostic_dir: Path = typer.Option(
+        Path("logs/openai_import"),
+        "--diagnostic-dir",
+        help="Directory for import diagnostic reports",
+    ),
+):
+    """
+    Import OpenAI export conversations into Codexify-native chat threads.
+
+    Preserves source provenance, idempotent on re-import. No embeddings,
+    no graph writes, no personal facts. Use --dry-run to preview.
+
+    Example:
+        codexify import:openai-conversations --path ./OpenAI-export --dry-run
+        codexify import:openai-conversations --path ./OpenAI-export --limit 25
+        codexify import:openai-conversations --path ./OpenAI-export --title-contains Codexify
+    """
+    load_dotenv()
+
+    from backend.rag.openai_export_conversation_import import (
+        import_openai_export_conversations,
+    )
+    from guardian.identity import get_user_id
+
+    resolved_user_id = user_id or get_user_id()
+    if not resolved_user_id:
+        raise typer.BadParameter("Unable to resolve Codexify user_id")
+
+    diag = import_openai_export_conversations(
+        path,
+        user_id=resolved_user_id,
+        dry_run=dry_run,
+        limit=limit,
+        title_contains=title_contains,
+        diagnostic_dir=diagnostic_dir,
+    )
+
+    print_header()
+    if dry_run:
+        print_message("[bold cyan]OpenAI export dry run complete (no DB writes)[/bold cyan]")
+    else:
+        print_message("[bold cyan]OpenAI export conversation import complete[/bold cyan]")
+
+    print_summary(
+        {
+            "export_format": diag.export_format,
+            "conversations_discovered": diag.conversations_discovered,
+            "conversations_imported": diag.conversations_imported,
+            "conversations_skipped_title": diag.conversations_skipped_title,
+            "conversations_skipped_limit": diag.conversations_skipped_limit,
+            "conversations_skipped_duplicate": diag.conversations_skipped_duplicate,
+            "messages_discovered": diag.messages_discovered,
+            "messages_imported": diag.messages_imported,
+            "messages_skipped_duplicate": diag.messages_skipped_duplicate,
+            "parse_failures": diag.parse_failures,
+        }
+    )
+    print_message(f"Diagnostic output: {diagnostic_dir.resolve()}")
+
+
 @app.command("export-scraper:tasks")
 def scrape_openai_tasks(
     path: Path = typer.Option(

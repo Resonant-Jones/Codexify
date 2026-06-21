@@ -56,3 +56,33 @@ contains:
 
 Treat the manifest as an index into the export corpus. It should guide
 diagnostics and importer development, but raw payloads remain local-only.
+
+## Conversation Import
+
+Import OpenAI export conversations as Codexify-native chat threads:
+
+```bash
+# Dry run: diagnose without writing to the database
+python -m scripts.chatgpt_import.cli_migrate import:openai-conversations \
+  --path local_exports/openai/OpenAI-export \
+  --dry-run --limit 10
+
+# Import with limit (safe first run)
+python -m scripts.chatgpt_import.cli_migrate import:openai-conversations \
+  --path local_exports/openai/OpenAI-export \
+  --limit 25
+
+# Filter by title
+python -m scripts.chatgpt_import.cli_migrate import:openai-conversations \
+  --path local_exports/openai/OpenAI-export \
+  --title-contains Codexify
+```
+
+Imported threads appear in the existing Codexify chat UI under the Imports
+project. Source OpenAI IDs are preserved as provenance metadata, not native
+primary keys. Import is idempotent — rerunning does not duplicate records.
+
+Diagnostics are written to `logs/openai_import/`.
+
+**Warning**: Raw OpenAI export contents remain gitignored. Never commit
+private export payloads, diagnostic outputs, or import logs.
