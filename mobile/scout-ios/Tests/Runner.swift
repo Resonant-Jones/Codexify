@@ -742,6 +742,62 @@ struct ScoutTestRunner {
             check("Complete transport error → taskId nil", result.taskId == nil)
         }
 
+        // ── SSE parser ───────────────────────────────────────────
+
+        do {
+            let sse = """
+            event: task.created
+            data: {"msg":"hello"}
+            id: evt-1
+
+            event: task.completed
+            data: {"ok":true}
+            id: evt-2
+
+            """
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE parse → 2 events", events.count == 2)
+            check("SSE event 1 type", events[0].eventType == "task.created")
+            check("SSE event 1 id", events[0].eventId == "evt-1")
+            check("SSE event 1 data", events[0].data == "{\"msg\":\"hello\"}")
+            check("SSE event 1 isTerminal false", !events[0].isTerminal)
+            check("SSE event 2 type", events[1].eventType == "task.completed")
+            check("SSE event 2 id", events[1].eventId == "evt-2")
+            check("SSE event 2 isTerminal true", events[1].isTerminal)
+        }
+
+        do {
+            let sse = "event: task.failed\ndata: {}\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE failed → isTerminal", events.first?.isTerminal == true)
+        }
+
+        do {
+            let sse = "event: task.cancelled\ndata: {}\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE cancelled → isTerminal", events.first?.isTerminal == true)
+        }
+
+        do {
+            let sse = ": comment line\nevent: task.progress\ndata: working\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE comment ignored", events.count == 1)
+            check("SSE progress → not terminal", !events[0].isTerminal)
+        }
+
+        do {
+            // Multiline data
+            let sse = "event: msg\ndata: line1\ndata: line2\n\n"
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE multiline data", events.first?.data == "line1\nline2")
+        }
+
+        do {
+            let sse = ""
+            let events = ScoutSSEParser.parse(sse)
+            check("SSE empty → 0 events", events.isEmpty)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")

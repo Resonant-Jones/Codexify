@@ -107,6 +107,9 @@ struct GuardianChatView: View {
             .navigationDestination(for: Int.self) { threadId in
                 ThreadMessagesView(threadId: threadId)
             }
+            .navigationDestination(for: TaskNav.self) { nav in
+                TaskEventsView(taskId: nav.taskId)
+            }
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadThreads() }
@@ -273,13 +276,15 @@ private struct ThreadMessagesView: View {
                 .disabled(isRequestingCompletion)
 
                 if let taskId = completionTaskId {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Task accepted: \(taskId)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Use Refresh Messages to check for the Guardian response.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    NavigationLink(value: TaskNav(taskId: taskId)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Task accepted: \(taskId)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("View live task status →")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                        }
                     }
                 }
 
@@ -418,6 +423,151 @@ private struct ThreadMessagesView: View {
         case "system": return .orange
         default: return .secondary
         }
+    }
+}
+
+// MARK: - Task Events Live View
+
+private struct TaskEventsView: View {
+    let taskId: String
+
+    @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @State private var events: [ScoutTaskEvent] = []
+    @State private var statusMessage: String?
+    @State private var isConnected = false
+    @State private var streamError: String?
+
+    private let keychainStore = ScoutKeychainStore()
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Task")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(taskId)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                HStack {
+                    Text("Status")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if streamError != nil {
+                        Label("Error", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    } else if isConnected {
+                        Label("Connected", systemImage: "circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    } else {
+                        Label("Connecting…", systemImage: "circle")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+            }
+
+            if let error = streamError {
+                Section {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            if let msg = statusMessage {
+                Section {
+                    Text(msg)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !events.isEmpty {
+                Section("Events") {
+                    ForEach(Array(events.enumerated()), id: \.offset) { _, event in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(event.eventType ?? "task.event")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(event.isTerminal ? .green : .blue)
+                                Spacer()
+                                if let id = event.eventId {
+                                    Text(id)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            if let data = event.parsedData {
+                                Text(String(describing: data))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(3)
+                            } else if let raw = event.data {
+                                Text(raw)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(3)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Task Status")
+        .onAppear {
+            Task { await connect() }
+        }
+        .onDisappear {
+            isConnected = false
+        }
+    }
+
+    private func connect() async {
+        guard !storedProfileData.isEmpty else {
+            streamError = "No endpoint configured."
+            return
+        }
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            streamError = "Could not load saved endpoint profile."
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        isConnected = true
+        streamError = nil
+
+        do {
+            let stream = ScoutTaskEventStreamService.streamEvents(
+                endpoint: profile, taskId: taskId, apiKey: apiKey
+            )
+            for try await event in stream {
+                events.append(event)
+                if event.isTerminal {
+                    statusMessage = "Task reached terminal state: \(event.eventType ?? "unknown")"
+                    break
+                }
+            }
+        } catch {
+            streamError = "Stream error: \(error.localizedDescription)"
+        }
+
+        isConnected = false
     }
 }
 
