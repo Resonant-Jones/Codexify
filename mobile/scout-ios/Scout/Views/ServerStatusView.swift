@@ -7,6 +7,7 @@ struct ServerStatusView: View {
     @State private var isProbing = false
     @State private var keychainError: String?
     @State private var llmResult: ScoutLLMHealthResult?
+    @State private var catalogResult: ScoutLLMCatalogResult?
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -193,6 +194,78 @@ struct ServerStatusView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+
+                        if let catalog = catalogResult {
+                            Divider()
+
+                            Text("Catalog Evidence")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+
+                            if let httpStatus = catalog.httpStatus {
+                                HStack {
+                                    Text("Catalog HTTP Status")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(httpStatus)")
+                                }
+                                .font(.subheadline)
+                            }
+
+                            if let catLatency = catalog.latencyMilliseconds {
+                                HStack {
+                                    Text("Catalog Probe Latency")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(catLatency) ms")
+                                }
+                                .font(.subheadline)
+                            }
+
+                            if let snapshot = catalog.snapshot {
+                                let modelCount = snapshot.providers?.reduce(0) { $0 + ($1.models?.count ?? 0) } ?? 0
+                                HStack {
+                                    Text("Catalog Model Count")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(modelCount)")
+                                }
+                                .font(.subheadline)
+
+                                if let providers = snapshot.providers {
+                                    let providerNames = providers.compactMap { $0.displayName ?? $0.id }.joined(separator: ", ")
+                                    if !providerNames.isEmpty {
+                                        HStack {
+                                            Text("Catalog Providers")
+                                                .foregroundStyle(.secondary)
+                                            Spacer()
+                                            Text(providerNames)
+                                                .lineLimit(2)
+                                                .truncationMode(.tail)
+                                        }
+                                        .font(.subheadline)
+                                    }
+
+                                    let modelNames = providers.flatMap { provider in
+                                        provider.models?.compactMap { $0.displayName ?? $0.id } ?? []
+                                    }.joined(separator: ", ")
+                                    if !modelNames.isEmpty {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Catalog Models")
+                                                .foregroundStyle(.secondary)
+                                            Text(modelNames)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(catalog.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } else if let error = keychainError {
                     Section("Authentication") {
@@ -247,6 +320,7 @@ struct ServerStatusView: View {
         keychainError = nil
         result = nil
         llmResult = nil
+        catalogResult = nil
 
         let apiKey: String?
         do {
@@ -258,6 +332,7 @@ struct ServerStatusView: View {
 
         result = await ScoutEndpointConnectivityProbe.probe(endpoint: profile, apiKey: apiKey)
         llmResult = await ScoutLLMHealthProbe.probe(endpoint: profile, apiKey: apiKey)
+        catalogResult = await ScoutLLMCatalogProbe.probe(endpoint: profile, apiKey: apiKey)
         isProbing = false
     }
 
