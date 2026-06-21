@@ -31,6 +31,7 @@ export type PiCoderDryRunResponse = {
   source_message_id?: string | null;
   harness_id?: string | null;
   permission_posture?: string | null;
+  operator_evidence?: Record<string, unknown> | null;
 };
 
 /* ── helpers ── */

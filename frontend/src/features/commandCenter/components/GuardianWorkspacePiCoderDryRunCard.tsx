@@ -176,6 +176,18 @@ export default function GuardianWorkspacePiCoderDryRunCard() {
             <span className="font-medium" style={{ color: "var(--muted)" }}>Persistence performed: </span>
             <span style={{ color: "var(--text)" }}>{String(result.persistence_performed)}</span>
           </div>
+
+          {/* Operator evidence */}
+          {result.operator_evidence && (
+            <div data-testid="pi-coder-dry-run-operator-evidence" className="mt-2 rounded-[var(--tile-radius)] border p-2" style={{ borderColor: "var(--panel-border)", background: "var(--surface-soft)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Operator evidence</div>
+              <EvidenceField label="Evidence state" value={String((result.operator_evidence as Record<string, unknown>).evidence_state ?? "—")} />
+              <EvidenceField label="Validation status" value={String((result.operator_evidence as Record<string, unknown>).validation_status ?? "—")} />
+              <p className="text-[11px] leading-4 mt-1" style={{ color: "var(--muted)" }}>
+                Evidence is read-only validation evidence only. It does not prove execution, receipt creation, artifact creation, or release support.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -186,6 +198,15 @@ export default function GuardianWorkspacePiCoderDryRunCard() {
         recursive tool use, artifact creation, receipt creation, or work-order
         completion.
       </p>
+    </div>
+  );
+}
+
+function EvidenceField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="text-xs">
+      <span className="font-medium" style={{ color: "var(--muted)" }}>{label}: </span>
+      <span style={{ color: "var(--text)" }}>{value}</span>
     </div>
   );
 }
