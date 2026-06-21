@@ -10,6 +10,7 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_FILE="$OUT_DIR/supported_path_$TS.json"
 POLL_SECONDS="${SUPPORTED_PATH_POLL_SECONDS:-2}"
 POLL_ATTEMPTS="${SUPPORTED_PATH_POLL_ATTEMPTS:-30}"
+COMPOSE_ARGS="${CODEXIFY_COMPOSE_ARGS:-}"
 
 mkdir -p "$OUT_DIR"
 
@@ -24,6 +25,12 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+compose() {
+  # CODEXIFY_COMPOSE_ARGS lets operator wrappers reuse supported Compose
+  # overrides without forking this proof harness.
+  docker compose $COMPOSE_ARGS "$@"
 }
 
 wait_for_backend() {
@@ -100,7 +107,7 @@ if [[ ! -f README.md ]]; then
 fi
 
 log "INFO: Booting compose services"
-docker compose up -d db redis backend worker-chat worker-document-embed >/dev/null
+compose up -d db redis backend worker-chat worker-document-embed >/dev/null
 
 log "INFO: Waiting for backend health at $BASE/health"
 wait_for_backend || fail "Backend health check did not become ready"
