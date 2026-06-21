@@ -340,3 +340,32 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C04-T011: Define Pi/Coder dry-run API helper contract**
+
+---
+
+## C04-T011: API Helper (2026-06-20 01:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `17d2a57bc` | **Worktree**: clean
+
+### Files Created
+- `frontend/src/api/piCoderDryRun.ts` — `validatePiCoderDryRun` helper + typed request/response
+
+### Helper
+`validatePiCoderDryRun(PiCoderDryRunRequest)` → `PiCoderDryRunResponse`. Calls `POST /api/agents/pi-invocation/dry-run` via existing `api` client. No forbidden exports. Response type: safe fields only, no raw payloads/execution controls/completion verdicts.
+
+### Not Wired
+Guardian Operator Workspace card remains static — not wired to the helper.
+
+### Validation
+```
+CommandCenterShell.test.tsx  64 passed
+git diff --check              clean
+python3 scripts/validate_docs.py passed
+```
+
+### Gate Decision
+**`go`** — C04-T011 accepted. C04-T012 may proceed.
+
+### Next Task
+**C04-T012: Wire Pi/Coder dry-run helper into read-only operator validation flow**
