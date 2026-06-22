@@ -12,6 +12,7 @@ This document records the current build-surface classification of `mobile/scout-
 | `swift build` | ✅ Passes | Scout library compiles cleanly |
 | `swift test` | ❌ No test target | XCTest unavailable; standalone runner used instead |
 | Standalone test runner | ✅ 232 passed, 0 failed | `swiftc`-compiled `Tests/Runner.swift` with mock URLProtocol |
+| `swift run` test target | ❌ Not feasible | XCTest/Swift Testing unavailable on this system (Command Line Tools only, no Xcode). Internal types require `@testable` which is unavailable to executable targets |
 | `.xcodeproj` / `.xcworkspace` | ❌ Absent | No Xcode project exists |
 | `xcodebuild` | ⚠️ Available but not applicable | No project to build |
 | Simulator / device smoke | ❌ Not proven | No app target, no simulator run |

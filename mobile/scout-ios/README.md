@@ -83,7 +83,19 @@ Settings configures the Vault endpoint profile and API key:
 
 ## Validation / Smoke Checklist
 
-Manual operator checklist for verifying a Scout V1 build:
+**Package build:**
+```bash
+cd mobile/scout-ios && swift build
+```
+
+**Test runner (232 assertions):**
+```bash
+cd mobile/scout-ios && swiftc -o /tmp/scout_test_runner \
+  Scout/Models/*.swift Scout/Services/*.swift Tests/Runner.swift \
+  -framework Security && /tmp/scout_test_runner
+```
+
+**Manual operator checklist** for verifying a Scout V1 build:
 
 - [ ] Configure endpoint URL and API key in Settings
 - [ ] Validate draft — check local validation feedback
