@@ -18,6 +18,12 @@ x-local-llm: &local_llm
   GUARDIAN_DB_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
   GUARDIAN_CHATLOG_DSN: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
 
+x-backend-runtime-image: &backend_runtime_image codexify-backend-runtime:latest
+x-backend-runtime-build: &backend_runtime_build
+  context: .
+  dockerfile: backend/Dockerfile
+  target: runtime
+
 services:
   db:
     image: postgres:15
@@ -106,10 +112,8 @@ services:
         CYPHER
         echo "[graph-init] Done."
   migrator:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -145,10 +149,8 @@ services:
     command: ["/app/backend/scripts/docker/run_migrator.py"]
 
   obsidian-ingest:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - cli
@@ -185,10 +187,8 @@ services:
     command: ["-m", "guardian.cli.ingest_cli", "ingest-obsidian", "/vault", "--rebuild"]
 
   chatgpt-migrate:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - cli
@@ -231,10 +231,8 @@ services:
     restart: "no"
 
   model-prep:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     volumes:
@@ -263,10 +261,9 @@ services:
   # not disappear on image rebuilds or container replacement. The storage code
   # is pinned to the same canonical path via STORAGE_BASE_PATH=/app/data/media.
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
+    build: *backend_runtime_build
     working_dir: /app
     entrypoint: ["python"]
     ports: ["8888:8888"]
@@ -399,10 +396,8 @@ services:
         runpy.run_path("/app/backend/scripts/docker/run_backend.py", run_name="__main__")
 
   worker-warmup:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -464,10 +459,8 @@ services:
     command: ["-m", "guardian.workers.warmup_worker"]
 
   worker-chat:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -524,10 +517,8 @@ services:
     command: ["-m", "guardian.workers.chat_worker"]
 
   worker-coding:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -567,10 +558,8 @@ services:
     command: ["/app/backend/scripts/docker/run_worker_coding.py"]
 
   worker-voice:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -621,10 +610,8 @@ services:
     command: ["-m", "guardian.workers.voice_worker"]
 
   worker-document-embed:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -678,10 +665,8 @@ services:
     command: ["-m", "guardian.workers.document_embed_worker"]
 
   worker-chat-embed:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     entrypoint: ["python"]
     depends_on:
@@ -735,10 +720,8 @@ services:
     command: ["-m", "guardian.workers.chat_embedding_worker"]
 
   embedding-backfill:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - backfill
@@ -788,10 +771,8 @@ services:
     command: ["-m", "guardian.workers.embedding_backfill_worker"]
 
   graph-backfill:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - backfill
@@ -840,10 +821,8 @@ services:
     command: ["-m", "guardian.workers.graph_backfill_worker"]
 
   hf-prefetch:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - cli
@@ -866,10 +845,8 @@ services:
     command: ["/app/backend/scripts/docker/run_hf_prefetch.py"]
 
   embed-prefetch:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: runtime
+    image: *backend_runtime_image
+    pull_policy: never
     working_dir: /app
     profiles:
       - cli
