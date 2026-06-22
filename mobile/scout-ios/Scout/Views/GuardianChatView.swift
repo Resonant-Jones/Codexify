@@ -23,7 +23,7 @@ struct GuardianChatView: View {
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 if isLoading {
                     Section {
@@ -246,6 +246,9 @@ struct GuardianChatView: View {
             newThreadTitle = ""
             createError = nil
             await loadThreads()
+            if let tid = result.threadId {
+                navigationPath.append(tid)
+            }
         } else {
             createError = result.message
         }
