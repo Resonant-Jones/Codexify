@@ -587,3 +587,22 @@ No code or test changes between R1 and R2 — governance docs only.
 
 ### Next Task
 **C04-T018: Close C04 Pi/Coder invocation boundary campaign**
+
+---
+
+## C04-T018: Campaign Closed (2026-06-20 03:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `5a2e8ba35` | **Worktree**: clean
+
+### Files Created
+- `campaign-closeout.md` — 18-task summary, 25-row true/not-true table, architecture boundary, 11 proof surfaces, 7 risks, 3 candidates
+
+### Campaign Closed
+C04 Pi/Coder Invocation Boundary campaign closed. All 18 tasks (T001–T018) gated `go`. Contracts, validation, dry-run route, adapter, API helper, and operator evidence UI proven as validation-only, read-only, side-effect-free. No Pi/Coder execution, no release support, no result return.
+
+### Gate Decision
+**`go`** — C04 closed. Next campaign selection required.
+
+### Next Step
+**Next campaign selection required**
