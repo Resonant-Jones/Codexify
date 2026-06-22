@@ -46,3 +46,23 @@
 
 ### Next Task
 **C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
+
+---
+
+## C08-T001-R2: Final Docs Validation Closeout (2026-06-20 03:40 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `f3f621e2c` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: `python3 scripts/validate_docs.py` not reported after R1 README consistency commit.
+
+### Final Validation
+- `python3 scripts/validate_docs.py`: **passed**
+- `git diff --check`: clean
+- All C08 governance docs consistent: README, backlog, proof-pack, decision-log
+- Campaign index: not applicable
+
+### Gate Decision
+**`go`** — C08-T001-R2 accepted. C08-T002 may proceed.
+
+### Next Task
+**C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
