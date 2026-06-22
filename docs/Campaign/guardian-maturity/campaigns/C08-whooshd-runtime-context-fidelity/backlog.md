@@ -15,7 +15,7 @@ Prove Codexify can route to Whoosh'd cleanly, preserve system identity and conte
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
 | C08-T001 | audit | `go` | `TBD` | Runtime config and model inventory seam audit — 17 files, 7 gaps, 7 risks, 6-task backlog |
-| C08-T002 | proof | planned | — | Prove Whoosh'd endpoint configuration and health-check semantics |
+| C08-T002 | proof | `go` | `68d174d02` | Endpoint health proof — 16 tests, endpoint config, health probes, timeout, lifecycle |
 | C08-T003 | proof | planned | — | Prove Whoosh'd model inventory identity semantics |
 | C08-T004 | proof | planned | — | Prove Whoosh'd context bundle and system identity delivery |
 | C08-T005 | frontend | planned | — | Expose Whoosh'd runtime truth in operator diagnostics |
