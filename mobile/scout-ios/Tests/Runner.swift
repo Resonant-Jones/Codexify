@@ -1023,6 +1023,79 @@ struct ScoutTestRunner {
             check("RAG transport error → 'failed' in msg", result.message.contains("failed"))
         }
 
+        // ── Thread tasks probe ────────────────────────────────────
+
+        func tasksBody() -> Data {
+            """
+            {"ok":true,"thread_id":1,"tasks":[{"task_id":"task-abc","state":"terminal","event_type":"task.completed","reason":"terminal_event_found"}],"count":1}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Tasks probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, tasksBody())
+            }
+            let result = await ScoutThreadTasksProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: "key", session: session
+            )
+            check("Tasks 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Tasks 2xx → 1 receipt", result.tasks?.count == 1)
+            check("Tasks → task_id 'task-abc'", result.tasks?.first?.task_id == "task-abc")
+            check("Tasks → state 'terminal'", result.tasks?.first?.state == "terminal")
+            check("Tasks → event_type 'task.completed'", result.tasks?.first?.event_type == "task.completed")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Tasks no X-API-Key when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, """
+                {"ok":true,"thread_id":1,"tasks":[],"count":0}
+                """.data(using: .utf8)!)
+            }
+            let result = await ScoutThreadTasksProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Tasks empty → tasks empty", result.tasks?.isEmpty == true)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutThreadTasksProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Tasks decode fail → tasks nil", result.tasks == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutThreadTasksProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Tasks 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutThreadTasksProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("Tasks timeout → tasks nil", result.tasks == nil)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
