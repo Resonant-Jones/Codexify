@@ -12,6 +12,8 @@ export default defineConfig({
       "src/components/**/*.{test,spec}.{ts,tsx}",
       "src/settings/**/*.test.{ts,tsx}",
       "src/settings/**/*.spec.{ts,tsx}",
+      "settings/**/*.test.{ts,tsx}",
+      "settings/**/*.spec.{ts,tsx}",
       "contracts/**/*.test.{ts,tsx}",
       "features/**/*.test.{ts,tsx}",
       "lib/**/*.test.{ts,tsx}",

@@ -4,6 +4,7 @@ import {
   fetchPersonalFactEvidence,
   PersonalFactEvidenceRecord,
   PersonalFactRecord,
+  GuardrailMetadata,
   approveFactCandidate,
   rejectFactCandidate,
 } from "@/lib/api";
@@ -31,6 +32,117 @@ function isSensitiveKey(key: string): boolean {
   const lowered = key.toLowerCase();
   return SENSITIVE_KEY_PATTERNS.some(
     (pattern) => lowered.startsWith(pattern) || lowered.includes(pattern)
+  );
+}
+
+/** Reason label -> readable display map.  Unknown labels fall through safely. */
+const REASON_DISPLAY: Record<string, string> = {
+  source_role_assistant: "Source role: assistant",
+  source_role_system_like: "Source role: system-like",
+  source_role_ambiguous: "Source role: ambiguous",
+  quoted_or_hypothetical: "Quoted or hypothetical",
+  sentence_fragment_key: "Sentence-fragment key",
+  excessive_key_length: "Excessive key length",
+  invalid_fact_domain: "Invalid fact domain",
+  incomplete_value_fragment: "Incomplete value fragment",
+  stale_or_time_sensitive: "Stale or time-sensitive",
+  contradiction_possible: "Possible contradiction",
+  sensitive_identity_like_claim: "Sensitive identity-like claim",
+  missing_evidence: "Missing evidence",
+  low_confidence: "Low confidence",
+  import_noise: "Import noise",
+  user_review_required: "User review required",
+};
+
+function formatReasonLabel(reason: string): string {
+  return REASON_DISPLAY[reason] ?? reason.replace(/_/g, " ");
+}
+
+function GuardrailBlock({
+  meta,
+}: {
+  meta: GuardrailMetadata | null | undefined;
+}) {
+  if (!meta || meta.disposition == null) return null;
+
+  const reasons: string[] = Array.isArray(meta.reasons) ? meta.reasons : [];
+
+  return (
+    <div
+      className="mt-2 rounded border p-2 space-y-1"
+      style={{
+        borderColor: "var(--panel-border)",
+        background: "var(--surface-alt)",
+      }}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+          style={{
+            background:
+              meta.disposition === "reviewable"
+                ? "var(--accent-bg)"
+                : meta.disposition === "quarantine"
+                  ? "var(--warning-bg)"
+                  : "var(--panel-border)",
+            color:
+              meta.disposition === "reviewable"
+                ? "var(--accent)"
+                : meta.disposition === "quarantine"
+                  ? "var(--warning)"
+                  : "var(--muted)",
+          }}
+        >
+          {meta.disposition}
+        </span>
+        {meta.promotion_blocked && (
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px]"
+            style={{
+              background: "var(--danger-bg)",
+              color: "var(--danger)",
+            }}
+          >
+            promotion blocked
+          </span>
+        )}
+        {meta.review_required && (
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px]"
+            style={{ color: "var(--muted)" }}
+          >
+            review required
+          </span>
+        )}
+      </div>
+
+      {reasons.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap text-[10px]">
+          {reasons.map((r) => (
+            <span
+              key={r}
+              className="px-1 py-0.5 rounded"
+              style={{
+                background: "var(--tag-bg)",
+                color: "var(--tag-text)",
+              }}
+            >
+              {formatReasonLabel(r)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {meta.runtime_eligible === false && (
+        <div
+          className="text-[10px] opacity-60"
+          style={{ color: "var(--muted)" }}
+        >
+          Not runtime-eligible &mdash; candidate remains excluded from
+          retrieval, prompt assembly, and runtime behavior.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -270,6 +382,8 @@ export default function FactCandidateReview({ userId }: Props) {
                     {buildEvidenceSummary(fact._evidence)}
                   </div>
                 )}
+
+                <GuardrailBlock meta={fact.guardrail_metadata} />
               </div>
             </div>
 
