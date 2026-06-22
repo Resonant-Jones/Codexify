@@ -59,8 +59,20 @@ struct GuardianChatView: View {
                 if let threads = threads {
                     if threads.isEmpty {
                         Section {
-                            Text("No threads found.")
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("No threads yet", systemImage: "tray")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Text("Create your first thread to start a conversation with Guardian.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    showNewThread = true
+                                } label: {
+                                    Label("New Thread", systemImage: "plus")
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
                     } else {
                         Section {
