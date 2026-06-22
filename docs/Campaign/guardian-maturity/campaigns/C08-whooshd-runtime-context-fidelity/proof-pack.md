@@ -93,3 +93,25 @@ python3 scripts/validate_docs.py: passed
 
 ### Next Task
 **C08-T003: Prove Whoosh'd model inventory identity semantics**
+
+---
+
+## C08-T002-R1: Final Validation Closeout (2026-06-20 04:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `d07443cad` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: provider-suite, import, and scoped-diff not reported.
+
+### Final Validation
+- Focused endpoint tests: 16 passed
+- Provider suite: 18 passed (4 pre-existing failures in `test_vision_capability_validation.py` — unrelated)
+- `whooshd_sidecar` import: ok
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+- Scoped diff: no backend/frontend/runtime changes beyond test file
+
+### Gate Decision
+**`go`** — C08-T002-R1 accepted. C08-T003 may proceed.
+
+### Next Task
+**C08-T003: Prove Whoosh'd model inventory identity semantics**
