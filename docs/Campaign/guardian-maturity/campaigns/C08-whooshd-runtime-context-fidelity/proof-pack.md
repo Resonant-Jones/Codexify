@@ -246,3 +246,26 @@ R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 s
 
 ### Next Task
 **C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T003-R4: Final Validation Seal (2026-06-20 04:50 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `e9be3d51e` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: R3 validation results not reported after quarantine manifest.
+
+### Final Validation
+- Focused model inventory: 14 passed
+- Endpoint health regression: 16 passed
+- `whooshd_model_profiles` import: ok
+- Scoped diff: no code changes (`guardian/core/whooshd_model_profiles.py` + `guardian/providers/whooshd_sidecar.py` unchanged)
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+- Core suite: unchanged from quarantine manifest (67 failures + 6 errors = 73, all pre-existing, 0 touch C08)
+
+### Gate Decision
+**`go`** — C08-T003-R4 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
