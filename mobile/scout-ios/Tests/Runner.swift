@@ -935,6 +935,94 @@ struct ScoutTestRunner {
             check("Detail timeout → detail nil", result.detail == nil)
         }
 
+        // ── RAG trace probe ───────────────────────────────────────
+
+        func ragTraceBody() -> Data {
+            """
+            {"thread_id":1,"trace_available":true,"documents":[{"id":"doc-1"},{"id":"doc-2"}],"graph":[{"node":"a"}],"retrieval_summary":{"total":2},"retrieval_policy":{"mode":"workspace"},"model_selection":{"provider":"local","model":"gemma2:2b"}}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("RAG probe has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                check("RAG probe path", request.url?.absoluteString.contains("/api/chat/debug/rag-trace/1/latest") == true)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, ragTraceBody())
+            }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: "key", session: session
+            )
+            check("RAG 2xx → httpStatus 200", result.httpStatus == 200)
+            check("RAG 2xx → snapshot not nil", result.snapshot != nil)
+            check("RAG → traceAvailable true", result.snapshot?.traceAvailable == true)
+            check("RAG → 2 documents", result.snapshot?.documentCount == 2)
+            check("RAG → 1 graph entry", result.snapshot?.graphCount == 1)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("RAG no X-API-Key when key nil", request.value(forHTTPHeaderField: "X-API-Key") == nil)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, """
+                {"thread_id":1,"trace_available":false,"trace_unavailable_reason":"no_trace","documents":[],"graph":[]}
+                """.data(using: .utf8)!)
+            }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("RAG unavailable → traceAvailable false", result.snapshot?.traceAvailable == false)
+            check("RAG unavailable → reason present", result.snapshot?.traceUnavailableReason == "no_trace")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("RAG decode fail → snapshot nil", result.snapshot == nil)
+            check("RAG decode fail → non-crashing", result.httpStatus == 200)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("RAG 401 → auth message", result.message.contains("Authentication required"))
+            check("RAG 401 → snapshot nil", result.snapshot == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("RAG timeout → snapshot nil", result.snapshot == nil)
+            check("RAG timeout → 'timed out' in msg", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.cannotConnectToHost) }
+            let result = await ScoutRAGTraceProbe.probe(
+                endpoint: makeEndpoint(), threadId: 1, apiKey: nil, session: session
+            )
+            check("RAG transport error → snapshot nil", result.snapshot == nil)
+            check("RAG transport error → 'failed' in msg", result.message.contains("failed"))
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")

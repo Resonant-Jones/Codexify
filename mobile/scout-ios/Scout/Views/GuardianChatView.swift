@@ -179,6 +179,9 @@ private struct ThreadMessagesView: View {
     @State private var documents: [ScoutThreadDocumentSummary]?
     @State private var docMessage: String?
     @State private var isLoadingDocs = false
+    @State private var ragResult: ScoutRAGTraceResult?
+    @State private var ragMessage: String?
+    @State private var isLoadingRAG = false
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -327,6 +330,128 @@ private struct ThreadMessagesView: View {
                     }
                 }
                 .disabled(isLoadingDocs)
+            }
+
+            // Retrieval Evidence section
+            Section("Retrieval Evidence") {
+                if isLoadingRAG {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 8)
+                        Text("Loading trace…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let result = ragResult {
+                    if let snapshot = result.snapshot {
+                        if let available = snapshot.traceAvailable {
+                            HStack {
+                                Text("Trace")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(available ? "Available" : "Unavailable")
+                                    .foregroundStyle(available ? .green : .secondary)
+                            }
+                        }
+
+                        if let reason = snapshot.traceUnavailableReason {
+                            HStack {
+                                Text("Reason")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(reason)
+                                    .font(.caption)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        if let count = snapshot.documentCount {
+                            HStack {
+                                Text("Documents retrieved")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(count)")
+                            }
+                        }
+
+                        if let count = snapshot.graphCount {
+                            HStack {
+                                Text("Graph entries")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(count)")
+                            }
+                        }
+
+                        if let latency = result.latencyMilliseconds {
+                            HStack {
+                                Text("Latency")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(latency) ms")
+                            }
+                        }
+
+                        if let policy = snapshot.retrievalPolicy {
+                            ForEach(policy.keys.sorted(), id: \.self) { key in
+                                HStack {
+                                    Text(key)
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(stringValue(policy[key]))
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+
+                        if let model = snapshot.modelSelection {
+                            ForEach(model.keys.sorted(), id: \.self) { key in
+                                HStack {
+                                    Text(key)
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(stringValue(model[key]))
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+
+                        Text(result.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(result.message)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let msg = ragMessage {
+                    Text(msg)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Tap Refresh Trace to load retrieval evidence.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                Button {
+                    Task { await loadRAGTrace() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isLoadingRAG {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        }
+                        Image(systemName: "magnifyingglass")
+                        Text("Refresh Trace")
+                        Spacer()
+                    }
+                }
+                .disabled(isLoadingRAG)
             }
 
             if let sendMsg = sendMessage {
@@ -515,6 +640,39 @@ private struct ThreadMessagesView: View {
             docMessage = result.message
         }
         isLoadingDocs = false
+    }
+
+    private func loadRAGTrace() async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isLoadingRAG = true
+        ragMessage = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            ragMessage = "Could not load saved endpoint profile."
+            isLoadingRAG = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        ragResult = await ScoutRAGTraceProbe.probe(
+            endpoint: profile, threadId: threadId, apiKey: apiKey
+        )
+        isLoadingRAG = false
+    }
+
+    private func stringValue(_ value: Any?) -> String {
+        guard let value = value else { return "—" }
+        if let str = value as? String { return str }
+        if let num = value as? NSNumber { return num.stringValue }
+        if let bool = value as? Bool { return bool ? "true" : "false" }
+        return String(describing: value)
     }
 
     private func roleLabel(_ role: String?) -> String {
