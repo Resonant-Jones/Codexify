@@ -39,3 +39,15 @@
 - **Evidence**: `model-inventory-identity-proof.md` — truth table, boundary table, gaps, risks. 14 tests pass.
 - **Consequence**: C08-T003 accepted. C08-T004 (context bundle + system identity) may proceed.
 - **Revisit Trigger**: C08-T004 context fidelity proof — verify model identity propagates to context boundary.
+
+---
+
+### Decision: C08-D004a
+
+- **Decision ID**: C08-D004a
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004 split because `chat_completion_service.py` is 4966 lines. Inspection artifact created: 7-step assembly chain, candidate proof seam at `_build_messages_for_llm_compat()`. No code or test changes. C08-T004b next.
+- **Reason**: Monolithic C08-T004 was too large. Split into T004a (inspect), T004b (prove), T004c (close). Assembly chain mapped from chat route through worker, completion service, message assembly, context injection, provider dispatch.
+- **Evidence**: `context-assembly-seam-inspection.md` — 7-step chain, 4 critical functions, Whoosh'd/local lane map, candidate test seam.
+- **Consequence**: C08-T004a accepted. C08-T004b may proceed with focused tests at `_build_messages_for_llm_compat()`.
+- **Revisit Trigger**: C08-T004b context delivery proof — verify messages + model_id + context_bundle captured at provider-call boundary.
