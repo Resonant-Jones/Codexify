@@ -286,3 +286,23 @@ R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 s
 
 ### Next Task
 **C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T004a: Context Assembly Seam Inspection (2026-06-20 05:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `23dfcbc05` | **Worktree**: clean
+- **Reason**: C08-T004 was split — `chat_completion_service.py` is 4966 lines, too large for one commit.
+
+### Inspection Artifact
+`context-assembly-seam-inspection.md`: 7-step assembly chain map, critical function notes for 4 key functions, Whoosh'd/local lane map, candidate C08-T004b proof seam identified at `_build_messages_for_llm_compat()`.
+
+### Candidate Proof Seam
+`_build_messages_for_llm_compat()` — captures messages + model_id + provider + context_bundle before provider dispatch. No real daemon needed.
+
+### Gate Decision
+**`go`** — C08-T004a accepted. C08-T004b may proceed.
+
+### Next Task
+**C08-T004b: Prove Whoosh'd context bundle and system identity delivery**
