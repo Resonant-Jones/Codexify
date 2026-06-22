@@ -9,8 +9,6 @@
     "kind": "mlx",
     "server": "mlx_vlm.server",
     "openai_compatible": true,
-    "preferred_local_invocation_path": "mlx-vlm",
-    "mlx_vlm_compatible": true,
     "default_base_url": "http://host.docker.internal:8000/v1",
     "startup_command": [
       "mlx_vlm.server",
@@ -18,34 +16,22 @@
       "mlx-community/gemma-4-12B-it-qat-4bit",
       "--port",
       "8000"
-    ],
-    "offline_probe_command": [
-      "python",
-      "-m",
-      "mlx_vlm.generate",
-      "--model",
-      "mlx-community/gemma-4-12B-it-qat-4bit",
-      "--max-tokens",
-      "100",
-      "--temperature",
-      "0.0",
-      "--prompt",
-      "Describe this image.",
-      "--image",
-      "<path_to_image>"
     ]
   },
   "model": {
     "repo": "mlx-community/gemma-4-12B-it-qat-4bit",
     "upstream_family": "google/gemma-4-12B-it",
-    "quantization": "qat-4bit",
+    "quantization": "QAT 4-bit",
     "instruction_tuned": true,
     "effective_size": "12B"
   },
+  "weights": {
+    "storage_root": "/Volumes/Dev_SSD/whooshd/model-weights",
+    "repo_local": false,
+    "download_required": true
+  },
   "capabilities": {
     "chat": true,
-    "multimodal": true,
-    "image_input": true,
     "vision": true,
     "audio_input": false,
     "tool_calling": false,
@@ -65,16 +51,6 @@
       "id": "health_ready",
       "kind": "runtime",
       "description": "Runtime exposes OpenAI-compatible health/readiness or model-list evidence."
-    },
-    {
-      "id": "local_artifact_available",
-      "kind": "runtime",
-      "description": "Model weights and processor assets must already be present in local cache before offline use."
-    },
-    {
-      "id": "offline_image_probe",
-      "kind": "runtime",
-      "description": "The local mlx_vlm.generate image prompt completes against cached model artifacts without network access."
     },
     {
       "id": "no_prompt_echo",

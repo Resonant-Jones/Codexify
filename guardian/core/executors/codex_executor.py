@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from guardian.core.config import get_settings
+from guardian.core.executors.health import (
+    CODEX_RECOVERY_DOC,
+    CODEX_RECOVERY_STEPS,
+)
 from guardian.core.executors.base import (
     CodeExecutor,
     CodexifyExecutorRequest,
@@ -34,6 +38,15 @@ logger = logging.getLogger(__name__)
 
 _PROCESS_POLL_SECONDS = 0.1
 _TERMINATION_GRACE_SECONDS = 5.0
+
+
+def _codex_recovery_details(*, cwd: str, binary: str) -> dict[str, Any]:
+    return {
+        "cwd": cwd,
+        "binary": binary,
+        "recovery_steps": list(CODEX_RECOVERY_STEPS),
+        "recovery_doc": CODEX_RECOVERY_DOC,
+    }
 
 
 def _utc_now_iso() -> str:
@@ -282,7 +295,12 @@ class CodexExecutor(CodeExecutor):
             failure = ExecutorFailure(
                 error_code=ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value,
                 failure_class="FileNotFoundError",
-                message=f"Codex binary not found: {executable}",
+                message=(
+                    f"Codex executable not found on PATH: {executable}. "
+                    "Install with `npm install -g @openai/codex`, "
+                    "authenticate with `codex login`, then verify with "
+                    "`codex --version`."
+                ),
                 request_id=request.request_id,
                 thread_id=request.thread_id,
                 source_message_id=request.source_message_id,
@@ -294,7 +312,10 @@ class CodexExecutor(CodeExecutor):
                 timeout_seconds=timeout_seconds,
                 stdout="",
                 stderr="",
-                details={"cwd": request.repo_path},
+                details=_codex_recovery_details(
+                    cwd=request.repo_path,
+                    binary=executable,
+                ),
                 provenance={
                     "request_id": request.request_id,
                     "delegation_id": request.delegation_id,

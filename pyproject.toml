@@ -25,6 +25,7 @@ dependencies = [
     "slowapi>=0.1.8",
     "prometheus-client>=0.20.0",
     "bcrypt",
+    "psycopg[binary]>=3.2.10",
 ]
 requires-python = ">=3.10"
 
@@ -36,6 +37,8 @@ dev = [
     "mypy",
     "pytest",
     "pytest-asyncio",
+    "numpy>=1.26",
+    "typer>=0.12.3",
     "mcp",
     "notion-client",
     "markitdown",

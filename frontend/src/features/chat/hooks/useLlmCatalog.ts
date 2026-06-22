@@ -112,6 +112,9 @@ function normalizeModelKind(value: unknown): "chat" | "vision_chat" | "utility" 
 export function isChatSelectableModel(model: {
   supportsChat?: boolean;
   modelKind?: "chat" | "vision_chat" | "utility";
+  profileId?: string;
+  profileSource?: string;
+  displayVendor?: string;
   releaseSupported?: boolean;
   releasePosture?: {
     releaseSupported?: boolean;
@@ -120,7 +123,18 @@ export function isChatSelectableModel(model: {
 } | null | undefined): boolean {
   if (!model) return false;
   if (model.supportsChat === false) return false;
-  if (model.releasePosture?.proofRequired === true) return false;
+  const isWhooshdProfile = Boolean(
+    model.profileId
+    && (
+      model.profileSource === "whooshd_model_profile"
+      || model.displayVendor === "Whoosh'd"
+    )
+  );
+  if (!isWhooshdProfile) {
+    if (model.releaseSupported === false) return false;
+    if (model.releasePosture?.releaseSupported === false) return false;
+    if (model.releasePosture?.proofRequired === true) return false;
+  }
   return model.modelKind !== "utility";
 }
 
@@ -227,8 +241,6 @@ function normalizeModel(
     displayVendor:
       normalizeString(model.display_vendor ?? model.displayVendor) ??
       undefined,
-    releaseSupported:
-      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     contextWindow:
       typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
         ? model.contextWindow
@@ -272,6 +284,8 @@ function normalizeModel(
             streaming: Boolean(capabilities.streaming),
           }
         : undefined,
+    releaseSupported:
+      normalizeBoolean(model.release_supported ?? model.releaseSupported),
     releasePosture: releasePosture
       ? {
           status: normalizeString(releasePosture.status) ?? undefined,

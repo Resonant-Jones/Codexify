@@ -144,7 +144,9 @@ jobs:
           python-version: "3.11"
           cache: "pip"
           cache-dependency-path: |
-            backend/requirements.txt
+            backend/requirements-ci.txt
+            requirements/base.in
+            requirements/dev.in
             pyproject.toml
 
       - name: Install dependencies (Linux-safe)
@@ -153,9 +155,8 @@ jobs:
         run: |
           set -euxo pipefail
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements-ci.txt
           python -m pip install -e .
-          python -m pip install pytest pytest-asyncio
 
       - name: Run backend tests
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
