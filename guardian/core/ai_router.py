@@ -2156,7 +2156,12 @@ def call_local(
         "messages": adapted_messages,
         "temperature": 0.7 if temperature is None else float(temperature),
     }
-    if max_tokens is not None:
+    # Cap output tokens so whooshd/mlx-vlm can't silently truncate with their
+    # own default (typically 512-1024). Caller's explicit `max_tokens` wins;
+    # otherwise use LOCAL_MAX_TOKENS setting, else a generous default.
+    if max_tokens is None:
+        max_tokens = int(getattr(settings, "LOCAL_MAX_TOKENS", 2048))
+    if max_tokens and int(max_tokens) > 0:
         payload["max_tokens"] = int(max_tokens)
 
     # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
@@ -2416,7 +2421,12 @@ def stream_local(
         "temperature": 0.7 if temperature is None else float(temperature),
         "stream": True,
     }
-    if max_tokens is not None:
+    # See `call_local` for the rationale. Same cap is applied to streaming
+    # completions so the SSE event stream length matches the non-streaming
+    # response length.
+    if max_tokens is None:
+        max_tokens = int(getattr(settings, "LOCAL_MAX_TOKENS", 2048))
+    if max_tokens and int(max_tokens) > 0:
         payload["max_tokens"] = int(max_tokens)
 
     # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
