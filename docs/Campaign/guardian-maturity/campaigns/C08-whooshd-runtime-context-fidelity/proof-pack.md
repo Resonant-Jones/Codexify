@@ -210,3 +210,20 @@ C08-T004: Prove Whoosh'd context bundle and system identity delivery
 
 ### Next Task
 **C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T003-R2: Core-Suite Clarification (2026-06-20 04:35 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `0a24819f1` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: core-suite "67 pre-existing" was ambiguous — needed to confirm whether those were failures and quarantine them.
+
+### Core-Suite Clarification
+R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 skipped, 1 warning, 6 errors**. The 67 failures are all in non-Whoosh'd tests (turn_lock_recovery, vision_capability, various core services). **0 failures touch `whooshd_model_profiles.py` or `test_whooshd_model_inventory_identity_semantics.py`.** All failures pre-existing and unrelated. No quarantine table required — no C08 failures in core suite.
+
+### Gate Decision
+**`go`** — C08-T003-R2 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
