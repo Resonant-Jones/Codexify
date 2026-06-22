@@ -154,3 +154,37 @@ python3 scripts/validate_docs.py: passed
 
 ### Next Task
 **C08-T003: Prove Whoosh'd model inventory identity semantics**
+
+---
+
+## C08-T003: Model Inventory Identity Proof (2026-06-20 04:20 UTC)
+
+### Files Created
+- `tests/core/test_whooshd_model_inventory_identity_semantics.py` — 14 tests
+- `model-inventory-identity-proof.md` — profile source, identity field map, inventory source map, truth table (18 rows), boundary table (9 rows), 4 gaps, 3 risks
+
+### Proof Summary
+Registry ID ≠ repo ID — test-proven. Display label ≠ canonical identity — test-proven. Runtime family (MLX) preserved. Duplicate profile IDs not enforced (gap). Model inventory not operator-visible (gap). 14 tests, no real daemon.
+
+### Gate Decision
+**`go`** — C08-T003 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T003: Model Inventory Identity Proof (2026-06-20 04:20 UTC)
+
+### Files Created
+- model-inventory-identity-proof.md — profile source, identity field map, truth table (18 rows), boundary table (9 rows), 4 gaps, 3 risks
+- tests/core/test_whooshd_model_inventory_identity_semantics.py — 14 tests
+
+### Proof Summary
+Registry ID != repo ID — test-proven. Display label != canonical identity. Runtime family (MLX) preserved. Duplicate profile IDs not enforced (gap). Model inventory not operator-visible (gap). 14 tests, no real daemon.
+
+### Gate Decision
+go — C08-T003 accepted. C08-T004 may proceed.
+
+### Next Task
+C08-T004: Prove Whoosh'd context bundle and system identity delivery
