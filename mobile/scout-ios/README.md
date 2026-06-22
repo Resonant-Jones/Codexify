@@ -1,5 +1,7 @@
 # Scout iOS Native Client
 
+> Build proof: [SCOUT_V1_BUILD_PROOF.md](./SCOUT_V1_BUILD_PROOF.md)
+
 Scout is a native SwiftUI client for operating against an existing Codexify/Guardian (Vault) backend. It is a mobile operator console, not a full clone of the Codexify web UI.
 
 This implementation follows the concepts defined in [`../../docs/architecture/ios-scout-vault-remote-contract.md`](../../docs/architecture/ios-scout-vault-remote-contract.md).
