@@ -41,18 +41,15 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 
-# ── Step 1: Probe Whoosh'd host health ──
+# ── Step 1: Ensure Whoosh'd is running ──
 echo ""
-echo "── Step 1: Whoosh'd host health probe ──"
-WHOOSHD_HEALTH_URL="${WHOOSHD_HEALTH_URL:-http://host.docker.internal:8000/health}"
-echo "  Probing $WHOOSHD_HEALTH_URL ..."
+echo "── Step 1: Ensure Whoosh'd ──"
 
-if curl -sf --max-time 5 "$WHOOSHD_HEALTH_URL" >/dev/null 2>&1; then
-    echo -e "  ${GREEN}[PASS]${NC} Whoosh'd health endpoint responds"
-else
-    echo -e "  ${YELLOW}[WARN]${NC} Whoosh'd health endpoint not reachable at $WHOOSHD_HEALTH_URL"
-    echo "  Smoke will proceed but /health/llm may show degraded status."
-fi
+REPO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$REPO_SCRIPT_DIR/whooshd_ensure.sh" || {
+    echo -e "  ${RED}[FAIL]${NC} Could not start Whoosh'd. See above for details."
+    exit 1
+}
 
 # ── Step 2: Clean stale Codexify containers ──
 echo ""
@@ -124,8 +121,8 @@ assert_value "LOCAL_PROVIDER_VENDOR=whooshd" \
     'LOCAL_PROVIDER_VENDOR: whooshd' \
     "$RESOLVED_CONFIG" || ((FAILURES++))
 
-assert_value "LOCAL_CHAT_MODEL=llama-3.2-3b-mlx" \
-    'LOCAL_CHAT_MODEL: llama-3.2-3b-mlx' \
+assert_value "LOCAL_CHAT_MODEL=gemma-4-e4b-it-4bit" \
+    'LOCAL_CHAT_MODEL: gemma-4-e4b-it-4bit' \
     "$RESOLVED_CONFIG" || ((FAILURES++))
 
 if [ "$FAILURES" -gt 0 ]; then

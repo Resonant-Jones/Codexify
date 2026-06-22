@@ -88,7 +88,13 @@ def _build_large_export(min_size: int) -> bytes:
 
 
 def _post_export(test_client, path: str):
-    files = {"file": ("export.json", b"[]", "application/json")}
+    files = {
+        "file": (
+            "export.json",
+            _build_mainline_export(),
+            "application/json",
+        )
+    }
     return test_client.post(
         path,
         files=files,
@@ -253,7 +259,7 @@ def test_retry_route_returns_noop_when_nothing_retryable(
 def test_migration_accepts_valid_content_even_with_non_json_filename(
     test_client,
 ):
-    valid_payload = b"[]"
+    valid_payload = _build_mainline_export()
     files = {
         "file": (
             "totally_weird_name.txt",

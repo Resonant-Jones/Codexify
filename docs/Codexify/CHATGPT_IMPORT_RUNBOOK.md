@@ -2,6 +2,10 @@
 
 This runbook is the repeatable way to import ChatGPT history and verify outcomes.
 
+For the newer forensic OpenAI export adapter, including sharded `.dat` export
+folders and diagnostic-only scans, see
+[`OPENAI_EXPORT_IMPORT_DIAGNOSTICS.md`](OPENAI_EXPORT_IMPORT_DIAGNOSTICS.md).
+
 ## 1) Choose the export file
 
 The importer accepts content by schema, not filename. A valid file must be JSON with:

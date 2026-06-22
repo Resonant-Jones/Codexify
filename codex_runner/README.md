@@ -233,6 +233,31 @@ Verify default policy:
 - `pi` provider: `node` executable on PATH plus `codex_runner/src/agent-wrapper.js`
 - Downstream provider/model identity is brokered by Pi rather than selected as a direct Campaign Runner provider choice.
 
+### Codex CLI install and auth recovery
+
+Guardian's official coding executor still requires the `codex` executable to be available to the same shell user that runs Codexify. If a collaborator sees `codex executable not found on PATH`, use this recovery path before retrying the task:
+
+```bash
+npm install -g @openai/codex
+codex login
+codex --version
+codex exec "ping"
+```
+
+If `codex --version` works in an interactive terminal but Codexify still reports it missing, set `CODEXIFY_CODEX_BIN` to the absolute executable path returned by:
+
+```bash
+command -v codex
+```
+
+Then restart the Codexify backend or worker process and verify the health surface:
+
+```bash
+curl http://127.0.0.1:8000/api/health/executors
+```
+
+The Codex row should no longer report `not_installed`. Auth is still intentionally reported as `unknown` until a runtime probe executes, so use `codex exec "ping"` as the local auth check.
+
 ## Safety defaults
 
 - Hard-fail on dirty preflight.

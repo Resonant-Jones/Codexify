@@ -5,7 +5,7 @@ aiofiles
 aiosqlite
 sqlalchemy
 alembic
-psycopg-binary
+psycopg[binary]>=3.2.10
 python-dotenv
 pydantic-settings
 structlog

@@ -1,5 +1,7 @@
 pytest
 pytest-asyncio
+numpy
+typer
 black
 isort
 ruff

@@ -51,8 +51,6 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from import_chatgpt import import_chatgpt
-
 # Initialize CLI app
 app = typer.Typer(
     name="codexify",
@@ -228,7 +226,287 @@ def migrate(
     )
 
     # Delegate all migration logic to import_chatgpt
+    from import_chatgpt import import_chatgpt
+
     import_chatgpt()
+
+
+@app.command("import:openai")
+def import_openai(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    diagnose: bool = typer.Option(
+        False,
+        "--diagnose",
+        help="Only scan and write diagnostics; do not mutate the database",
+    ),
+    diagnostic_dir: Path = typer.Option(
+        Path("logs/openai_import"),
+        "--diagnostic-dir",
+        help="Directory for OpenAI export diagnostic JSON and summary reports",
+    ),
+    user_id: Optional[str] = typer.Option(
+        None,
+        "--user-id",
+        help="Codexify user_id to import into; defaults to local identity",
+    ),
+):
+    """
+    Diagnose or import OpenAI data exports, including sharded .dat archives.
+
+    Example:
+        codexify import:openai --path ./OpenAI-export --diagnose
+        codexify import:openai --path ./OpenAI-export
+    """
+    load_dotenv()
+
+    from backend.rag.openai_export_adapter import import_openai_export_path
+    from guardian.identity import get_user_id
+
+    resolved_user_id = user_id or get_user_id()
+    if not resolved_user_id:
+        raise typer.BadParameter("Unable to resolve Codexify user_id")
+
+    stats = import_openai_export_path(
+        path,
+        user_id=resolved_user_id,
+        diagnose_only=diagnose,
+        diagnostic_output_dir=diagnostic_dir,
+    )
+
+    print_header()
+    if diagnose:
+        print_message("[bold cyan]OpenAI export diagnostic complete[/bold cyan]")
+    else:
+        print_message("[bold cyan]OpenAI export import complete[/bold cyan]")
+
+    print_summary(stats)
+    if stats.get("diagnostic_report"):
+        print_message(f"Diagnostic JSON: {stats['diagnostic_report']}")
+    if stats.get("diagnostic_summary"):
+        print_message(f"Diagnostic summary: {stats['diagnostic_summary']}")
+
+
+@app.command("export-recon")
+def export_recon(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    out: Path = typer.Option(
+        Path("export_archaeology"),
+        "--out",
+        "-o",
+        help="Output directory for recon artifacts",
+    ),
+):
+    """
+    Run read-only forensic reconnaissance on an OpenAI export corpus.
+
+    Generates conversation index CSV, corpus stats JSON, summary Markdown,
+    and diagnostic reports. No database writes, no embeddings, no model calls.
+
+    Example:
+        codexify export-recon --path ./OpenAI-export --out export_archaeology
+    """
+    from backend.rag.openai_export_corpus_recon import run_corpus_recon
+
+    stats = run_corpus_recon(path, output_dir=out)
+    d = stats.to_dict()
+    totals = d["corpus_totals"]
+
+    print_header()
+    print_message("[bold cyan]OpenAI export corpus recon complete[/bold cyan]")
+    print_summary(
+        {
+            "files_scanned": totals["files_scanned"],
+            "json_like_files": totals["json_like_files"],
+            "conversations_found": totals["conversations_found"],
+            "messages_scanned": totals["messages_scanned"],
+            "assets_found": totals["assets_found"],
+            "orphan_assets_found": totals["orphan_assets_found"],
+            "parse_failures": totals["parse_failures"],
+        }
+    )
+    out_dir = Path(out).resolve()
+    print_message(f"Output directory: {out_dir}")
+    print_message(f"Conversation index: {out_dir / 'conversation_index.csv'}")
+    print_message(f"Corpus stats: {out_dir / 'corpus_stats.json'}")
+    print_message(f"Summary: {out_dir / 'corpus_summary.md'}")
+    print_message(
+        f"Diagnostics: {out_dir / 'diagnostics' / 'recon_report.json'}"
+    )
+
+
+@app.command("import:openai-conversations")
+def import_openai_conversations(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Diagnose and report without writing to the database",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        "-n",
+        help="Limit import to the first N conversations",
+        min=1,
+    ),
+    title_contains: Optional[str] = typer.Option(
+        None,
+        "--title-contains",
+        help="Filter conversations by title substring (case-insensitive)",
+    ),
+    user_id: Optional[str] = typer.Option(
+        None,
+        "--user-id",
+        help="Codexify user_id to import into; defaults to local identity",
+    ),
+    diagnostic_dir: Path = typer.Option(
+        Path("logs/openai_import"),
+        "--diagnostic-dir",
+        help="Directory for import diagnostic reports",
+    ),
+    order: str = typer.Option(
+        "file",
+        "--order",
+        help="Import order: file (default), newest, oldest, updated",
+    ),
+    embedding_mode: str = typer.Option(
+        "defer",
+        "--embedding-mode",
+        help="Embedding behavior: defer (default), enqueue, off",
+    ),
+):
+    """
+    Import OpenAI export conversations into Codexify-native chat threads.
+
+    Preserves source provenance, idempotent on re-import. No embeddings,
+    no graph writes, no personal facts. Use --dry-run to preview.
+
+    Example:
+        codexify import:openai-conversations --path ./OpenAI-export --dry-run
+        codexify import:openai-conversations --path ./OpenAI-export --limit 25
+        codexify import:openai-conversations --path ./OpenAI-export --title-contains Codexify
+    """
+    load_dotenv()
+
+    from backend.rag.openai_export_conversation_import import (
+        import_openai_export_conversations,
+    )
+    from guardian.identity import get_user_id
+
+    resolved_user_id = user_id or get_user_id()
+    if not resolved_user_id:
+        raise typer.BadParameter("Unable to resolve Codexify user_id")
+
+    diag = import_openai_export_conversations(
+        path,
+        user_id=resolved_user_id,
+        dry_run=dry_run,
+        limit=limit,
+        title_contains=title_contains,
+        diagnostic_dir=diagnostic_dir,
+        order=order,
+        embedding_mode=embedding_mode,
+    )
+
+    print_header()
+    if dry_run:
+        print_message("[bold cyan]OpenAI export dry run complete (no DB writes)[/bold cyan]")
+    else:
+        print_message("[bold cyan]OpenAI export conversation import complete[/bold cyan]")
+
+    print_summary(
+        {
+            "export_format": diag.export_format,
+            "conversations_discovered": diag.conversations_discovered,
+            "conversations_imported": diag.conversations_imported,
+            "conversations_skipped_title": diag.conversations_skipped_title,
+            "conversations_skipped_limit": diag.conversations_skipped_limit,
+            "conversations_skipped_duplicate": diag.conversations_skipped_duplicate,
+            "messages_discovered": diag.messages_discovered,
+            "messages_imported": diag.messages_imported,
+            "messages_skipped_duplicate": diag.messages_skipped_duplicate,
+            "parse_failures": diag.parse_failures,
+        }
+    )
+    print_message(f"Diagnostic output: {diagnostic_dir.resolve()}")
+
+
+@app.command("export-scraper:tasks")
+def scrape_openai_tasks(
+    path: Path = typer.Option(
+        ...,
+        "--path",
+        "-p",
+        help="Path to an OpenAI export file or extracted export folder",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
+    out: Path = typer.Option(
+        Path("export_scraper"),
+        "--out",
+        "-o",
+        help="Repo-local output directory for extracted task prompt artifacts",
+    ),
+):
+    """
+    Scrape Codexify task prompt artifacts from OpenAI exports without DB writes.
+
+    Example:
+        codexify export-scraper:tasks --path ./OpenAI-export --out export_scraper
+    """
+    from backend.rag.openai_export_task_scraper import scrape_openai_export_tasks
+
+    report = scrape_openai_export_tasks(path, output_dir=out)
+    stats = report.to_dict()
+
+    print_header()
+    print_message("[bold cyan]OpenAI export task scrape complete[/bold cyan]")
+    print_summary(
+        {
+            "files_scanned": stats["files_scanned"],
+            "messages_scanned": stats["messages_scanned"],
+            "codexify_task_prompt_hits": stats["codexify_task_prompt_hits"],
+            "task_summary_hits": stats["task_summary_hits"],
+            "execution_contract_hits": stats["execution_contract_hits"],
+            "partial_or_ambiguous_hits": stats["partial_or_ambiguous_hits"],
+        }
+    )
+    print_message(f"Output directory: {report.output_dir}")
+    print_message(
+        f"Diagnostic JSON: {report.output_dir / 'diagnostics' / 'scraper_report.json'}"
+    )
+    print_message(
+        f"Diagnostic summary: {report.output_dir / 'diagnostics' / 'scraper_report.md'}"
+    )
 
 
 @app.command()
