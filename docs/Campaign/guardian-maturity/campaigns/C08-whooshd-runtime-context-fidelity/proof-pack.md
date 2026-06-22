@@ -27,3 +27,22 @@
 
 ### Next Task
 **C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
+
+---
+
+## C08-T001-R1: README Consistency Closeout (2026-06-20 03:35 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `58c8eec27` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: Guardian Maturity README not updated with C08 active status.
+
+### Consistency Fixed
+- `README.md`: C08 updated to `active — C08-T001 seam audit accepted` in Wave Status table
+- Campaign index: not applicable (no `campaigns/README.md` exists)
+- All other C08 docs remain consistent
+
+### Gate Decision
+**`go`** — C08-T001-R1 accepted. C08-T002 may proceed.
+
+### Next Task
+**C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
