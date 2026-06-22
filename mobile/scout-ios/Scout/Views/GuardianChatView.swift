@@ -338,8 +338,16 @@ private struct ThreadMessagesView: View {
             if let messages = messages {
                 if messages.isEmpty {
                     Section {
-                        Text("No messages in this thread.")
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Thread ready", systemImage: "checkmark.circle")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.green)
+                            Text("Send the first message below to start the conversation. No completion has been requested yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
                     }
                 } else {
                     Section {
