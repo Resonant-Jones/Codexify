@@ -53,6 +53,12 @@ Whoosh'd smoke override currently sets:
 
 Those defaults are configuration, not live-model proof.
 
+If your Whoosh'd host maintains a registry of several models, point the
+launcher at it with `WHOOSHD_MODEL_REGISTRY_PATH` and use
+`WHOOSHD_MLX_MODEL` to choose the default MLX model at startup. The launcher
+now forwards both env vars when present so the host can expose multiple
+registered models without hardcoding a single selection in Codexify.
+
 ## Live Inventory Truth
 
 Codexify treats Whoosh'd live inventory as proven only by Whoosh'd HTTP

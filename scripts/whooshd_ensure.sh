@@ -11,7 +11,8 @@
 #   1. Probes localhost:8000/health
 #   2. If healthy → done
 #   3. If not → starts Whoosh'd via the installed `whooshd` CLI
-#      with --codexify (binds 0.0.0.0:8000) and --adapter mlx
+#      with --codexify (binds 0.0.0.0:8000) and the configured model
+#      registry / selected-model env vars
 #   4. Waits up to 30s for health check
 #
 # Requires the `whooshd` CLI to be available on PATH (installed at
@@ -27,6 +28,9 @@ NC='\033[0m'
 
 HEALTH_URL="${WHOOSHD_HEALTH_URL:-http://127.0.0.1:8000/health}"
 MAX_WAIT_SEC="${WHOOSHD_ENSURE_TIMEOUT:-30}"
+WHOOSHD_ADAPTER="${WHOOSHD_ADAPTER:-mlx}"
+WHOOSHD_MODEL_REGISTRY_PATH="${WHOOSHD_MODEL_REGISTRY_PATH:-}"
+WHOOSHD_MLX_MODEL="${WHOOSHD_MLX_MODEL:-${WHOOSHD_MODEL:-}}"
 
 echo "── Whoosh'd ensure ──"
 
@@ -58,15 +62,32 @@ if [[ -z "$WHOOSHD_BIN" ]]; then
 fi
 
 echo "  Using whooshd at: $WHOOSHD_BIN"
+echo "  Adapter: $WHOOSHD_ADAPTER"
+if [[ -n "$WHOOSHD_MODEL_REGISTRY_PATH" ]]; then
+    echo "  Model registry: $WHOOSHD_MODEL_REGISTRY_PATH"
+fi
+if [[ -n "$WHOOSHD_MLX_MODEL" ]]; then
+    echo "  Selected model: $WHOOSHD_MLX_MODEL"
+fi
 
 # ── Step 3: Start Whoosh'd in Codexify mode ──
 # --codexify binds 0.0.0.0:8000 so Docker containers can reach it
-# --adapter mlx uses MLX backend
 WHOOSHD_LOG="${WHOOSHD_LOG:-/tmp/whooshd-codexify.log}"
-echo "  Starting: whooshd --codexify --adapter mlx"
+echo "  Starting: whooshd --codexify --adapter $WHOOSHD_ADAPTER"
 echo "  Log: $WHOOSHD_LOG"
 
-nohup "$WHOOSHD_BIN" --codexify --adapter mlx > "$WHOOSHD_LOG" 2>&1 &
+launch_env=(
+    "WHOOSHD_MLX_ENABLED=true"
+    "WHOOSHD_ADAPTER=$WHOOSHD_ADAPTER"
+)
+if [[ -n "$WHOOSHD_MODEL_REGISTRY_PATH" ]]; then
+    launch_env+=("WHOOSHD_MODEL_REGISTRY_PATH=$WHOOSHD_MODEL_REGISTRY_PATH")
+fi
+if [[ -n "$WHOOSHD_MLX_MODEL" ]]; then
+    launch_env+=("WHOOSHD_MLX_MODEL=$WHOOSHD_MLX_MODEL")
+fi
+
+nohup env "${launch_env[@]}" "$WHOOSHD_BIN" --codexify --adapter "$WHOOSHD_ADAPTER" > "$WHOOSHD_LOG" 2>&1 &
 WHOOSHD_PID=$!
 echo "  PID: $WHOOSHD_PID"
 
