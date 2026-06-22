@@ -973,6 +973,7 @@ class _PostgresGuardianDB:
         value: str,
         status: str = "candidate",
         confidence: float = 0.5,
+        guardrail_metadata: dict | None = None,
     ) -> int:
         """Create a personal fact."""
         with self.get_session() as session:
@@ -983,6 +984,7 @@ class _PostgresGuardianDB:
                 status=status,
                 confidence=confidence,
                 is_active=True,
+                guardrail_metadata=guardrail_metadata,
             )
             session.add(fact)
             session.commit()

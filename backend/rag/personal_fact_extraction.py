@@ -289,6 +289,27 @@ def _coerce_dict_rows(value: Any) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
+def _extract_guardrail_metadata(candidate: dict[str, Any]) -> dict | None:
+    """Extract guardrail classification outcome from a classified candidate.
+
+    Returns a dict suitable for the guardrail_metadata JSONB column,
+    or None if the candidate has no guardrail data.
+    """
+    disposition = candidate.get("_guardrail_disposition")
+    reasons = candidate.get("_guardrail_reasons")
+
+    if disposition is None:
+        return None
+
+    return {
+        "disposition": disposition,
+        "reasons": list(reasons) if isinstance(reasons, list) else [],
+        "runtime_eligible": False,
+        "review_required": bool(candidate.get("_guardrail_review_required", True)),
+        "promotion_blocked": bool(candidate.get("_guardrail_promotion_blocked", False)),
+    }
+
+
 def _build_evidence_meta(
     *,
     message: dict[str, Any],
@@ -567,6 +588,7 @@ def persist_personal_fact_candidates(
             fact_id = existing_fact.get("id")
             stats["facts_reused"] += 1
         else:
+            guardrail_meta = _extract_guardrail_metadata(raw_candidate)
             try:
                 fact_id = create_fact(
                     user_id,
@@ -574,6 +596,7 @@ def persist_personal_fact_candidates(
                     value,
                     status="candidate",
                     confidence=confidence,
+                    guardrail_metadata=guardrail_meta,
                 )
                 stats["facts_created"] += 1
             except Exception as exc:
