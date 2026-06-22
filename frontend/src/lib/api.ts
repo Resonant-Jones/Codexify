@@ -80,6 +80,10 @@ function isProxyRuntime(): boolean {
   return readRuntimeEnv("VITE_USE_PROXY", "false") === "true";
 }
 
+function isRemoteAuthMode(): boolean {
+  return getRuntimeConfigSync().authMode === "remote";
+}
+
 function resolveDevApiKey(): string {
   if (!isDevRuntime()) return "";
   const explicitDevKey = readRuntimeEnv("VITE_GUARDIAN_DEV_API_KEY").trim();
@@ -208,18 +212,21 @@ function applyAuthHeaders(
   const runtimeApiKey = getRuntimeApiKey();
   const hasAuthorization = hasHeader(headers, "Authorization");
   const hasApiKey = hasHeader(headers, "X-API-Key");
+  const remoteAuthMode = isRemoteAuthMode();
 
-  if (runtimeApiKey && !hasApiKey) {
-    headers["X-API-Key"] = runtimeApiKey;
-  } else {
-    const devApiKey = resolveDevApiKey();
-    const allowDevKey = !isProxyRuntime() || forceApiKey;
-    if ((forceApiKey || !token) && allowDevKey && devApiKey && !hasApiKey) {
-      headers["X-API-Key"] = devApiKey;
+  if (!remoteAuthMode) {
+    if (runtimeApiKey && !hasApiKey) {
+      headers["X-API-Key"] = runtimeApiKey;
+    } else {
+      const devApiKey = resolveDevApiKey();
+      const allowDevKey = !isProxyRuntime() || forceApiKey;
+      if ((forceApiKey || !token) && allowDevKey && devApiKey && !hasApiKey) {
+        headers["X-API-Key"] = devApiKey;
+      }
     }
   }
 
-  if (!forceApiKey && token && !hasAuthorization) {
+  if (token && !hasAuthorization && (!forceApiKey || remoteAuthMode)) {
     headers.Authorization = `Bearer ${token}`;
   }
 }
