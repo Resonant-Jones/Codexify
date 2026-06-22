@@ -1216,6 +1216,64 @@ struct ScoutTestRunner {
             check("Create bad JSON → non-crashing", result.httpStatus == 200)
         }
 
+        // ── Rename thread probe ───────────────────────────────────
+
+        func renameSuccessBody() -> Data {
+            """
+            {"ok":true,"thread":{"id":42,"title":"Renamed Thread","summary":""}}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Rename uses PATCH", request.httpMethod == "PATCH")
+                check("Rename has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                check("Rename has Content-Type", request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+                check("Rename targets correct URL", request.url?.absoluteString.contains("/api/chat/threads/42") == true)
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, renameSuccessBody())
+            }
+            let result = await ScoutRenameThreadProbe.rename(
+                endpoint: makeEndpoint(), threadId: 42, title: "Renamed Thread", apiKey: "key", session: session
+            )
+            check("Rename 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Rename 2xx → 'Thread renamed'", result.message == "Thread renamed.")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutRenameThreadProbe.rename(
+                endpoint: makeEndpoint(), threadId: 1, title: "Hi", apiKey: nil, session: session
+            )
+            check("Rename 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutRenameThreadProbe.rename(
+                endpoint: makeEndpoint(), threadId: 1, title: "Hi", apiKey: nil, session: session
+            )
+            check("Rename timeout → 'timed out'", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutRenameThreadProbe.rename(
+                endpoint: makeEndpoint(), threadId: 1, title: "Hi", apiKey: nil, session: session
+            )
+            check("Rename bad JSON → non-crashing", result.httpStatus == 200)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")

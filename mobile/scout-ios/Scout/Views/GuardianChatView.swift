@@ -307,9 +307,63 @@ private struct ThreadMessagesView: View {
                 inspectorList
             }
         }
-        .navigationTitle(threadTitle?.isEmpty == false ? threadTitle! : "Thread \(threadId)")
+        .navigationTitle(displayedTitle?.isEmpty == false ? displayedTitle! : "Thread \(threadId)")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    renameTitle = displayedTitle ?? ""
+                    renameError = nil
+                    showRename = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+            }
+        }
         .onAppear {
+            if displayedTitle == nil {
+                displayedTitle = threadTitle
+            }
             Task { await loadMessages() }
+        }
+        .sheet(isPresented: $showRename) {
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("Thread title", text: $renameTitle)
+                    }
+
+                    if let error = renameError {
+                        Section {
+                            Text(error)
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                        }
+                    }
+
+                    Section {
+                        Button {
+                            Task { await doRename() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isRenaming {
+                                    ProgressView()
+                                        .padding(.trailing, 6)
+                                }
+                                Text("Save")
+                                Spacer()
+                            }
+                        }
+                        .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRenaming)
+
+                        Button("Cancel", role: .cancel) {
+                            showRename = false
+                        }
+                    }
+                }
+                .navigationTitle("Rename Thread")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
     }
 
@@ -812,6 +866,39 @@ private struct ThreadMessagesView: View {
             statusMessage = result.message
         }
         isLoading = false
+    }
+
+    private func doRename() async {
+        let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isRenaming = true
+        renameError = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            renameError = "Could not load saved endpoint profile."
+            isRenaming = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutRenameThreadProbe.rename(
+            endpoint: profile, threadId: threadId, title: trimmed, apiKey: apiKey
+        )
+
+        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
+            displayedTitle = trimmed
+            showRename = false
+        } else {
+            renameError = result.message
+        }
+        isRenaming = false
     }
 
     private func loadDocuments() async {
