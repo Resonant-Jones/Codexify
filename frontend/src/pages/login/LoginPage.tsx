@@ -2,9 +2,14 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/useAuth";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
+
+const LOGIN_FAILURE_MESSAGE =
+  "Unable to sign in. Check your credentials and try again.";
 
 export default function LoginPage() {
   const auth = useAuth();
+  const remoteAuthMode = getRuntimeConfigSync().authMode === "remote";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,8 +31,8 @@ export default function LoginPage() {
         password,
       });
       window.location.assign("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+    } catch {
+      setError(LOGIN_FAILURE_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -41,10 +46,12 @@ export default function LoginPage() {
             Codexify
           </p>
           <h1 className="text-3xl font-semibold tracking-[-0.03em]">
-            Sign in
+            {remoteAuthMode ? "Session sign-in" : "Sign in"}
           </h1>
           <p className="text-sm leading-6 text-slate-400">
-            Use your username and password to open the workspace.
+            {remoteAuthMode
+              ? "Use your workspace username and password. This browser will receive a session token after sign-in."
+              : "Use your username and password to open the workspace."}
           </p>
         </div>
 
@@ -70,7 +77,10 @@ export default function LoginPage() {
           </label>
 
           {error ? (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div
+              className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+              role="alert"
+            >
               {error}
             </div>
           ) : null}
