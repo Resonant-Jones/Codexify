@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import UploadedDocument
 from tests.utils import get_test_api_key, get_test_auth_headers
 
@@ -35,16 +36,24 @@ def app():
     app = FastAPI()
 
     # Import and include router
-    from guardian.routes.media import router
+    from guardian.routes import media as media_routes
 
-    app.include_router(router, prefix="/api/media")
+    app.dependency_overrides[
+        media_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="test_user",
+        subject_id="test_user",
+        account_id="test_user",
+        multi_user_enabled=False,
+    )
+    app.include_router(media_routes.router, prefix="/api/media")
     return app
 
 
 @pytest.fixture
 def client(app):
     """Create test client."""
-    return TestClient(app, headers=get_test_auth_headers())
+    return TestClient(app, headers=get_test_auth_headers(user_id="test_user"))
 
 
 def _mock_db_with_session() -> tuple[MagicMock, MagicMock]:
@@ -556,10 +565,9 @@ class TestUploadDedupeAndResolve:
         )
 
         assert response.status_code == 200
-        local_user_id = os.environ.get("CODEXIFY_SINGLE_USER_ID", "local")
-        assert mock_create_asset.call_args.kwargs["user_id"] == local_user_id
+        assert mock_create_asset.call_args.kwargs["user_id"] == "test_user"
         uploaded_row = mock_session.add.call_args_list[-1][0][0]
-        assert uploaded_row.user_id == local_user_id
+        assert uploaded_row.user_id == "test_user"
         assert uploaded_row.project_id == 42
         assert uploaded_row.thread_id == 9
         mock_ensure_alias.assert_called_once()
@@ -834,15 +842,14 @@ class TestUploadDedupeAndResolve:
         assert payload["project_id"] == 1
         assert payload["thread_id"] == 2
         assert payload["embedding_status"] == "pending"
-        local_user_id = os.environ.get("CODEXIFY_SINGLE_USER_ID", "local")
-        assert mock_create_asset.call_args.kwargs["user_id"] == local_user_id
+        assert mock_create_asset.call_args.kwargs["user_id"] == "test_user"
         uploaded_doc = mock_session.add.call_args_list[-1][0][0]
-        assert uploaded_doc.user_id == local_user_id
+        assert uploaded_doc.user_id == "test_user"
         assert uploaded_doc.project_id == 1
         assert uploaded_doc.thread_id == 2
         mock_enqueue_embed.assert_called_once()
         _, enqueue_kwargs = mock_enqueue_embed.call_args
-        assert enqueue_kwargs["metadata"]["user_id"] == local_user_id
+        assert enqueue_kwargs["metadata"]["user_id"] == "test_user"
         _, thread_kwargs = mock_ensure_thread_document_link.call_args
         assert thread_kwargs["thread_id"] == 2
         _, project_kwargs = mock_ensure_project_document_link.call_args

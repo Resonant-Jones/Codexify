@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -60,6 +60,13 @@ def _settings_db():
 
 def make_app():
     app = FastAPI()
+
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id") or "default"
+
+    app.dependency_overrides[
+        imprint_routes.get_current_user
+    ] = _test_current_user
     app.include_router(imprint_routes.router)
     app.include_router(imprint_routes.system_prompt_router)
     app.include_router(imprint_routes.system_docs_router)
@@ -324,7 +331,7 @@ def test_server_app_mounts_persona_save_route(
     )
 
     monkeypatch.setattr(
-        imprint_routes.user_settings_store,
+        imprint_routes.iddb_settings_service,
         "get_user_settings",
         lambda _user_id: {
             "memory_mode": "light",
@@ -334,25 +341,30 @@ def test_server_app_mounts_persona_save_route(
         raising=True,
     )
 
-    with (
-        patch.object(
-            imprint_routes.persona_store,
-            "set_persona",
-            return_value=persona_obj,
-        ),
-        patch.object(
-            imprint_routes.user_settings_store,
-            "set_system_prompt",
-            return_value=None,
-            create=True,
-        ),
+    with patch.object(
+        imprint_routes.persona_store,
+        "set_persona",
+        return_value=persona_obj,
     ):
         from guardian.server.app import app
 
-        client = TestClient(app)
-        resp = client.post(
-            "/api/imprint/persona", json={"body": "Saved prompt"}
-        )
+        def _test_current_user(request: Request) -> str:
+            return request.headers.get("X-User-Id") or "default"
+
+        app.dependency_overrides[
+            imprint_routes.get_current_user
+        ] = _test_current_user
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/api/imprint/persona",
+                json={"body": "Saved prompt"},
+                headers=AUTH_HEADERS,
+            )
+        finally:
+            app.dependency_overrides.pop(
+                imprint_routes.get_current_user, None
+            )
 
     assert resp.status_code == 200
     assert resp.json()["id"] == persona_obj.id

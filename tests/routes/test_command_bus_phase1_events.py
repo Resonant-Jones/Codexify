@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from guardian.routes import command_bus
@@ -21,6 +21,12 @@ def _build_client(monkeypatch) -> TestClient:
     def write(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "payload": payload}
 
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id", "operator")
+
+    app.dependency_overrides[command_bus.get_current_user] = (
+        _test_current_user
+    )
     app.include_router(command_bus.router)
     return TestClient(app)
 

@@ -157,6 +157,9 @@ def test_supported_path_exposes_truthful_retrieval_health_surface(
             _FakePersonalFactsDB(),
             raising=False,
         )
+        client.app.dependency_overrides[
+            personal_facts.get_current_user
+        ] = lambda: "local"
 
         personal_facts_response = client.get(
             "/api/personal-facts",

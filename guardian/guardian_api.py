@@ -301,6 +301,13 @@ def _include_router(
     logger.info("[routers] enabled %s", label)
 
 
+def _include_internal_only_schema(label: str) -> bool:
+    profile_manifest = _SUPPORTED_PROFILE_MANIFEST
+    if profile_manifest is None:
+        return True
+    return profile_manifest.route_status(label) != "internal_only"
+
+
 def _codex_routes_enabled() -> bool:
     if _BETA_CORE_ONLY:
         return False
@@ -1236,7 +1243,10 @@ _include_router(
 _include_router(
     label="command_bus",
     flag_name="CODEXIFY_ENABLE_COMMAND_BUS_ROUTES",
-    include_fn=lambda: app.include_router(command_bus_routes.router),
+    include_fn=lambda: app.include_router(
+        command_bus_routes.router,
+        include_in_schema=_include_internal_only_schema("command_bus"),
+    ),
 )
 _include_router(
     label="intent_spine",

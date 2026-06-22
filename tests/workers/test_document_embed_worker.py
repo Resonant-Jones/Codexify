@@ -13,6 +13,7 @@ from guardian.workers import document_embed_worker
 class _FakeDoc:
     def __init__(self) -> None:
         self.id = "doc-1"
+        self.asset_id = "asset-1"
         self.parsed_text = "fresh sentinel from worker"
         self.filename = "doc-1.txt"
         self.user_id = "default"
@@ -87,6 +88,8 @@ class _SharedEmbedder:
                 if metadatas is not None and index < len(metadatas)
                 else {}
             )
+            if "namespace" not in meta and meta.get("thread_id") is not None:
+                meta["namespace"] = f"thread:{meta['thread_id']}"
             bucket.append(
                 {
                     "text": text,
@@ -97,12 +100,14 @@ class _SharedEmbedder:
             )
         return {"count": len(texts)}
 
-    def search(self, query, k=5, namespace=None):
+    def search(self, query, k=5, namespace=None, user_id=None):
         needle = str(query or "").lower()
         matches: list[dict[str, object]] = []
         for item in self._records.get(self._key, []):
             meta = item.get("meta", {})
             if namespace and meta.get("namespace") != namespace:
+                continue
+            if user_id and meta.get("user_id") != user_id:
                 continue
             if needle not in str(item.get("text", "")).lower():
                 continue
@@ -211,6 +216,7 @@ def test_worker_write_and_backend_search_share_canonical_store_seam(
         "fresh sentinel",
         k=1,
         namespace="thread:9",
+        user_id="default",
     )
 
     assert ok is True

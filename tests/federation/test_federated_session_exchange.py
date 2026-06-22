@@ -61,6 +61,7 @@ from guardian.routes.federation import (
     accept_session,
     configure_federation,
 )
+from guardian.routes import federation as federation_routes
 from guardian.routes.federation import manager as route_manager
 from guardian.routes.federation import request_session
 
@@ -549,7 +550,8 @@ class TestFederationConfiguration:
     ):
         settings = _signed_federation_settings(enabled=False)
         monkeypatch.setattr(
-            "guardian.routes.federation.get_settings",
+            federation_routes,
+            "get_settings",
             lambda: settings,
         )
 
@@ -572,7 +574,8 @@ class TestFederationConfiguration:
         settings = _signed_federation_settings()
         settings.GUARDIAN_FEDERATION_TRUST_POLICY_SIGNATURE = None
         monkeypatch.setattr(
-            "guardian.routes.federation.get_settings",
+            federation_routes,
+            "get_settings",
             lambda: settings,
         )
 
@@ -599,7 +602,8 @@ class TestFederationConfiguration:
             }
         )
         monkeypatch.setattr(
-            "guardian.routes.federation.get_settings",
+            federation_routes,
+            "get_settings",
             lambda: settings,
         )
 
@@ -633,7 +637,8 @@ class TestFederationConfiguration:
             }
         )
         monkeypatch.setattr(
-            "guardian.routes.federation.get_settings",
+            federation_routes,
+            "get_settings",
             lambda: settings,
         )
         route_manager.peer_manifests.clear()
@@ -670,7 +675,8 @@ class TestFederationConfiguration:
     ):
         settings = _signed_federation_settings()
         monkeypatch.setattr(
-            "guardian.routes.federation.get_settings",
+            federation_routes,
+            "get_settings",
             lambda: settings,
         )
         private_key, public_key = generate_keypair()

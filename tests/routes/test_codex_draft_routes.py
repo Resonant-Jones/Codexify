@@ -16,8 +16,9 @@ from guardian.codex.lineage import (
     reset_session_factory as reset_lineage_session_factory,
 )
 from guardian.routes import codex as codex_routes
+from tests.utils import get_test_auth_headers
 
-API_HEADERS = {"X-API-Key": "test"}
+API_HEADERS = get_test_auth_headers()
 
 
 @pytest.fixture(autouse=True)

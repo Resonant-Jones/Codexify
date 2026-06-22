@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from guardian.core import dependencies as dependencies_module
 from guardian.db.models import (
     AgentExtensionInstallBinding,
     AgentExtensionInstallGateDecision,
@@ -49,6 +50,11 @@ OTHER_COMMAND_ID = "command::activate-beta"
 def activation_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
     monkeypatch.setenv("DEBUG", "1")
+    monkeypatch.setattr(
+        dependencies_module,
+        "verify_session_token",
+        lambda token: (token == "test-session-token", "acct-1"),
+    )
 
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
@@ -263,7 +269,10 @@ def _inspect(
     }
     response = client.get(
         "/api/guardian/commands/activation/inspect",
-        headers=headers,
+        headers={
+            "Authorization": "Bearer test-session-token",
+            **headers,
+        },
         params=params,
     )
     return response

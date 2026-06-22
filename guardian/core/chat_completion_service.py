@@ -1404,8 +1404,7 @@ def resolve_thread_completion_settings(
             )
         )
         source_mode = normalize_source_mode(
-            requested_source_mode
-            or _thread_config_value(
+            _thread_config_value(
                 thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
             )
             or SOURCE_MODE_PROJECT
@@ -2507,6 +2506,37 @@ def _normalize_completion_image_routing_truth(
             ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value,
             None,
         )
+
+    for candidate in (payload_summary, trace, result):
+        if not isinstance(candidate, dict):
+            continue
+        model_selection = candidate.get("model_selection")
+        if not isinstance(model_selection, dict):
+            continue
+        selected_provider = normalize_provider(
+            model_selection.get("final_provider") or provider
+        )
+        selected_requested = normalize_model_id(
+            model_selection.get("requested_model")
+        )
+        selected_final = normalize_model_id(model_selection.get("final_model"))
+        if (
+            selected_provider == "local"
+            and selected_requested
+            and selected_final
+            and selected_requested != selected_final
+        ):
+            selected_vision_state = resolve_model_vision_capability_state(
+                selected_provider,
+                selected_final,
+                settings,
+            )
+            if selected_vision_state is not True:
+                return (
+                    image_attachment_count,
+                    None,
+                    TraceSnapshotAbsenceReason.LOCAL_MODEL_SUBSTITUTION_SELECTED_NONVISION_MODEL.value,
+                )
     return (
         image_attachment_count,
         None,
@@ -4420,7 +4450,6 @@ def run_chat_completion_task(
 
     # If structured content contains images and no explicit model, use vision model
     if has_structured_image and not task.model:
-        from guardian.core.config import get_settings
         vision_model = getattr(get_settings(), "LOCAL_VISION_MODEL", None)
         if vision_model:
             model = vision_model
@@ -4431,9 +4460,12 @@ def run_chat_completion_task(
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )
-    requested_provider = normalize_provider(
-        getattr(task, "requested_provider", None)
-    ) or normalize_provider(getattr(task, "provider", None))
+    raw_requested_provider = getattr(task, "requested_provider", None)
+    requested_provider = (
+        normalize_provider(raw_requested_provider)
+        if raw_requested_provider
+        else normalize_provider(getattr(task, "provider", None))
+    )
     requested_model = normalize_model_id(
         getattr(task, "requested_model", None)
     ) or normalize_model_id(getattr(task, "model", None))
@@ -4728,6 +4760,19 @@ def run_chat_completion_task(
     merged_payload_summary = dict(payload_summary or {})
     if isinstance(result_payload_summary, dict):
         merged_payload_summary.update(result_payload_summary)
+    merged_payload_summary["requested_provider"] = requested_provider
+    merged_payload_summary["requested_model"] = requested_model
+    merged_payload_summary["attempted_provider"] = attempted_provider
+    merged_payload_summary["attempted_model"] = attempted_model
+    merged_payload_summary["resolved_provider"] = resolved_provider
+    merged_payload_summary["resolved_model"] = resolved_model
+    merged_payload_summary["final_provider"] = final_provider
+    merged_payload_summary["final_model"] = final_model
+    merged_payload_summary["selection_source"] = selection_source
+    merged_payload_summary["fallback_reason"] = fallback_reason
+    if isinstance(model_resolution, dict):
+        merged_payload_summary["model_resolution"] = model_resolution
+    merged_payload_summary["model_selection"] = model_selection
     base_retrieval_posture = (
         payload_summary.get("retrieval_posture")
         if isinstance(payload_summary, dict)
@@ -4850,10 +4895,6 @@ def run_chat_completion_task(
         "final_model": final_model,
         "selection_source": selection_source,
         "fallback_reason": fallback_reason,
-        "requested_provider": getattr(task, "requested_provider", None),
-        "requested_model": getattr(task, "requested_model", None),
-        "final_provider": provider,
-        "final_model": model,
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,

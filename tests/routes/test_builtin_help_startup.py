@@ -5,6 +5,9 @@ import importlib
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from guardian.core import config as config_module
+from guardian.core import dependencies as dependencies_module
+from guardian.core.dependencies import RequestUserScope
 from guardian.services import builtin_help_ingest as help_ingest
 
 
@@ -168,8 +171,34 @@ def test_startup_seeds_builtin_help_and_retrieval_can_find_it(
     real_ingest = help_ingest.ingest_builtin_help_document
     ingest_calls = {"count": 0}
 
+    class _StartupVectorStore:
+        def __init__(self) -> None:
+            self.rows = []
+
+        def add_texts(self, rows):
+            self.rows.extend(rows)
+
+        def search(self, query, k=5, namespace=None, user_id=None):
+            _ = namespace, user_id
+            matches = []
+            for row in self.rows:
+                if str(query) in str(row.get("text", "")):
+                    matches.append(row)
+            return matches[: int(k)]
+
+        def health(self):
+            return {"ok": True}
+
+    startup_vector_store = _StartupVectorStore()
+    monkeypatch.setattr(
+        dependencies_module,
+        "_vector_store",
+        startup_vector_store,
+    )
+
     def _wrapped_ingest(*args, **kwargs):
         ingest_calls["count"] += 1
+        kwargs.setdefault("vector_store", startup_vector_store)
         return real_ingest(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -196,6 +225,7 @@ def test_startup_seeds_builtin_help_and_retrieval_can_find_it(
         "load_guardian_db_from_env",
         lambda: fake_guardian_db,
     )
+    monkeypatch.setattr(guardian_api, "init_services", lambda _db: None)
     monkeypatch.setattr(guardian_api, "ensure_default_project", lambda: True)
     monkeypatch.setattr(
         guardian_api,
@@ -210,6 +240,14 @@ def test_startup_seeds_builtin_help_and_retrieval_can_find_it(
         media_routes,
         "load_guardian_db_from_env",
         lambda: fake_guardian_db,
+    )
+    guardian_api.app.dependency_overrides[
+        media_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="local",
+        subject_id="local",
+        account_id="local",
+        multi_user_enabled=False,
     )
 
     with TestClient(guardian_api.app) as client:
@@ -234,7 +272,8 @@ def test_startup_seeds_builtin_help_and_retrieval_can_find_it(
 
     retrieve_api = importlib.reload(retrieve_api)
     monkeypatch.setattr(
-        "guardian.core.config.assert_config_coherence",
+        config_module,
+        "assert_config_coherence",
         lambda _settings: None,
     )
 

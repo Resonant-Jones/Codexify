@@ -12,6 +12,7 @@ from guardian.core.executors.base import (
     ExecutorProgressEvent,
     ExecutorTerminalResult,
 )
+from guardian.core.executors.codex_executor import CodexExecutor
 from guardian.protocol_tokens import (
     DelegationEventType,
     DelegationExecutorName,
@@ -150,10 +151,7 @@ def test_worker_publishes_running_progress_completed_lifecycle(
             }
         ),
     )
-    monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.CodexExecutor.execute",
-        fake_execute,
-    )
+    monkeypatch.setattr(CodexExecutor, "execute", fake_execute)
 
     result = delegation_worker.process_delegation_task(
         approval.task,
@@ -292,10 +290,7 @@ def test_worker_publishes_terminal_failed_state_on_executor_failure(
             }
         ),
     )
-    monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.CodexExecutor.execute",
-        fake_execute,
-    )
+    monkeypatch.setattr(CodexExecutor, "execute", fake_execute)
 
     result = delegation_worker.process_delegation_task(
         approval.task,

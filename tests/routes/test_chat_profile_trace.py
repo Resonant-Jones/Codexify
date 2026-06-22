@@ -755,9 +755,9 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
 ):
     async def _fake_build_messages_for_llm(_task):
         return (
-            [{"role": "system", "content": "SYSTEM"}],
-            "groq",
-            "mock-model",
+                [{"role": "system", "content": "SYSTEM"}],
+                "local",
+                "mock-model",
             {},
             trace_payload,
         )
@@ -767,16 +767,42 @@ def test_run_chat_completion_task_surfaces_effective_policy_in_payload_summary(
         "build_messages_for_llm",
         _fake_build_messages_for_llm,
     )
+    def _fake_execute_bounded_tool_turn_completion(*_args, **_kwargs):
+        return {
+            "assistant_text": "assistant reply",
+            "provider": "local",
+            "model": "mock-model",
+            "bundle": {},
+            "trace": dict(trace_payload),
+            "payload_summary": {
+                "source_mode": trace_payload["source_mode"],
+                "retrieval_policy": trace_payload["retrieval_policy"],
+                "effective_policy": trace_payload["effective_policy"],
+            },
+        }
+
     monkeypatch.setattr(
         chat_completion_service,
-        "chat_with_ai",
-        lambda *args, **kwargs: "assistant reply",
+        "_execute_bounded_tool_turn_completion",
+        _fake_execute_bounded_tool_turn_completion,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda *args, **kwargs: {
+            "requested_provider": "local",
+            "final_provider": "local",
+            "requested_model": "mock-model",
+            "final_model": "mock-model",
+            "provider_available": True,
+            "provider_disabled_reason": None,
+        },
     )
 
     task = ChatCompletionTask(
         user_id="local",
         thread_id=1,
-        provider="groq",
+        provider="local",
         model="mock-model",
         origin="api:chat.complete|turn_id=abc|source_mode=project",
     )
@@ -844,7 +870,7 @@ def test_run_chat_completion_task_compat_preserves_retrieval_posture(
     def _fake_execute_bounded_tool_turn_completion(*_args, **_kwargs):
         return {
             "assistant_text": "assistant reply",
-            "provider": "groq",
+            "provider": "local",
             "model": "mock-model",
             "bundle": {},
             "trace": {
@@ -882,11 +908,23 @@ def test_run_chat_completion_task_compat_preserves_retrieval_posture(
         "_execute_bounded_tool_turn_completion",
         _fake_execute_bounded_tool_turn_completion,
     )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda *args, **kwargs: {
+            "requested_provider": "local",
+            "final_provider": "local",
+            "requested_model": "mock-model",
+            "final_model": "mock-model",
+            "provider_available": True,
+            "provider_disabled_reason": None,
+        },
+    )
 
     task = ChatCompletionTask(
         user_id="local",
         thread_id=1,
-        provider="groq",
+        provider="local",
         model="mock-model",
         origin="api:chat.complete|turn_id=abc|source_mode=workspace",
     )

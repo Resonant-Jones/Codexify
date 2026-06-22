@@ -430,7 +430,9 @@ def test_transcript_endpoint_is_read_only(
 def test_transcript_endpoint_flagged_off_by_default() -> None:
     from guardian.guardian_api import app
 
-    paths = {route.path for route in app.routes}
+    paths = {
+        route.path for route in app.routes if hasattr(route, "path")
+    }
     assert "/api/guardian/delegations/{intent_id}/transcript" not in paths
 
 

@@ -3,6 +3,8 @@ import logging
 import pytest
 
 from guardian.queue.redis_queue import QueueEnqueueError
+from guardian.core.dependencies import RequestUserScope
+from guardian.routes import chat as chat_routes
 
 
 def _build_enqueue_error(
@@ -26,18 +28,29 @@ def test_chat_complete_enqueue_failure_returns_503(
     def _raise_enqueue(*_args, **_kwargs):
         raise error
 
-    monkeypatch.setattr("guardian.routes.chat.enqueue", _raise_enqueue)
-    monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock", lambda *_a, **_k: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.release_turn_lock", lambda *_a, **_k: None
+    monkeypatch.setattr(chat_routes, "enqueue", _raise_enqueue)
+    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *_a, **_k: True)
+    monkeypatch.setattr(chat_routes, "release_turn_lock", lambda *_a, **_k: None)
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="test_user",
+        subject_id="test_user",
+        account_id="test_user",
+        multi_user_enabled=False,
     )
 
     caplog.set_level(logging.ERROR, logger="guardian.routes.chat")
-    response = test_client.post(
-        "/api/chat/1/complete", json={}, headers={"X-Request-ID": "req-123"}
-    )
+    try:
+        response = test_client.post(
+            "/api/chat/1/complete",
+            json={},
+            headers={"X-Request-ID": "req-123"},
+        )
+    finally:
+        test_client.app.dependency_overrides.pop(
+            chat_routes.get_request_user_scope, None
+        )
     assert response.status_code == 503
     detail = response.json().get("detail", {})
     assert detail.get("error_code") == "CHAT_COMPLETE_ENQUEUE_FAILED"

@@ -839,6 +839,9 @@ def _thread_documents_client(
     documents.configure_db(mock_db)
 
     app = FastAPI()
+    app.dependency_overrides[
+        documents.get_request_user_scope
+    ] = lambda: RequestUserScope(user_id="test_user", multi_user_enabled=False)
     app.include_router(documents.router)
     with TestClient(app) as client:
         client.headers.pop("x-api-key", None)

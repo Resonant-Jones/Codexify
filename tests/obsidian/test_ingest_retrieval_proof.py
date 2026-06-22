@@ -33,7 +33,14 @@ class InMemoryVectorStore:
             )
         return len(items)
 
-    def search(self, query: str, k: int, namespace: str | None = None):
+    def search(
+        self,
+        query: str,
+        k: int,
+        namespace: str | None = None,
+        user_id: str | None = None,
+    ):
+        _ = namespace
         needle = query.lower()
         hits = [
             item
@@ -42,6 +49,15 @@ class InMemoryVectorStore:
         ]
         if not hits:
             hits = list(self.items)
+        if user_id:
+            tagged = []
+            for item in hits:
+                result = dict(item)
+                meta = dict(result.get("meta") or {})
+                meta.setdefault("user_id", user_id)
+                result["meta"] = meta
+                tagged.append(result)
+            hits = tagged
         return hits[:k]
 
 
@@ -52,7 +68,9 @@ async def test_obsidian_ingest_retrieval_proof():
     assert store.add_texts(items) == len(items)
 
     retriever = MemoryOSRetriever(store)
-    results = await retriever.retrieve("mariner-signal-lattice", limit=3)
+    results = await retriever.retrieve(
+        "mariner-signal-lattice", limit=3, user_id="user-1"
+    )
 
     assert results
     hit = next(r for r in results if "mariner-signal-lattice" in r["text"])

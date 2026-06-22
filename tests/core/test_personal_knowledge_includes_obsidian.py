@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from guardian.context import broker as broker_module
 from guardian.context.broker import ContextBroker
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
@@ -169,8 +170,7 @@ async def test_workspace_retrieval_falls_back_to_backend_obsidian_hits_when_loca
         return [dict(backend_hit)]
 
     monkeypatch.setattr(
-        "guardian.context.broker._workspace_backend_obsidian_results",
-        _backend_results,
+        broker_module, "_workspace_backend_obsidian_results", _backend_results
     )
 
     context, trace = await broker.assemble(

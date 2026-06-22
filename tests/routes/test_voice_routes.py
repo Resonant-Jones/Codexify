@@ -4,6 +4,19 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from guardian.routes import voice
+
+
+@pytest.fixture
+def test_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(voice.router)
+    return TestClient(app)
+
 
 def _dummy_audio_file():
     return {"audio_file": ("voice.wav", b"RIFF....WAVE", "audio/wav")}

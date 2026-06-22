@@ -4,7 +4,7 @@ from typing import Any
 
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
-from tests.utils import get_test_user_id
+from tests.utils import get_test_auth_headers, get_test_user_id
 
 
 def _thread_row(
@@ -42,8 +42,19 @@ def test_chat_thread_list_response_preserves_thread_config(
         _thread_row(1, thread_config=thread_config),
         _thread_row(2, thread_config=None),
     ]
+    expected_user_id = get_test_user_id()
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id=expected_user_id,
+        account_id=expected_user_id,
+        multi_user_enabled=False,
+    )
 
-    response = test_client.get("/api/chat/threads")
+    response = test_client.get(
+        "/api/chat/threads",
+        headers=get_test_auth_headers(user_id=expected_user_id),
+    )
 
     assert response.status_code == 200
     data = response.json()

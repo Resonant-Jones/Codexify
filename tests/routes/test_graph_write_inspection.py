@@ -1,9 +1,34 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from guardian.core.dependencies import RequestUserScope
 from guardian.core import graph_write_inspection_store
 from guardian.core.graph_write_inspection_store import (
     GRAPH_WRITE_INSPECTION_STATUS_DUPLICATE_SKIPPED,
 )
+from guardian.routes import chat
+from tests.utils import get_test_auth_headers
+
+
+AUTH_HEADERS = get_test_auth_headers(user_id="test_user")
+
+
+@pytest.fixture
+def test_client(mock_db, monkeypatch) -> TestClient:
+    monkeypatch.setattr(chat, "chatlog_db", mock_db)
+    app = FastAPI()
+    app.dependency_overrides[chat.require_api_key] = lambda: "test-api-key"
+    app.dependency_overrides[chat.get_request_user_scope] = (
+        lambda: RequestUserScope(
+            user_id="test_user", multi_user_enabled=False
+        )
+    )
+    app.include_router(chat.router)
+    with TestClient(app, headers=AUTH_HEADERS) as client:
+        yield client
 
 
 def _seed_snapshot(
@@ -52,7 +77,9 @@ def test_graph_write_inspection_route_returns_latest_snapshot(
         request_id="req-1",
     )
 
-    response = test_client.get("/chat/1/debug/graph-write/latest")
+    response = test_client.get(
+        "/chat/1/debug/graph-write/latest", headers=AUTH_HEADERS
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["thread_id"] == 1
@@ -74,7 +101,9 @@ def test_graph_write_inspection_route_returns_empty_state_when_missing(
         "id": thread_id,
         "user_id": "test_user",
     }
-    response = test_client.get("/chat/2/debug/graph-write/latest")
+    response = test_client.get(
+        "/chat/2/debug/graph-write/latest", headers=AUTH_HEADERS
+    )
     assert response.status_code == 200
     body = response.json()
     assert body == {
@@ -104,8 +133,12 @@ def test_graph_write_inspection_route_is_thread_scoped(test_client, mock_db):
         request_id="req-2",
     )
 
-    response_one = test_client.get("/chat/1/debug/graph-write/latest")
-    response_two = test_client.get("/chat/2/debug/graph-write/latest")
+    response_one = test_client.get(
+        "/chat/1/debug/graph-write/latest", headers=AUTH_HEADERS
+    )
+    response_two = test_client.get(
+        "/chat/2/debug/graph-write/latest", headers=AUTH_HEADERS
+    )
 
     assert response_one.status_code == 200
     assert response_two.status_code == 200
@@ -132,7 +165,9 @@ def test_graph_write_inspection_route_exposes_duplicate_skipped_status(
         request_id="req-3",
     )
 
-    response = test_client.get("/chat/3/debug/graph-write/latest")
+    response = test_client.get(
+        "/chat/3/debug/graph-write/latest", headers=AUTH_HEADERS
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["graph_write_inspection"]["receipt_status"] == (

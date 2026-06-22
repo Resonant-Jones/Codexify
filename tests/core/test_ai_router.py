@@ -6,6 +6,7 @@ import pytest
 import requests
 from fastapi import HTTPException
 
+import guardian.core.ai_router as ai_router
 from guardian.core.ai_router import (
     LOCAL_MODEL_MISSING_FAILURE_KIND,
     LOCAL_MODEL_RESOLUTION_ERROR,
@@ -16,6 +17,8 @@ from guardian.core.ai_router import (
     chat_with_ai,
     stream_local,
 )
+import guardian.core.provider_registry as provider_registry
+import guardian.core.supported_profile as supported_profile
 from guardian.core.config import Settings
 from guardian.protocol_tokens import (
     GuardianProviderFailureKind,
@@ -80,7 +83,8 @@ def _mock_alibaba_model_index(url, headers, timeout):
 
 def _disable_supported_profile(monkeypatch) -> None:
     monkeypatch.setattr(
-        "guardian.core.supported_profile.get_active_supported_profile",
+        supported_profile,
+        "get_active_supported_profile",
         lambda: None,
     )
 
@@ -97,9 +101,10 @@ def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
             {"choices": [{"message": {"content": "Alibaba reply"}}]}
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
-        "guardian.core.ai_router.assert_egress_allowed",
+        ai_router,
+        "assert_egress_allowed",
         lambda *args, **kwargs: None,
     )
 
@@ -145,11 +150,10 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
         captured["settings"] = settings
         return "Alibaba routed"
 
+    monkeypatch.setattr(ai_router, "call_alibaba", _mock_call_alibaba)
     monkeypatch.setattr(
-        "guardian.core.ai_router.call_alibaba", _mock_call_alibaba
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
+        provider_registry.requests,
+        "get",
         _mock_alibaba_model_index,
     )
 
@@ -192,7 +196,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
             {"message": {"content": "Local fallback reply"}}
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -234,7 +238,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
             ]
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -277,7 +281,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selectio
             ]
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -311,7 +315,7 @@ def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
         _ = (url, json, headers, timeout)
         raise requests.exceptions.ConnectionError("connection refused")
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -347,7 +351,7 @@ def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
             raise requests.exceptions.ConnectionError("connection refused")
         return _MockRawResponse({"message": {"content": "Local chain reply"}})
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -385,7 +389,7 @@ def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
         _ = (headers, timeout)
         return _MockRawResponse({"message": {"content": "Non-strict reply"}})
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -421,10 +425,11 @@ def test_chat_with_ai_local_only_uses_local_chat_model_for_execution(
         return _MockRawResponse({"message": {"content": "Local chat reply"}})
 
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
+        ai_router.requests,
+        "get",
         _mock_local_inventory_request(["qwen3.5:0.8b"]),
     )
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -480,7 +485,8 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
+        ai_router.requests,
+        "get",
         _mock_local_inventory_request(["qwen2.5:7b"]),
     )
 
@@ -521,7 +527,7 @@ def test_call_local_local_only_uses_resolved_model_for_execution(monkeypatch):
         _ = (headers, timeout)
         return _MockRawResponse({"message": {"content": "Local call reply"}})
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -562,7 +568,7 @@ def test_stream_local_local_only_uses_resolved_model_for_execution(
             ]
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -593,7 +599,7 @@ def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
         _ = (url, json, headers, timeout)
         raise requests.exceptions.ReadTimeout("read timed out")
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -605,6 +611,7 @@ def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
         LLM_MODEL="library2/ministral-3:8b",
+        LLM_REQUEST_TIMEOUT_SECONDS=60,
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -634,7 +641,7 @@ def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
         _ = (url, json, headers, stream, timeout)
         raise requests.exceptions.ReadTimeout("read timed out")
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
     settings = Settings(
         LLM_PROVIDER="local",
@@ -646,6 +653,7 @@ def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
         LLM_MODEL="library2/ministral-3:8b",
+        LLM_REQUEST_TIMEOUT_SECONDS=60,
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -703,9 +711,10 @@ def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
         _ = (url, json, headers, timeout)
         raise requests.exceptions.Timeout("request timed out")
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
-        "guardian.core.ai_router.assert_egress_allowed",
+        ai_router,
+        "assert_egress_allowed",
         lambda *args, **kwargs: None,
     )
 
@@ -744,9 +753,10 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
         _ = (url, json, headers, timeout)
         raise requests.exceptions.ConnectionError("connection refused")
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
-        "guardian.core.ai_router.assert_egress_allowed",
+        ai_router,
+        "assert_egress_allowed",
         lambda *args, **kwargs: None,
     )
 
@@ -789,9 +799,10 @@ def test_call_minimax_http_error_surfaces_provider_error_payload(monkeypatch):
             status_code=429,
         )
 
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
-        "guardian.core.ai_router.assert_egress_allowed",
+        ai_router,
+        "assert_egress_allowed",
         lambda *args, **kwargs: None,
     )
 

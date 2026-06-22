@@ -19,7 +19,12 @@ class _FakeQuery:
         self._rows = list(rows)
 
     def filter(self, *args, **kwargs):
-        return self
+        rows = self._rows
+        for expression in args:
+            rows = [
+                row for row in rows if _row_matches_expression(row, expression)
+            ]
+        return _FakeQuery(rows)
 
     def filter_by(self, **kwargs):
         rows = self._rows
@@ -46,6 +51,27 @@ class _FakeQuery:
 
     def all(self):
         return list(self._rows)
+
+
+def _row_matches_expression(row, expression) -> bool:
+    clauses = getattr(expression, "clauses", None)
+    if clauses is not None:
+        return any(_row_matches_expression(row, clause) for clause in clauses)
+
+    left = getattr(expression, "left", None)
+    right = getattr(expression, "right", None)
+    key = getattr(left, "key", None)
+    if not key:
+        return True
+
+    value = getattr(right, "value", None)
+    row_value = getattr(row, key, None)
+    operator_name = getattr(
+        getattr(expression, "operator", None), "__name__", ""
+    )
+    if operator_name == "is_":
+        return row_value is value
+    return row_value == value
 
 
 class _FakeSession:
@@ -120,6 +146,7 @@ def _owned_row(
     elif kind == "document":
         payload.update(
             {
+                "asset_id": extra.get("asset_id", f"asset-{row_id}"),
                 "project_id": extra.get("project_id", 7),
                 "thread_id": extra.get("thread_id", 11),
                 "src_url": f"/media/{row_id}.txt",

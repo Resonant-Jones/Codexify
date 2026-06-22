@@ -691,6 +691,12 @@ def _risk_flags_bullets(flags: list[str]) -> str:
     return "\n".join(f"- {flag}" for flag in sorted(set(flags)))
 
 
+def _public_risk_flags_bullets(flags: list[str]) -> str:
+    if not flags:
+        return "- none"
+    return "- Internal review notes record draft safety checks."
+
+
 def _serialize_claim_entry(claim: Claim) -> dict[str, Any]:
     payload = claim.as_dict()
     payload["channel_eligible"] = bool(
@@ -1052,7 +1058,7 @@ def generate_marketing_artifacts(
         claims_bullets=claims_bullets,
         public_copy_claims_bullets=public_copy_claims_bullets,
         supporting_evidence_bullets=supporting_evidence_bullets,
-        risk_flags_bullets=_risk_flags_bullets(filtered_flags),
+        risk_flags_bullets=_public_risk_flags_bullets(filtered_flags),
     )
     enforce_banned_phrasing(final_core_rendered, contract.banned_phrases)
     review_notes = _render_review_notes(

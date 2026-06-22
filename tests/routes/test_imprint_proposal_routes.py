@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -59,6 +59,13 @@ def proposal_session_factory():
 
 def make_app():
     app = FastAPI()
+
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id") or "default"
+
+    app.dependency_overrides[
+        imprint_routes.get_current_user
+    ] = _test_current_user
     app.include_router(imprint_routes.router)
     return app
 

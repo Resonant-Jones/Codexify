@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
+from guardian.cognition import system_prompt_builder
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
 )
@@ -56,18 +57,23 @@ def _settings_db(monkeypatch: pytest.MonkeyPatch):
         raising=False,
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.get_docs_for",
-        lambda *_args, **_kwargs: [],
+        system_prompt_builder, "get_docs_for", lambda *_args, **_kwargs: []
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.estimate_token_cost_for_docs",
-        lambda _docs: 0,
+        system_prompt_builder, "estimate_token_cost_for_docs", lambda _docs: 0
     )
     yield
 
 
 def make_app() -> FastAPI:
     app = FastAPI()
+
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id") or "default"
+
+    app.dependency_overrides[
+        imprint_routes.get_current_user
+    ] = _test_current_user
     app.include_router(imprint_routes.router)
     app.include_router(imprint_routes.system_prompt_router)
     app.include_router(imprint_routes.system_docs_router)

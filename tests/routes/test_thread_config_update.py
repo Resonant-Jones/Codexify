@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from guardian.core.chat_completion_service import (
     resolve_thread_completion_settings,
 )
+from guardian.core.dependencies import RequestUserScope
 from guardian.core.pgdb import PgDB
 from guardian.db.models import Base, ChatThread
 from guardian.routes import chat as chat_routes
@@ -85,6 +86,21 @@ class _ThreadConfigRouteBackend(PgDB):
 def thread_config_backend():
     with _thread_config_session_factory() as session_factory:
         yield _ThreadConfigRouteBackend(session_factory), session_factory
+
+
+@pytest.fixture(autouse=True)
+def _thread_config_request_scope(test_client):
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="test_user",
+        account_id="test_user",
+        multi_user_enabled=False,
+    )
+    yield
+    test_client.app.dependency_overrides.pop(
+        chat_routes.get_request_user_scope, None
+    )
 
 
 def _seed_thread(

@@ -993,6 +993,8 @@ def test_only_expected_guardian_delegation_routes_registered() -> None:
 def test_guardian_api_route_is_flagged_off_by_default() -> None:
     from guardian.guardian_api import app
 
-    paths = {route.path for route in app.routes}
+    paths = {
+        route.path for route in app.routes if hasattr(route, "path")
+    }
     assert "/api/guardian/delegations" not in paths
     assert "/api/guardian/delegations/{intent_id}/transcript" not in paths

@@ -28,17 +28,29 @@ def test_worker_replaces_blank_output(monkeypatch):
     monkeypatch.setattr(
         chat_worker, "clear_cancelled", lambda *args, **kwargs: None
     )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda provider, settings, **kwargs: {
+            "provider": provider,
+            **kwargs,
+        },
+    )
 
     async def fake_build_messages(_task):
-        return [], "groq", "model", {}, None, None, {}
+        return [], "local", "model", {}, None, None, {}
 
     monkeypatch.setattr(
         chat_worker, "_build_messages_for_llm", fake_build_messages
     )
-    monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_execute_bounded_tool_turn_completion",
+        lambda *args, **kwargs: {"assistant_text": ""},
+    )
 
     task = ChatCompletionTask(
-        user_id="local", thread_id=1, provider="groq", model="model"
+        user_id="local", thread_id=1, provider="local", model="model"
     )
     chat_worker._run_chat_task(task)
 

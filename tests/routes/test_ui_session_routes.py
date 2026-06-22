@@ -4,8 +4,20 @@ from __future__ import annotations
 
 import time
 
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from guardian.queue.redis_queue import get_redis_client
+from guardian.routes import ui_session
 from guardian.routes.ui_session import make_session_key
+
+
+@pytest.fixture
+def test_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(ui_session.router)
+    return TestClient(app)
 
 
 def _sample_state() -> dict:

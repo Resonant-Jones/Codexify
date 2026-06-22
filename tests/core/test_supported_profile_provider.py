@@ -2,7 +2,8 @@ import pytest
 from fastapi import HTTPException
 
 from guardian.core.ai_router import _resolve_local_base
-from guardian.core.config import LLMConfigError, Settings, validate_llm_config
+from guardian.core import config as config_module
+from guardian.core.config import Settings
 
 
 _WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
@@ -34,7 +35,7 @@ def test_validate_llm_config_accepts_supported_profile_local_contract(
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
     settings = _supported_profile_settings()
 
-    validate_llm_config(settings)
+    config_module.validate_llm_config(settings)
 
 
 def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
@@ -44,7 +45,7 @@ def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
         LLM_MODEL="llama-3.2-3b-mlx",
     )
 
-    validate_llm_config(settings)
+    config_module.validate_llm_config(settings)
 
 
 def test_validate_llm_config_rejects_supported_profile_provider_drift(
@@ -59,9 +60,9 @@ def test_validate_llm_config_rejects_supported_profile_provider_drift(
     )
 
     with pytest.raises(
-        LLMConfigError, match="blessed local gateway contract"
+        config_module.LLMConfigError, match="blessed local gateway contract"
     ):
-        validate_llm_config(settings, provider_override="local")
+        config_module.validate_llm_config(settings, provider_override="local")
 
 
 def test_resolve_local_base_rejects_supported_profile_runtime_base_drift(

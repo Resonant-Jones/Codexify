@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +38,11 @@ def settings_session_factory():
 
 def make_app():
     app = FastAPI()
+
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id") or "default"
+
+    app.dependency_overrides[iddb_routes.get_current_user] = _test_current_user
     app.include_router(iddb_routes.router)
     return app
 

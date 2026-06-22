@@ -10,6 +10,7 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.utils import get_test_auth_headers
@@ -75,28 +76,22 @@ def memory_test_client(mock_memory_db, mock_auth, monkeypatch, tmp_path):
     monkeypatch.setenv("LOCAL_DEV", "false")
 
     with patch("logging.info"):
-        with patch("guardian.guardian_api.chatlog_db", mock_memory_db):
-            with patch("guardian.core.dependencies.chatlog_db", mock_memory_db):
-                with patch("guardian.routes.memory.chatlog_db", mock_memory_db):
-                    with patch(
-                        "guardian.guardian_api.event_bus"
-                    ) as mock_event_bus:
-                        mock_event_bus.emit_event.return_value = None
+        from guardian.routes import memory as memory_routes
 
-                        from guardian.guardian_api import app, require_api_key
+        app = FastAPI()
+        app.dependency_overrides[
+            memory_routes.require_api_key
+        ] = lambda: mock_auth
+        app.dependency_overrides[
+            memory_routes.get_current_user
+        ] = lambda: SERVER_USER_ID
+        monkeypatch.setattr(memory_routes, "chatlog_db", mock_memory_db)
+        app.include_router(memory_routes.router)
+        app.include_router(memory_routes.search_router)
+        app.include_router(memory_routes.log_router)
 
-                        # Override require_api_key dependency
-                        def mock_require_api_key_override():
-                            return mock_auth
-
-                        app.dependency_overrides[
-                            require_api_key
-                        ] = mock_require_api_key_override
-
-                        client = TestClient(app)
-                        yield client
-
-                        app.dependency_overrides.clear()
+        client = TestClient(app, headers=get_test_auth_headers())
+        yield client
 
 
 class TestMemoryAuthentication:

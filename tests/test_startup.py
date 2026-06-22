@@ -109,7 +109,7 @@ class TestStartupBehavior:
             assert len(ensure_project_calls) == 1
             assert ensure_project_calls[0][0] == (
                 "General",
-                "Default bucket for unassigned threads and documents",
+                "Default project for content without a specified project",
             )
 
     def test_startup_calls_ensure_loose_threads(self):
@@ -198,7 +198,7 @@ class TestStartupBehavior:
             # Verify correct parameters
             mock_db.ensure_project.assert_called_once_with(
                 "General",
-                "Default bucket for unassigned threads and documents",
+                "Default project for content without a specified project",
             )
 
 

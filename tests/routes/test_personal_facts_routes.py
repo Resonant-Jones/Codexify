@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 SERVER_USER_ID = "local_user"
@@ -60,35 +61,22 @@ def facts_test_client(mock_facts_db, mock_auth, monkeypatch, tmp_path):
 
     with patch("guardian.vector.store.VectorStore"):
         with patch("logging.info"):
-            with patch("guardian.guardian_api.chatlog_db", mock_facts_db):
-                with patch(
-                    "guardian.core.dependencies.chatlog_db", mock_facts_db
-                ):
-                    with patch(
-                        "guardian.routes.personal_facts.chatlog_db",
-                        mock_facts_db,
-                    ):
-                        with patch(
-                            "guardian.guardian_api.event_bus"
-                        ) as mock_event_bus:
-                            mock_event_bus.emit_event.return_value = None
+            from guardian.routes import personal_facts
 
-                            from guardian.guardian_api import (
-                                app,
-                                require_api_key,
-                            )
+            app = FastAPI()
+            app.dependency_overrides[
+                personal_facts.require_api_key
+            ] = lambda: mock_auth
+            app.dependency_overrides[
+                personal_facts.get_current_user
+            ] = lambda: SERVER_USER_ID
+            monkeypatch.setattr(
+                personal_facts, "chatlog_db", mock_facts_db
+            )
+            app.include_router(personal_facts.router)
 
-                            def mock_require_api_key_override():
-                                return mock_auth
-
-                            app.dependency_overrides[
-                                require_api_key
-                            ] = mock_require_api_key_override
-
-                            client = TestClient(app)
-                            yield client
-
-                            app.dependency_overrides.clear()
+            client = TestClient(app)
+            yield client
 
 
 def test_list_personal_facts(facts_test_client, auth_headers, mock_facts_db):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from guardian.core import llm_catalog
 from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
 
@@ -72,7 +73,7 @@ def _local_provider(payload: dict) -> dict:
 def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("guardian.core.llm_catalog.requests.get", _whooshd_inventory)
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
 
     payload = build_llm_catalog(settings=_settings(), include_all=True)
 
@@ -90,7 +91,7 @@ def test_whooshd_catalog_surfaces_live_inventory_when_configured_model_missing(
 
 
 def test_local_chat_model_wins_over_legacy_local_model_env(monkeypatch) -> None:
-    monkeypatch.setattr("guardian.core.llm_catalog.requests.get", _whooshd_inventory)
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
 
     payload = build_llm_catalog(
         settings=_settings(LOCAL_LLM_MODEL=_LLAMA, LLM_MODEL=_LLAMA),
@@ -106,7 +107,7 @@ def test_local_chat_model_wins_over_legacy_local_model_env(monkeypatch) -> None:
 def test_local_only_whooshd_mismatch_does_not_enable_cloud_fallback(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("guardian.core.llm_catalog.requests.get", _whooshd_inventory)
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
 
     payload = build_llm_catalog(settings=_settings(), include_all=False)
 

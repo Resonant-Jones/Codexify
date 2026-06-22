@@ -1963,8 +1963,31 @@ def _run_chat_completion_task_compat(
     if isinstance(completion_result, dict):
         helper_tool_loop_execution = completion_result.get("execution")
         helper_payload_summary = completion_result.get("payload_summary")
+        helper_trace = completion_result.get("trace")
+        if isinstance(helper_trace, dict):
+            merged_trace = dict(trace or {})
+            merged_trace.update(helper_trace)
+            trace = merged_trace
+            result["trace"] = merged_trace
         if isinstance(helper_payload_summary, dict):
             payload_summary.update(helper_payload_summary)
+            payload_summary.update(
+                {
+                    "requested_provider": requested_provider,
+                    "requested_model": requested_model,
+                    "attempted_provider": attempted_provider,
+                    "attempted_model": attempted_model,
+                    "resolved_provider": provider,
+                    "resolved_model": model,
+                    "final_provider": final_provider,
+                    "final_model": final_model,
+                    "selection_source": selection_source,
+                    "fallback_reason": fallback_reason,
+                    "model_selection": model_selection,
+                }
+            )
+            if isinstance(model_resolution, dict):
+                payload_summary["model_resolution"] = model_resolution
             result["payload_summary"] = payload_summary
         if helper_tool_loop_execution is not None:
             result["tool_loop_execution"] = helper_tool_loop_execution
