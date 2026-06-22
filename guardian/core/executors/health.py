@@ -14,7 +14,16 @@ from guardian.core.executors.registry import (
 from guardian.protocol_tokens import (
     ExecutorAuthState,
     ExecutorAvailabilityState,
+    ExecutorId,
 )
+
+CODEX_RECOVERY_STEPS: tuple[str, ...] = (
+    "Install the official Codex CLI: npm install -g @openai/codex",
+    "Authenticate the same shell user that runs Codexify: codex login",
+    "Verify PATH and auth before retrying: codex --version && codex exec 'ping'",
+    "If Codex is installed outside PATH, set CODEXIFY_CODEX_BIN to the absolute codex executable path.",
+)
+CODEX_RECOVERY_DOC = "codex_runner/README.md#codex-cli-install-and-auth-recovery"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +40,8 @@ class ExecutorHealth:
     supports_direct_provider_config: bool
     supported_auth_modes: tuple[str, ...]
     status_detail: str | None
+    recovery_steps: tuple[str, ...] = ()
+    recovery_doc: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -64,7 +75,10 @@ def _detect_auth_state(entry: ExecutorRegistryEntry) -> tuple[str, str | None]:
     if not path:
         return ExecutorAuthState.UNKNOWN.value, "binary path env var is empty"
     if not shutil.which(path):
-        return ExecutorAuthState.UNKNOWN.value, "binary not found on PATH"
+        return (
+            ExecutorAuthState.UNKNOWN.value,
+            f"{entry.install_label} executable not found on PATH",
+        )
     return (
         ExecutorAuthState.UNKNOWN.value,
         "auth state requires runtime probe; cannot determine statically",
@@ -76,7 +90,10 @@ def _derive_availability(
     auth_state: str,
 ) -> tuple[str, str | None]:
     if not installed:
-        return ExecutorAvailabilityState.NOT_INSTALLED.value, "binary not found"
+        return (
+            ExecutorAvailabilityState.NOT_INSTALLED.value,
+            "executable not found on PATH",
+        )
     if auth_state == ExecutorAuthState.AUTHENTICATED.value:
         return ExecutorAvailabilityState.READY.value, None
     if auth_state == ExecutorAuthState.UNKNOWN.value:
@@ -104,6 +121,20 @@ def get_executor_health(entry: ExecutorRegistryEntry) -> ExecutorHealth:
     else:
         status_detail = availability_detail or auth_detail
 
+    recovery_steps: tuple[str, ...] = ()
+    recovery_doc: str | None = None
+    if entry.executor_id == ExecutorId.CODEX and (
+        not installed
+        or availability_state
+        in {
+            ExecutorAvailabilityState.DEGRADED.value,
+            ExecutorAvailabilityState.UNAVAILABLE.value,
+            ExecutorAvailabilityState.NOT_INSTALLED.value,
+        }
+    ):
+        recovery_steps = CODEX_RECOVERY_STEPS
+        recovery_doc = CODEX_RECOVERY_DOC
+
     return ExecutorHealth(
         executor_id=entry.executor_id.value,
         label=entry.install_label,
@@ -117,6 +148,8 @@ def get_executor_health(entry: ExecutorRegistryEntry) -> ExecutorHealth:
         supports_direct_provider_config=entry.supports_direct_provider_config,
         supported_auth_modes=tuple(m.value for m in entry.supported_auth_modes),
         status_detail=status_detail,
+        recovery_steps=recovery_steps,
+        recovery_doc=recovery_doc,
     )
 
 

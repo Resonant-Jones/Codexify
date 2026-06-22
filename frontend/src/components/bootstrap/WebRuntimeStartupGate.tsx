@@ -103,7 +103,7 @@ export default function WebRuntimeStartupGate({
     <div className="relative min-h-screen w-full">
       {children}
       {!ready && (
-        <div className="pointer-events-none fixed inset-0 z-[1100] flex items-end justify-center p-4 sm:p-6">
+        <div className="fixed inset-0 z-[1300] flex items-end justify-center p-4 sm:p-6">
           <div
             className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[22px] border shadow-2xl backdrop-blur-xl"
             style={{
