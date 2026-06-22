@@ -190,6 +190,9 @@ struct GuardianChatView: View {
                     Task { await loadThreads() }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: ScoutThreadRenamedNotification)) { _ in
+                Task { await loadThreads() }
+            }
         }
     }
 
@@ -895,6 +898,7 @@ private struct ThreadMessagesView: View {
         if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
             displayedTitle = trimmed
             showRename = false
+            NotificationCenter.default.post(name: ScoutThreadRenamedNotification, object: nil)
         } else {
             renameError = result.message
         }
