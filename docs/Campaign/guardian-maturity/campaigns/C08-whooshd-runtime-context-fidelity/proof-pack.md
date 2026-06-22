@@ -115,3 +115,42 @@ python3 scripts/validate_docs.py: passed
 
 ### Next Task
 **C08-T003: Prove Whoosh'd model inventory identity semantics**
+
+---
+
+## C08-T002-R2: Failure Quarantine & Scoped Diff (2026-06-20 04:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `ad93d01ec` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: provider-suite failures not quarantined; scoped diff not reported.
+
+### Provider Suite Failure Quarantine
+
+| Test | Reason | Touches Whoosh'd? | Touches C08 files? |
+|------|--------|-------------------|---------------------|
+| `test_vision_capability_validation.py::test_vision_capable_image_turn_proceeds_to_provider_ready_assembly` | Pre-existing vision capability test | No | No |
+| `test_vision_capability_validation.py::test_non_vision_model_rejects_image_turn_before_provider_execution` | Pre-existing vision capability test | No | No |
+| `test_vision_capability_validation.py::test_unknown_vision_capability_preserves_existing_fallback_behavior` | Pre-existing vision capability test | No | No |
+| `test_vision_capability_validation.py::test_image_payload_missing_has_distinct_error_code` | Pre-existing vision capability test | No | No |
+
+All 4 failures are in `test_vision_capability_validation.py` — unrelated to Whoosh'd or C08. No provider/model code changed. Only `test_whooshd_endpoint_health_semantics.py` was added.
+
+### Scoped Diff
+- `guardian/providers/whooshd_sidecar.py`: unchanged
+- `guardian/core/whooshd_model_profiles.py`: unchanged
+- `tests/providers/`: only test file added
+- No runtime, provider routing, model inventory, context injection, frontend, or daemon changes
+
+### Validation
+```
+focused: 16 passed, provider suite: 18 passed + 4 pre-existing (vision, unrelated)
+whooshd_sidecar import: ok
+git diff --check: clean
+python3 scripts/validate_docs.py: passed
+```
+
+### Gate Decision
+**`go`** — C08-T002-R2 accepted. C08-T003 may proceed.
+
+### Next Task
+**C08-T003: Prove Whoosh'd model inventory identity semantics**
