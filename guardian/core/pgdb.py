@@ -1910,6 +1910,7 @@ class PgDB(ChatDB):
             "updated_at": (
                 fact.updated_at.isoformat() if fact.updated_at else None
             ),
+            "guardrail_metadata": fact.guardrail_metadata,
         }
 
     def _evidence_to_dict(
@@ -1973,6 +1974,7 @@ class PgDB(ChatDB):
         value: str,
         status: str = "candidate",
         confidence: float = 0.5,
+        guardrail_metadata: dict | None = None,
     ) -> int:
         with self._sa_session() as session:
             fact = PersonalFact(
@@ -1982,6 +1984,7 @@ class PgDB(ChatDB):
                 status=status,
                 confidence=confidence,
                 is_active=True,
+                guardrail_metadata=guardrail_metadata,
             )
             session.add(fact)
             session.flush()
