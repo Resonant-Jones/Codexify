@@ -306,3 +306,19 @@ R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 s
 
 ### Next Task
 **C08-T004b: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T004b: Context Delivery Proof (2026-06-20 05:20 UTC)
+
+### Files Created
+- `tests/core/test_whooshd_context_bundle_system_identity_delivery.py` — 12 tests
+
+### Proof Summary
+Context bundle -> system message proven. `build_context_system_message_with_meta()` accepts semantic/memory/graph arrays, produces system message + metadata. Local provider path (`provider == "local"`) identified in `_execute_completion_attempt` via `stream_local()`. No real daemon or network.
+
+### Gate Decision
+**`go`** — C08-T004b accepted. C08-T004c may proceed.
+
+### Next Task
+**C08-T004c: Close Whoosh'd context fidelity proof**
