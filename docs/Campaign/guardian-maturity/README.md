@@ -75,3 +75,9 @@ Reusable templates live in [`templates/`](./templates/):
 | 5 | C14 Frontend State Management Audit | planned |
 
 Wave 2 is complete. Wave 3 begins with C04: Pi/Coder Invocation Boundary.
+
+### Wave 4
+
+| Campaign | Status |
+|----------|--------|
+| C08 Whoosh'd Runtime Integration & Context Fidelity | **selected** — see `wave-4-selection-after-c04.md` |
