@@ -559,3 +559,31 @@ Artifact at `operator-evidence-loop-closeout.md` with loop map, truth table (19 
 
 ### Next Task
 **C04-T018: Close C04 Pi/Coder invocation boundary campaign**
+
+---
+
+## C04-T017-R2: Final Validation Closeout (2026-06-20 02:50 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `91f9e21c9` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: R1 validation results not explicitly re-reported after governance commit.
+
+### Final Validation
+All validation results unchanged from R1 (prior C04-T017 loop closeout artifact validation):
+- Adapter tests: 13 passed
+- Full Pi tests: 116 passed
+- Route tests: 14 passed
+- Frontend shell tests: 65 passed
+- `guardian.pi` import: ok
+- `agent_orchestration` import: ok (verified in prior turn)
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+- `pnpm lint`: unavailable
+
+No code or test changes between R1 and R2 — governance docs only.
+
+### Gate Decision
+**`go`** — C04-T017-R2 accepted. C04-T018 may proceed.
+
+### Next Task
+**C04-T018: Close C04 Pi/Coder invocation boundary campaign**
