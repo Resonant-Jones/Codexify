@@ -41,6 +41,7 @@ function makeFact(overrides: Record<string, unknown> = {}) {
     last_confirmed_at: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    guardrail_metadata: null,
     ...overrides,
   };
 }
@@ -454,6 +455,222 @@ describe("FactCandidateReview multiple candidates", () => {
       expect(sensitiveBadges).toHaveLength(1);
       expect(screen.getByText("name")).toBeDefined();
       expect(screen.getByText("location")).toBeDefined();
+    });
+  });
+});
+
+// ── Guardrail metadata ──
+
+describe("FactCandidateReview guardrail metadata", () => {
+  it("renders disposition when guardrail_metadata.disposition is reviewable", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "location",
+        guardrail_metadata: {
+          disposition: "reviewable",
+          reasons: ["import_noise"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: false,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("reviewable")).toBeDefined();
+    });
+  });
+
+  it("renders promotion-blocked indicator when promotion_blocked=true", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("promotion blocked")).toBeDefined();
+      expect(screen.getByText("quarantine")).toBeDefined();
+    });
+  });
+
+  it("renders review-required indicator when review_required=true", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "hobby",
+        guardrail_metadata: {
+          disposition: "reviewable",
+          reasons: [],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: false,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("review required")).toBeDefined();
+    });
+  });
+
+  it("renders not-runtime-eligible posture when runtime_eligible=false", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "name",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["low_confidence"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: false,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Not runtime-eligible/)).toBeDefined();
+      expect(
+        screen.getByText(/candidate remains excluded/)
+      ).toBeDefined();
+    });
+  });
+
+  it("renders readable reason label for source_role_assistant", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Source role: assistant")).toBeDefined();
+    });
+  });
+
+  it("renders readable reason label for import_noise", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "location",
+        guardrail_metadata: {
+          disposition: "reviewable",
+          reasons: ["import_noise"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: false,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Import noise")).toBeDefined();
+    });
+  });
+
+  it("renders fallback label for unknown reason", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "test",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["future_reason_not_yet_defined"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("future reason not yet defined")
+      ).toBeDefined();
+    });
+  });
+
+  it("renders existing content when guardrail_metadata is absent", async () => {
+    setupMockCandidates([
+      makeFact({ id: 1, key: "location", value: "NYC", guardrail_metadata: null }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("NYC")).toBeDefined();
+      expect(screen.getByText("location")).toBeDefined();
+    });
+  });
+
+  it("does not crash with malformed guardrail_metadata", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "test",
+        guardrail_metadata: {
+          disposition: null,
+          reasons: "not-an-array",
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("test")).toBeDefined();
+    });
+  });
+
+  it("preserves approve, edit, and reject affordances with guardrail metadata", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "location",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant", "import_noise"],
+          runtime_eligible: false,
+          review_required: true,
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Approve location candidate")
+      ).toBeDefined();
+      expect(
+        screen.getByLabelText("Edit location candidate")
+      ).toBeDefined();
+      expect(
+        screen.getByLabelText("Reject location candidate")
+      ).toBeDefined();
     });
   });
 });

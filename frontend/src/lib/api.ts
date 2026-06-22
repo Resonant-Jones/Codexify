@@ -1288,6 +1288,15 @@ export type PersonalFactRecord = {
   last_confirmed_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  guardrail_metadata?: GuardrailMetadata | null;
+};
+
+export type GuardrailMetadata = {
+  disposition?: string;
+  reasons?: string[];
+  runtime_eligible?: boolean;
+  review_required?: boolean;
+  promotion_blocked?: boolean;
 };
 
 export type PersonalFactEvidenceRecord = {
