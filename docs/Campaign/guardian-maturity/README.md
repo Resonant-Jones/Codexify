@@ -65,7 +65,7 @@ Reusable templates live in [`templates/`](./templates/):
 | 2 | C03 Coding Delegation Spine | closed |
 | 2 | C05 Command Bus and Tool Turn Observability | closed |
 | 2 | C06 Guardian Operator Workspace | closed |
-| 3 | C04 Pi/Coder Invocation Boundary | **selected** — see `wave-3-selection-after-c06.md` |
+| 3 | C04 Pi/Coder Invocation Boundary | closed |
 | 3 | C07 Persona Studio | planned |
 | 3 | C08 Whoosh'd Runtime Setup | planned |
 | 4 | C09 Execution Ledger | planned |
@@ -74,10 +74,10 @@ Reusable templates live in [`templates/`](./templates/):
 | 5 | C13 SSE/Task-Event Reliability | planned |
 | 5 | C14 Frontend State Management Audit | planned |
 
-Wave 2 is complete. Wave 3 begins with C04: Pi/Coder Invocation Boundary.
+Waves 2 and 3 are complete. Wave 4 begins with C08: Whosshd Runtime.
 
 ### Wave 4
 
 | Campaign | Status |
 |----------|--------|
-| C08 Whoosh'd Runtime Integration & Context Fidelity | **selected** — see `wave-4-selection-after-c04.md` |
+| C08 Whoosh'd Runtime Integration & Context Fidelity | closed |
