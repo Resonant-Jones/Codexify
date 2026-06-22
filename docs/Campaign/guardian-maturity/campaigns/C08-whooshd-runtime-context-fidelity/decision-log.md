@@ -27,3 +27,15 @@
 - **Evidence**: `endpoint-health-proof.md` — truth table, boundary table, gaps, risks. 16 tests pass.
 - **Consequence**: C08-T002 accepted. C08-T003 (model inventory identity) may proceed.
 - **Revisit Trigger**: C08-T003 model inventory proof — cross-reference against endpoint health findings.
+
+---
+
+### Decision: C08-D003
+
+- **Decision ID**: C08-D003
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T003 model inventory identity proof complete. Registry ID ≠ repo ID. Display label ≠ canonical identity. 14 tests. 4 gaps. No real daemon. C08-T004 next.
+- **Reason**: Model inventory identity proven via file-backed profiles. Key finding: profile `id` and `model.repo` are distinct fields — identity not collapsed. Duplicate handling, validation, runtime model ID, and operator visibility remain gaps.
+- **Evidence**: `model-inventory-identity-proof.md` — truth table, boundary table, gaps, risks. 14 tests pass.
+- **Consequence**: C08-T003 accepted. C08-T004 (context bundle + system identity) may proceed.
+- **Revisit Trigger**: C08-T004 context fidelity proof — verify model identity propagates to context boundary.
