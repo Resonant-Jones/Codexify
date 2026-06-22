@@ -66,3 +66,30 @@
 
 ### Next Task
 **C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
+
+---
+
+## C08-T002: Endpoint Health Proof (2026-06-20 03:50 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `b86423175` | **Worktree**: clean
+
+### Files Created
+- `tests/providers/test_whooshd_endpoint_health_semantics.py` — 16 tests
+- `endpoint-health-proof.md` — endpoint config, health map, truth table, boundary table, gaps, risks
+
+### Proof Summary
+Base URL from `WHOOSHD_HOST`:`WHOOSHD_PORT`. Health probes: `/health` → `/health/runtime` → `/v1/models` → `/api/tags`. Timeout 5s. States: OFFLINE → ERROR → RUNTIME_AVAILABLE → MODEL_WARMING → READY. Ownership: NONE/EXTERNAL/MANAGED. All proven without real daemon.
+
+### Validation
+```
+endpoint health tests: 16 passed
+git diff --check: clean
+python3 scripts/validate_docs.py: passed
+```
+
+### Gate Decision
+**`go`** — C08-T002 accepted. C08-T003 may proceed.
+
+### Next Task
+**C08-T003: Prove Whoosh'd model inventory identity semantics**
