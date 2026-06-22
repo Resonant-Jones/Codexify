@@ -645,7 +645,7 @@ describe("FactCandidateReview guardrail metadata", () => {
     });
   });
 
-  it("preserves approve, edit, and reject affordances with guardrail metadata", async () => {
+  it("preserves edit and reject affordances for blocked candidates, blocks ordinary approve", async () => {
     setupMockCandidates([
       makeFact({
         id: 1,
@@ -662,15 +662,167 @@ describe("FactCandidateReview guardrail metadata", () => {
     render(<FactCandidateReview />);
 
     await waitFor(() => {
+      // Ordinary approve is NOT shown for promotion-blocked candidates
       expect(
-        screen.getByLabelText("Approve location candidate")
-      ).toBeDefined();
+        screen.queryByLabelText("Approve location candidate")
+      ).toBeNull();
+      // Edit and reject remain available
       expect(
         screen.getByLabelText("Edit location candidate")
       ).toBeDefined();
       expect(
         screen.getByLabelText("Reject location candidate")
       ).toBeDefined();
+    });
+  });
+});
+
+// ── Guardrail override UI ──
+
+describe("FactCandidateReview guardrail override", () => {
+  it("promotion-blocked candidate does not show ordinary approve", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("Approve profession candidate")
+      ).toBeNull();
+      expect(
+        screen.getByText(/blocked from direct approval/)
+      ).toBeDefined();
+    });
+  });
+
+  it("shows override affordance when editing a blocked candidate", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit profession candidate")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Edit profession candidate"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Override reason")).toBeDefined();
+    });
+  });
+
+  it("override action sends override_guardrail=true and override_note", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        value: "chef",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit profession candidate")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Edit profession candidate"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Override reason")).toBeDefined();
+    });
+
+    const noteInput = screen.getByLabelText("Override reason") as HTMLInputElement;
+    fireEvent.change(noteInput, {
+      target: { value: "User confirms this is their profession" },
+    });
+
+    const textarea = screen.getByLabelText("Edit fact value") as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: "professional chef" },
+    });
+
+    fireEvent.click(
+      screen.getByLabelText("Save edited value and approve")
+    );
+
+    await waitFor(() => {
+      expect(mockApproveFactCandidate).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          override_guardrail: true,
+          override_note: "User confirms this is their profession",
+          value: "professional chef",
+        })
+      );
+    });
+  });
+
+  it("clean candidate does not send override_guardrail", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "location",
+        guardrail_metadata: {
+          disposition: "reviewable",
+          reasons: ["import_noise"],
+          promotion_blocked: false,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Approve location candidate")
+      ).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Approve location candidate"));
+
+    await waitFor(() => {
+      const callArgs = mockApproveFactCandidate.mock.calls[0];
+      expect(callArgs[1].override_guardrail).toBeUndefined();
+    });
+  });
+
+  it("candidate without guardrail_metadata preserves existing approve behavior", async () => {
+    setupMockCandidates([makeFact({ id: 1, key: "location", guardrail_metadata: null })]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Approve location candidate")
+      ).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Approve location candidate"));
+
+    await waitFor(() => {
+      const callArgs = mockApproveFactCandidate.mock.calls[0];
+      expect(callArgs[1].override_guardrail).toBeUndefined();
     });
   });
 });
