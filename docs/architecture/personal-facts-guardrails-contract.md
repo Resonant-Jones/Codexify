@@ -367,15 +367,101 @@ This task does **not** implement UI changes. Later UI implementation tasks must 
 8. Ambiguous authorship fails closed.
 9. Guardrail reason labels that cross backend/frontend/tests must become canonical tokens before they spread.
 10. This contract must not widen the current beta release promise.
+11. Override must be explicit and auditable — direct approval must not bypass promotion_blocked=true.
 
-## 19. Documentation follow-through
+## 19. Explicit guardrail override semantics
+
+### Why override exists
+
+Guardrails are deliberately conservative. They may block legitimate facts when source metadata is incomplete, imported, malformed, or ambiguous. A human operator needs a deliberate correction path for facts that are actually true despite guardrail flags.
+
+Override must be explicit, auditable, and narrower than normal approval. It is not a shortcut. It is a high-fidelity human correction path that preserves provenance and audit lineage.
+
+### What override is not
+
+- Override is not direct approval.
+- Override is not automatic trust.
+- Override is not confidence-based promotion.
+- Override is not available to assistant-authored or system-authored facts without explicit user correction of the fact content.
+- Override does not make candidate facts runtime-eligible. Runtime eligibility follows the normal verified-active lifecycle transition.
+
+### Required override conditions (future implementation)
+
+A future implementation of explicit override must require **all** of the following:
+
+1. **Explicit user action** distinct from ordinary Approve — the user must knowingly choose an override path, not accidentally click through.
+2. **Edited or confirmed key/value** — the user must either correct the fact content or explicitly confirm it as-is.
+3. **Preserved original candidate value** — the pre-override value must remain in the revision history.
+4. **Preserved guardrail reasons** — the original blocking reasons must be recorded in the override audit record.
+5. **Preserved evidence and source summary** — the evidence link and source excerpt must not be dropped.
+6. **Recorded override reason or user confirmation note** — the user must provide a reason for the override.
+7. **Revision/history record** — the override must produce a revision row documenting the transition.
+8. **Normal verified-active lifecycle rules still apply** — the resulting fact must pass the standard verified-active lifecycle gate. Override removes the guardrail block; it does not skip verification.
+
+### Override allowed cases
+
+Override may be allowed for:
+
+- **Ambiguous source role** when the user confirms authorship of the claim.
+- **Import noise** when the user confirms the imported claim is still true and was originally their own statement.
+- **Low confidence** when the user confirms the fact value is accurate.
+- **Sentence-fragment key or incomplete value fragment** only after the user edits the fact to fix the shape.
+- **Missing evidence** only if the user creates a new explicit confirmation event or evidence note to replace the missing evidence.
+
+### Override blocked cases
+
+Override must remain **blocked** (or require a stronger future review lane beyond this contract) for:
+
+- **Assistant-authored identity claims** unless the user rewrites the fact as a first-person confirmed statement.
+- **System-like, developer, or tool-authored claims** — these are not user identity and must not become facts through override alone.
+- **Quoted or hypothetical claims** unless the user rewrites them as first-person confirmed facts.
+- **Sensitive identity-like claims** unless a future UX provides explicit high-friction confirmation with clear warnings.
+- **Malformed metadata** that cannot be interpreted safely — override must not be a backdoor for data corruption.
+- **Any case where evidence or revision lineage would be dropped** — override must preserve auditability.
+
+### Required audit and revision behavior
+
+Future implementation must preserve in the audit record:
+
+- Original candidate key and value (pre-override)
+- Edited key and value (post-override)
+- Original guardrail disposition
+- Original guardrail reasons
+- Override actor (user identity)
+- Override timestamp
+- Override note or confirmation text provided by the user
+- The resulting lifecycle transition (from candidate/quarantine to verified)
+
+### API and UI implications for later tasks
+
+A future implementation may introduce an explicit signal such as:
+
+- `override_guardrail: true`
+
+But the implementation must observe these constraints:
+
+- This signal must only be accepted on an explicit edit/override route, not on ordinary direct approval.
+- The UI must label the override action differently from Approve (e.g., "Override & Approve" or "Confirm despite guardrail").
+- The API must fail closed if override intent is ambiguous — if `override_guardrail` is absent, false, or invalid, proceed with normal guardrail blocking.
+- Cleanup actions (dispute, reject, delete) must remain available without override. The user must always be able to remove a bad candidate.
+
+### Runtime eligibility rule
+
+Override does not itself grant runtime eligibility. The fact must still pass the verified-active lifecycle transition through the normal approval pipeline. Runtime eligibility remains limited to verified active facts after that lifecycle transition succeeds.
+
+### ADR impact note
+
+- Future implementation of explicit override may remain aligned with this contract if it only adds an auditable edit/override approval path without changing verified fact runtime injection, identity consent boundaries, source-of-truth semantics, or export/restore guarantees.
+- A new ADR or ADR update may be required if override changes verified fact runtime injection, identity consent boundaries, export/restore guarantees, or source-of-truth semantics.
+
+## 20. Documentation follow-through
 
 - This task creates the architecture contract only.
 - Do not update `docs/architecture/00-current-state.md`.
 - A narrow link to this contract is added to the `docs/architecture/README.md` doc map because the README has an explicit doc map section and this is a new architecture contract governing a runtime-adjacent policy surface.
 
-## 20. Suggested next implementation task
+## 21. Suggested next implementation task
 
-**Add guardrail classification fixtures and pure tests before implementing extractor changes.**
+**Implement explicit edit/override approval semantics for guardrail-blocked candidates, using sections 18 and 19 of this contract as the governing doctrine.**
 
-Tests should define the seam before extractor behavior is changed. The fixtures from section 17 should be created as standalone test inputs that exercise the guardrail classification logic in isolation. Only after the tests prove correct rejection and acceptance of representative fixture classes should extractor code be modified to integrate the guardrail layer.
+Add an explicit `override_guardrail` signal on the candidate approval route that permits promotion-blocked candidates to be approved only when the user has edited the fact, provided a reason, and the guardrail reason is in the override-allowed category. Block override for assistant-authored, system-like, quoted/hypothetical, and sensitive claims unless the user explicitly rewrites the fact content. Preserve original and edited values, guardrail reasons, override reason, and revision history. Do not grant runtime eligibility through override alone — the normal verified-active lifecycle transition must still succeed.
