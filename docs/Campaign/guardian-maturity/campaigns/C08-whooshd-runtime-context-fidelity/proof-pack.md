@@ -227,3 +227,22 @@ R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 s
 
 ### Next Task
 **C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T003-R3: Failure Quarantine Manifest (2026-06-20 04:45 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `b43b7541e` | **Worktree**: clean
+
+### Files Created
+- `core-suite-failure-quarantine.md` — 73 failures/errors across 21 test files, all quarantined as pre-existing and unrelated to C08
+
+### Quarantine Result
+67 failures + 6 errors = 73 total across 21 test files. 0 touch Whoosh'd model profiles. 0 touch `tests/core/test_whooshd_model_inventory_identity_semantics.py`. All pre-existing and unrelated. No C08-T003 invalidation.
+
+### Gate Decision
+**`go`** — C08-T003-R3 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
