@@ -188,3 +188,25 @@ go — C08-T003 accepted. C08-T004 may proceed.
 
 ### Next Task
 C08-T004: Prove Whoosh'd context bundle and system identity delivery
+
+---
+
+## C08-T003-R1: Final Validation Closeout (2026-06-20 04:30 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `defc9bad8` | **Worktree**: clean
+
+### Final Validation
+- Focused model inventory: 14 passed
+- Core suite: 323 passed, 67 pre-existing failures (none touching Whoosh'd model profiles)
+- Endpoint health regression: 16 passed
+- `whooshd_model_profiles` import: ok
+- Scoped diff: no `guardian/core/whooshd_model_profiles.py` or `guardian/providers/whooshd_sidecar.py` changes
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+
+### Gate Decision
+**`go`** — C08-T003-R1 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
