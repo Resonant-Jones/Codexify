@@ -15,6 +15,10 @@ struct GuardianChatView: View {
     @State private var message: String?
     @State private var keychainError: String?
     @State private var isLoading = false
+    @State private var showNewThread = false
+    @State private var newThreadTitle = ""
+    @State private var isCreating = false
+    @State private var createError: String?
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -95,6 +99,18 @@ struct GuardianChatView: View {
                 if !storedProfileData.isEmpty {
                     Section {
                         Button {
+                            showNewThread = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "plus")
+                                Text("New Thread")
+                                Spacer()
+                            }
+                        }
+                        .disabled(isLoading)
+
+                        Button {
                             Task { await loadThreads() }
                         } label: {
                             HStack {
@@ -121,6 +137,48 @@ struct GuardianChatView: View {
             }
             .navigationDestination(for: DocumentDetailNav.self) { nav in
                 DocumentDetailView(documentId: nav.documentId)
+            }
+            .sheet(isPresented: $showNewThread) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("Thread title", text: $newThreadTitle)
+                        }
+
+                        if let error = createError {
+                            Section {
+                                Text(error)
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                        }
+
+                        Section {
+                            Button {
+                                Task { await createThread() }
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isCreating {
+                                        ProgressView()
+                                            .padding(.trailing, 6)
+                                    }
+                                    Text("Create")
+                                    Spacer()
+                                }
+                            }
+                            .disabled(newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
+
+                            Button("Cancel", role: .cancel) {
+                                showNewThread = false
+                                newThreadTitle = ""
+                                createError = nil
+                            }
+                        }
+                    }
+                    .navigationTitle("New Thread")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
             }
             .onAppear {
                 if !storedProfileData.isEmpty {
@@ -157,6 +215,41 @@ struct GuardianChatView: View {
             message = result.message
         }
         isLoading = false
+    }
+
+    private func createThread() async {
+        let trimmed = newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isCreating = true
+        createError = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            createError = "Could not load saved endpoint profile."
+            isCreating = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutCreateThreadProbe.create(
+            endpoint: profile, title: trimmed, apiKey: apiKey
+        )
+
+        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
+            showNewThread = false
+            newThreadTitle = ""
+            createError = nil
+            await loadThreads()
+        } else {
+            createError = result.message
+        }
+        isCreating = false
     }
 }
 
