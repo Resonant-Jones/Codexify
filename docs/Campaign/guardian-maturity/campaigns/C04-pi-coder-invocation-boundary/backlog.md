@@ -39,7 +39,7 @@ Define and implement a governed, bounded, operator-visible Pi/Coder invocation s
 
 ## Campaign Status
 
-**active**
+**closed**
 
 ## Deferred / Non-Goals
 
