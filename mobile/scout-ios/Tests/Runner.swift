@@ -1154,6 +1154,68 @@ struct ScoutTestRunner {
             check("Media docs timeout → documents nil", result.documents == nil)
         }
 
+        // ── Create thread probe ───────────────────────────────────
+
+        func createThreadBody() -> Data {
+            """
+            {"ok":true,"id":42,"thread":{"id":42,"title":"Test Thread","summary":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Create thread uses POST", request.httpMethod == "POST")
+                check("Create thread has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                check("Create thread has Content-Type", request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, createThreadBody())
+            }
+            let result = await ScoutCreateThreadProbe.create(
+                endpoint: makeEndpoint(), title: "Test Thread", apiKey: "key", session: session
+            )
+            check("Create 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Create 2xx → threadId 42", result.threadId == 42)
+            check("Create 2xx → thread not nil", result.thread != nil)
+            check("Create 2xx → title 'Test Thread'", result.thread?.title == "Test Thread")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutCreateThreadProbe.create(
+                endpoint: makeEndpoint(), title: "Hi", apiKey: nil, session: session
+            )
+            check("Create 401 → auth message", result.message.contains("Authentication required"))
+            check("Create 401 → thread nil", result.thread == nil)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutCreateThreadProbe.create(
+                endpoint: makeEndpoint(), title: "Hi", apiKey: nil, session: session
+            )
+            check("Create timeout → thread nil", result.thread == nil)
+            check("Create timeout → 'timed out'", result.message.contains("timed out"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, "not json".data(using: .utf8)!)
+            }
+            let result = await ScoutCreateThreadProbe.create(
+                endpoint: makeEndpoint(), title: "Hi", apiKey: nil, session: session
+            )
+            check("Create bad JSON → thread nil", result.thread == nil)
+            check("Create bad JSON → non-crashing", result.httpStatus == 200)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
