@@ -1,0 +1,42 @@
+# C08 Backlog: Whoosh'd Runtime Integration & Context Fidelity
+
+## Campaign
+
+**C08: Whoosh'd Runtime Integration & Context Fidelity**
+
+## Campaign Objective
+
+Prove Codexify can route to Whoosh'd cleanly, preserve system identity and context bundle delivery, expose runtime/provider truth surfaces, keep local-only posture honest, and prove `/v1/models` and runtime availability seams before any execution authority campaign (C09) depends on this substrate.
+
+## Status
+
+**Gate**: `go` — C08-T001 accepted. Campaign **active**.
+
+| Task | Domain | Gate | Commit | Summary |
+|------|--------|------|--------|---------|
+| C08-T001 | audit | `go` | `TBD` | Runtime config and model inventory seam audit — 17 files, 7 gaps, 7 risks, 6-task backlog |
+| C08-T002 | proof | planned | — | Prove Whoosh'd endpoint configuration and health-check semantics |
+| C08-T003 | proof | planned | — | Prove Whoosh'd model inventory identity semantics |
+| C08-T004 | proof | planned | — | Prove Whoosh'd context bundle and system identity delivery |
+| C08-T005 | frontend | planned | — | Expose Whoosh'd runtime truth in operator diagnostics |
+| C08-T006 | proof | planned | — | Close C08 Whoosh'd runtime context fidelity proof |
+
+## Next Task
+
+**C08-T002: Prove Whoosh'd endpoint configuration and health-check semantics**
+
+## Campaign Status
+
+**active**
+
+## Deferred / Non-Goals
+
+- No live execution authority.
+- No Pi/Coder execution.
+- No new provider implementation.
+- No cloud-provider enablement.
+- No context pipeline rewrite.
+- No frontend control redesign.
+- No model download/install automation.
+- No Whoosh'd daemon changes.
+- No release claim widening.
