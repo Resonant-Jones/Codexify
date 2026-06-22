@@ -136,6 +136,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Graph Backend Adapter Contract ADR](./adr/019-graph-backend-adapter-contract.md): typed graph backend seam with a default no-op implementation, mounted after inspection.
 - [Post-Completion Eval Spine ADR](./adr/012-post-completion-eval-spine.md): durable post-completion trace snapshot and attempt-scoped verdict layer; inspection-only and non-gating.
 - [Verified Personal Facts Context Injection ADR](./adr/013-verified-personal-facts-context-injection.md): bounded backend injection of verified active personal facts into provider-ready chat context.
+- [Personal Facts Guardrails Contract](./personal-facts-guardrails-contract.md): candidate-policy contract governing extraction guardrails, source-role handling, evidence requirements, promotion eligibility, and runtime exclusion for the Personal Facts lifecycle; docs-only doctrine, not runtime implementation.
 - [Data and Storage](./data-and-storage.md): storage systems, key tables, invariants, and data risk hotspots.
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only model profile registry for local Whoosh'd/MLX descriptors; this does not change runtime routing or release support by itself.
