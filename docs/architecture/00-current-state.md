@@ -40,15 +40,20 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
-- Do not assume delegation, federation, or graph write surfaces are part of the present release promise.
-- Do not assume docs-only exports, scaffolds, prompt artifacts, or brief-generation output prove runtime support.
-- Do not assume OpenAI export import means general third-party sync is supported.
-- Do not assume Task Prompt Archive means full workflow authoring or execution support.
-- Do not assume Whoosh'd setup equals live provider reachability without endpoint/model inventory proof.
+- Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
+- Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
+- Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
+- Do not assume the local-model draft adapter is connected to Heartbeat, publishing, scheduling, command dispatch, or release approval.
+- Do not assume UI dispatch, lease allocation, live agent execution, or merge automation are release-proven.
+- Do not assume Guardian Build Loop doctrine means autonomous self-modification, auto-merge, push, or release-ready coding-worker behavior.
+- Do not assume Build Proposal generation means approval, execution, release support, runtime proof, or autonomous self-modification.
+- Do not assume any local runtime is available without live endpoint/model inventory proof.
+- Do not assume MLX/GGUF runtime-family switching is implemented until catalog, UI selection, and live local endpoint proof are added.
 - Do not infer a wider beta claim from the new local preset wiring alone.
 - Do not assume the Gemma E2B smoke default is itself live-model proof.
 - Do not assume legacy `AI_BACKEND` config is the preferred runtime contract.
-- Do not assume Guardian work briefs imply shipped executor capabilities.
+- Do not infer desktop packaging readiness from architecture docs alone.
+- Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
