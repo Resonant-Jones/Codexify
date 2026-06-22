@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
+import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED } from "@/contracts/runtimeTokens";
+import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
 import {
   Composer,
   type ComposerSendOptions,
@@ -96,6 +98,7 @@ import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   isActiveInferencePhase,
   type ComposerInferenceMode,
+  type InferenceRequestState,
 } from "@/types/inference";
 import { setPreferredProviderSelection } from "@/lib/providerPref";
 import { resolveModelDisplayLabel } from "@/lib/modelLabels";
@@ -163,6 +166,137 @@ export function flattenChatEventPayload(data: unknown): Record<string, unknown> 
   }
 
   return payload;
+}
+
+// ── Runtime Status Strip ────────────────────────────────────────────────
+
+type RuntimeStatusStripProps = {
+  providerRuntimeState: ProviderRuntimeState | null | undefined;
+  inferenceState: InferenceRequestState;
+  orphaned: boolean;
+  effectiveThreadId: number | null;
+};
+
+function RuntimeStatusStrip({
+  providerRuntimeState,
+  inferenceState,
+  orphaned,
+  effectiveThreadId,
+}: RuntimeStatusStripProps) {
+  // Orphan state takes highest priority — show before any other state.
+  if (orphaned && effectiveThreadId != null) {
+    return (
+      <div
+        data-testid="chat-runtime-status"
+        data-provider-state="orphaned"
+        data-request-phase="orphaned"
+        aria-live="polite"
+        className="mx-auto w-full max-w-full px-[var(--card-pad)]"
+        style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+      >
+        <div
+          className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+          style={{
+            borderColor: "rgb(245 158 11)",
+            background: "var(--surface-soft)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: "rgb(245 158 11)" }}
+            />
+            <span className="font-medium truncate" style={{ color: "var(--text)" }}>
+              Turn orphaned
+            </span>
+          </div>
+          <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
+            Codexify recovered an expired turn lock on thread {effectiveThreadId}. The original request outcome may be uncertain.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const canonical = normalizeProviderRuntimeState(providerRuntimeState ?? null);
+  const providerDesc = describeProviderState(canonical);
+  const isActive =
+    inferenceState.phase === "sending" ||
+    inferenceState.phase === "thinking" ||
+    inferenceState.phase === "streaming";
+  const isTerminal =
+    inferenceState.phase === "completed" ||
+    inferenceState.phase === "failed" ||
+    inferenceState.phase === "cancelled";
+
+  // Only show when provider is not in the default ready state,
+  // or when an active inference is in progress.
+  const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
+  const showRequestState = isActive || isTerminal;
+
+  if (!showProviderState && !showRequestState) {
+    return null;
+  }
+
+  const visual = mapRuntimeToVisualState(
+    isActive ? "streaming" : "queued",
+    canonical
+  );
+
+  const toneColor =
+    canonical === PROVIDER_RUNTIME_STATES.ERROR || canonical === PROVIDER_RUNTIME_STATES.OFFLINE
+      ? "var(--danger-text)"
+      : canonical === PROVIDER_RUNTIME_STATES.DEGRADED || canonical === PROVIDER_RUNTIME_STATES.MODEL_WARMING
+        ? "rgb(245 158 11)"
+        : canonical === PROVIDER_RUNTIME_STATES.GENERATING || canonical === PROVIDER_RUNTIME_STATES.CONNECTING
+          ? "var(--info-text)"
+          : "var(--muted)";
+
+  return (
+    <div
+      data-testid="chat-runtime-status"
+      data-provider-state={canonical}
+      data-request-phase={inferenceState.phase}
+      aria-live="polite"
+      className="mx-auto w-full max-w-full px-[var(--card-pad)]"
+      style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
+    >
+      <div
+        className="rounded-[var(--tile-radius)] border px-3 py-2 text-xs"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "var(--surface-soft)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: toneColor }}
+          />
+          <span className="font-medium truncate" style={{ color: "var(--text)" }}>
+            {providerDesc.title}
+          </span>
+          {showRequestState && isActive && (
+            <span className="truncate" style={{ color: "var(--muted)" }}>
+              {inferenceState.statusText ?? "Working…"}
+            </span>
+          )}
+          {showRequestState && isTerminal && (
+            <span className="truncate" style={{ color: "var(--muted)" }}>
+              {inferenceState.phase === "completed"
+                ? "Completed"
+                : inferenceState.phase === "failed"
+                  ? "Failed"
+                  : "Cancelled"}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>
+          {providerDesc.detail}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -870,6 +1004,7 @@ export function GuardianChat({
   } = useLlmCatalog();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
+  const orphanedThreadRef = useRef<Set<number>>(new Set());
   const lastCompletionThreadRef = useRef<number | null>(null);
   const lastCompletionDepthRef = useRef<Record<number, DepthMode>>({});
   const traceEndpointRef = useRef<Record<number, string>>({});
@@ -2682,6 +2817,24 @@ export function GuardianChat({
     };
   }, [effectiveThreadId, refreshThreadProfile, subscribe]);
 
+  // Orphan turn recovery event — mark thread as orphaned for operator visibility.
+  useEffect(() => {
+    const offOrphan = subscribe(CHAT_ORPHANED_TURN_RECOVERED, (event) => {
+      const payload = flattenChatEventPayload(event.data ?? event.payload ?? {});
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+      orphanedThreadRef.current = new Set([...orphanedThreadRef.current, tid]);
+      if (effectiveThreadIdRef.current === tid) {
+        // Force a re-render so the RuntimeStatusStrip picks up the orphaned state
+        setTurnLocks((prev) => ({ ...prev }));
+      }
+    });
+
+    return () => {
+      offOrphan();
+    };
+  }, [subscribe]);
+
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = flattenChatEventPayload(event.data);
@@ -3938,6 +4091,14 @@ export function GuardianChat({
           </details>
         </div>
       ) : null}
+
+      {/* Runtime status — read-only provider + request lifecycle indicator */}
+      <RuntimeStatusStrip
+        providerRuntimeState={providerRuntimeState}
+        inferenceState={inferenceRequest.state}
+        orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
+        effectiveThreadId={effectiveThreadId}
+      />
 
       {/* Messages region - Flex 1, scrolls independently */}
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden">

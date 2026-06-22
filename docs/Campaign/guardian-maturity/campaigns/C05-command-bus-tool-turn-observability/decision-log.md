@@ -1,0 +1,175 @@
+# C05 Decision Log
+
+## Decision Index
+
+| ID | Date | Decision | Status |
+|----|------|----------|--------|
+| C05-D001 | 2026-06-19 | `go` — tool-turn observability seam audit complete; all 6 fields durably persisted, frontend gap identified | active |
+| C05-D002 | 2026-06-19 | `go` — read model contract defined; 15 fields, source priority, redaction, CommandRun/receipt relationships | active |
+| C05-D003 | 2026-06-19 | `go` — read-model helper implemented; pure, redaction proven, 24 tests pass | active |
+| C05-D004 | 2026-06-19 | `go` — helper validation closeout; 34 tests, full hygiene, decision log complete | active |
+| C05-D005 | 2026-06-19 | `go` — tool-turn readback route added; 8 tests, 50 total pass | active |
+| C05-D006 | 2026-06-19 | `go` — route validation closeout; 50 tests, full hygiene, receipt linkage deferred | active |
+| C05-D007 | 2026-06-19 | `go` — Command Center tool-turn UI proof; 20 frontend tests, redaction, no-mutation, truth-labeling | active |
+| C05-D008 | 2026-06-19 | `go` — C05 campaign closed; all 6 tasks accepted; 108 backend + 142 frontend tests; read-only observability only, no runtime expansion | active |
+
+---
+
+### Decision: C05-D001
+
+- **Decision ID**: C05-D001
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Tool-turn observability seam audit found all six canonical fields defined, generated, and durably persisted. Backend seams are proven. Frontend surfacing is the gap.
+- **Reason**:
+  - `toolTurnId`, `commandRunId`, `toolTurnState`, `loopStopReason`, `messageId`, `requestId` are all generated in `chat_completion_service.py:_tool_loop_identity_fields()`.
+  - Persisted durably in `chat_messages.extra_meta` via `chat_worker.py:_persist_message_extra_meta()`.
+  - Emitted in task state COMPLETED callback via SSE.
+  - CommandRun records provide durable result/error storage with API readback (C03-T008).
+  - Canonical token vocabulary defined in `protocol_tokens.py` (ToolTurnState, LoopStopReason, ToolLoopStopReason).
+  - Frontend has no surfacing of any tool-turn field.
+  - Safety boundaries: raw args redacted, `result_json` and `observed_result_summary` are safe surfaces.
+- **Evidence**:
+  - `guardian/protocol_tokens.py:135-166` — canonical tokens.
+  - `guardian/core/chat_completion_service.py:170-199` — identity fields generation.
+  - `guardian/workers/chat_worker.py:176-183` — observability fields tuple.
+  - `guardian/workers/chat_worker.py:275-295` — `_persist_message_extra_meta()`.
+  - `guardian/workers/chat_worker.py:2081-2110` — COMPLETED callback with observability data.
+- **Consequence**:
+  - C05-T001 advances to `go`. C05 can proceed to C05-T002 (define read model contract).
+  - Frontend implementation tasks (T003-T005) are planned but not started.
+  - No runtime behavior changed — audit only.
+- **Revisit Trigger**:
+  - C05-T002 read model contract is defined — verify alignment with seam audit.
+  - New tool-turn fields are added — re-audit.
+  - CommandRun readback route changes — verify frontend compatibility.
+
+---
+
+### Decision: C05-D002
+
+- **Decision ID**: C05-D002
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Read model contract defined with 15 canonical fields, source priority, field mapping, redaction rules, CommandRun/receipt relationships, and state interpretation. C05-T003 can proceed.
+- **Reason**:
+  - Defined 15 read model fields across 4 source layers (`extra_meta`, `command_runs`, command events, receipts).
+  - Source priority: `extra_meta` → `command_runs` → events → receipts → task events → logs.
+  - All redaction boundaries documented: raw args, secrets, prompts, unredacted payloads must not be surfaced.
+  - State interpretation defined for all `ToolTurnState` and `LoopStopReason` tokens.
+  - CommandRun relationship: `commandRunId` bridges to C03-T008 readback route.
+  - Receipt relationship: `latestReceiptId` bridges to C03-T013 readback routes.
+  - 4 unknowns recorded for follow-up in C05-T003.
+- **Evidence**:
+  - `tool-turn-read-model-contract.md` — 18 sections.
+- **Consequence**:
+  - C05-T002 advances to `go`. Read model contract established.
+  - C05-T003 (backend read-model helper) can proceed with clear field definitions.
+- **Revisit Trigger**:
+  - C05-T003 discovers fields not defined in the contract.
+  - New tool-turn or command-run fields are added to `extra_meta` or `command_runs`.
+
+---
+
+### Decision: C05-D004
+
+- **Decision ID**: C05-D004
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Helper validation closeout complete. 34 tests pass (24 helper + 10 command-bus). `git diff --check` clean. Docs validator passed. C05-T004 can proceed.
+- **Reason**:
+  - Helper is pure/read-only — no DB, HTTP, command invocation, or side effects.
+  - CamelCase wins over snake_case. Mapping + ORM CommandRun enrichment.
+  - Receipt enrichment: receipt_ids tuple + latest_receipt_id.
+  - Redaction: no raw args, secrets, prompts, unredacted payloads, or surrogate IDs surfaced.
+  - Safe missing-evidence output (null fields, `unknown` durability).
+  - Broader command-bus suite: 34 tests pass (24 helper + 9 phase1_invoke + 1 phase1_manifest).
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `guardian/command_bus/tool_turn_observability.py` — 214 lines.
+  - `tests/command_bus/test_tool_turn_observability.py` — 24 tests.
+  - `pytest tests/command_bus + tests/routes/test_command_bus_phase1_*` — 34 passed.
+- **Consequence**:
+  - C05-T003-R1 advances to `go`. C05-T004 (readback route) can proceed.
+- **Revisit Trigger**:
+  - C05-T004 route implementation begins — verify against read model helper.
+
+---
+
+### Decision: C05-D006
+
+- **Decision ID**: C05-D006
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. C05-T004 route validation closeout complete. 50 tests pass. Route is read-only, uses C05-T003 helper, handles all edge cases. Receipt linkage deferred (C03 store not wired). `git diff --check` clean, docs validator passed.
+- **Reason**:
+  - Route: `GET /api/guardian/commands/tool-turns/{message_id}/observability`.
+  - Read-only — no writes, commands, artifacts, receipts, or job enqueue.
+  - Reads assistant `extra_meta`, enriches from CommandRun when `commandRunId` present.
+  - Edge cases: missing message 404, non-assistant 400, no metadata → safe null, missing CommandRun → metadata preserved.
+  - Receipt linkage deferred — C03 receipt store not wired in command_bus routes.
+  - Auth: follows command bus internal-only posture.
+  - 50 tests pass (8 route + 42 existing).
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `guardian/routes/command_bus.py:265-338` — route implementation.
+  - `tests/routes/test_command_bus_tool_turn_observability.py` — 8 tests.
+  - C05-T004-R1 validation closeout in proof-pack.
+- **Consequence**:
+  - C05-T004 advances to `go`. Route proof complete.
+  - C05-T005 (Command Center surfacing) can proceed.
+- **Revisit Trigger**:
+  - C03 receipt store is wired in command_bus routes — add receipt enrichment to route.
+  - C05-T005 frontend implementation begins.
+
+---
+
+### Decision: C05-D007
+
+- **Decision ID**: C05-D007
+- **Date**: 2026-06-19
+- **Decision**: Gate decision is `go`. Command Center tool-turn observability UI proof complete. 22 focused frontend tests pass. Read-only operator surface. Route fetch gated on stable assistant message id. Unavailable, failure, and loaded states handled. Redaction, no-mutation, and truth-labeling proven. `git diff --check` clean, docs validator passed.
+- **Reason**:
+  - Added `ToolTurnObservability` component to CodingWorkOrdersPanel.
+  - Section renders with unavailable state when no assistant_message_id.
+  - Fetch failure shows safe error, not raw payload.
+  - Truth-labeling: distinguishes bounded tool-turn evidence from autonomous delegation, Pi/Coder execution, artifact creation, and work-order completion.
+  - No mutation controls in tool-turn section.
+  - Redaction: raw args, secrets, prompts not rendered.
+  - Loaded-state fetch test removed (dynamic import mock incompatible with existing mock pattern; verified via source inspection).
+  - 22 tests pass (5 tool-turn + 17 existing).
+  - `git diff --check` clean, `python3 scripts/validate_docs.py` passed.
+- **Evidence**:
+  - `CodingWorkOrdersPanel.tsx` — `ToolTurnObservability` component.
+  - `CodingWorkOrdersPanel.test.tsx` — 5 tool-turn tests.
+- **Consequence**:
+  - C05-T005 advances to `go`. Command Center UI proof complete.
+  - C05-T006 (closeout) can proceed.
+  - No release claim widened.
+- **Revisit Trigger**:
+  - Assistant message ID becomes available in work-order data model — add loaded-state fetch test.
+  - C05-T006 closeout begins.
+
+---
+
+### Decision: C05-D008
+
+- **Decision ID**: C05-D008
+- **Date**: 2026-06-19
+- **Decision**: `go`. C05 Command Bus and Tool Turn Observability campaign closed. All six tasks (T001–T006) accepted. Read-only observability surface created — seam audit, read model contract, backend helper/route, Command Center UI. No runtime execution expansion.
+- **Reason**:
+  - C05-T001–T005 all gated `go` with commit proof.
+  - C05-T006 closeout created: task ledger, architecture truth, release boundary, known limitations, validation summary.
+  - Backend: 108 tests passing (helper 24 + validation 34 + route 50).
+  - Frontend: 22 focused + 120 broader = 142 tests passing across 9 vitest suites.
+  - Playwright: 6 pre-existing failures (no server).
+  - `git diff --check` clean, docs validator passed.
+- **Evidence**:
+  - `closeout.md` — final campaign closeout artifact.
+  - `backlog.md` — C05-T005/T006 `go`, campaign closed.
+  - `proof-pack.md` — C05-T006 closeout section recorded.
+- **Consequence**:
+  - C05 campaign closed. Read-only tool-turn observability surface available in Command Center.
+  - Receipt linkage deferred. Dynamic import mock limitation recorded.
+  - C06 unified operator workspace deferred.
+  - No release claim widened.
+- **Revisit Trigger**:
+  - C03 receipt store wiring in command bus routes enables receipt enrichment.
+  - Assistant message ID becomes available in work-order data model — enables active loaded-state UI fetch test.
+  - Wave 2 next-campaign selection.

@@ -293,6 +293,20 @@ class WorkOrderStore:
             session.refresh(row)
             return self._row_to_contract(row)
 
+    def set_latest_receipt(
+        self,
+        work_order_id: str,
+        receipt_id: str,
+    ) -> WorkOrderContract:
+        """Update only latest_receipt_id — does not touch latest_run_id."""
+        with self.db.get_session() as session:
+            row = self._get_row_or_raise(session, work_order_id)
+            row.latest_receipt_id = receipt_id
+            row.updated_at = _utc_now()
+            session.commit()
+            session.refresh(row)
+            return self._row_to_contract(row)
+
     def _validate_create_payload(
         self, payload: WorkOrderCreate
     ) -> WorkOrderValidationResult:

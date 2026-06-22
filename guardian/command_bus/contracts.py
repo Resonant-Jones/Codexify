@@ -124,6 +124,7 @@ class InvokeRequest(BaseModel):
     external_project_id: str | None = Field(default=None, max_length=255)
     external_thread_id: str | None = Field(default=None, max_length=255)
     external_connector_name: str | None = Field(default=None, max_length=255)
+    work_order_id: str | None = Field(default=None, max_length=64)
 
     model_config = ConfigDict(extra="forbid")
 

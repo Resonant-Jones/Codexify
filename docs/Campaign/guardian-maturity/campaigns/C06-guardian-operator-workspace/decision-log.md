@@ -1,0 +1,259 @@
+# C06 Decision Log: Guardian Operator Workspace
+
+| ID | Date | Decision | Status |
+|----|------|----------|--------|
+| C06-D001 | 2026-06-19 | `go` — C06 seam audit complete; 8 operator surfaces, 5 backend surfaces, 8 gaps, workspace implementation not started, release boundary preserved, C06-T002 next | active |
+| C06-D002 | 2026-06-19 | `go` — C06 surface contract defined; 19 sections, 8 zones, source-of-truth mapping, read-only rules, evidence states, redaction/truth-labeling, C06-T003 next | active |
+| C06-D003 | 2026-06-19 | `go` — Guardian Operator Workspace lens scaffold added; read-only, no fetch, no mutation, 7 tests, C06-T004 next | active |
+| C06-D004 | 2026-06-19 | `go` — first live cards composed; HealthOverview + CodingWorkOrdersPanel in workspace; no new fetch, no mutation, C06-T005 next | active |
+| C06-D005 | 2026-06-19 | `go` — C06 composition proof consolidated; 2 live cards, no-new-fetch, no-mutation, truth-labeling, 10 limitations, C06-T006 next | active |
+| C06-D006 | 2026-06-19 | `go` — command-run evidence card added via useCodingWorkOrders; 5 states, safe fields, no mutation, 8 tests, C06-T007 next | active |
+| C06-D007 | 2026-06-20 | `go` — standalone tool-turn evidence card via C05 route; explicit ID only, no fabrication, 5 states, 9 tests, C06-T008 next | active |
+| C06-D008 | 2026-06-20 | `go` — receipt evidence card via latest_receipt_id pointers; deferred linkage, 5 states, 8 tests, C06-T009 next | active |
+| C06-D009 | 2026-06-20 | `go` — C06 final composition proof consolidated; 7 surfaces, 8-task ledger, no-backend, no-mutation, 10 limitations, C06-T010 next | active |
+
+---
+
+### Decision: C06-D001
+
+- **Decision ID**: C06-D001
+- **Date**: 2026-06-19
+- **Decision**: `go`. C06 Guardian Operator Workspace seam audit complete. C06-T001 accepted. Workspace implementation not started.
+- **Reason**:
+  - C03 and C05 are closed. Operator truth components exist across 4+ separate lenses.
+  - Seam audit inspected 8 existing operator surfaces and 5 backend truth surfaces.
+  - 10 workspace composition candidates evaluated — 5 safe to compose now, 2 conditional, 1 deferred for redaction review, 2 need UI.
+  - 8 gaps recorded: receipt linkage deferred, no unified lens, no surface contract, tool-turn conditional, event console redaction, manifest not surfaced, bottom drawer placeholder, latest-run bridge not surfaced.
+  - 9-task C06 backlog defined (C06-T001 through C06-T009).
+  - Release boundary preserved — no runtime, backend, or persistence changes.
+- **Evidence**:
+  - `seam-audit.md` — 15-section audit (gate, scope, truth, 8 operator surfaces, 5 backend surfaces, 10 candidates, safety, non-goals, 8 gaps, 9-task backlog, release boundary, validation).
+  - `backlog.md` — C06-T001 complete, C06-T002 named next.
+  - `proof-pack.md` — C06-T001 section recorded.
+- **Consequence**:
+  - C06 campaign active. C06-T002 (surface contract) is next.
+  - No workspace implementation until C06-T003+.
+  - Receipt linkage, event console redaction review, and command manifest surfacing remain deferred within C06 scope.
+- **Revisit Trigger**:
+  - C06-T002 surface contract defines workspace layout — revisit if gaps need reclassification.
+  - Assistant message ID becomes reliably available — revisit tool-turn composition readiness.
+  - C05 receipt linkage is wired — revisit receipt evidence composition.
+
+---
+
+### Decision: C06-D002
+
+- **Decision ID**: C06-D002
+- **Date**: 2026-06-19
+- **Decision**: `go`. C06 Guardian Operator Workspace surface contract defined. 19-section contract covering workspace purpose, 8-zone surface model, source-of-truth mapping, read-only interaction rules, evidence state model, redaction/truth-labeling boundaries, unavailable/deferred states. Workspace implementation not started. Release boundary preserved.
+- **Reason**:
+  - C06-T001 seam audit identified 10 composition candidates and 8 gaps.
+  - C06-T002 translates the audit into a bounded workspace composition contract.
+  - Surface model defines 8 zones — 5 safe to compose now, 1 conditional, 2 new.
+  - Source-of-truth mapping covers all 8 zones with frontend/backend/durable store sources.
+  - Read-only interaction rules: 3 allowed, 11 prohibited.
+  - Evidence state model: 7 canonical states.
+  - Redaction: 10 forbidden content types.
+  - Truth-labeling: 5 templates for tool-turn, command-run, receipt, work-order, health.
+  - 6 unavailable/deferred states recorded.
+- **Evidence**:
+  - `surface-contract.md` — 19 sections (gate, scope, truth, purpose, surface model, truth mapping, interaction rules, evidence states, redaction/labeling, deferred states, non-goals, implementation readiness, backlog, release boundary, validation, final gate).
+  - `backlog.md` — C06-T002 `go`, C06-T003 named next.
+  - `proof-pack.md` — C06-T002 section recorded.
+- **Consequence**:
+  - C06 surface contract is the authoritative workspace specification.
+  - C06-T003 (lens scaffold) may proceed.
+  - No workspace implementation until C06-T003+.
+  - All implementation must follow contract rules (read-only, redaction, truth-labeling).
+- **Revisit Trigger**:
+  - C06-T003 lens scaffold implementation begins — verify contract compliance.
+  - C05 receipt linkage is wired — update receipts zone readiness.
+  - C06-T009 closeout — verify all zones meet contract.
+
+---
+
+### Decision: C06-D003
+
+- **Decision ID**: C06-D003
+- **Date**: 2026-06-19
+- **Decision**: `go`. Guardian Operator Workspace lens scaffold added to Command Center. `GuardianOperatorWorkspaceLens` component created (read-only, static scaffold). New `guardian-workspace` rail id wired. Shell renders workspace lens on selection. 7 tests added (5 shell + 2 rail). No backend or runtime behavior change. Workspace implementation remains scaffold-only. Release boundary preserved.
+- **Reason**:
+  - Scaffold matches C06-T002 surface contract: 8 cards (work-order, command-run, tool-turn, receipt, health, gaps, safety) + header.
+  - All content is static — no fetch, no API imports, no dynamic imports.
+  - No mutation controls (7 labels absent, test-proven).
+  - Truth-labeling present on tool-turn and receipt cards.
+  - Safety boundary lists 6 unsupported claims.
+  - Rail item and shell switch both test-proven.
+  - 26 shell tests (5 new + 21 existing), 16 rail tests (2 new + 14 existing), 74 broader (all pass, 756 skipped).
+- **Evidence**:
+  - `GuardianOperatorWorkspaceLens.tsx` — 195-line read-only scaffold.
+  - `CommandCenterUtilityRail.tsx` — new lens id and entry.
+  - `CommandCenterShell.tsx` — switch case wired.
+  - `CommandCenterShell.test.tsx` — 5 workspace tests.
+  - `CommandCenterUtilityRail.test.tsx` — 2 workspace tests.
+- **Consequence**:
+  - C06 has a visible workspace entry point in Command Center.
+  - C06-T004 (compose live cards) may proceed.
+  - Scaffold remains static until live data sources are composed.
+- **Revisit Trigger**:
+  - C06-T004 composes work-order card — replace scaffold text with live CodingWorkOrdersPanel integration.
+  - C06-T005 composes receipt card — replace scaffold text with live ReceiptEvidence.
+  - C06-T006 composes tool-turn card — replace scaffold text with live ToolTurnObservability.
+
+---
+
+### Decision: C06-D004
+
+- **Decision ID**: C06-D004
+- **Date**: 2026-06-19
+- **Decision**: `go`. First live read-only cards composed inside Guardian Operator Workspace. `HealthOverview` rendered for runtime/health card. `CodingWorkOrdersPanel` rendered for work-order status card. Remaining cards remain static/deferred. No new backend routes, no new fetch behavior beyond existing nested component behavior, no mutation controls added. Release boundary preserved.
+- **Reason**:
+  - HealthOverview composed with props from shell (healthItems, lastCheckedAt, loading, onRefresh) — no new fetch.
+  - CodingWorkOrdersPanel composed as-is — preserves existing C05 tool-turn and C03 receipt behavior.
+  - Command-run evidence, tool-turn observability (separate), receipt evidence (separate), gaps, safety boundary remain static/deferred cards.
+  - 26 shell tests pass (5 workspace + 21 existing). 96 broader tests pass.
+  - Git diff --check clean, docs validator passed.
+- **Evidence**:
+  - `GuardianOperatorWorkspaceLens.tsx` — props interface + live HealthOverview + live CodingWorkOrdersPanel.
+  - `CommandCenterShell.tsx` — workspace case passes health props.
+  - `CommandCenterShell.test.tsx` — existing workspace tests continue to pass.
+- **Consequence**:
+  - Workspace now has 2 live cards (work-order + health) and 6 static/deferred cards.
+  - C06-T005 (composition proof) may proceed.
+  - Remaining deferred cards (command-run, tool-turn standalone, receipt standalone) not yet composed.
+- **R1 addendum (2026-06-19)**: Implementation commit `6f3596991` recorded. 7 composition-specific tests added (33 shell total). HealthOverview renders inside workspace with `command-center-health-overview` testid. Refresh button calls `onRefresh`. CodingWorkOrdersPanel renders with `coding-work-orders-panel` testid. Deferred cards + safety boundary + truth-labeling preserved. 103 broader tests pass.
+- **Revisit Trigger**:
+  - C06-T005 composition proof — verify all cards match contract.
+  - C06-T006/T007 — compose remaining deferred cards.
+  - C06-T008 integration tests — verify full workspace behavior.
+
+---
+
+### Decision: C06-D005
+
+- **Decision ID**: C06-D005
+- **Date**: 2026-06-19
+- **Decision**: `go`. C06 composition proof consolidated. `composition-proof.md` created: 2 live cards (HealthOverview, CodingWorkOrdersPanel), 5 static/deferred cards, no-new-fetch proof, no-mutation proof, truth-labeling proof, 10 known limitations. First read-only composition slice accepted. Command-run evidence remains next. Release boundary preserved.
+- **Reason**:
+  - C06-T004 implementation and tests proved at commit `6f3596991` / `e2909d07d`.
+  - Composition proof consolidates all evidence into a single artifact.
+  - 2 live composed surfaces (runtime/health, work-order status).
+  - Workspace wrapper adds no new fetch, no mutation controls.
+  - Truth-labeling preserved (6 unsupported claims).
+  - 33 CommandCenterShell tests pass. 103 broader tests pass.
+  - No backend, migration, ADR, or current-state files changed.
+- **Evidence**:
+  - `composition-proof.md` — 15-section proof artifact.
+  - `CommandCenterShell.test.tsx` — 33 tests (5 scaffold + 7 composition + 21 existing).
+  - `GuardianOperatorWorkspaceLens.tsx` — no fetch, no API imports, no dynamic imports.
+- **Consequence**:
+  - C06-T005 composition proof accepted. C06-T006 (command-run evidence card) may proceed.
+  - Deferred cards remain: command-run (next), tool-turn standalone, receipt standalone.
+  - Receipt linkage, EventConsole redaction remain deferred.
+- **Revisit Trigger**:
+  - C06-T006 command-run evidence card implementation.
+  - C06-T007/T008 remaining card composition + integration tests.
+  - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D006
+
+- **Decision ID**: C06-D006
+- **Date**: 2026-06-19
+- **Decision**: `go`. Guardian Operator Workspace command-run evidence card added. Uses `useCodingWorkOrders` to derive evidence from existing `latest_run_id` pointers. No new backend routes. Available/unavailable/empty/error states handled. Safe fields only. No mutation controls. Truth-labels unsupported claims. 8 new tests. Release boundary preserved.
+- **Reason**:
+  - Card uses existing work-order hook (no new API, no new routes).
+  - States: loading, error, empty, no-pointer, available — all test-proven.
+  - Safe fields: work_order_id, title, status, latest_run_id, latest_lease_id, latest_receipt_id.
+  - No raw args, secrets, prompts, extra_meta, result_json, stack traces.
+  - Refresh button only — no mutation controls (8 labels absent).
+  - Truth-labeling: 5 unsupported claims.
+  - 41 shell tests (8 new + 33 existing), 111 broader tests pass.
+- **Evidence**:
+  - `GuardianWorkspaceCommandRunEvidenceCard.tsx` — 145 lines.
+  - `CommandCenterShell.test.tsx` — 8 new tests.
+- **Consequence**:
+  - C06-T006 accepted. Command-run evidence card is live in workspace.
+  - C06-T007 (standalone tool-turn card) may proceed.
+- **R1 addendum (2026-06-19)**: `python3 scripts/validate_docs.py` passed. All 41 shell tests + 111 broader pass. No frontend changes needed. Gate sealed.
+- **Revisit Trigger**:
+  - C06-T007 standalone tool-turn evidence card.
+  - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D007
+
+- **Decision ID**: C06-D007
+- **Date**: 2026-06-20
+- **Decision**: `go`. Guardian Operator Workspace standalone tool-turn evidence card added. Uses existing C05 read-only route only when explicit `assistant_message_id` exists. No ID fabrication — only explicit field accepted. No new backend routes, no command invocation, no tool execution. 5 states, 9 tests. Release boundary preserved.
+- **Reason**:
+  - Card uses `useCodingWorkOrders` to locate explicit `assistant_message_id`.
+  - C05 route called only when ID exists — no fabrication.
+  - States: loading, unavailable (no ID), error, empty, available — all test-proven.
+  - Safe fields from C05 read model. No raw args/secrets/payloads.
+  - Refresh button only. No mutation/tool execution controls.
+  - Truth-labeled: 6 unsupported claims.
+  - 50 shell tests (9 new + 41 existing). 120 broader tests pass.
+  - Docs validator passed. Git diff --check clean.
+- **Evidence**:
+  - `GuardianWorkspaceToolTurnEvidenceCard.tsx` — 200 lines.
+  - `CommandCenterShell.test.tsx` — 9 new tests.
+- **Consequence**:
+  - C06-T007 accepted. Tool-turn evidence card is live in workspace.
+  - C06-T008 (standalone receipt card) may proceed.
+- **Revisit Trigger**:
+  - C06-T008 standalone receipt evidence card.
+  - C06-T009 final C06 closeout.
+
+---
+
+### Decision: C06-D008
+
+- **Decision ID**: C06-D008
+- **Date**: 2026-06-20
+- **Decision**: `go`. Guardian Operator Workspace standalone receipt evidence card added. Uses `useCodingWorkOrders` to derive receipt pointers from `latest_receipt_id`. Richer receipt readback and receipt linkage remain deferred. No new backend routes. No receipt creation. 5 states + deferred disclaimer. 8 tests. Release boundary preserved.
+- **Reason**:
+  - Card uses existing work-order hook. No new API calls, no receipt creation.
+  - Deferred linkage disclaimer always visible.
+  - States: loading, error, empty, no-pointer, available — all test-proven.
+  - Safe fields: work_order_id, title, status, latest_receipt_id, latest_run_id, latest_lease_id.
+  - Refresh button only. No receipt creation/mutation controls.
+  - Truth-labeled: 6 unsupported claims.
+  - 58 shell tests (8 new + 50 existing). 128 broader tests pass.
+  - Docs validator passed. Git diff --check clean.
+- **Evidence**:
+  - `GuardianWorkspaceReceiptEvidenceCard.tsx` — 150 lines.
+  - `CommandCenterShell.test.tsx` — 8 new tests.
+- **Consequence**:
+  - C06-T008 accepted. Receipt evidence card is live in workspace.
+  - C06-T009 (final composition proof) may proceed.
+- **Revisit Trigger**:
+  - C06-T009 final composition proof + closeout.
+  - C05 receipt linkage wiring — then upgrade card.
+
+---
+
+### Decision: C06-D009
+
+- **Decision ID**: C06-D009
+- **Date**: 2026-06-20
+- **Decision**: `go`. C06 final composition proof consolidated. 8-task ledger complete. 7 workspace surfaces: HealthOverview, CodingWorkOrdersPanel, command-run evidence card, tool-turn evidence card, receipt evidence card, gaps card, safety boundary. No new backend routes. 12 mutation controls absent. 8 unsupported claims rejected. 10 deferred limitations recorded. Release boundary preserved.
+- **Reason**:
+  - C06-T001–T008 all gated `go` with commit evidence.
+  - No `guardian/` files changed in C06 card implementation commits — existing truth surfaces only.
+  - 58 CommandCenterShell tests pass. 128 broader tests pass. 0 backend tests affected.
+  - All cards read-only, truth-labeled, no mutation controls.
+  - Deferred: receipt linkage, receipt readback, EventConsole redaction.
+  - No release claim widened. Campaign not yet closed — C06-T010 closeout remains.
+- **Evidence**:
+  - `final-composition-proof.md` — 16-section proof artifact.
+  - `GuardianOperatorWorkspaceLens.tsx` — composes all 7 surfaces.
+  - `CommandCenterShell.test.tsx` — 58 tests.
+- **Consequence**:
+  - C06-T009 accepted. C06-T010 (campaign closeout) may proceed.
+- **R1 addendum (2026-06-20)**: `git diff --check` clean, `python3 scripts/validate_docs.py` passed. Final composition proof verified — all 16 sections, no defects. Gate sealed.
+- **Revisit Trigger**:
+  - C06-T010 closeout — verify all evidence and mark campaign closed.
+  - C05 receipt linkage wiring — upgrade receipt card.

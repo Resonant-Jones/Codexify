@@ -1,7 +1,9 @@
 import type {
+  AnyProviderRuntimeState,
   ChatRequestState,
-  ProviderRuntimeState,
 } from "@/contracts/runtimeTokens";
+import { normalizeProviderRuntimeState } from "@/contracts/runtimeTokens";
+import { PROVIDER_RUNTIME_STATES } from "@/contracts/runtimeTokens";
 
 export type RuntimeVisualTone = "neutral" | "info" | "warning" | "error";
 
@@ -28,13 +30,15 @@ export interface RuntimeVisualState {
 
 export function mapRuntimeToVisualState(
   requestState: ChatRequestState,
-  providerState?: ProviderRuntimeState
+  providerState?: AnyProviderRuntimeState
 ): RuntimeVisualState {
+  const canonical = providerState ? normalizeProviderRuntimeState(providerState) : undefined;
+
   // Error states (highest priority)
   if (
     requestState === "failed_retryable" ||
     requestState === "failed_fatal" ||
-    providerState === "error"
+    canonical === PROVIDER_RUNTIME_STATES.ERROR
   ) {
     return {
       key: "error",
@@ -61,7 +65,7 @@ export function mapRuntimeToVisualState(
   // Generating / streaming
   if (
     requestState === "streaming" ||
-    providerState === "generating"
+    canonical === PROVIDER_RUNTIME_STATES.GENERATING
   ) {
     return {
       key: "generating",
@@ -87,7 +91,7 @@ export function mapRuntimeToVisualState(
 
   // Awaiting model with provider context
   if (requestState === "awaiting_model") {
-    if (providerState === "model_warming") {
+    if (canonical === PROVIDER_RUNTIME_STATES.MODEL_WARMING) {
       return {
         key: "warming",
         label: "Warming",
@@ -98,7 +102,7 @@ export function mapRuntimeToVisualState(
       };
     }
 
-    if (providerState === "degraded") {
+    if (canonical === PROVIDER_RUNTIME_STATES.DEGRADED) {
       return {
         key: "delayed",
         label: "Delayed",

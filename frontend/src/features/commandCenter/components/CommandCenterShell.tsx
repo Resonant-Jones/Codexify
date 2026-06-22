@@ -4,6 +4,7 @@ import CommandCenterUtilityRail, {
   type CommandCenterLensId,
 } from "@/features/commandCenter/components/CommandCenterUtilityRail";
 import CommandCenterBottomDrawer from "@/features/commandCenter/components/CommandCenterBottomDrawer";
+import GuardianOperatorWorkspaceLens from "@/features/commandCenter/components/GuardianOperatorWorkspaceLens";
 import CodingWorkOrdersPanel from "@/features/commandCenter/components/CodingWorkOrdersPanel";
 import GuardianDelegationTranscriptViewer from "@/components/command-center/GuardianDelegationTranscriptViewer";
 import TraceWorkbench, {
@@ -317,6 +318,16 @@ export default function CommandCenterShell(props: CommandCenterShellProps) {
 
   const lensContent = React.useMemo((): React.ReactNode => {
     switch (activeLens) {
+      case "guardian-workspace":
+        return (
+          <GuardianOperatorWorkspaceLens
+            healthItems={healthItems}
+            lastCheckedAt={lastCheckedAt}
+            loading={loading}
+            onRefresh={onRefresh}
+          />
+        );
+
       case "agent-command":
         return <CodingWorkOrdersPanel />;
 

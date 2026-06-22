@@ -10,7 +10,10 @@ from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiHarnessResult,
     PiInvocationEnvelope,
+    PiInvocationPolicyDecision,
     PiInvocationReceipt,
+    PiInvocationResultReturn,
+    PiInvocationOperatorEvidence,
     PiInvocationValidationResult,
     PiPermissionGrant,
     PiProviderLane,
@@ -829,8 +832,200 @@ def validate_harness_result_against_receipt(
     return _result(reasons=reasons, metadata=metadata)
 
 
+def validate_pi_invocation_policy_decision(
+    decision: PiInvocationPolicyDecision,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    # Required fields
+    if not decision.policy_decision_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.invocation_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.source_thread_id or not decision.source_message_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE)
+        )
+    if not decision.harness_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID)
+        )
+
+    # Bounded decision values
+    if decision.decision not in {"allowed", "denied", "blocked", "deferred"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+
+    # Permissions
+    if not decision.requested_permissions:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if decision.decision in {"denied", "blocked"} and decision.granted_permissions:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if decision.decision == "allowed":
+        requested = _permission_signatures(decision.requested_permissions)
+        granted = _permission_signatures(decision.granted_permissions)
+        for sig in granted:
+            if sig not in requested:
+                reasons.append(
+                    _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+                )
+                break
+
+    # Permission posture and validation/redaction
+    if not decision.permission_posture:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT)
+        )
+    if not decision.validation_status:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+    if not decision.redaction_state:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+        )
+
+    # Guardian boundary
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        decision.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "policy_decision",
+        "policy_decision_id": decision.policy_decision_id,
+        "invocation_id": decision.invocation_id,
+        "source_thread_id": decision.source_thread_id,
+        "source_message_id": decision.source_message_id,
+        "harness_id": decision.harness_id,
+        "decision": decision.decision,
+        "permission_posture": decision.permission_posture,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
+def validate_pi_invocation_result_return(
+    result_return: PiInvocationResultReturn,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    if not result_return.result_return_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.invocation_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.source_thread_id or not result_return.source_message_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+    if not result_return.harness_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+    if result_return.return_state not in {
+        "not_returned", "returned", "validation_failed", "blocked", "deferred"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+    if not result_return.validation_status:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.redaction_state:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not result_return.created_at:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    if result_return.return_state == "returned":
+        if not (
+            result_return.artifact_id
+            or result_return.receipt_id
+            or result_return.result_summary
+        ):
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
+            )
+    elif result_return.return_state == "validation_failed":
+        if not result_return.failure_reason:
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID)
+            )
+
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        result_return.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "result_return",
+        "result_return_id": result_return.result_return_id,
+        "invocation_id": result_return.invocation_id,
+        "return_state": result_return.return_state,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
+def validate_pi_invocation_operator_evidence(
+    evidence: PiInvocationOperatorEvidence,
+) -> PiInvocationValidationResult:
+    reasons: list[str] = []
+
+    if not evidence.operator_evidence_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.invocation_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.source_thread_id or not evidence.source_message_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_SOURCE_LINEAGE))
+    if not evidence.harness_id:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_HARNESS_ID))
+    if evidence.evidence_state not in {
+        "unavailable", "available", "partial", "blocked", "deferred", "validation_failed"}:
+        reasons.append(_invalid_reason(PiValidationFailureReason.INVALID_ENVELOPE_STATUS))
+    if not evidence.policy_decision_summary:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.permission_posture:
+        reasons.append(_invalid_reason(PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT))
+    if not evidence.validation_status:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.redaction_state:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+    if not evidence.created_at:
+        reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    if evidence.evidence_state == "available":
+        if not (
+            evidence.result_return_id
+            or evidence.receipt_id
+            or evidence.artifact_id
+            or evidence.result_summary
+        ):
+            reasons.append(
+                _invalid_reason(PiValidationFailureReason.MISSING_ARTIFACT_REFERENCE)
+            )
+    elif evidence.evidence_state == "validation_failed":
+        if not evidence.failure_reason:
+            reasons.append(_invalid_reason(PiValidationFailureReason.MISSING_INVOCATION_ID))
+
+    guardian_reasons, guardian_metadata = _validate_guardian_boundary(
+        evidence.guardian_boundary
+    )
+    reasons.extend(guardian_reasons)
+
+    metadata = {
+        "validator": "operator_evidence",
+        "operator_evidence_id": evidence.operator_evidence_id,
+        "invocation_id": evidence.invocation_id,
+        "evidence_state": evidence.evidence_state,
+        "guardian_boundary": guardian_metadata,
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
 __all__ = [
     "validate_invocation_envelope",
     "validate_receipt_against_envelope",
     "validate_harness_result_against_receipt",
+    "validate_pi_invocation_policy_decision",
+    "validate_pi_invocation_result_return",
+    "validate_pi_invocation_operator_evidence",
 ]

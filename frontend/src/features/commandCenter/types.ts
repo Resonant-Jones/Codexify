@@ -201,6 +201,7 @@ export interface CommandCenterCodingWorkOrder {
   latest_run_id: string | null;
   latest_lease_id: string | null;
   latest_receipt_id: string | null;
+  assistant_message_id: string | null;
   blocked_reason: string | null;
   extra_meta: Record<string, unknown>;
   created_at: string;
@@ -700,4 +701,80 @@ export function describeCommandCenterRunKindLabel(
     return "chat completion";
   }
   return null;
+}
+
+// ── Guardian Operator Run Verdict ──────────────────────────────────────────
+
+export const COMMAND_CENTER_RUN_VERDICTS = {
+  GO: "go",
+  HOLD: "hold",
+  PROOF_NEEDED: "proof_needed",
+  DEGRADED: "degraded",
+} as const;
+
+export type CommandCenterRunVerdictValue =
+  (typeof COMMAND_CENTER_RUN_VERDICTS)[keyof typeof COMMAND_CENTER_RUN_VERDICTS];
+
+export interface CommandCenterRunVerdictPresentation {
+  isFallback: boolean;
+  label: string;
+  tone: CommandCenterStatusTone;
+}
+
+export const COMMAND_CENTER_RUN_VERDICT_PRESENTATIONS = {
+  [COMMAND_CENTER_RUN_VERDICTS.GO]: {
+    isFallback: false,
+    label: "Go",
+    tone: "active",
+  },
+  [COMMAND_CENTER_RUN_VERDICTS.HOLD]: {
+    isFallback: false,
+    label: "Hold",
+    tone: "danger",
+  },
+  [COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED]: {
+    isFallback: false,
+    label: "Proof needed",
+    tone: "attention",
+  },
+  [COMMAND_CENTER_RUN_VERDICTS.DEGRADED]: {
+    isFallback: false,
+    label: "Degraded",
+    tone: "attention",
+  },
+} as const satisfies Record<CommandCenterRunVerdictValue, CommandCenterRunVerdictPresentation>;
+
+export interface CommandCenterRunVerdict {
+  verdict: CommandCenterRunVerdictValue;
+  label: string;
+  tone: CommandCenterStatusTone;
+  reason: string;
+  evidence: string[];
+  blockers: string[];
+  recommendedAction: string;
+  sourceSurfaces: string[];
+}
+
+const RUN_VERDICT_FALLBACK_PRESENTATION: CommandCenterRunVerdictPresentation = {
+  isFallback: true,
+  label: "Unknown",
+  tone: "subtle",
+};
+
+export function describeCommandCenterRunVerdictPresentation(
+  verdict: string | null | undefined
+): CommandCenterRunVerdictPresentation {
+  const normalized = normalizeCommandCenterToken(verdict);
+  switch (normalized) {
+    case COMMAND_CENTER_RUN_VERDICTS.GO:
+      return COMMAND_CENTER_RUN_VERDICT_PRESENTATIONS[COMMAND_CENTER_RUN_VERDICTS.GO];
+    case COMMAND_CENTER_RUN_VERDICTS.HOLD:
+      return COMMAND_CENTER_RUN_VERDICT_PRESENTATIONS[COMMAND_CENTER_RUN_VERDICTS.HOLD];
+    case COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED:
+      return COMMAND_CENTER_RUN_VERDICT_PRESENTATIONS[COMMAND_CENTER_RUN_VERDICTS.PROOF_NEEDED];
+    case COMMAND_CENTER_RUN_VERDICTS.DEGRADED:
+      return COMMAND_CENTER_RUN_VERDICT_PRESENTATIONS[COMMAND_CENTER_RUN_VERDICTS.DEGRADED];
+    default:
+      return RUN_VERDICT_FALLBACK_PRESENTATION;
+  }
 }
