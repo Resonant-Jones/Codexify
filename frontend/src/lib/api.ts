@@ -1376,6 +1376,8 @@ export type ApproveFactCandidateRequest = {
   confidence?: number;
   reason?: string;
   force_sensitive?: boolean;
+  override_guardrail?: boolean;
+  override_note?: string | null;
 };
 
 export type RejectFactCandidateRequest = {
