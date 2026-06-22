@@ -67,6 +67,72 @@ def _sensitive_key_error(key: str) -> HTTPException:
     )
 
 
+# ── Guardrail approval gating ──
+# These reason labels must block direct approval per
+# docs/architecture/personal-facts-guardrails-contract.md.
+_BLOCKING_REASONS: frozenset[str] = frozenset(
+    {
+        "source_role_assistant",
+        "source_role_system_like",
+        "source_role_ambiguous",
+        "quoted_or_hypothetical",
+        "missing_evidence",
+    }
+)
+
+
+def _is_guardrail_approval_blocked(
+    fact: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Check whether a candidate fact is blocked from direct approval.
+
+    Returns (blocked: bool, reason: str | None).
+    Treats missing or malformed guardrail_metadata conservatively —
+    if metadata cannot be trusted, approval is blocked.
+    """
+    meta = fact.get("guardrail_metadata")
+    if meta is None:
+        return False, None
+
+    if not isinstance(meta, dict):
+        # Malformed metadata — fail closed.
+        return True, "guardrail_metadata_malformed"
+
+    # Direct promotion_blocked flag
+    if meta.get("promotion_blocked") is True:
+        return True, "promotion_blocked"
+
+    # Check for blocking source/authorship reasons
+    reasons: list[str] = []
+    raw_reasons = meta.get("reasons")
+    if isinstance(raw_reasons, list):
+        reasons = [str(r) for r in raw_reasons]
+
+    for reason in reasons:
+        if reason in _BLOCKING_REASONS:
+            return True, reason
+
+    return False, None
+
+
+def _guardrail_blocked_error(
+    fact_id: int, block_reason: str
+) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": "personal_fact_promotion_blocked",
+            "fact_id": fact_id,
+            "block_reason": block_reason,
+            "message": (
+                "This candidate is blocked from direct approval. "
+                "It must be reviewed, edited, or explicitly overridden "
+                f"before promotion. Block reason: {block_reason}."
+            ),
+        },
+    )
+
+
 def _get_chatlog_db():
     global chatlog_db
     if chatlog_db is None:
@@ -335,6 +401,11 @@ def approve_candidate(
             current_user,
             body.reason,
         )
+
+    # Guardrail gate: block direct approval of promotion-blocked candidates
+    is_blocked, block_reason = _is_guardrail_approval_blocked(fact)
+    if is_blocked:
+        raise _guardrail_blocked_error(fact_id, block_reason or "unknown")
 
     # Edit-before-approve: update value if provided
     edited_value = (body.value or "").strip()
