@@ -537,3 +537,72 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C04-T017: Close Pi/Coder dry-run operator evidence loop proof**
+
+---
+
+## C04-T017-R1: Loop Governance Closed (2026-06-20 02:40 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `d10ffb2be` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: proof-pack and decision-log entries not reported.
+
+### Governance Recorded
+- `decision-log.md`: C04-D017-R1 entry added
+- `proof-pack.md`: this section added
+- `backlog.md`: already consistent (C04-T017 `go`) — no changes needed
+
+### Loop Closeout Verified
+Artifact at `operator-evidence-loop-closeout.md` with loop map, truth table (19 rows), boundary table (12 rows), safety surface (8 rules), validation summary (9 items). All tests pass, no code changes.
+
+### Gate Decision
+**`go`** — C04-T017-R1 accepted. C04-T018 may proceed.
+
+### Next Task
+**C04-T018: Close C04 Pi/Coder invocation boundary campaign**
+
+---
+
+## C04-T017-R2: Final Validation Closeout (2026-06-20 02:50 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `91f9e21c9` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: R1 validation results not explicitly re-reported after governance commit.
+
+### Final Validation
+All validation results unchanged from R1 (prior C04-T017 loop closeout artifact validation):
+- Adapter tests: 13 passed
+- Full Pi tests: 116 passed
+- Route tests: 14 passed
+- Frontend shell tests: 65 passed
+- `guardian.pi` import: ok
+- `agent_orchestration` import: ok (verified in prior turn)
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+- `pnpm lint`: unavailable
+
+No code or test changes between R1 and R2 — governance docs only.
+
+### Gate Decision
+**`go`** — C04-T017-R2 accepted. C04-T018 may proceed.
+
+### Next Task
+**C04-T018: Close C04 Pi/Coder invocation boundary campaign**
+
+---
+
+## C04-T018: Campaign Closed (2026-06-20 03:00 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `5a2e8ba35` | **Worktree**: clean
+
+### Files Created
+- `campaign-closeout.md` — 18-task summary, 25-row true/not-true table, architecture boundary, 11 proof surfaces, 7 risks, 3 candidates
+
+### Campaign Closed
+C04 Pi/Coder Invocation Boundary campaign closed. All 18 tasks (T001–T018) gated `go`. Contracts, validation, dry-run route, adapter, API helper, and operator evidence UI proven as validation-only, read-only, side-effect-free. No Pi/Coder execution, no release support, no result return.
+
+### Gate Decision
+**`go`** — C04 closed. Next campaign selection required.
+
+### Next Step
+**Next campaign selection required**
