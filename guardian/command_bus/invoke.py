@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -105,6 +106,14 @@ def _response_from_existing_run(
 def _optional_text(raw: object) -> str | None:
     value = str(raw or "").strip()
     return value or None
+
+
+_WORK_ORDER_ID_RE = re.compile(r"^wo_[a-f0-9]{16}$")
+
+
+def _is_valid_work_order_id_format(work_order_id: str) -> bool:
+    """Check structural validity of a work_order_id without hitting the DB."""
+    return bool(_WORK_ORDER_ID_RE.match(str(work_order_id or "").strip()))
 
 
 def _derive_command_class(
@@ -279,6 +288,7 @@ async def execute_invoke(
     execution_lane: str = "raw",
     allow_write_execution: bool = False,
     confirmation_granted: bool = False,
+    work_order_store: Any = None,
 ) -> dict[str, Any]:
     if execution_lane != "tools":
         # Write unlock is tools-lane only; raw/public lane stays read-only.
@@ -388,6 +398,39 @@ async def execute_invoke(
 
     args_hash = compute_args_hash(args_dict)
     args_redacted = redact_arguments(command.command_id, args_dict)
+
+    # ── Work-order linkage validation (before execution) ─────
+    wo_id = (payload.work_order_id or "").strip() or None
+    if wo_id is not None:
+        if not _is_valid_work_order_id_format(wo_id):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "work_order_id_malformed",
+                    "work_order_id": wo_id,
+                },
+            )
+        if work_order_store is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "work_order_linkage_unavailable",
+                    "work_order_id": wo_id,
+                },
+            )
+        try:
+            existing = work_order_store.get_work_order(wo_id)
+            if existing is None:
+                raise LookupError("work_order_not_found")
+        except Exception:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "work_order_not_found",
+                    "work_order_id": wo_id,
+                },
+            ) from None
+
     try:
         run = store.create_run(
             command_id=command.command_id,
@@ -415,6 +458,11 @@ async def execute_invoke(
             fallback_invoke_version=payload.invoke_version,
         )
     run_id = run["run_id"]
+
+    # ── Work-order linkage (post-creation) ──────────────────
+    if wo_id is not None and work_order_store is not None:
+        work_order_store.mark_latest_run(wo_id, run_id=run_id)
+
     created_payload: dict[str, Any] = {
         "command_id": command.command_id,
         "status": "queued",

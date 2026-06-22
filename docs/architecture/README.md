@@ -1,7 +1,7 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
-Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities.
+Start here: read [`00-current-state.md`](./00-current-state.md) first for current-state interpretation, release readiness, or short-horizon priorities.
 Start here for live operational truth rather than structural architecture: [`00-current-state.md`](./00-current-state.md).
-Last updated: 2026-06-02
+Last updated: 2026-06-20
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -24,7 +24,7 @@ Source anchors:
 
 # Codexify Architecture KB
 
-Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture.
+Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture. It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 Start here with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation rather than structural architecture.
 

@@ -19,6 +19,9 @@ from guardian.command_bus.search import (
     search_commands,
 )
 from guardian.command_bus.store import CommandBusStore
+from guardian.command_bus.tool_turn_observability import (
+    build_tool_turn_observability_read_model,
+)
 from guardian.core.dependencies import get_current_user, require_api_key
 from guardian.extensions.activation import (
     activate_capability_for_owner_and_profile,
@@ -41,18 +44,25 @@ router = APIRouter(
 )
 
 _db: Any | None = None
+_chat_db: Any | None = None
 _store = CommandBusStore()
 _extension_store = ExtensionProposalStore()
 _activation_resolver = EffectiveCapabilityResolver(_extension_store)
+_work_order_store: Any = None
 
 
 def configure_db(db: Any | None) -> None:
     """Configure DB handle for command bus persistence."""
-    global _db, _store, _extension_store, _activation_resolver
+    global _db, _chat_db, _store, _extension_store, _activation_resolver, _work_order_store
     _db = db
+    _chat_db = db
     _store = CommandBusStore(db=db)
     _extension_store = ExtensionProposalStore(db=db)
     _activation_resolver = EffectiveCapabilityResolver(_extension_store)
+    # Late import to avoid circular dependency
+    from guardian.agents.work_order_store import WorkOrderStore  # noqa: F811
+
+    _work_order_store = WorkOrderStore(db=db)
 
 
 def get_store() -> CommandBusStore:
@@ -105,6 +115,7 @@ async def invoke_command(
         execution_lane="tools",
         allow_write_execution=True,
         confirmation_granted=False,
+        work_order_store=_work_order_store,
     )
 
 
@@ -236,6 +247,103 @@ async def inspect_activation(
     if payload.get("dispatch_envelope_json") is None:
         payload.pop("dispatch_envelope_json", None)
     return payload
+
+
+@router.get("/runs/{run_id}")
+async def get_run(
+    run_id: str,
+    auth_subject: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Read back a durable CommandRun by run id."""
+    run = _store.get_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "command_run_not_found", "run_id": run_id},
+        )
+    return {
+        **run,
+        "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+    }
+
+
+@router.get("/tool-turns/{message_id}/observability")
+async def get_tool_turn_observability(
+    message_id: str,
+    auth_subject: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Read tool-turn observability for an assistant message."""
+    if _chat_db is None:
+        raise HTTPException(
+            status_code=500, detail={"error": "chat_message_store_unavailable"}
+        )
+
+    try:
+        mid = int(message_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail={"error": "message_not_found"})
+
+    msg = getattr(_chat_db, "get_message", None)
+    if msg is None:
+        raise HTTPException(
+            status_code=500, detail={"error": "chat_message_store_unavailable"}
+        )
+
+    try:
+        row = msg(mid)
+    except Exception:
+        raise HTTPException(status_code=404, detail={"error": "message_not_found"})
+
+    if row is None:
+        raise HTTPException(status_code=404, detail={"error": "message_not_found"})
+
+    role = str(getattr(row, "role", "") or "").strip().lower()
+    if role != "assistant":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_assistant_message", "message_id": message_id},
+        )
+
+    extra_meta = getattr(row, "extra_meta", None) or {}
+    if isinstance(extra_meta, str):
+        try:
+            extra_meta = json.loads(extra_meta)
+        except Exception:
+            extra_meta = {}
+
+    command_run_id = (
+        (extra_meta.get("commandRunId") or extra_meta.get("command_run_id") or "").strip()
+        or None
+    )
+
+    command_run = None
+    if command_run_id:
+        command_run = _store.get_run(command_run_id)
+
+    model = build_tool_turn_observability_read_model(
+        assistant_extra_meta=extra_meta if extra_meta else None,
+        command_run=command_run,
+    )
+
+    return {
+        "message_id": model.message_id,
+        "request_id": model.request_id,
+        "tool_turn_id": model.tool_turn_id,
+        "tool_turn_state": model.tool_turn_state,
+        "loop_stop_reason": model.loop_stop_reason,
+        "command_run_id": model.command_run_id,
+        "command_id": model.command_id,
+        "command_status": model.command_status,
+        "command_result_summary": model.command_result_summary,
+        "command_error_summary": model.command_error_summary,
+        "command_blocked_reason": model.command_blocked_reason,
+        "created_at": model.created_at,
+        "updated_at": model.updated_at,
+        "receipt_ids": list(model.receipt_ids),
+        "latest_receipt_id": model.latest_receipt_id,
+        "evidence_durability": model.evidence_durability,
+        "redaction_summary": dict(model.redaction_summary),
+    }
 
 
 @router.get("/runs/{run_id}/events")

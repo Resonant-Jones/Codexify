@@ -45,6 +45,7 @@ function buildWorkOrder(
     file_scope: ["frontend/src/App.tsx"],
     latest_lease_id: null,
     latest_receipt_id: null,
+    assistant_message_id: null,
     latest_run_id: null,
     max_validation_attempts: 1,
     objective: "Objective",
@@ -384,5 +385,296 @@ describe("CodingWorkOrdersPanel", () => {
     expect(
       screen.getByText((_, node) => node?.textContent === "Merge-ready: 1")
     ).toBeInTheDocument();
+  });
+
+  it("shows empty receipt state when no latest_receipt_id", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: null }),
+    ]);
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByText("No result receipt yet");
+  });
+
+  it("fetches and displays receipt evidence when latest_receipt_id present", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    // Extend the existing mock to also handle receipt fetch
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok, Service: core",
+            observed_error_text: null,
+            integrity_hash: "abc123def456",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: { args_redacted: true },
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+    await screen.findByText(/Latest receipt/);
+    await screen.findByText(/Status: ok/);
+    await screen.findByText(/command_run_observation/);
+  });
+
+  it("shows truth-labeling copy on receipt", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: {},
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+    await screen.findByText(/not an artifact/);
+    await screen.findByText(/does not mark the work order complete/);
+    await screen.findByText(/does not prove coding-agent execution/);
+  });
+
+  it("does not render raw args secrets prompts or surrogate IDs", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: { args_redacted: true },
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+            // Adversarial fields that must NOT render
+            raw_args: "RAW_ARGS_SHOULD_NOT_RENDER",
+            args: "ARGS_SHOULD_NOT_RENDER",
+            secret: "SECRET_SHOULD_NOT_RENDER",
+            password: "PASSWORD_SHOULD_NOT_RENDER",
+            token: "TOKEN_SHOULD_NOT_RENDER",
+            system_prompt: "SYSTEM_PROMPT_SHOULD_NOT_RENDER",
+            hidden_prompt: "HIDDEN_PROMPT_SHOULD_NOT_RENDER",
+            db_id: "LOCAL_DB_ID_SHOULD_NOT_RENDER",
+            id: 99999,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+
+    const forbidden = [
+      "RAW_ARGS_SHOULD_NOT_RENDER",
+      "ARGS_SHOULD_NOT_RENDER",
+      "SECRET_SHOULD_NOT_RENDER",
+      "PASSWORD_SHOULD_NOT_RENDER",
+      "TOKEN_SHOULD_NOT_RENDER",
+      "SYSTEM_PROMPT_SHOULD_NOT_RENDER",
+      "HIDDEN_PROMPT_SHOULD_NOT_RENDER",
+      "LOCAL_DB_ID_SHOULD_NOT_RENDER",
+      "99999",
+    ];
+    for (const f of forbidden) {
+      expect(screen.queryByText(f)).toBeNull();
+    }
+  });
+
+  it("receipt display has no mutation controls", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", latest_receipt_id: "wor_abc123" }),
+    ]);
+
+    const originalImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/receipts/wor_abc123")) {
+        return {
+          data: {
+            receipt_id: "wor_abc123",
+            command_run_id: "run_xyz",
+            receipt_kind: "command_run_observation",
+            observed_command_id: "op::health_health_get",
+            observed_run_status: "completed",
+            observed_result_summary: "Status: ok",
+            observed_error_text: null,
+            integrity_hash: "abc123",
+            schema_version: 1,
+            review_state: "unreviewed",
+            redaction_summary_json: {},
+            provenance_json: {},
+            created_at: "2026-01-01T00:00:00Z",
+            created_by: "system",
+            source_thread_id: null,
+            source_message_id: null,
+          },
+        } as any;
+      }
+      return originalImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("receipt-evidence");
+
+    const forbiddenControls = [
+      "Create artifact", "Complete work order", "Run command",
+      "Retry", "Replay", "Invoke", "Run coding agent", "Approve execution",
+    ];
+    for (const label of forbiddenControls) {
+      expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+    }
+  });
+
+  it("shows tool-turn observability section", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/Tool-turn observability/);
+  });
+
+  it("shows unavailable state when no assistant message id", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/No assistant message id/);
+    await screen.findByText(/read-only/);
+    await screen.findByText(/does not prove autonomous delegation/);
+  });
+
+
+  it("tool-turn section has no mutation controls", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-99" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-99")) {
+        return { data: { tool_turn_id: "tt-1", tool_turn_state: "completed", evidence_durability: "durable" } } as any;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const forbidden = ["dispatch", "execute", "retry", "replay", "approve", "complete", "create artifact", "create receipt"];
+    for (const label of forbidden) {
+      expect(screen.queryByRole("button", { name: new RegExp(label, "i") })).toBeNull();
+    }
+  });
+
+  it("tool-turn section does not expose raw args or secrets", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-99" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-99")) {
+        return {
+          data: {
+            tool_turn_id: "tt-1",
+            tool_turn_state: "completed",
+            evidence_durability: "durable",
+            raw_args: "SECRET_ARGS",
+            secret: "hunter2",
+            system_prompt: "HIDDEN_PROMPT",
+            result_json: {"raw": "data"},
+          },
+        } as any;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const forbidden = ["SECRET_ARGS", "hunter2", "HIDDEN_PROMPT", '"raw"', '"data"'];
+    for (const f of forbidden) {
+      expect(screen.queryByText(f)).toBeNull();
+    }
+  });
+
+  it("tool-turn fetch failure shows safe error not raw payload", async () => {
+    configureSuccessResponses([
+      buildWorkOrder({ work_order_id: "wo-1", assistant_message_id: "msg-err" }),
+    ]);
+    const origImpl = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/tool-turns/msg-err")) {
+        const err: any = new Error("fetch failed");
+        err.response = { status: 500, data: { detail: "RAW_STACK", secret: "leaked" } };
+        throw err;
+      }
+      return origImpl?.(url) ?? Promise.resolve({ data: {} } as any);
+    });
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    await screen.findByText(/unavailable/);
+    expect(screen.queryByText(/RAW_STACK/)).toBeNull();
+    expect(screen.queryByText(/leaked/)).toBeNull();
+  });
+
+  it("tool-turn truth-labeling in unavailable state", async () => {
+    configureSuccessResponses([buildWorkOrder({ work_order_id: "wo-1" })]);
+    render(<CodingWorkOrdersPanel />);
+    await screen.findByTestId("tool-turn-observability");
+    const el = screen.getByTestId("tool-turn-observability");
+    const text = el.textContent || "";
+    expect(text).toContain("bounded tool-turn evidence");
+    expect(text).toContain("does not prove autonomous delegation");
+    expect(text).toContain("Pi/Coder execution");
+    expect(text).toContain("artifact creation");
+    expect(text).toContain("work-order completion");
   });
 });

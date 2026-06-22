@@ -2,6 +2,7 @@ import * as React from "react";
 
 export type CommandCenterLensId =
   | "agent-command"
+  | "guardian-workspace"
   | "delegation-transcript"
   | "observability"
   | "runtime-health"
@@ -19,6 +20,7 @@ interface LensEntry {
 
 const LENSES: LensEntry[] = [
   { id: "agent-command", label: "Agent Command", icon: "⚡", ariaLabel: "Agent Command lens" },
+  { id: "guardian-workspace", label: "Workspace", icon: "Ω", ariaLabel: "Guardian Operator Workspace lens" },
   { id: "delegation-transcript", label: "Delegation Transcript", icon: "T", ariaLabel: "Delegation Transcript lens" },
   { id: "observability", label: "Observability", icon: "◉", ariaLabel: "Observability lens" },
   { id: "runtime-health", label: "Runtime Health", icon: "♥", ariaLabel: "Runtime Health lens" },

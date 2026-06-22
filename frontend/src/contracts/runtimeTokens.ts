@@ -16,27 +16,6 @@ export const RUNTIME_HEALTH_STATUSES = {
 export type RuntimeHealthStatusToken =
   (typeof RUNTIME_HEALTH_STATUSES)[keyof typeof RUNTIME_HEALTH_STATUSES];
 
-export const RUNTIME_HEALTH_FAILURE_KINDS = {
-  BACKEND_UNREACHABLE: "backend_unreachable",
-  HEALTH_ENDPOINT_MISSING: "health_endpoint_missing",
-  CHAT_UNHEALTHY: "chat_unhealthy",
-  LLM_UNHEALTHY: "llm_unhealthy",
-  LIVE_EVENTS_DISCONNECTED: "live_events_disconnected",
-  STALE: "stale",
-} as const;
-
-export type RuntimeHealthFailureKindToken =
-  (typeof RUNTIME_HEALTH_FAILURE_KINDS)[keyof typeof RUNTIME_HEALTH_FAILURE_KINDS];
-
-export const PROVIDER_RUNTIME_STATES = {
-  ONLINE: "online",
-  DEGRADED: "degraded",
-  OFFLINE: "offline",
-} as const;
-
-export type ProviderRuntimeState =
-  (typeof PROVIDER_RUNTIME_STATES)[keyof typeof PROVIDER_RUNTIME_STATES];
-
 export const PROVIDER_FAILURE_KINDS = {
   PROVIDER_TIMEOUT: "provider_timeout",
   TRANSPORT_ERROR: "transport_error",
@@ -56,26 +35,140 @@ export const PROVIDER_TRANSPORT_CLASSIFICATIONS = {
 export type ProviderTransportClassification =
   (typeof PROVIDER_TRANSPORT_CLASSIFICATIONS)[keyof typeof PROVIDER_TRANSPORT_CLASSIFICATIONS];
 
-export function describeProviderState(state: ProviderRuntimeState): {
+export const RUNTIME_HEALTH_FAILURE_KINDS = {
+  BACKEND_UNREACHABLE: "backend_unreachable",
+  HEALTH_ENDPOINT_MISSING: "health_endpoint_missing",
+  CHAT_UNHEALTHY: "chat_unhealthy",
+  LLM_UNHEALTHY: "llm_unhealthy",
+  LIVE_EVENTS_DISCONNECTED: "live_events_disconnected",
+  STALE: "stale",
+} as const;
+
+export type RuntimeHealthFailureKindToken =
+  (typeof RUNTIME_HEALTH_FAILURE_KINDS)[keyof typeof RUNTIME_HEALTH_FAILURE_KINDS];
+
+export const PROVIDER_RUNTIME_STATES = {
+  OFFLINE: "offline",
+  CONNECTING: "connecting",
+  RUNTIME_AVAILABLE: "runtime_available",
+  MODEL_WARMING: "model_warming",
+  READY: "ready",
+  GENERATING: "generating",
+  DEGRADED: "degraded",
+  ERROR: "error",
+  /** @deprecated Legacy alias — normalizes to READY. Use READY instead. */
+  ONLINE: "online",
+} as const;
+
+export type ProviderRuntimeState =
+  (typeof PROVIDER_RUNTIME_STATES)[keyof typeof PROVIDER_RUNTIME_STATES];
+
+/** Legacy provider state values still emitted by some surfaces. */
+export const LEGACY_PROVIDER_RUNTIME_STATES = {
+  ONLINE: "online",
+  DEGRADED: "degraded",
+  OFFLINE: "offline",
+} as const;
+
+export type LegacyProviderRuntimeState =
+  (typeof LEGACY_PROVIDER_RUNTIME_STATES)[keyof typeof LEGACY_PROVIDER_RUNTIME_STATES];
+
+export type AnyProviderRuntimeState = ProviderRuntimeState | LegacyProviderRuntimeState;
+
+/**
+ * Normalize a legacy or canonical provider state string into a canonical
+ * ProviderRuntimeState. Unknown or missing values fall back to OFFLINE.
+ */
+export function normalizeProviderRuntimeState(
+  state: string | null | undefined
+): ProviderRuntimeState {
+  const token = (state ?? "").trim().toLowerCase();
+  if (!token) return PROVIDER_RUNTIME_STATES.OFFLINE;
+
+  // Canonical states — exact match
+  switch (token) {
+    case PROVIDER_RUNTIME_STATES.OFFLINE:
+      return PROVIDER_RUNTIME_STATES.OFFLINE;
+    case PROVIDER_RUNTIME_STATES.CONNECTING:
+      return PROVIDER_RUNTIME_STATES.CONNECTING;
+    case PROVIDER_RUNTIME_STATES.RUNTIME_AVAILABLE:
+      return PROVIDER_RUNTIME_STATES.RUNTIME_AVAILABLE;
+    case PROVIDER_RUNTIME_STATES.MODEL_WARMING:
+      return PROVIDER_RUNTIME_STATES.MODEL_WARMING;
+    case PROVIDER_RUNTIME_STATES.READY:
+      return PROVIDER_RUNTIME_STATES.READY;
+    case PROVIDER_RUNTIME_STATES.GENERATING:
+      return PROVIDER_RUNTIME_STATES.GENERATING;
+    case PROVIDER_RUNTIME_STATES.DEGRADED:
+      return PROVIDER_RUNTIME_STATES.DEGRADED;
+    case PROVIDER_RUNTIME_STATES.ERROR:
+      return PROVIDER_RUNTIME_STATES.ERROR;
+  }
+
+  // Legacy compatibility
+  switch (token) {
+    case LEGACY_PROVIDER_RUNTIME_STATES.ONLINE:
+      return PROVIDER_RUNTIME_STATES.READY;
+    case LEGACY_PROVIDER_RUNTIME_STATES.DEGRADED:
+      return PROVIDER_RUNTIME_STATES.DEGRADED;
+    case LEGACY_PROVIDER_RUNTIME_STATES.OFFLINE:
+      return PROVIDER_RUNTIME_STATES.OFFLINE;
+  }
+
+  // Unknown → safe fallback
+  return PROVIDER_RUNTIME_STATES.OFFLINE;
+}
+
+/**
+ * Describe a canonical provider runtime state with operator-facing copy.
+ * Legacy states are normalized before description.
+ */
+export function describeProviderState(state: AnyProviderRuntimeState): {
   title: string;
   detail: string;
 } {
-  switch (state) {
+  const canonical = normalizeProviderRuntimeState(state);
+
+  switch (canonical) {
     case PROVIDER_RUNTIME_STATES.OFFLINE:
       return {
         title: "Provider offline",
         detail: "The runtime provider is unreachable or not responding.",
+      };
+    case PROVIDER_RUNTIME_STATES.CONNECTING:
+      return {
+        title: "Connecting",
+        detail: "Establishing a connection to the runtime provider.",
+      };
+    case PROVIDER_RUNTIME_STATES.RUNTIME_AVAILABLE:
+      return {
+        title: "Runtime available",
+        detail: "The runtime is reachable but the model is not yet ready.",
+      };
+    case PROVIDER_RUNTIME_STATES.MODEL_WARMING:
+      return {
+        title: "Model warming",
+        detail: "The model is loading into memory. This is not an outage.",
+      };
+    case PROVIDER_RUNTIME_STATES.READY:
+      return {
+        title: "Ready",
+        detail: "The model is loaded and ready for requests.",
+      };
+    case PROVIDER_RUNTIME_STATES.GENERATING:
+      return {
+        title: "Generating",
+        detail: "The model is currently producing output.",
       };
     case PROVIDER_RUNTIME_STATES.DEGRADED:
       return {
         title: "Provider degraded",
         detail: "The runtime provider is available, but one or more checks are failing.",
       };
-    case PROVIDER_RUNTIME_STATES.ONLINE:
-    default:
+    case PROVIDER_RUNTIME_STATES.ERROR:
       return {
-        title: "Provider online",
-        detail: "The runtime provider is healthy.",
+        title: "Provider error",
+        detail: "The runtime provider encountered an explicit error.",
       };
   }
 }
@@ -165,6 +258,9 @@ export const CHAT_REQUEST_STATES = {
   CANCELLED: "cancelled",
   ORPHANED: "orphaned",
 } as const;
+
+/** Backend event name for chat orphan turn recovery. */
+export const CHAT_ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered";
 
 export type ChatRequestState =
   (typeof CHAT_REQUEST_STATES)[keyof typeof CHAT_REQUEST_STATES];

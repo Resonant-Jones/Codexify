@@ -8,7 +8,11 @@ runtime state.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +31,9 @@ from guardian.agents.work_order_store import (
 )
 from guardian.agents.work_orders import WORK_ORDER_STATUSES, WorkOrderCreate
 from guardian.agents.worktree_lease_store import WorktreeLeaseStore
+from guardian.command_bus.store import CommandBusStore
 from guardian.core.dependencies import require_api_key
+from guardian.db.models import WorkOrderResultReceipt
 from guardian.protocol_tokens import ErrorCode
 
 router = APIRouter(
@@ -49,13 +55,15 @@ orchestrator_router = APIRouter(
 _store = WorkOrderStore(db=None)
 _lease_store = WorktreeLeaseStore(db=None)
 _campaign_runner_store = CampaignRunnerStore(db=None)
+_command_bus_store: CommandBusStore | None = None
 
 
 def configure_db(db: Any | None) -> None:
-    global _store, _lease_store, _campaign_runner_store
+    global _store, _lease_store, _campaign_runner_store, _command_bus_store
     _store = WorkOrderStore(db=db)
     _lease_store = WorktreeLeaseStore(db=db)
     _campaign_runner_store = CampaignRunnerStore(db=db)
+    _command_bus_store = CommandBusStore(db=db)
 
 
 def _normalize_validation_error_code(reason_code: str | None) -> str:
@@ -408,6 +416,375 @@ async def cancel_work_order(
         "ok": True,
         "work_order": cancelled.to_dict(),
     }
+
+
+@router.get("/{work_order_id}/latest-run")
+async def get_work_order_latest_run(
+    work_order_id: str,
+) -> dict[str, Any]:
+    """Resolve a work order's latest_run_id to the durable CommandRun."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    run_id = (wo.latest_run_id or "").strip()
+    if not run_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_latest_run_not_found", "work_order_id": work_order_id},
+        )
+
+    cbs = _command_bus_store
+    if cbs is None:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "command_bus_store_unavailable"},
+        )
+
+    run = cbs.get_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_latest_run_missing", "work_order_id": work_order_id, "run_id": run_id},
+        )
+
+    return {
+        "work_order_id": work_order_id,
+        "latest_run_id": run_id,
+        "run": {
+            **run,
+            "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+        },
+    }
+
+
+# ── Receipt helpers ────────────────────────────────────────────────────
+
+
+def _compute_integrity_hash(
+    *,
+    receipt_id: str,
+    work_order_id: str,
+    command_run_id: str,
+    receipt_kind: str,
+    observed_command_id: str,
+    observed_run_status: str,
+    observed_result_summary: str,
+    observed_error_text: str | None,
+    created_at: str,
+    created_by: str,
+    source_thread_id: str | None,
+    source_message_id: str | None,
+    schema_version: int,
+) -> str:
+    """Compute SHA-256 integrity hash over canonical receipt payload fields."""
+    payload = {
+        "receipt_id": receipt_id,
+        "work_order_id": work_order_id,
+        "command_run_id": command_run_id,
+        "receipt_kind": receipt_kind,
+        "observed_command_id": observed_command_id,
+        "observed_run_status": observed_run_status,
+        "observed_result_summary": observed_result_summary,
+        "observed_error_text": observed_error_text or "",
+        "created_at": created_at,
+        "created_by": created_by,
+        "source_thread_id": source_thread_id or "",
+        "source_message_id": source_message_id or "",
+        "schema_version": schema_version,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _summarize_result(result_json: dict[str, Any] | None) -> str:
+    """Summarize a CommandRun result_json into a safe human-readable string."""
+    if not result_json:
+        return "No result available"
+    body = result_json.get("body")
+    if isinstance(body, dict):
+        status = body.get("status", "unknown")
+        service = body.get("service", "")
+        if service:
+            return f"Status: {status}, Service: {service}"
+        return f"Status: {status}"
+    if isinstance(body, str):
+        return body[:500]
+    return "Result received"
+
+
+class ReceiptCreateRequest(BaseModel):
+    command_run_id: str | None = None
+    operator_note: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/{work_order_id}/receipts", status_code=201)
+async def create_work_order_receipt(
+    work_order_id: str,
+    body: ReceiptCreateRequest = Body(default_factory=ReceiptCreateRequest),
+) -> dict[str, Any]:
+    """Create an immutable receipt observing a work-order-linked CommandRun."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    # Resolve command_run_id
+    run_id = (
+        (body.command_run_id or "").strip()
+        or (wo.latest_run_id or "").strip()
+    )
+    if not run_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_receipt_source_run_not_found"},
+        )
+
+    cbs = _command_bus_store
+    if cbs is None:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "command_bus_store_unavailable"},
+        )
+
+    run = cbs.get_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "work_order_receipt_source_run_not_found"},
+        )
+
+    now = datetime.now(tz=timezone.utc)
+    now_iso = now.isoformat()
+    receipt_id = f"wor_{uuid4().hex}"
+    receipt_kind = "command_run_observation"
+
+    observed_command_id = str(run.get("command_id", ""))
+    observed_run_status = str(run.get("status", ""))
+    result_json = run.get("result_json")
+    observed_result_summary = _summarize_result(
+        result_json if isinstance(result_json, dict) else None
+    )
+    observed_error_text = run.get("error_text")
+
+    integrity_hash = _compute_integrity_hash(
+        receipt_id=receipt_id,
+        work_order_id=work_order_id,
+        command_run_id=run_id,
+        receipt_kind=receipt_kind,
+        observed_command_id=observed_command_id,
+        observed_run_status=observed_run_status,
+        observed_result_summary=observed_result_summary,
+        observed_error_text=observed_error_text,
+        created_at=now_iso,
+        created_by="system",
+        source_thread_id=wo.source_thread_id,
+        source_message_id=wo.source_message_id,
+        schema_version=1,
+    )
+
+    redaction_summary = {
+        "args_redacted": True,
+        "result_summarized": True,
+    }
+
+    provenance = {
+        "receipt_kind": receipt_kind,
+        "work_order_id": work_order_id,
+        "command_run_id": run_id,
+        "created_at": now_iso,
+        "created_by": "system",
+    }
+
+    row = WorkOrderResultReceipt(
+        receipt_id=receipt_id,
+        work_order_id=work_order_id,
+        command_run_id=run_id,
+        receipt_kind=receipt_kind,
+        observed_command_id=observed_command_id,
+        observed_run_status=observed_run_status,
+        observed_result_summary=observed_result_summary,
+        observed_error_text=observed_error_text,
+        created_at=now,
+        created_by="system",
+        source_thread_id=wo.source_thread_id,
+        source_message_id=wo.source_message_id,
+        provenance_json=provenance,
+        redaction_summary_json=redaction_summary,
+        integrity_hash=integrity_hash,
+        schema_version=1,
+        review_state="unreviewed",
+        operator_note=body.operator_note,
+    )
+
+    # Persist within a session if DB is available
+    cbs_db = getattr(cbs, "_db", None)
+    if cbs_db is not None and hasattr(cbs_db, "get_session"):
+        with cbs_db.get_session() as session:
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+    else:
+        # In-memory fallback — store in a simple dict on the store
+        if not hasattr(cbs, "_receipts"):
+            cbs._receipts = {}
+        cbs._receipts[receipt_id] = row
+
+    # Link latest_receipt_id on the work order (receipt-only, does not touch latest_run_id)
+    try:
+        store.set_latest_receipt(work_order_id, receipt_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "work_order_latest_receipt_linkage_failed", "receipt_id": receipt_id},
+        ) from exc
+
+    return _serialize_receipt(row)
+
+
+# ── Receipt serialization ──────────────────────────────────────────
+
+
+def _serialize_receipt(row: WorkOrderResultReceipt) -> dict[str, Any]:
+    return {
+        "receipt_id": row.receipt_id,
+        "work_order_id": row.work_order_id,
+        "command_run_id": row.command_run_id,
+        "receipt_kind": row.receipt_kind,
+        "observed_command_id": row.observed_command_id,
+        "observed_run_status": row.observed_run_status,
+        "observed_result_summary": row.observed_result_summary,
+        "observed_error_text": row.observed_error_text,
+        "created_at": row.created_at.isoformat() if hasattr(row.created_at, "isoformat") else row.created_at,
+        "created_by": row.created_by,
+        "source_thread_id": row.source_thread_id,
+        "source_message_id": row.source_message_id,
+        "provenance_json": row.provenance_json,
+        "redaction_summary_json": row.redaction_summary_json,
+        "integrity_hash": row.integrity_hash,
+        "schema_version": row.schema_version,
+        "review_state": row.review_state,
+        "operator_note": row.operator_note,
+    }
+
+
+@router.get("/{work_order_id}/receipts")
+async def list_work_order_receipts(
+    work_order_id: str,
+) -> dict[str, Any]:
+    """List receipts for a work order, newest first."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    cbs = _command_bus_store
+    receipts: list[dict[str, Any]] = []
+    if cbs is not None:
+        # Try real DB first
+        cbs_db = getattr(cbs, "_db", None)
+        if cbs_db is not None and hasattr(cbs_db, "get_session"):
+            with cbs_db.get_session() as session:
+                rows = (
+                    session.query(WorkOrderResultReceipt)
+                    .filter_by(work_order_id=work_order_id)
+                    .order_by(WorkOrderResultReceipt.created_at.desc())
+                    .all()
+                )
+                receipts = [_serialize_receipt(row) for row in rows]
+        # Fallback to in-memory
+        elif hasattr(cbs, "_receipts"):
+            for row in cbs._receipts.values():
+                if getattr(row, "work_order_id", None) == work_order_id:
+                    receipts.append(_serialize_receipt(row))
+            receipts.sort(
+                key=lambda r: r.get("created_at") or "",
+                reverse=True,
+            )
+
+    return {
+        "work_order_id": work_order_id,
+        "receipts": receipts,
+    }
+
+
+@router.get("/{work_order_id}/receipts/{receipt_id}")
+async def get_work_order_receipt(
+    work_order_id: str,
+    receipt_id: str,
+) -> dict[str, Any]:
+    """Read a single receipt by work order id and receipt id."""
+    store = _ensure_store_configured()
+    try:
+        wo = store.get_work_order(work_order_id)
+    except WorkOrderNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        ) from exc
+    if wo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorCode.WORK_ORDER_NOT_FOUND.value,
+        )
+
+    cbs = _command_bus_store
+    if cbs is not None:
+        # Try real DB first
+        cbs_db = getattr(cbs, "_db", None)
+        if cbs_db is not None and hasattr(cbs_db, "get_session"):
+            with cbs_db.get_session() as session:
+                row = (
+                    session.query(WorkOrderResultReceipt)
+                    .filter_by(
+                        receipt_id=receipt_id,
+                        work_order_id=work_order_id,
+                    )
+                    .first()
+                )
+                if row is not None:
+                    return _serialize_receipt(row)
+        # Fallback to in-memory
+        elif hasattr(cbs, "_receipts"):
+            row = cbs._receipts.get(receipt_id)
+            if row is not None and getattr(row, "work_order_id", None) == work_order_id:
+                return _serialize_receipt(row)
+
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "work_order_receipt_not_found"},
+    )
 
 
 @orchestrator_router.get("/next")
