@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from guardian.core import dependencies
+from guardian.personal_facts.guardrail_policy import (
+    CandidateInput,
+    classify_personal_fact_candidate,
+)
+from guardian.personal_facts.guardrail_tokens import GuardrailReason
 from guardian.queue.redis_queue import enqueue_chat_import_embed
 
 from .personal_fact_extraction import (
@@ -378,6 +383,52 @@ def _normalize_claude_messages(
     return normalized, filtered_count, filtered_reasons
 
 
+def _classify_import_candidates(
+    candidates: list[Dict[str, Any]],
+    *,
+    source_role: str | None,
+    source_type: str | None,
+    source_label: str | None,
+) -> tuple[list[Dict[str, Any]], int, int]:
+    """Classify and filter import candidates through the guardrail.
+
+    Returns (kept_candidates, skipped_discard, skipped_quarantine).
+    Discard candidates are removed.  Quarantine and reviewable candidates
+    are kept with guardrail metadata attached as private keys
+    (_guardrail_disposition, _guardrail_reasons, etc.).
+    """
+    kept: list[Dict[str, Any]] = []
+    skipped_discard = 0
+
+    for cand in candidates:
+        result = classify_personal_fact_candidate(
+            CandidateInput(
+                key=cand.get("key"),
+                value=cand.get("value"),
+                confidence=cand.get("confidence"),
+                source_role=source_role,
+                source_type=source_type,
+                source_label=source_label,
+                source_excerpt=cand.get("excerpt"),
+                source_timestamp=None,
+            )
+        )
+
+        if result.disposition == "discard":
+            skipped_discard += 1
+            continue
+
+        # Attach guardrail outcome to candidate dict for downstream use.
+        cand["_guardrail_disposition"] = result.disposition
+        cand["_guardrail_reasons"] = list(result.reasons)
+        cand["_guardrail_promotion_blocked"] = result.promotion_blocked
+        cand["_guardrail_review_required"] = result.review_required
+
+        kept.append(cand)
+
+    return kept, skipped_discard, 0
+
+
 def _ingest_canonical_messages(
     *,
     chatlog_db,
@@ -395,6 +446,7 @@ def _ingest_canonical_messages(
     filtered_count: int,
     filtered_reasons: Dict[str, int],
     conversation_level_candidates: List[Dict[str, Any]] | None = None,
+    embedding_mode: str = "enqueue",
 ) -> Tuple[int, int]:
     thread_id = _find_existing_thread_for_source(
         chatlog_db, user_id=user_id, source_thread_id=source_thread_id
@@ -508,30 +560,46 @@ def _ingest_canonical_messages(
             existing_embedding_queued_at = existing_meta.get(
                 "embedding_queued_at"
             )
-        should_queue_embedding = not existing or (
-            existing_embedding_status in {"", "failed"}
-            and not existing_embedding_queued_at
+        should_queue_embedding = (
+            embedding_mode not in ("defer", "off")
+            and (not existing or (
+                existing_embedding_status in {"", "failed"}
+                and not existing_embedding_queued_at
+            ))
         )
 
         personal_fact_candidates = extract_personal_fact_candidates(msg)
         if personal_fact_candidates:
-            try:
-                persist_personal_fact_candidates(
-                    chatlog_db,
-                    user_id=user_id,
-                    message={
-                        **msg,
-                        "chatlog_message_id": mid,
-                    },
-                    candidates=personal_fact_candidates,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to persist %s personal fact candidates for message %s: %s",
-                    import_source,
+            classified, skipped_discard, _ = _classify_import_candidates(
+                personal_fact_candidates,
+                source_role=msg.get("role"),
+                source_type=f"{import_source}_import",
+                source_label=import_source,
+            )
+            if skipped_discard:
+                logger.debug(
+                    "Guardrail discarded %d import candidates for message %s",
+                    skipped_discard,
                     mid,
-                    exc,
                 )
+            if classified:
+                try:
+                    persist_personal_fact_candidates(
+                        chatlog_db,
+                        user_id=user_id,
+                        message={
+                            **msg,
+                            "chatlog_message_id": mid,
+                        },
+                        candidates=classified,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to persist %s personal fact candidates for message %s: %s",
+                        import_source,
+                        mid,
+                        exc,
+                    )
 
         if should_queue_embedding:
             try:
@@ -574,26 +642,40 @@ def _ingest_canonical_messages(
 
     # Persist conversation-level candidates (model_editable_context facts).
     # These have no per-message database record, so require_message_db_id=False.
+    # model_editable_context is system-instructor-facing and gets classified
+    # with ambiguous/system-like source role.
     if conversation_level_candidates:
         conv_message = {
             "source_thread_id": source_thread_id,
             "source_message_id": None,
             "chatlog_message_id": None,
         }
-        try:
-            persist_personal_fact_candidates(
-                chatlog_db,
-                user_id=user_id,
-                message=conv_message,
-                candidates=conversation_level_candidates,
-                require_message_db_id=False,
+        conv_classified, conv_discard, _ = _classify_import_candidates(
+            conversation_level_candidates,
+            source_role="system",
+            source_type=f"{import_source}_import",
+            source_label=import_source,
+        )
+        if conv_discard:
+            logger.debug(
+                "Guardrail discarded %d conversation-level import candidates",
+                conv_discard,
             )
-        except Exception as exc:
-            logger.warning(
-                "Failed to persist %s conversation-level personal fact candidates: %s",
-                import_source,
-                exc,
-            )
+        if conv_classified:
+            try:
+                persist_personal_fact_candidates(
+                    chatlog_db,
+                    user_id=user_id,
+                    message=conv_message,
+                    candidates=conv_classified,
+                    require_message_db_id=False,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist %s conversation-level personal fact candidates: %s",
+                    import_source,
+                    exc,
+                )
 
     return threads_count, messages_count
 
@@ -1853,6 +1935,7 @@ def ingest_chatgpt_conversation_records(
                 filtered_count=conv_filtered_count,
                 filtered_reasons=filtered_reasons,
                 conversation_level_candidates=model_editable_context_candidates,
+                embedding_mode=embedding_mode,
             )
             threads_count += imported_threads
             messages_count += imported_messages
@@ -1999,6 +2082,7 @@ def ingest_claude_export(
                 pending_embed_message_ids=pending_embed_message_ids,
                 filtered_count=conv_filtered_count,
                 filtered_reasons=filtered_reasons,
+                embedding_mode="enqueue",
             )
             threads_count += imported_threads
             messages_count += imported_messages
