@@ -1096,6 +1096,64 @@ struct ScoutTestRunner {
             check("Tasks timeout → tasks nil", result.tasks == nil)
         }
 
+        // ── Media documents probe ─────────────────────────────────
+
+        func mediaDocsBody() -> Data {
+            """
+            {"documents":[{"id":"doc-1","filename":"report.pdf","mime_type":"application/pdf","filesize":12345},{"id":"doc-2","filename":"notes.txt","mime_type":"text/plain","filesize":567}]}
+            """.data(using: .utf8)!
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                check("Media docs has X-API-Key", request.value(forHTTPHeaderField: "X-API-Key") == "key")
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, mediaDocsBody())
+            }
+            let result = await ScoutMediaDocumentsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: "key", session: session
+            )
+            check("Media docs 2xx → httpStatus 200", result.httpStatus == 200)
+            check("Media docs 2xx → 2 documents", result.documents?.count == 2)
+            check("Media docs → filename 'report.pdf'", result.documents?.first?.filename == "report.pdf")
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, """
+                {"documents":[]}
+                """.data(using: .utf8)!)
+            }
+            let result = await ScoutMediaDocumentsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Media docs empty → documents empty", result.documents?.isEmpty == true)
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { request in
+                let r = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+                return (r, Data())
+            }
+            let result = await ScoutMediaDocumentsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Media docs 401 → auth message", result.message.contains("Authentication required"))
+        }
+
+        do {
+            let session = makeSession()
+            _mockHandler = { _ in throw URLError(.timedOut) }
+            let result = await ScoutMediaDocumentsProbe.probe(
+                endpoint: makeEndpoint(), apiKey: nil, session: session
+            )
+            check("Media docs timeout → documents nil", result.documents == nil)
+        }
+
         // ── Summary ────────────────────────────────────────────────
 
         print("\n\(passed) passed, \(failed) failed")
