@@ -537,3 +537,25 @@ python3 scripts/validate_docs.py passed
 
 ### Next Task
 **C04-T017: Close Pi/Coder dry-run operator evidence loop proof**
+
+---
+
+## C04-T017-R1: Loop Governance Closed (2026-06-20 02:40 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `d10ffb2be` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: proof-pack and decision-log entries not reported.
+
+### Governance Recorded
+- `decision-log.md`: C04-D017-R1 entry added
+- `proof-pack.md`: this section added
+- `backlog.md`: already consistent (C04-T017 `go`) — no changes needed
+
+### Loop Closeout Verified
+Artifact at `operator-evidence-loop-closeout.md` with loop map, truth table (19 rows), boundary table (12 rows), safety surface (8 rules), validation summary (9 items). All tests pass, no code changes.
+
+### Gate Decision
+**`go`** — C04-T017-R1 accepted. C04-T018 may proceed.
+
+### Next Task
+**C04-T018: Close C04 Pi/Coder invocation boundary campaign**
