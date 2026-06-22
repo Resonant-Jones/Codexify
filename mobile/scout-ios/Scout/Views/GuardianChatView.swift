@@ -185,10 +185,33 @@ private struct ThreadMessagesView: View {
     @State private var taskReceipts: [ScoutTaskReceiptSummary]?
     @State private var tasksMessage: String?
     @State private var isLoadingTasks = false
+    @State private var selectedTab = 0
 
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("View", selection: $selectedTab) {
+                Text("Conversation").tag(0)
+                Text("Inspector").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            if selectedTab == 0 {
+                conversationList
+            } else {
+                inspectorList
+            }
+        }
+        .navigationTitle("Thread \(threadId)")
+        .onAppear {
+            Task { await loadMessages() }
+        }
+    }
+
+    private var conversationList: some View {
         List {
             if isLoading {
                 Section {
@@ -269,6 +292,77 @@ private struct ThreadMessagesView: View {
                 .disabled(isLoading)
             }
 
+            if let sendMsg = sendMessage {
+                Section {
+                    Text(sendMsg)
+                        .font(.caption)
+                        .foregroundStyle(sendMsg == "Message sent." ? .green : .secondary)
+                }
+            }
+
+            Section {
+                Button {
+                    completionMessage = nil
+                    completionTaskId = nil
+                    Task { await requestCompletion() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isRequestingCompletion {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        }
+                        Image(systemName: "sparkles")
+                        Text("Request Guardian Response")
+                        Spacer()
+                    }
+                }
+                .disabled(isRequestingCompletion)
+
+                if let taskId = completionTaskId {
+                    NavigationLink(value: TaskNav(taskId: taskId, threadId: threadId)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Task accepted: \(taskId)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("View live task status →")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+
+                if let msg = completionMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(msg == "Completion accepted by Vault." ? .green : .secondary)
+                }
+            }
+
+            Section {
+                HStack {
+                    TextField("Type a message…", text: $composeText)
+                        .disabled(isSending)
+
+                    if isSending {
+                        ProgressView()
+                            .padding(.horizontal, 4)
+                    }
+
+                    Button("Send") {
+                        let text = composeText
+                        composeText = ""
+                        sendMessage = nil
+                        Task { await sendContent(text) }
+                    }
+                    .disabled(composeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+                }
+            }
+        }
+    }
+
+    private var inspectorList: some View {
+        List {
             // Thread Documents section
             if isLoadingDocs {
                 Section {
@@ -521,77 +615,6 @@ private struct ThreadMessagesView: View {
                 }
                 .disabled(isLoadingTasks)
             }
-
-            if let sendMsg = sendMessage {
-                Section {
-                    Text(sendMsg)
-                        .font(.caption)
-                        .foregroundStyle(sendMsg == "Message sent." ? .green : .secondary)
-                }
-            }
-
-            Section {
-                Button {
-                    completionMessage = nil
-                    completionTaskId = nil
-                    Task { await requestCompletion() }
-                } label: {
-                    HStack {
-                        Spacer()
-                        if isRequestingCompletion {
-                            ProgressView()
-                                .padding(.trailing, 6)
-                        }
-                        Image(systemName: "sparkles")
-                        Text("Request Guardian Response")
-                        Spacer()
-                    }
-                }
-                .disabled(isRequestingCompletion)
-
-                if let taskId = completionTaskId {
-                    NavigationLink(value: TaskNav(taskId: taskId, threadId: threadId)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Task accepted: \(taskId)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("View live task status →")
-                                .font(.caption2)
-                                .foregroundStyle(.blue)
-                        }
-                    }
-                }
-
-                if let msg = completionMessage {
-                    Text(msg)
-                        .font(.caption)
-                        .foregroundStyle(msg == "Completion accepted by Vault." ? .green : .secondary)
-                }
-            }
-
-            Section {
-                HStack {
-                    TextField("Type a message…", text: $composeText)
-                        .disabled(isSending)
-
-                    if isSending {
-                        ProgressView()
-                            .padding(.horizontal, 4)
-                    }
-
-                    Button("Send") {
-                        let text = composeText
-                        composeText = ""
-                        sendMessage = nil
-                        Task { await sendContent(text) }
-                    }
-                    .disabled(composeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
-                }
-            }
-        }
-        .navigationTitle("Thread \(threadId)")
-        .onAppear {
-            Task { await loadMessages() }
         }
     }
 
