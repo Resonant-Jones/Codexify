@@ -9,6 +9,11 @@ struct DocumentDetailNav: Hashable {
     let documentId: String
 }
 
+struct ThreadNav: Hashable {
+    let id: Int
+    let title: String?
+}
+
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var threads: [ScoutChatThreadSummary]?
@@ -60,7 +65,7 @@ struct GuardianChatView: View {
                     } else {
                         Section {
                             ForEach(threads, id: \.id) { thread in
-                                NavigationLink(value: thread.id) {
+                                NavigationLink(value: ThreadNav(id: thread.id ?? 0, title: thread.title)) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(thread.title?.isEmpty == false ? thread.title! : "Untitled")
                                             .font(.body)
@@ -129,8 +134,8 @@ struct GuardianChatView: View {
                 }
             }
             .navigationTitle("Guardian")
-            .navigationDestination(for: Int.self) { threadId in
-                ThreadMessagesView(threadId: threadId)
+            .navigationDestination(for: ThreadNav.self) { nav in
+                ThreadMessagesView(threadId: nav.id, threadTitle: nav.title)
             }
             .navigationDestination(for: TaskNav.self) { nav in
                 TaskEventsView(taskId: nav.taskId, threadId: nav.threadId)
@@ -247,7 +252,7 @@ struct GuardianChatView: View {
             createError = nil
             await loadThreads()
             if let tid = result.threadId {
-                navigationPath.append(tid)
+                navigationPath.append(ThreadNav(id: tid, title: trimmed))
             }
         } else {
             createError = result.message
@@ -260,6 +265,7 @@ struct GuardianChatView: View {
 
 private struct ThreadMessagesView: View {
     let threadId: Int
+    let threadTitle: String?
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var messages: [ScoutChatMessageSummary]?
@@ -301,7 +307,7 @@ private struct ThreadMessagesView: View {
                 inspectorList
             }
         }
-        .navigationTitle("Thread \(threadId)")
+        .navigationTitle(threadTitle?.isEmpty == false ? threadTitle! : "Thread \(threadId)")
         .onAppear {
             Task { await loadMessages() }
         }
