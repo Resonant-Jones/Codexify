@@ -182,6 +182,9 @@ private struct ThreadMessagesView: View {
     @State private var ragResult: ScoutRAGTraceResult?
     @State private var ragMessage: String?
     @State private var isLoadingRAG = false
+    @State private var taskReceipts: [ScoutTaskReceiptSummary]?
+    @State private var tasksMessage: String?
+    @State private var isLoadingTasks = false
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -454,6 +457,71 @@ private struct ThreadMessagesView: View {
                 .disabled(isLoadingRAG)
             }
 
+            // Task Receipts section
+            Section("Task Receipts") {
+                if isLoadingTasks {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 8)
+                        Text("Loading tasks…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let receipts = taskReceipts {
+                    if receipts.isEmpty {
+                        Text("No task receipts for this thread.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(receipts.enumerated()), id: \.offset) { _, receipt in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(receipt.event_type ?? receipt.task_id ?? "Unknown")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                    Spacer()
+                                    if let state = receipt.state {
+                                        Text(state)
+                                            .font(.caption2)
+                                            .foregroundStyle(state == "terminal" ? .green : .secondary)
+                                    }
+                                }
+                                if let taskId = receipt.task_id {
+                                    Text(taskId)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(.vertical, 1)
+                        }
+                    }
+                } else if let msg = tasksMessage {
+                    Text(msg)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Tap Refresh Tasks to load receipts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                Button {
+                    Task { await loadTasks() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isLoadingTasks {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        }
+                        Image(systemName: "list.bullet.clipboard")
+                        Text("Refresh Tasks")
+                        Spacer()
+                    }
+                }
+                .disabled(isLoadingTasks)
+            }
+
             if let sendMsg = sendMessage {
                 Section {
                     Text(sendMsg)
@@ -665,6 +733,35 @@ private struct ThreadMessagesView: View {
             endpoint: profile, threadId: threadId, apiKey: apiKey
         )
         isLoadingRAG = false
+    }
+
+    private func loadTasks() async {
+        guard !storedProfileData.isEmpty else { return }
+
+        isLoadingTasks = true
+        tasksMessage = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            tasksMessage = "Could not load saved endpoint profile."
+            isLoadingTasks = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutThreadTasksProbe.probe(
+            endpoint: profile, threadId: threadId, apiKey: apiKey
+        )
+        taskReceipts = result.tasks
+        if result.tasks == nil {
+            tasksMessage = result.message
+        }
+        isLoadingTasks = false
     }
 
     private func stringValue(_ value: Any?) -> String {
