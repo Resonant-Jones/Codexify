@@ -261,3 +261,15 @@
 - **Evidence**: Loop closeout artifact present. 116 Pi + 14 route + 65 shell tests pass. `git diff --check` clean. Docs validator passed. `pnpm lint` unavailable.
 - **Consequence**: C04-T017 fully accepted. C04-T018 may proceed.
 - **Revisit Trigger**: None — governance closeout is final.
+
+---
+
+### Decision: C04-D018
+
+- **Decision ID**: C04-D018
+- **Date**: 2026-06-20
+- **Decision**: `go`. C04 Pi/Coder invocation boundary campaign closed. 18 tasks accepted. C04 closed as boundary, contract, dry-run, evidence, and operator-read-model proof. No Pi/Coder execution, no live Pi SDK, no Coder execution, no result return, no release support. Release boundary preserved. Next campaign selection required.
+- **Reason**: All 18 tasks gated `go`. Contracts + route + adapter + UI loop proven as validation-only, read-only, side-effect-free. 116 Pi + 14 route + 65 shell tests pass. Governance artifacts complete.
+- **Evidence**: `campaign-closeout.md` — 18-task summary, 25-row true/not-true table, 7 risks, 3 candidates. Full test matrix passes.
+- **Consequence**: C04 closed. Next campaign selection required. No C04 implementation continues.
+- **Revisit Trigger**: Next campaign selection after C04 closeout.
