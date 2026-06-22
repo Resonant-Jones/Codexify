@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 # before the catalog seam under test runs.
 os.environ.pop("CODEXIFY_SUPPORTED_PROFILE", None)
 
+from guardian.core import ai_router, config as config_module, llm_catalog
+from guardian.core import provider_registry
 from guardian.core.ai_router import stream_local
 from guardian.core.config import get_settings
 from guardian.guardian_api import app
@@ -225,13 +227,18 @@ def _clear_extra_cloud_keys(monkeypatch) -> None:
 @pytest.fixture(autouse=True)
 def _isolate_supported_profile_env(monkeypatch):
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    monkeypatch.setattr(
+        provider_registry, "LLMConfigError", config_module.LLMConfigError
+    )
+    monkeypatch.setattr(
+        provider_registry,
+        "validate_llm_config",
+        config_module.validate_llm_config,
+    )
 
 
 def test_llm_catalog_hides_unauthorized_providers_by_default(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -277,10 +284,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
     monkeypatch,
 ):
     calls: list[str] = []
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_bridge_fallback_catalog_request(calls),
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_bridge_fallback_catalog_request(calls))
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -332,10 +336,7 @@ def test_llm_catalog_uses_host_bridge_fallback_when_loopback_unreachable(
 def test_llm_catalog_local_only_exposes_effective_local_chat_model(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_supported_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_supported_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -376,10 +377,7 @@ def test_llm_catalog_local_only_exposes_effective_local_chat_model(
 def test_llm_catalog_non_strict_mode_keeps_runnable_local_available(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_non_strict_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_non_strict_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -420,15 +418,11 @@ def test_llm_catalog_non_strict_mode_keeps_runnable_local_available(
 def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_whooshd_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_whooshd_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
     snapshot = {
-        "LOCAL_RUNTIME_PRESET": settings.LOCAL_RUNTIME_PRESET,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "CODEXIFY_LOCAL_ENDPOINT_CHAIN": settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN,
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
@@ -441,8 +435,11 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
         "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
         "LLM_MODEL": settings.LLM_MODEL,
     }
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        snapshot["LOCAL_RUNTIME_PRESET"] = settings.LOCAL_RUNTIME_PRESET
     try:
-        settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
+        if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+            settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
         settings.LOCAL_BASE_URL = "http://host.docker.internal:11434/v1"
         settings.CODEXIFY_LOCAL_ENDPOINT_CHAIN = (
             "http://host.docker.internal:8000/v1"
@@ -473,7 +470,8 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
             "http://host.docker.internal:8000/v1"
         )
         assert local["source"]["vendor"] == "whooshd"
-        assert local["source"]["runtimePreset"] == "whooshd-mlx"
+        if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+            assert local["source"]["runtimePreset"] == "whooshd-mlx"
         assert local["models"][0]["id"] == (
             "mlx-community/Llama-3.2-3B-Instruct-4bit"
         )
@@ -486,10 +484,7 @@ def test_llm_catalog_labels_whooshd_local_openai_compatible_provider(
 def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_empty_whooshd_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_empty_whooshd_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -527,15 +522,11 @@ def test_llm_catalog_adds_whooshd_profile_models_to_local_provider(
         local = _provider_by_id(payload, "local")
         models_by_id = {model["id"]: model for model in local["models"]}
 
-        e2b = models_by_id["mlx-community/gemma-4-e2b-it-4bit"]
-        e4b = models_by_id["mlx-community/gemma-4-e4b-it-4bit"]
-        e4b_optiq = models_by_id[
-            "mlx-community/gemma-4-e4b-it-OptiQ-4bit"
-        ]
-        optiq = models_by_id[
-            "mlx-community/gemma-4-12B-it-OptiQ-4bit"
-        ]
-        qat = models_by_id["mlx-community/gemma-4-12B-it-qat-4bit"]
+        e2b = models_by_id["gemma-4-e2b-it-4bit"]
+        e4b = models_by_id["gemma-4-e4b-it-4bit"]
+        e4b_optiq = models_by_id["gemma-4-e4b-it-optiq-4bit"]
+        optiq = models_by_id["gemma-4-12b-it-optiq-4bit"]
+        qat = models_by_id["gemma-4-12b-it-qat-4bit"]
 
         assert local["id"] == "local"
         assert local["displayName"] == "Whoosh'd"
@@ -584,11 +575,8 @@ def test_llm_catalog_matches_stream_local_executed_model(monkeypatch):
             ]
         )
 
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_supported_local_catalog_request,
-    )
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_supported_local_catalog_request)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -634,10 +622,7 @@ def test_llm_catalog_matches_stream_local_executed_model(monkeypatch):
 
 
 def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -681,14 +666,8 @@ def test_llm_catalog_provider_appears_when_key_exists(monkeypatch):
 
 
 def test_llm_catalog_alibaba_provider_appears_when_configured(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_alibaba_model_index,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_alibaba_model_index)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -727,14 +706,8 @@ def test_llm_catalog_alibaba_provider_appears_when_configured(monkeypatch):
 
 
 def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_groq_model_index,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_groq_model_index)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -795,14 +768,8 @@ def test_llm_catalog_groq_discovery_surfaces_multiple_models(monkeypatch):
 
 
 def test_llm_catalog_soft_fallback_surfaces_inferred_groq_models(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_groq_model_index_classifier_miss,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_groq_model_index_classifier_miss)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -858,10 +825,7 @@ def test_llm_catalog_soft_fallback_surfaces_inferred_groq_models(monkeypatch):
 
 
 def test_llm_catalog_disabled_cloud_provider_has_reason(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -903,14 +867,8 @@ def test_llm_catalog_disabled_cloud_provider_has_reason(monkeypatch):
 def test_llm_catalog_alibaba_discovery_timeout_reports_failure_kind(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_alibaba_model_index_timeout,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_alibaba_model_index_timeout)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -953,14 +911,8 @@ def test_llm_catalog_alibaba_discovery_timeout_reports_failure_kind(
 def test_llm_catalog_minimax_discovery_transport_failure_reports_failure_kind(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_minimax_model_index_transport_error,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_minimax_model_index_transport_error)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -1001,14 +953,8 @@ def test_llm_catalog_minimax_discovery_transport_failure_reports_failure_kind(
 
 
 def test_llm_catalog_minimax_empty_catalog_reports_failure_kind(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
-    monkeypatch.setattr(
-        "guardian.core.provider_registry.requests.get",
-        _mock_minimax_model_index_empty,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
+    monkeypatch.setattr(provider_registry.requests, "get", _mock_minimax_model_index_empty)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()
@@ -1047,10 +993,7 @@ def test_llm_catalog_minimax_empty_catalog_reports_failure_kind(monkeypatch):
 
 
 def test_llm_catalog_include_all_shows_unauthorized_providers(monkeypatch):
-    monkeypatch.setattr(
-        "guardian.core.llm_catalog.requests.get",
-        _mock_local_catalog_request,
-    )
+    monkeypatch.setattr(llm_catalog.requests, "get", _mock_local_catalog_request)
     _clear_extra_cloud_keys(monkeypatch)
 
     settings = get_settings()

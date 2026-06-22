@@ -59,7 +59,6 @@ def test_login_and_authenticated_request(monkeypatch):
 
     auth_db = _AuthDb()
 
-    from guardian import guardian_api
     from guardian.core import dependencies
     from guardian.routes import auth as auth_routes
     from guardian.routes import chat as chat_routes
@@ -72,12 +71,14 @@ def test_login_and_authenticated_request(monkeypatch):
         patch.object(
             auth_routes, "load_guardian_db_from_env", return_value=auth_db
         ),
-        patch.object(guardian_api, "chatlog_db", mock_chatlog_db),
         patch.object(dependencies, "chatlog_db", mock_chatlog_db),
         patch.object(projects_routes, "chatlog_db", mock_chatlog_db),
         patch.object(chat_routes, "chatlog_db", mock_chatlog_db),
     ):
-        client = TestClient(guardian_api.app)
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        app.include_router(projects_routes.router)
+        client = TestClient(app)
 
         register_response = client.post(
             "/auth/register",
@@ -173,7 +174,6 @@ def test_local_bootstrap_uses_operator_secret_when_provided(monkeypatch):
 
     auth_db = _AuthDb()
 
-    from guardian import guardian_api
     from guardian.routes import auth as auth_routes
 
     with patch.object(
@@ -185,7 +185,9 @@ def test_local_bootstrap_uses_operator_secret_when_provided(monkeypatch):
         assert seeded_user["username"] == "local"
         assert verify_password("operator-secret", seeded_user["password_hash"])
 
-        client = TestClient(guardian_api.app)
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        client = TestClient(app)
         login_response = client.post(
             "/auth/login",
             json={"username": "local", "password": "operator-secret"},

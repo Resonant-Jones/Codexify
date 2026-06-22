@@ -1152,7 +1152,6 @@ def _local_execution_model_candidates(
         )
     elif strict:
         raw_candidates = (
-            ("requested_model", requested_model),
             ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
         # Include LOCAL_VISION_MODEL only when the requested model matches it
@@ -1535,7 +1534,7 @@ def chat_with_ai(
         requested_model = normalize_model_id(target_model)
         local_model_resolution = resolve_local_execution_model(
             settings=settings,
-            requested_model=target_model,
+            requested_model=model,
             validate_availability=bool(
                 strict_local_chat
                 and authoritative_model
@@ -1547,7 +1546,7 @@ def chat_with_ai(
                 status_code=400,
                 detail=local_model_resolution.error_detail(),
             )
-        if local_model_resolution.strict or not target_model:
+        if local_model_resolution.strict or model is None:
             target_model = local_model_resolution.model
 
     if not target_model:

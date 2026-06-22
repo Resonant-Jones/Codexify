@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from guardian.core.dependencies import RequestUserScope
+
 
 def _doc_row(*, user_id: str = "user-a", embedding_status: str = "pending"):
     now = datetime(2026, 5, 8, tzinfo=timezone.utc)
@@ -35,8 +37,18 @@ def test_document_upload_returns_document_and_asset_identity():
     from guardian.routes import media
 
     app = FastAPI()
+    app.dependency_overrides[
+        media.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="user-a",
+        subject_id="user-a",
+        account_id="user-a",
+        multi_user_enabled=False,
+    )
     app.include_router(media.router, prefix="/api/media")
-    client = TestClient(app, headers={"X-API-Key": "test"})
+    client = TestClient(
+        app, headers={"X-API-Key": "test", "X-User-Id": "user-a"}
+    )
 
     mock_db = MagicMock()
     mock_session = MagicMock()

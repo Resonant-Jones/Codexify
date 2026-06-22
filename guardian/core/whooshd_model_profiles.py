@@ -90,7 +90,7 @@ def whooshd_runtime_model_id(model_id: str | None) -> str | None:
     profile = whooshd_profile_by_id_or_repo(model_id)
     if profile is None:
         return None
-    return str(profile.get("id") or "").strip() or None
+    return _profile_model_repo(profile) or None
 
 
 def whooshd_profile_model_repos() -> list[str]:

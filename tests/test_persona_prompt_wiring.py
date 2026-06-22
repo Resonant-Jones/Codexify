@@ -8,6 +8,7 @@ from guardian.cognition.identity_resolution import (
     ResolvedPersona,
 )
 from guardian.cognition.personas import store as persona_store
+from guardian.cognition import system_prompt_builder
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
 )
@@ -73,19 +74,19 @@ def test_system_prompt_builder_includes_active_persona(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.resolve_persona",
-        _fake_resolve_persona,
+        system_prompt_builder, "resolve_persona", _fake_resolve_persona
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.resolve_imprint",
-        _fake_resolve_imprint,
+        system_prompt_builder, "resolve_imprint", _fake_resolve_imprint
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.get_docs_for",
+        system_prompt_builder,
+        "get_docs_for",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.estimate_token_cost_for_docs",
+        system_prompt_builder,
+        "estimate_token_cost_for_docs",
         lambda _docs: 0,
     )
 

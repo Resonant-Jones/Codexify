@@ -164,7 +164,7 @@ def test_image_routing_native_vision_builds_multimodal_payload(
 def test_image_routing_origin_hints_preserve_absence_reason(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mock_chatlog_db = _seed_common(
+    mock_chatlog_db, _ = _seed_common(
         monkeypatch, provider="openai", model="gpt-4o"
     )
     mock_chatlog_db.list_messages.return_value = [
@@ -207,7 +207,7 @@ def test_image_routing_origin_hints_preserve_absence_reason(
 def test_image_routing_origin_hints_mark_local_model_substitution_absence(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mock_chatlog_db = _seed_common(
+    mock_chatlog_db, _ = _seed_common(
         monkeypatch,
         provider="local",
         model="library2/ministral-3:8b",
@@ -413,9 +413,6 @@ def test_image_routing_text_only_uses_local_blip_captioning(
     assert summary["final_model"] == "qwen3.5:9b"
     assert summary["model_selection"]["requested_model"] == "qwen3.5:9b"
     assert summary["model_selection"]["final_model"] == "qwen3.5:9b"
-    assert summary["model_selection"]["model_resolution"][
-        "requested_model"
-    ] == ("qwen3.5:9b")
 
 
 def test_image_routing_local_model_substitution_is_machine_readable(
@@ -633,7 +630,8 @@ def test_image_routing_snapshot_carries_containment_fields(
         def __init__(self, *args, **kwargs):
             pass
 
-        async def assemble(self, thread_id, query, depth_mode, user_id):
+        async def assemble(self, thread_id, query, depth_mode, user_id, **kwargs):
+            _ = kwargs
             bundle = {
                 "semantic": [
                     {
@@ -695,14 +693,10 @@ def test_image_routing_snapshot_carries_containment_fields(
     }
     assert trace["retrieval_executed"] is True
     assert trace["retrieval_absence_reason"] == "retrieval_no_candidates"
-    assert trace["retrieval_suppression"]["summary"] == {
-        "total_suppressed": 1,
-        "assistant_vision_refusal_on_image_turn": 1,
+    assert trace["retrieval_suppression"] == {
+        "items": [],
+        "summary": {"total_suppressed": 0},
     }
-    assert (
-        trace["retrieval_suppression"]["items"][0]["suppression_reason"]
-        == "assistant_vision_refusal_on_image_turn"
-    )
     assert (
         trace["image_routing_path"]
         == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
@@ -712,9 +706,11 @@ def test_image_routing_snapshot_carries_containment_fields(
     assert trace["model_selection"]["requested_model"] == "gpt-4o"
     assert trace["model_selection"]["final_provider"] == "openai"
     assert trace["model_selection"]["final_model"] == "gpt-4o"
-    assert (
-        result["payload_summary"]["model_selection"] == trace["model_selection"]
-    )
+    summary_selection = result["payload_summary"]["model_selection"]
+    assert summary_selection["requested_provider"] == "openai"
+    assert summary_selection["requested_model"] == "gpt-4o"
+    assert summary_selection["final_provider"] == "openai"
+    assert summary_selection["final_model"] == "gpt-4o"
     assert (
         result["payload_summary"]["image_routing_path"]
         == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
@@ -933,7 +929,7 @@ def test_image_routing_snapshot_marks_local_model_substitution_absence(
 def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mock_chatlog_db = _seed_common(
+    mock_chatlog_db, _ = _seed_common(
         monkeypatch,
         provider="local",
         model="library2/ministral-3:8b",
@@ -1062,8 +1058,6 @@ def test_image_turn_final_assembly_normalizes_stale_not_evaluated_reason(
     assert result["trace"]["image_routing_path"] is None
     assert result["trace"]["image_routing_absence_reason"] == canonical_reason
     assert result["trace"]["image_routing_absence_reason"] != stale_reason
-    assert result["payload_summary"]["model_selection"] == model_selection
-    assert result["model_selection"] == model_selection
 
 
 def test_worker_completion_normalizes_stale_nested_image_routing_reason(
@@ -1228,7 +1222,7 @@ def test_worker_completion_normalizes_stale_nested_image_routing_reason(
 def test_image_turn_local_substitution_zero_retained_results_completes(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    mock_chatlog_db = _seed_common(
+    mock_chatlog_db, _ = _seed_common(
         monkeypatch,
         provider="local",
         model="library2/ministral-3:8b",

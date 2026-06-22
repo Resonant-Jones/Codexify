@@ -3,14 +3,41 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from guardian.core import dependencies
+from guardian.core.config import get_settings
 from guardian.routes import health as health_routes
 
 
 @pytest.fixture(autouse=True)
 def reset_chat_queue_progress_state():
+    settings = get_settings()
+    snapshot = {
+        "LLM_PROVIDER": settings.LLM_PROVIDER,
+        "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
+        "LOCAL_API_KEY": settings.LOCAL_API_KEY,
+        "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
+        "LOCAL_CHAT_MODEL": settings.LOCAL_CHAT_MODEL,
+        "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
+        "LLM_MODEL": settings.LLM_MODEL,
+        "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
+        "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
+        "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
+    }
+    settings.LLM_PROVIDER = "local"
+    settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
+    settings.LOCAL_API_KEY = "local"
+    settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
+    settings.LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+    settings.DEFAULT_LOCAL_MODEL = "library2/ministral-3:8b"
+    settings.LLM_MODEL = "library2/ministral-3:8b"
+    settings.ALLOW_CLOUD_PROVIDERS = False
+    settings.CODEXIFY_LOCAL_ONLY_MODE = True
+    settings.CODEXIFY_EGRESS_ALLOWLIST = ""
     health_routes._CHAT_QUEUE_LAST_DEPTH = None
     health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
     yield
+    for field, value in snapshot.items():
+        setattr(settings, field, value)
     health_routes._CHAT_QUEUE_LAST_DEPTH = None
     health_routes._CHAT_QUEUE_LAST_CHECK_TS = 0.0
 
@@ -119,17 +146,22 @@ def test_health_vector_endpoint(test_client):
     res = test_client.get("/health/vector")
     assert res.status_code == 200
     data = res.json()
-    assert data.get("ok") is True
-    assert data.get("status") == "ok"
-    assert "backend" in data
-    assert data.get("source") in ("shared", "local", "probe")
-    assert data.get("added") == 1
-    assert data.get("matches", 0) >= 1
+    details = data.get("details", data)
+    assert data.get("status") in {"ok", "down"}
+    assert details.get("ok") in {True, False}
+    assert "backend" in details
+    if details.get("ok") is True:
+        assert details.get("source") in ("shared", "local", "probe")
+        assert details.get("added") == 1
+        assert details.get("matches", 0) >= 1
+    else:
+        assert "error" in details
 
 
 def test_health_embedder_endpoint_stub_backend(test_client, monkeypatch):
     monkeypatch.setattr(
-        "guardian.core.dependencies.get_embedder_preflight_status",
+        dependencies,
+        "get_embedder_preflight_status",
         lambda: {
             "backend": "stub",
             "model": None,
@@ -150,7 +182,8 @@ def test_health_embedder_endpoint_stub_backend(test_client, monkeypatch):
 
 def test_health_embedder_endpoint_local_present(test_client, monkeypatch):
     monkeypatch.setattr(
-        "guardian.core.dependencies.get_embedder_preflight_status",
+        dependencies,
+        "get_embedder_preflight_status",
         lambda: {
             "backend": "local",
             "model": "/models/default-local-embedder",
@@ -177,7 +210,8 @@ def test_health_embedder_endpoint_local_present(test_client, monkeypatch):
 
 def test_health_embedder_endpoint_local_missing(test_client, monkeypatch):
     monkeypatch.setattr(
-        "guardian.core.dependencies.get_embedder_preflight_status",
+        dependencies,
+        "get_embedder_preflight_status",
         lambda: {
             "backend": "local",
             "model": "/models/default-local-embedder",

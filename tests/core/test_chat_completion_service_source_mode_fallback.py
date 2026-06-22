@@ -605,6 +605,11 @@ def test_run_chat_completion_task_persists_workspace_obsidian_payload_evidence(
     )
     monkeypatch.setattr(
         chat_completion_service,
+        "_workspace_completion_vector_store",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
         "build_context_system_message_with_meta",
         _fake_context_system_message_with_meta,
     )

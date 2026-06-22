@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from guardian.core import ai_router, dependencies
 from guardian.core.config import get_settings
+from guardian.core.executors import health as executor_health
 from guardian.routes import health as health_routes
 
 
@@ -51,7 +53,6 @@ def _apply_local_runtime(settings) -> dict[str, object]:
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
-        "LOCAL_RUNTIME_PRESET": settings.LOCAL_RUNTIME_PRESET,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "LOCAL_API_KEY": settings.LOCAL_API_KEY,
         "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
@@ -59,11 +60,14 @@ def _apply_local_runtime(settings) -> dict[str, object]:
         "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
         "LLM_MODEL": settings.LLM_MODEL,
     }
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        snapshot["LOCAL_RUNTIME_PRESET"] = settings.LOCAL_RUNTIME_PRESET
     settings.LLM_PROVIDER = "local"
     settings.ALLOW_CLOUD_PROVIDERS = False
     settings.CODEXIFY_LOCAL_ONLY_MODE = True
     settings.CODEXIFY_EGRESS_ALLOWLIST = ""
-    settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
     settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
     settings.LOCAL_API_KEY = "local"
     settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
@@ -96,13 +100,9 @@ def test_health_endpoints_surface_structured_service_payloads(
     test_client,
     monkeypatch,
 ):
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.health.requests.get",
-        _mock_local_runtime_request,
+        health_routes.requests, "get", _mock_local_runtime_request
     )
     monkeypatch.setattr(
         health_routes,
@@ -155,9 +155,7 @@ def test_health_vector_returns_down_when_dependency_is_malformed(
             raise ValueError("vector dependency malformed")
 
     monkeypatch.setattr(
-        "guardian.core.dependencies._vector_store",
-        BrokenVectorStore(),
-        raising=False,
+        dependencies, "_vector_store", BrokenVectorStore(), raising=False
     )
 
     response = test_client.get("/health/vector")
@@ -251,8 +249,7 @@ def test_health_executors_codex_missing_path_includes_recovery(
 ):
     monkeypatch.delenv("CODEXIFY_CODEX_BIN", raising=False)
     monkeypatch.setattr(
-        "guardian.core.executors.health.shutil.which",
-        lambda _binary: None,
+        executor_health.shutil, "which", lambda _binary: None
     )
 
     response = test_client.get("/api/health/executors")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from guardian.cognition.system_profiles.resolver import ResolvedSystemProfile
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat
 
 
@@ -35,7 +36,16 @@ def test_chat_get_thread_profile_returns_resolved_and_catalog(monkeypatch):
         ],
     )
 
-    payload = chat.chat_get_thread_profile(1, api_key="test")
+    payload = chat.chat_get_thread_profile(
+        1,
+        api_key="test",
+        request_user_scope=RequestUserScope(
+            user_id="local",
+            subject_id="local",
+            account_id="local",
+            multi_user_enabled=False,
+        ),
+    )
 
     assert payload["ok"] is True
     assert payload["thread_id"] == 1

@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from guardian.routes import imprint as imprint_routes
@@ -19,6 +19,13 @@ def _auth_env(monkeypatch):
 
 def make_app():
     app = FastAPI()
+
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id") or "default"
+
+    app.dependency_overrides[
+        imprint_routes.get_current_user
+    ] = _test_current_user
     app.include_router(imprint_routes.system_prompt_router)
     return app
 

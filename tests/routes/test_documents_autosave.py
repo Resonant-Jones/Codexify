@@ -18,7 +18,12 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from fastapi import HTTPException
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import documents
+
+
+def _request_scope(user_id: str = "test_user") -> RequestUserScope:
+    return RequestUserScope(user_id=user_id, multi_user_enabled=False)
 
 
 class TestAutosaveCreation:
@@ -78,7 +83,9 @@ class TestAutosaveCreation:
         # Run async function in sync context
         import asyncio
 
-        result = asyncio.run(autosave_document(request))
+        result = asyncio.run(
+            autosave_document(request, request_user_scope=_request_scope())
+        )
 
         # Verify
         assert result["ok"] is True
@@ -174,7 +181,9 @@ class TestAutosaveCreation:
 
         import asyncio
 
-        result = asyncio.run(autosave_document(request))
+        result = asyncio.run(
+            autosave_document(request, request_user_scope=_request_scope())
+        )
 
         # Verify
         assert result["ok"] is True
@@ -207,7 +216,9 @@ class TestAutosaveValidation:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(autosave_document(request))
+            asyncio.run(
+                autosave_document(request, request_user_scope=_request_scope())
+            )
 
         assert exc_info.value.status_code == 400
         assert "thread_id is required" in exc_info.value.detail
@@ -223,7 +234,9 @@ class TestAutosaveValidation:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(autosave_document(request))
+            asyncio.run(
+                autosave_document(request, request_user_scope=_request_scope())
+            )
 
         assert exc_info.value.status_code == 400
         assert "content is required" in exc_info.value.detail
@@ -239,7 +252,9 @@ class TestAutosaveValidation:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(autosave_document(request))
+            asyncio.run(
+                autosave_document(request, request_user_scope=_request_scope())
+            )
 
         assert exc_info.value.status_code == 400
         assert "content is required" in exc_info.value.detail
@@ -268,7 +283,9 @@ class TestAutosaveThreadNotFound:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(autosave_document(request))
+            asyncio.run(
+                autosave_document(request, request_user_scope=_request_scope())
+            )
 
         assert exc_info.value.status_code == 404
         assert "Thread 999 not found" in exc_info.value.detail
@@ -328,7 +345,9 @@ class TestAutosaveEventBus:
 
         import asyncio
 
-        asyncio.run(autosave_document(request))
+        asyncio.run(
+            autosave_document(request, request_user_scope=_request_scope())
+        )
 
         # Verify event emission
         mock_emit.assert_called_once_with(
@@ -393,7 +412,9 @@ class TestAutosaveEventBus:
 
         import asyncio
 
-        result = asyncio.run(autosave_document(request))
+        result = asyncio.run(
+            autosave_document(request, request_user_scope=_request_scope())
+        )
 
         # Verify autosave still succeeded
         assert result["ok"] is True
@@ -419,7 +440,9 @@ class TestAutosaveDatabaseErrors:
         import asyncio
 
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(autosave_document(request))
+            asyncio.run(
+                autosave_document(request, request_user_scope=_request_scope())
+            )
 
         assert exc_info.value.status_code == 500
         assert "Failed to autosave document" in exc_info.value.detail

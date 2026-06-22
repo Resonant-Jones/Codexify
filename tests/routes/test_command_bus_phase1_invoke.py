@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from guardian.command_bus import loopback_http_adapter
 from guardian.routes import command_bus
 
 
@@ -39,6 +40,12 @@ def _build_client(monkeypatch) -> TestClient:
             "model_override": "local-model",
         }
 
+    def _test_current_user(request: Request) -> str:
+        return request.headers.get("X-User-Id", "operator")
+
+    app.dependency_overrides[command_bus.get_current_user] = (
+        _test_current_user
+    )
     app.include_router(command_bus.router)
     return TestClient(app)
 
@@ -92,8 +99,7 @@ def _install_fake_loopback(monkeypatch, captured: list[dict[str, Any]]) -> None:
         "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999"
     )
     monkeypatch.setattr(
-        "guardian.command_bus.loopback_http_adapter.httpx.AsyncClient",
-        _FakeAsyncClient,
+        loopback_http_adapter.httpx, "AsyncClient", _FakeAsyncClient
     )
 
 
@@ -253,8 +259,7 @@ def test_invoke_read_only_uses_loopback_http_and_persists(monkeypatch) -> None:
         "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999"
     )
     monkeypatch.setattr(
-        "guardian.command_bus.loopback_http_adapter.httpx.AsyncClient",
-        _FakeAsyncClient,
+        loopback_http_adapter.httpx, "AsyncClient", _FakeAsyncClient
     )
 
     client = _build_client(monkeypatch)

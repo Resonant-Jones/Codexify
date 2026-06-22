@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from guardian.core.executors import codex_executor
 from guardian.core.executors.base import CodexifyExecutorRequest
 from guardian.core.executors.codex_executor import CodexExecutor
 from guardian.protocol_tokens import DelegationJobStatus, ErrorCode
@@ -83,7 +84,8 @@ def test_codex_executor_success_returns_structured_result(monkeypatch) -> None:
     popen_calls: list[tuple[list[str], dict[str, Any]]] = []
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.shutil.which",
+        codex_executor.shutil,
+        "which",
         lambda _binary: "/usr/bin/codex",
     )
 
@@ -93,7 +95,8 @@ def test_codex_executor_success_returns_structured_result(monkeypatch) -> None:
         return fake_process
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.subprocess.Popen",
+        codex_executor.subprocess,
+        "Popen",
         fake_popen,
     )
 
@@ -131,7 +134,8 @@ def test_codex_executor_missing_binary_becomes_not_found(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.shutil.which",
+        codex_executor.shutil,
+        "which",
         lambda _binary: None,
     )
 
@@ -169,11 +173,13 @@ def test_codex_executor_timeout_becomes_timeout_failure(monkeypatch) -> None:
     monotonic_values = iter([0.0, 0.2, 0.4, 0.6, 0.8])
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.shutil.which",
+        codex_executor.shutil,
+        "which",
         lambda _binary: "/usr/bin/codex",
     )
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.time.monotonic",
+        codex_executor.time,
+        "monotonic",
         lambda: next(monotonic_values),
     )
 
@@ -182,7 +188,8 @@ def test_codex_executor_timeout_becomes_timeout_failure(monkeypatch) -> None:
         return fake_process
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.subprocess.Popen",
+        codex_executor.subprocess,
+        "Popen",
         fake_popen,
     )
 
@@ -205,7 +212,8 @@ def test_codex_executor_nonzero_exit_becomes_failure(monkeypatch) -> None:
         configured_returncode=17,
     )
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.shutil.which",
+        codex_executor.shutil,
+        "which",
         lambda _binary: "/usr/bin/codex",
     )
 
@@ -214,7 +222,8 @@ def test_codex_executor_nonzero_exit_becomes_failure(monkeypatch) -> None:
         return fake_process
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.subprocess.Popen",
+        codex_executor.subprocess,
+        "Popen",
         fake_popen,
     )
 
@@ -235,7 +244,8 @@ def test_codex_executor_spawn_failure_becomes_spawn_failure(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.shutil.which",
+        codex_executor.shutil,
+        "which",
         lambda _binary: "/usr/bin/codex",
     )
 
@@ -243,7 +253,8 @@ def test_codex_executor_spawn_failure_becomes_spawn_failure(
         raise OSError("boom")
 
     monkeypatch.setattr(
-        "guardian.core.executors.codex_executor.subprocess.Popen",
+        codex_executor.subprocess,
+        "Popen",
         fake_popen,
     )
 

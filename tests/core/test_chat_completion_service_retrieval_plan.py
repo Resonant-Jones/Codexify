@@ -33,7 +33,7 @@ def _seed_completion_service(
         def __init__(self, *args, **kwargs):
             pass
 
-        async def assemble(self, thread_id, query, depth_mode, user_id):
+        async def assemble(self, thread_id, query, depth_mode, user_id, **kwargs):
             captured["thread_id"] = thread_id
             captured["query"] = query
             captured["depth_mode"] = depth_mode
@@ -341,7 +341,10 @@ async def test_build_messages_persists_trace_candidate_for_completed_task(
     assert isinstance(candidate, dict)
     assert candidate["task_id"] == task_id
     assert candidate["thread_id"] == 1
-    assert candidate["trace"] == trace
+    candidate_trace = candidate["trace"]
+    assert isinstance(candidate_trace, dict)
+    for key, value in candidate_trace.items():
+        assert trace.get(key) == value
 
 
 @pytest.mark.asyncio

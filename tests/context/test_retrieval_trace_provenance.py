@@ -88,11 +88,13 @@ async def test_context_broker_emits_containment_trace_fields() -> None:
     assert context["messages"] == [
         {"id": 91, "role": "user", "content": "Describe this."}
     ]
-    assert trace["retrieval_policy"] == {
-        "source_mode": SOURCE_MODE_PROJECT,
-        "widening_enabled": True,
-        "identity_scope": SOURCE_MODE_PROJECT,
-    }
+    retrieval_policy = trace["retrieval_policy"]
+    assert retrieval_policy["source_mode"] == SOURCE_MODE_PROJECT
+    assert retrieval_policy["boundary_label"] == "same_user_same_project"
+    assert retrieval_policy["allow_thread_docs"] is True
+    assert retrieval_policy["allow_project_docs"] is True
+    assert retrieval_policy["allow_semantic_widening"] is False
+    assert retrieval_policy["allow_global_widening"] is False
     assert trace["retrieval_executed"] is True
     assert trace["retrieval_absence_reason"] == "retrieval_no_candidates"
     assert (
@@ -204,11 +206,7 @@ async def test_retrieval_trace_surfaces_provenance_and_policy_suppression():
     assert trace_item["retrieval_lane"] == "thread_semantic"
     assert trace_item["policy_reason"] == "local_hits"
     assert trace_item["retrieval_policy"] == retrieval_policy
-    assert trace["retrieval_policy"] == {
-        "source_mode": "project",
-        "widening_enabled": True,
-        "identity_scope": "project",
-    }
+    assert trace["retrieval_policy"] == retrieval_policy
     assert trace["retrieval_suppression"] == {
         "items": [],
         "summary": {"total_suppressed": 0},

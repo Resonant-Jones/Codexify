@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from guardian.core.dependencies import RequestUserScope
 from guardian.queue import task_events
 from guardian.routes import chat
 
@@ -51,12 +52,10 @@ def test_api_chat_complete_logs_tagged_task_created_publish_failure(
 
     captured: dict[str, object] = {}
 
+    monkeypatch.setattr(chat, "acquire_turn_lock", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
-        lambda *args, **kwargs: True,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
@@ -78,15 +77,34 @@ def test_api_chat_complete_logs_tagged_task_created_publish_failure(
         }
 
     monkeypatch.setattr(
-        "guardian.routes.chat.task_events.publish_with_visibility",
+        chat.task_events,
+        "publish_with_visibility",
         MagicMock(side_effect=_publish_with_visibility),
     )
+    monkeypatch.setattr(
+        chat,
+        "_get_task_completed_payload",
+        lambda *_args, **_kwargs: None,
+    )
+    test_client.app.dependency_overrides[
+        chat.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="test_user",
+        subject_id="test_user",
+        account_id="test_user",
+        multi_user_enabled=False,
+    )
 
-    with caplog.at_level(logging.ERROR, logger="guardian.routes.chat"):
-        response = test_client.post(
-            "/api/chat/1/complete",
-            json={},
-            headers={"X-Request-ID": "req-chat-complete-1"},
+    try:
+        with caplog.at_level(logging.ERROR, logger="guardian.routes.chat"):
+            response = test_client.post(
+                "/api/chat/1/complete",
+                json={},
+                headers={"X-Request-ID": "req-chat-complete-1"},
+            )
+    finally:
+        test_client.app.dependency_overrides.pop(
+            chat.get_request_user_scope, None
         )
 
     assert response.status_code == 200

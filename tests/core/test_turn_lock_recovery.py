@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from guardian.queue import task_events
 from guardian.protocol_tokens import ChatEventType
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
+from guardian.routes import chat as chat_routes
 from tests.utils import get_test_api_key, get_test_auth_headers
 
 os.environ.setdefault("CODEXIFY_EMBEDDINGS_BACKEND", "mock")
@@ -44,26 +45,62 @@ def mock_db():
 @pytest.fixture
 def test_client(mock_db, monkeypatch, tmp_path):
     monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+    monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", "test_user")
     with patch("logging.info"):
         with patch("guardian.guardian_api.chatlog_db", mock_db):
             with patch("guardian.core.dependencies.chatlog_db", mock_db):
-                with patch("guardian.routes.chat.chatlog_db", mock_db):
-                    with patch(
-                        "guardian.guardian_api.event_bus"
-                    ) as mock_event_bus:
-                        mock_event_bus.emit_event.return_value = None
-                        from guardian.guardian_api import app, require_api_key
+                with patch.object(chat_routes, "chatlog_db", mock_db):
+                    with patch.object(
+                        chat_routes,
+                        "run_with_redis_timeout",
+                        lambda fn, *_, **__: fn(),
+                    ):
+                        with patch.object(
+                            chat_routes.task_events,
+                            "publish_with_visibility",
+                            lambda task_id, event_type, payload: {
+                                "ok": True,
+                                "task_id": task_id,
+                                "event_type": event_type,
+                                "event_id": "1-1",
+                                "visibility_scope": "live",
+                                "terminal_visibility": False,
+                                "execution_continued": True,
+                                "payload": payload,
+                            },
+                        ):
+                            with patch.object(
+                                chat_routes.task_events,
+                                "read_events",
+                                lambda *_, **__: [],
+                            ):
+                                with patch(
+                                    "guardian.guardian_api.event_bus"
+                                ) as mock_event_bus:
+                                    mock_event_bus.emit_event.return_value = None
+                                    from guardian.guardian_api import (
+                                        app,
+                                        require_api_key,
+                                    )
 
-                        app.dependency_overrides[
-                            require_api_key
-                        ] = lambda: get_test_api_key()
-                        client = TestClient(
-                            app, headers=get_test_auth_headers()
-                        )
-                        try:
-                            yield client
-                        finally:
-                            app.dependency_overrides.clear()
+                                    app.dependency_overrides[
+                                        require_api_key
+                                    ] = lambda: get_test_api_key()
+                                    app.dependency_overrides[
+                                        chat_routes.get_request_user_scope
+                                    ] = lambda: chat_routes.RequestUserScope(
+                                        user_id="test_user",
+                                        subject_id="test_user",
+                                        account_id="test_user",
+                                        multi_user_enabled=False,
+                                    )
+                                    client = TestClient(
+                                        app, headers=get_test_auth_headers()
+                                    )
+                                    try:
+                                        yield client
+                                    finally:
+                                        app.dependency_overrides.clear()
 
 
 def _stale_lock(thread_id: int = 1) -> TurnLockEnvelope:
@@ -209,31 +246,31 @@ def test_complete_recovers_orphaned_turn_lock(
             source=kwargs.get("source"),
         )
 
-    monkeypatch.setattr("guardian.routes.chat.acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_routes, "acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat._task_terminal_event",
+        chat_routes,
+        "_task_terminal_event",
         lambda *_: _terminal_evidence("terminal"),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._chat_worker_heartbeat_evidence",
+        chat_routes,
+        "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
     )
     cleared: list[tuple[int, str]] = []
     monkeypatch.setattr(
-        "guardian.routes.chat.clear_turn_lock",
+        chat_routes,
+        "clear_turn_lock",
         lambda thread_id, expected=None: cleared.append(
             (thread_id, getattr(expected, "owner_task_id", ""))
         )
         or True,
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat_routes,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
@@ -287,31 +324,31 @@ def test_complete_recovers_orphaned_turn_lock_when_worker_not_fresh(
             source=kwargs.get("source"),
         )
 
-    monkeypatch.setattr("guardian.routes.chat.acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_routes, "acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat._task_terminal_event",
+        chat_routes,
+        "_task_terminal_event",
         lambda *_: _terminal_evidence("nonterminal"),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._chat_worker_heartbeat_evidence",
+        chat_routes,
+        "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence(worker_state),
     )
     cleared: list[tuple[int, str]] = []
     monkeypatch.setattr(
-        "guardian.routes.chat.clear_turn_lock",
+        chat_routes,
+        "clear_turn_lock",
         lambda thread_id, expected=None: cleared.append(
             (thread_id, getattr(expected, "owner_task_id", ""))
         )
         or True,
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat_routes,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
@@ -332,28 +369,28 @@ def test_complete_denies_recovery_when_worker_fresh(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
+        chat_routes,
+        "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
+    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat._task_terminal_event",
+        chat_routes,
+        "_task_terminal_event",
         lambda *_: _terminal_evidence("nonterminal"),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._chat_worker_heartbeat_evidence",
+        chat_routes,
+        "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
     )
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
     orphan_events: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "guardian.routes.chat.event_bus.emit_event",
+        chat_routes.event_bus,
+        "emit_event",
         lambda event_name, payload: orphan_events.append(
             {"name": event_name, "payload": dict(payload)}
         ),
@@ -372,25 +409,24 @@ def test_complete_denies_recovery_on_unknown_terminal_state(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
+        chat_routes,
+        "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
+    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat._task_terminal_event",
+        chat_routes,
+        "_task_terminal_event",
         lambda *_: _terminal_evidence("unknown", reason="event_probe_failed"),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._chat_worker_heartbeat_evidence",
+        chat_routes,
+        "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("stale", age_seconds=27.0),
     )
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
 
     response = test_client.post("/chat/1/complete", json={})
 
@@ -404,20 +440,18 @@ def test_complete_keeps_active_turn_lock_in_place(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
+        chat_routes,
+        "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
-    monkeypatch.setattr(
-        "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.turn_lock_is_stale", lambda *_: False
-    )
+    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: False)
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
     orphan_events: list[dict[str, object]] = []
     monkeypatch.setattr(
-        "guardian.routes.chat.event_bus.emit_event",
+        chat_routes.event_bus,
+        "emit_event",
         lambda event_name, payload: orphan_events.append(
             {"name": event_name, "payload": dict(payload)}
         ),

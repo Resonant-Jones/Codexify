@@ -21,6 +21,7 @@ os.environ.setdefault("STORAGE_BASE_PATH", "/tmp/test_media")
 os.environ.setdefault("STORAGE_URL_PREFIX", "/media")
 
 from guardian.routes import migration as migration_routes
+from guardian.core import dependencies as dependencies_module
 from guardian.services.account_export import (
     ZIP_FILENAME,
     build_account_export_zip,
@@ -1038,6 +1039,11 @@ def app(
     monkeypatch.setattr(
         migration_routes, "chatlog_db", restore_db, raising=True
     )
+    monkeypatch.setattr(
+        dependencies_module,
+        "verify_session_token",
+        lambda token: (token == "test-session-token", USER_ID),
+    )
     application = FastAPI()
     application.include_router(migration_routes.router)
     return application
@@ -1056,6 +1062,7 @@ def _post_archive(
     headers: dict[str, str] | None = None,
 ):
     request_headers = {
+        "Authorization": "Bearer test-session-token",
         "X-API-Key": os.environ["GUARDIAN_API_KEY"],
         "X-User-Id": USER_ID,
     }

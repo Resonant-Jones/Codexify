@@ -4,6 +4,8 @@ import sys
 from types import SimpleNamespace
 
 import guardian.routes.health as health_routes
+from guardian.core import config as config_module
+from guardian.core import llm_catalog
 from guardian.core.config import Settings
 
 
@@ -81,9 +83,9 @@ def test_llm_catalog_route_reports_whooshd_configured_model_mismatch(
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
-    monkeypatch.setattr("guardian.core.llm_catalog.requests.get", _whooshd_inventory)
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
     settings = _settings()
-    monkeypatch.setattr("guardian.core.llm_catalog.get_settings", lambda: settings)
+    monkeypatch.setattr(llm_catalog, "get_settings", lambda: settings)
 
     payload = health_routes.llm_catalog(include="all")
 
@@ -121,7 +123,7 @@ def test_health_llm_route_degrades_when_whooshd_default_not_advertised(
     health_routes._LLM_HEALTH_PROBE_CACHE = None
     health_routes._LLM_HEALTH_PROBE_TS = 0.0
     settings = _settings()
-    monkeypatch.setattr("guardian.core.config.get_settings", lambda: settings)
+    monkeypatch.setattr(config_module, "get_settings", lambda: settings)
 
     try:
         payload = health_routes.health_llm()

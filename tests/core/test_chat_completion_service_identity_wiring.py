@@ -59,11 +59,13 @@ def _runtime_prompt_setup(monkeypatch: pytest.MonkeyPatch):
     persona_store._set_session_factory(Session)
 
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.get_docs_for",
+        system_prompt_builder,
+        "get_docs_for",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "guardian.cognition.system_prompt_builder.estimate_token_cost_for_docs",
+        system_prompt_builder,
+        "estimate_token_cost_for_docs",
         lambda _docs: 0,
     )
     monkeypatch.setattr(

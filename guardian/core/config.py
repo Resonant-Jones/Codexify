@@ -197,6 +197,13 @@ class Settings(BaseSettings):
             "LOCAL_BASE_URL points to localhost/loopback inside containers."
         ),
     )
+    CODEXIFY_LOCAL_DOCKER_FALLBACK_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Opt-in local Docker host bridge fallback when LOCAL_BASE_URL "
+            "points at localhost/loopback from inside a container."
+        ),
+    )
     CODEXIFY_LOCAL_ENDPOINT_CHAIN: str | None = Field(
         default=None,
         description=(
@@ -297,6 +304,14 @@ class Settings(BaseSettings):
     LOCAL_CHAT_MODEL: str = Field(
         default="library2/ministral-3:8b",
         description="Local chat model identifier used by supported profile validation.",
+    )
+    LOCAL_VISION_MODEL: str | None = Field(
+        default=None,
+        description="Optional local vision model identifier for image turns.",
+    )
+    LOCAL_GGUF_MODEL: str | None = Field(
+        default=None,
+        description="Optional local GGUF model identifier for smoke/runtime diagnostics.",
     )
     CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED: bool = Field(
         default=False,

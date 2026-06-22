@@ -4,8 +4,10 @@ import json
 
 import pytest
 
+from guardian.core import ai_router
 from guardian.core.ai_router import LOCAL_MODEL_RESOLUTION_ERROR, call_local
 from guardian.core.config import get_settings
+from guardian.queue import redis_queue
 from guardian.routes import health as health_routes
 
 
@@ -100,12 +102,11 @@ def _healthy_queue() -> dict[str, object]:
 
 
 def _snapshot_settings(settings):
-    return {
+    fields = {
         "LLM_PROVIDER": settings.LLM_PROVIDER,
         "ALLOW_CLOUD_PROVIDERS": settings.ALLOW_CLOUD_PROVIDERS,
         "CODEXIFY_LOCAL_ONLY_MODE": settings.CODEXIFY_LOCAL_ONLY_MODE,
         "CODEXIFY_EGRESS_ALLOWLIST": settings.CODEXIFY_EGRESS_ALLOWLIST,
-        "LOCAL_RUNTIME_PRESET": settings.LOCAL_RUNTIME_PRESET,
         "LOCAL_BASE_URL": settings.LOCAL_BASE_URL,
         "LOCAL_API_KEY": settings.LOCAL_API_KEY,
         "LOCAL_LLM_MODEL": settings.LOCAL_LLM_MODEL,
@@ -113,6 +114,9 @@ def _snapshot_settings(settings):
         "DEFAULT_LOCAL_MODEL": settings.DEFAULT_LOCAL_MODEL,
         "LLM_MODEL": settings.LLM_MODEL,
     }
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        fields["LOCAL_RUNTIME_PRESET"] = settings.LOCAL_RUNTIME_PRESET
+    return fields
 
 
 def _apply_local_only_runtime(settings) -> None:
@@ -120,7 +124,8 @@ def _apply_local_only_runtime(settings) -> None:
     settings.ALLOW_CLOUD_PROVIDERS = False
     settings.CODEXIFY_LOCAL_ONLY_MODE = True
     settings.CODEXIFY_EGRESS_ALLOWLIST = ""
-    settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        settings.LOCAL_RUNTIME_PRESET = "whooshd-mlx"
     settings.LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
     settings.LOCAL_API_KEY = "local"
     settings.LOCAL_LLM_MODEL = "library2/ministral-3:8b"
@@ -134,21 +139,14 @@ def _heartbeat_bytes(payload: object) -> bytes:
 
 
 def _patch_local_health_runtime(monkeypatch) -> None:
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.health.requests.get",
-        _mock_local_runtime_request,
+        health_routes.requests, "get", _mock_local_runtime_request
     )
 
 
 def _install_fake_redis(monkeypatch, client: _FakeRedisClient) -> None:
-    monkeypatch.setattr(
-        "guardian.queue.redis_queue.get_redis_client",
-        lambda: client,
-    )
+    monkeypatch.setattr(redis_queue, "get_redis_client", lambda: client)
 
 
 def _llm_health_details(payload: dict) -> dict:
@@ -178,13 +176,9 @@ def test_health_llm_reports_effective_local_chat_model(
     test_client,
     monkeypatch,
 ):
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.health.requests.get",
-        _mock_local_runtime_request,
+        health_routes.requests, "get", _mock_local_runtime_request
     )
     monkeypatch.setattr(
         health_routes,
@@ -214,10 +208,7 @@ def test_health_chat_reports_effective_local_chat_model(
     test_client,
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
-    )
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
         health_routes,
         "_collect_completion_service_health",
@@ -253,15 +244,11 @@ def test_health_surfaces_match_executed_local_model(
         _ = (headers, timeout)
         return _MockRawResponse({"message": {"content": "Strict reply"}})
 
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
+        health_routes.requests, "get", _mock_local_runtime_request
     )
-    monkeypatch.setattr(
-        "guardian.routes.health.requests.get",
-        _mock_local_runtime_request,
-    )
-    monkeypatch.setattr("guardian.core.ai_router.requests.post", _mock_post)
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
         health_routes,
         "_collect_completion_service_health",
@@ -309,13 +296,9 @@ def test_health_llm_surfaces_local_model_resolution_error(
     test_client,
     monkeypatch,
 ):
+    monkeypatch.setattr(ai_router.requests, "get", _mock_local_runtime_request)
     monkeypatch.setattr(
-        "guardian.core.ai_router.requests.get",
-        _mock_local_runtime_request,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.health.requests.get",
-        _mock_local_runtime_request,
+        health_routes.requests, "get", _mock_local_runtime_request
     )
     monkeypatch.setattr(
         health_routes,

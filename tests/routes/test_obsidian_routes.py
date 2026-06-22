@@ -5,14 +5,17 @@ from typing import Any
 
 import pytest
 
+from guardian.core import dependencies
+from guardian.routes import obsidian as obsidian_routes
+
 CONNECTOR_NAME = "obsidian_local"
 
 
 @pytest.fixture(autouse=True)
 def _patch_obsidian_db(mock_db, monkeypatch):
     # Ensure routes use the in-memory mock DB instead of a real connection
-    monkeypatch.setattr("guardian.routes.obsidian.chatlog_db", mock_db)
-    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", mock_db)
+    monkeypatch.setattr(obsidian_routes, "chatlog_db", mock_db)
+    monkeypatch.setattr(dependencies, "chatlog_db", mock_db)
     return mock_db
 
 
@@ -164,9 +167,7 @@ def test_index_invokes_indexer_and_updates_metadata(
             "indexed_at": "2026-03-25T00:00:00Z",
         }
 
-    monkeypatch.setattr(
-        "guardian.routes.obsidian.index_obsidian_vault", fake_index
-    )
+    monkeypatch.setattr(obsidian_routes, "index_obsidian_vault", fake_index)
     mock_db.update_connector_config.return_value = {"settings": settings}
 
     resp = test_client.post("/api/obsidian/index")
@@ -192,7 +193,7 @@ def test_index_failure_sets_last_index_error(test_client, mock_db, monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError("explode")
 
-    monkeypatch.setattr("guardian.routes.obsidian.index_obsidian_vault", boom)
+    monkeypatch.setattr(obsidian_routes, "index_obsidian_vault", boom)
     mock_db.update_connector_config.return_value = {"settings": {}}
 
     resp = test_client.post("/api/obsidian/index")

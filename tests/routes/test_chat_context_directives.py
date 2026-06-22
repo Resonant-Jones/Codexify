@@ -5,7 +5,27 @@ from urllib.parse import unquote
 
 import pytest
 
+from guardian.core import chat_completion_service
+from guardian.core.dependencies import RequestUserScope
+from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
+
+
+@pytest.fixture(autouse=True)
+def _override_request_scope(test_client):
+    user_id = get_test_user_id()
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id=user_id,
+        subject_id=user_id,
+        account_id=user_id,
+        multi_user_enabled=False,
+    )
+    yield
+    test_client.app.dependency_overrides.pop(
+        chat_routes.get_request_user_scope, None
+    )
 
 
 def _configure_chat_complete_route(mock_db, monkeypatch) -> dict[str, object]:
@@ -19,21 +39,22 @@ def _configure_chat_complete_route(mock_db, monkeypatch) -> dict[str, object]:
     mock_db.list_messages.return_value = [{"role": "user", "content": "Hello"}]
 
     captured: dict[str, object] = {}
+    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat_routes,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._publish_completion_start_event",
+        chat_routes,
+        "_publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._get_task_completed_payload",
+        chat_routes,
+        "_get_task_completed_payload",
         lambda *_args, **_kwargs: None,
     )
     return captured
@@ -271,7 +292,7 @@ def test_chat_complete_rejects_unsupported_directive_before_enqueue(
             "enqueue should not run for unsupported directives"
         )
 
-    monkeypatch.setattr("guardian.routes.chat.enqueue", _enqueue_should_not_run)
+    monkeypatch.setattr(chat_routes, "enqueue", _enqueue_should_not_run)
 
     response = test_client.post(
         "/chat/1/complete",
@@ -321,9 +342,10 @@ def test_chat_complete_returns_400_when_resolver_plan_classification_fails(
     def _enqueue_should_not_run(*_args, **_kwargs):
         raise AssertionError("enqueue should not run when resolver fails")
 
-    monkeypatch.setattr("guardian.routes.chat.enqueue", _enqueue_should_not_run)
+    monkeypatch.setattr(chat_routes, "enqueue", _enqueue_should_not_run)
     monkeypatch.setattr(
-        "guardian.routes.chat.resolve_context_request_plans",
+        chat_routes,
+        "resolve_context_request_plans",
         lambda _directives: (_ for _ in ()).throw(
             ValueError("resolver exploded")
         ),
@@ -360,9 +382,7 @@ def test_chat_complete_context_directive_validation_does_not_execute_completion_
             "completion service must not run at route acceptance"
         )
 
-    monkeypatch.setattr(
-        "guardian.core.chat_completion_service.run_chat_completion_task", _boom
-    )
+    monkeypatch.setattr(chat_completion_service, "run_chat_completion_task", _boom)
 
     response = test_client.post(
         "/chat/1/complete",

@@ -26,6 +26,10 @@ _GUARDIAN_API_ENV_KEYS = (
     "LOCAL_PROVIDER_VENDOR",
     "LOCAL_LLM_MODEL",
     "LOCAL_CHAT_MODEL",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "ALIBABA_API_KEY",
+    "MINIMAX_API_KEY",
 )
 
 
@@ -45,6 +49,13 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     fake_db = _fake_db()
     monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
     monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+    for key in (
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "ALIBABA_API_KEY",
+        "MINIMAX_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv(
         "CODEXIFY_BETA_CORE_ONLY",
         env_overrides.pop("CODEXIFY_BETA_CORE_ONLY", "false"),
@@ -136,9 +147,10 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     settings.CODEXIFY_EGRESS_ALLOWLIST = os.getenv(
         "CODEXIFY_EGRESS_ALLOWLIST", ""
     )
-    settings.LOCAL_RUNTIME_PRESET = os.getenv(
-        "LOCAL_RUNTIME_PRESET", "whooshd-mlx"
-    )
+    if hasattr(settings, "LOCAL_RUNTIME_PRESET"):
+        settings.LOCAL_RUNTIME_PRESET = os.getenv(
+            "LOCAL_RUNTIME_PRESET", "whooshd-mlx"
+        )
     settings.LOCAL_BASE_URL = os.getenv(
         "LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"
     )
@@ -156,6 +168,10 @@ def _load_guardian_api(monkeypatch, **env_overrides):
     settings.LOCAL_CHAT_MODEL = os.getenv(
         "LOCAL_CHAT_MODEL", _WHOOSHD_MODEL
     )
+    settings.OPENAI_API_KEY = None
+    settings.GROQ_API_KEY = None
+    settings.ALIBABA_API_KEY = None
+    settings.MINIMAX_API_KEY = None
     return guardian_api
 
 

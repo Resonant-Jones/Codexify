@@ -190,7 +190,10 @@ def test_chat_message_create_on_send_normalizes_display_label_in_single_user_mod
 
     captured: dict[str, object] = {}
 
-    def fake_persist_message_to_thread(*, thread_id, role, content, owner):
+    def fake_persist_message_to_thread(
+        *, thread_id, role, content, owner, message_metadata=None
+    ):
+        _ = message_metadata
         captured.update(
             {
                 "thread_id": thread_id,

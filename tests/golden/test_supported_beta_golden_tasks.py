@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from guardian.context.retrieval_router_policy import SOURCE_MODE_WORKSPACE
 from guardian.core import chat_completion_service
+from guardian.core import config as config_module
+from guardian.core import dependencies as dependencies_module
 from guardian.core.dependencies import RequestUserScope
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.routes import chat
@@ -186,8 +188,34 @@ def _supported_help_startup_client(
     real_ingest = help_ingest.ingest_builtin_help_document
     ingest_calls = {"count": 0}
 
+    class _StartupVectorStore:
+        def __init__(self) -> None:
+            self.rows = []
+
+        def add_texts(self, rows):
+            self.rows.extend(rows)
+
+        def search(self, query, k=5, namespace=None, user_id=None):
+            _ = namespace, user_id
+            matches = []
+            for row in self.rows:
+                if str(query) in str(row.get("text", "")):
+                    matches.append(row)
+            return matches[: int(k)]
+
+        def health(self):
+            return {"ok": True}
+
+    startup_vector_store = _StartupVectorStore()
+    monkeypatch.setattr(
+        dependencies_module,
+        "_vector_store",
+        startup_vector_store,
+    )
+
     def _wrapped_ingest(*args, **kwargs):
         ingest_calls["count"] += 1
+        kwargs.setdefault("vector_store", startup_vector_store)
         return real_ingest(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -214,6 +242,7 @@ def _supported_help_startup_client(
         "load_guardian_db_from_env",
         lambda: fake_guardian_db,
     )
+    monkeypatch.setattr(guardian_api, "init_services", lambda _db: None)
     monkeypatch.setattr(guardian_api, "ensure_default_project", lambda: True)
     monkeypatch.setattr(
         guardian_api,
@@ -229,6 +258,14 @@ def _supported_help_startup_client(
         media_routes,
         "load_guardian_db_from_env",
         lambda: fake_guardian_db,
+    )
+    guardian_api.app.dependency_overrides[
+        media_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id="local",
+        subject_id="local",
+        account_id="local",
+        multi_user_enabled=False,
     )
 
     with TestClient(
@@ -258,32 +295,45 @@ def test_golden_completion_acceptance_contract(monkeypatch):
     captured: dict[str, object] = {}
     monkeypatch.setattr(chat, "chatlog_db", mock_db)
     monkeypatch.setattr(
-        "guardian.core.dependencies.chatlog_db",
+        dependencies_module,
+        "chatlog_db",
         mock_db,
         raising=False,
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
+        chat,
+        "acquire_turn_lock",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.task_events.publish_with_visibility",
+        chat.task_events,
+        "publish_with_visibility",
         lambda task_id, event_type, data: _accepted_task_created_event(task_id),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._get_task_completed_payload",
+        chat,
+        "_get_task_completed_payload",
         lambda *_args, **_kwargs: None,
     )
 
     app = FastAPI()
     app.include_router(chat.api_chat_router)
     app.dependency_overrides[chat.require_api_key] = get_test_api_key
+    app.dependency_overrides[chat.get_request_user_scope] = lambda: (
+        RequestUserScope(
+            user_id="test_user",
+            subject_id="test_user",
+            account_id="test_user",
+            multi_user_enabled=False,
+        )
+    )
 
     with TestClient(app, headers=get_test_auth_headers()) as test_client:
         response = test_client.post("/api/chat/1/complete", json={})
@@ -361,16 +411,11 @@ def test_golden_rag_trace_latest_and_isolation(monkeypatch):
         _ = block_ms
         return task_payloads.get(task_id)
 
+    monkeypatch.setattr(chat, "_get_task_completed_payload", _fake_completed_payload)
+    monkeypatch.setattr(chat, "_fetch_thread_metadata", lambda _thread_id: {})
     monkeypatch.setattr(
-        "guardian.routes.chat._get_task_completed_payload",
-        _fake_completed_payload,
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat._fetch_thread_metadata",
-        lambda _thread_id: {},
-    )
-    monkeypatch.setattr(
-        "guardian.routes.chat.resolve_thread_system_profile",
+        chat,
+        "resolve_thread_system_profile",
         lambda *args, **kwargs: None,
     )
     try:
@@ -486,7 +531,8 @@ def test_golden_supported_retrieval_path(monkeypatch, tmp_path):
 
         retrieve_api = importlib.reload(retrieve_api)
         monkeypatch.setattr(
-            "guardian.core.config.assert_config_coherence",
+            config_module,
+            "assert_config_coherence",
             lambda _settings: None,
         )
         retrieve_app.include_router(retrieve_api.router)
@@ -614,6 +660,11 @@ def test_golden_workspace_completion_influences_response_and_trace(monkeypatch):
         "_vector_store",
         vector_store,
         raising=False,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_workspace_completion_vector_store",
+        lambda: vector_store,
     )
     monkeypatch.setattr(
         chat_completion_service.dependencies,

@@ -36,6 +36,7 @@ def _seed_trace_service(
             user_id,
             project_id=None,
             source_mode="project",
+            **kwargs,
         ):
             captured["thread_id"] = thread_id
             captured["query"] = query

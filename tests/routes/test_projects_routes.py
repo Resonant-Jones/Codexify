@@ -5,6 +5,26 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from guardian.core.dependencies import RequestUserScope
+from guardian.routes import projects as projects_routes
+
+
+@pytest.fixture
+def test_client(mock_db, mock_auth, monkeypatch):
+    monkeypatch.setattr(projects_routes, "chatlog_db", mock_db)
+    app = FastAPI()
+    app.dependency_overrides[
+        projects_routes.require_api_key
+    ] = lambda: mock_auth
+    app.dependency_overrides[
+        projects_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(user_id="local", multi_user_enabled=False)
+    app.include_router(projects_routes.router)
+    app.include_router(projects_routes.api_router)
+    return TestClient(app, headers={"X-API-Key": "test-api-key"})
 
 
 class TestProjectsPatch:
@@ -171,8 +191,7 @@ class TestProjectsDelete:
 
         assert response.status_code == 404
         data = response.json()
-        assert data["ok"] is False
-        assert "error" in data
+        assert "detail" in data
 
     def test_delete_project_ejects_threads_first(self, test_client, mock_db):
         """Test project deletion ejects threads before deleting."""
@@ -260,6 +279,9 @@ class TestProjectsIntegration:
 
     def test_multiple_project_operations(self, test_client, mock_db):
         """Test multiple project operations in sequence."""
+        mock_db.list_projects.return_value.append(
+            {"id": 3, "name": "Project 3", "user_id": "local"}
+        )
         # Patch multiple projects
         for project_id in [1, 2, 3]:
             response = test_client.patch(

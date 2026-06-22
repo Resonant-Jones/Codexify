@@ -38,7 +38,8 @@ async def test_build_messages_for_llm_sanitizes_attachment_markers_and_injects_t
         def __init__(self, *args, **kwargs):
             pass
 
-        async def assemble(self, thread_id, query, depth_mode, user_id):
+        async def assemble(self, thread_id, query, depth_mode, user_id, **kwargs):
+            _ = kwargs
             captured["query"] = query
             return (
                 {

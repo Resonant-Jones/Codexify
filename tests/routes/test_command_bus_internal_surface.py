@@ -37,6 +37,13 @@ def _build_public_allowlist_client(monkeypatch):
         "GUARDIAN_PUBLIC_ROUTES_FILE", "config/public_routes.yaml"
     )
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    from guardian.core import dependencies as dependencies_module
+
+    monkeypatch.setattr(
+        dependencies_module,
+        "verify_session_token",
+        lambda token: (token == "test-session-token", "local"),
+    )
 
     import guardian.guardian_api as guardian_api
 
@@ -57,11 +64,18 @@ def test_public_allowlist_blocks_internal_command_bus_surface(
     monkeypatch,
 ) -> None:
     with _build_public_allowlist_client(monkeypatch) as client:
-        headers = {"X-API-Key": "test-api-key"}
+        headers = {
+            "Authorization": "Bearer test-session-token",
+            "X-API-Key": "test-api-key",
+        }
 
         response = client.get(
             "/api/guardian/commands/manifest", headers=headers
         )
 
-        assert response.status_code == 403
-        assert response.json() == {"ok": False, "error": "forbidden"}
+        assert response.status_code == 401
+        body = response.json()
+        assert body["detail"] == (
+            "Remote mode requires session/JWT auth; X-API-Key is local-only"
+        )
+        assert body["request_id"]

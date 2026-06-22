@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from guardian.protocol_tokens import (
     DelegationEventType,
@@ -17,6 +19,14 @@ def reset_delegation_service() -> None:
     delegations.configure_db(None)
     yield
     delegations.configure_db(None)
+
+
+@pytest.fixture
+def test_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(delegations.router)
+    with TestClient(app) as client:
+        yield client
 
 
 def _draft_payload() -> dict[str, Any]:

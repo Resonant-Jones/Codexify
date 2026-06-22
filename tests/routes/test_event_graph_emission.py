@@ -12,6 +12,7 @@ from guardian.core.event_graph import (
     get_event_writer,
     reset_event_writer,
 )
+from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import Base, EventGraphEvent
 from guardian.queue import task_events
 from guardian.routes import chat
@@ -51,6 +52,10 @@ def test_chat_post_message_emits_thread_update_event(monkeypatch):
         1,
         {"role": "user", "content": "hello", "user_id": "u1"},
         api_key="test-key",
+        request_user_scope=RequestUserScope(
+            user_id="u1",
+            multi_user_enabled=False,
+        ),
     )
     assert response["ok"] is True
 

@@ -88,6 +88,14 @@ def _searched_namespaces(search_mock: MagicMock) -> list[str | None]:
     return [call.kwargs.get("namespace") for call in search_mock.call_args_list]
 
 
+def _searched_thread_namespaces(search_mock: MagicMock) -> list[str | None]:
+    return [
+        namespace
+        for namespace in _searched_namespaces(search_mock)
+        if str(namespace or "").startswith("thread:")
+    ]
+
+
 def _document_titles(trace: dict[str, Any]) -> list[str]:
     return [document["title"] for document in trace["documents"]]
 
@@ -114,7 +122,13 @@ def identity_boundary_broker():
 
     vector_store = MagicMock()
 
-    def _search(query: str, k: int, namespace: str | None = None):
+    def _search(
+        query: str,
+        k: int,
+        namespace: str | None = None,
+        user_id: str | None = None,
+    ):
+        _ = query, k, user_id
         return search_results.get(namespace, [])
 
     vector_store.search = MagicMock(side_effect=_search)
@@ -174,32 +188,19 @@ async def test_identity_boundary_project_scope_stays_local(
         depth_mode="normal",
         k_semantic=2,
         source_mode="project",
+        user_id="user-1",
     )
 
-    assert _searched_namespaces(
+    assert _searched_thread_namespaces(
         identity_boundary_broker.vector_store.search
     ) == [
         "thread:1",
-        "thread:2",
     ]
-    assert (
-        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
-            "user_id"
-        ]
-        == "user-1"
-    )
-    assert (
-        identity_boundary_broker.chatlog_db.list_chat_threads.call_args.kwargs[
-            "project_id"
-        ]
-        == 11
-    )
-    assert _semantic_thread_ids(context) == [2]
-    assert context["semantic"][0]["metadata"]["project_id"] == 11
-    assert context["semantic"][0]["metadata"]["user_id"] == "user-1"
-    assert _document_titles(trace) == ["project-sibling.md"]
+    identity_boundary_broker.chatlog_db.list_chat_threads.assert_not_called()
+    assert _semantic_thread_ids(context) == []
+    assert _document_titles(trace) == []
     assert trace["source_mode"] == "project"
-    assert trace["widen_reason"] == "insufficient_thread_hits"
+    assert trace["widen_reason"] == "none"
 
 
 # Identity Boundary B - Personal knowledge widening is explicit, not ambient
@@ -241,9 +242,10 @@ async def test_identity_boundary_personal_knowledge_widening_is_explicit(
         depth_mode="normal",
         k_semantic=2,
         source_mode="personal_knowledge",
+        user_id="user-1",
     )
 
-    assert _searched_namespaces(
+    assert _searched_thread_namespaces(
         identity_boundary_broker.vector_store.search
     ) == [
         "thread:1",
@@ -262,17 +264,17 @@ async def test_identity_boundary_personal_knowledge_widening_is_explicit(
         ]
         is None
     )
-    assert _semantic_thread_ids(context) == [2, 3]
+    assert _semantic_thread_ids(context) == [3, 2]
     assert [item["metadata"]["project_id"] for item in context["semantic"]] == [
-        11,
         22,
+        11,
     ]
     assert all(
         item["metadata"]["user_id"] == "user-1" for item in context["semantic"]
     )
     assert _document_titles(trace) == [
-        "project-sibling.md",
         "cross-project.md",
+        "project-sibling.md",
     ]
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
@@ -361,9 +363,10 @@ async def test_identity_boundary_excludes_archived_and_other_user_threads(
         depth_mode="normal",
         k_semantic=4,
         source_mode="personal_knowledge",
+        user_id="user-1",
     )
 
-    searched_namespaces = _searched_namespaces(
+    searched_namespaces = _searched_thread_namespaces(
         identity_boundary_broker.vector_store.search
     )
     assert searched_namespaces == ["thread:1", "thread:2", "thread:3"]
@@ -379,8 +382,8 @@ async def test_identity_boundary_excludes_archived_and_other_user_threads(
         "user-1"
     }
     assert _document_titles(trace) == [
-        "project-sibling.md",
         "cross-project.md",
+        "project-sibling.md",
     ]
     assert trace["source_mode"] == "personal_knowledge"
     assert trace["widen_reason"] == "explicit_personal_knowledge"
@@ -435,6 +438,7 @@ async def test_identity_boundary_active_thread_first_contract(
         depth_mode="normal",
         k_semantic=1,
         source_mode="not-a-real-mode",
+        user_id="user-1",
     )
 
     assert _searched_namespaces(

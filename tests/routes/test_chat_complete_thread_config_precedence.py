@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+from guardian.core.dependencies import RequestUserScope
+from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
+
+
+def _override_request_scope(test_client, user_id: str) -> None:
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id=user_id,
+        subject_id=user_id,
+        account_id=user_id,
+        multi_user_enabled=False,
+    )
 
 
 def test_chat_complete_thread_config_beats_request_overrides(
@@ -23,34 +36,42 @@ def test_chat_complete_thread_config_beats_request_overrides(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
-        lambda *args, **kwargs: True,
+        chat_routes, "acquire_turn_lock", lambda *args, **kwargs: True
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat_routes,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._publish_completion_start_event",
+        chat_routes,
+        "_publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._get_task_completed_payload",
+        chat_routes,
+        "_get_task_completed_payload",
         lambda *_args, **_kwargs: None,
     )
+    _override_request_scope(test_client, expected_user_id)
 
-    response = test_client.post(
-        "/chat/1/complete",
-        json={
-            "provider": "groq",
-            "model": "override-model",
-            "reasoning_mode": "think",
-            "source_mode": "personal_knowledge",
-            "depth_mode": "normal",
-        },
-    )
+    try:
+        response = test_client.post(
+            "/chat/1/complete",
+            json={
+                "provider": "groq",
+                "model": "override-model",
+                "reasoning_mode": "think",
+                "source_mode": "personal_knowledge",
+                "depth_mode": "normal",
+            },
+        )
+    finally:
+        test_client.app.dependency_overrides.pop(
+            chat_routes.get_request_user_scope, None
+        )
 
     assert response.status_code == 200
     assert response.json()["source_mode"] == "project"
@@ -76,34 +97,42 @@ def test_chat_complete_legacy_thread_without_thread_config_still_completes(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock",
-        lambda *args, **kwargs: True,
+        chat_routes, "acquire_turn_lock", lambda *args, **kwargs: True
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        chat_routes,
+        "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._publish_completion_start_event",
+        chat_routes,
+        "_publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._get_task_completed_payload",
+        chat_routes,
+        "_get_task_completed_payload",
         lambda *_args, **_kwargs: None,
     )
+    _override_request_scope(test_client, expected_user_id)
 
-    response = test_client.post(
-        "/chat/1/complete",
-        json={
-            "provider": "groq",
-            "model": "override-model",
-            "reasoning_mode": "think",
-            "source_mode": "personal_knowledge",
-            "depth_mode": "normal",
-        },
-    )
+    try:
+        response = test_client.post(
+            "/chat/1/complete",
+            json={
+                "provider": "groq",
+                "model": "override-model",
+                "reasoning_mode": "think",
+                "source_mode": "personal_knowledge",
+                "depth_mode": "normal",
+            },
+        )
+    finally:
+        test_client.app.dependency_overrides.pop(
+            chat_routes.get_request_user_scope, None
+        )
 
     assert response.status_code == 200
     assert response.json()["source_mode"] == "personal_knowledge"

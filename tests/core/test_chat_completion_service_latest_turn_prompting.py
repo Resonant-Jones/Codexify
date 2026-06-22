@@ -34,6 +34,7 @@ def _seed_prompt_service(
             user_id,
             project_id=None,
             source_mode="project",
+            **kwargs,
         ):
             return {"semantic": []}, {
                 "documents": [],

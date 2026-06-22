@@ -6,6 +6,8 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from backend.rag import chatgpt_migration
 from guardian.core import dependencies
@@ -21,6 +23,19 @@ def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEXIFY_SINGLE_USER_ID", SERVER_USER_ID)
     monkeypatch.setenv("DEBUG", "false")
     monkeypatch.setenv("LOCAL_DEV", "false")
+
+
+@pytest.fixture
+def test_client(mock_auth):
+    app = FastAPI()
+    app.dependency_overrides[
+        migration_routes.require_api_key
+    ] = lambda: mock_auth
+    app.dependency_overrides[
+        migration_routes.get_request_user_id
+    ] = lambda: SERVER_USER_ID
+    app.include_router(migration_routes.router)
+    return TestClient(app, headers={"X-API-Key": "test-api-key"})
 
 
 class StubVectorStore:

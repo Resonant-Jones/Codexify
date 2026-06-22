@@ -165,6 +165,11 @@ async def test_obsidian_only_retrieval_raises_when_no_obsidian_hits(
     )
     monkeypatch.setattr(chat_completion_service, "ContextBroker", _FakeBroker)
     monkeypatch.setattr(
+        chat_completion_service,
+        "_workspace_completion_vector_store",
+        lambda: None,
+    )
+    monkeypatch.setattr(
         chat_completion_service.dependencies,
         "chatlog_db",
         mock_chatlog_db,

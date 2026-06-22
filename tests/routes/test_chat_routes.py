@@ -11,8 +11,35 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.orm.exc import DetachedInstanceError
 
+import guardian as guardian_pkg
+import guardian.routes as guardian_routes_pkg
+from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
+
+setattr(guardian_pkg, "routes", guardian_routes_pkg)
+
+
+@pytest.fixture(autouse=True)
+def _override_chat_route_request_scope(request):
+    if "test_client" not in request.fixturenames:
+        yield
+        return
+
+    test_client = request.getfixturevalue("test_client")
+    user_id = get_test_user_id()
+    test_client.app.dependency_overrides[
+        chat_routes.get_request_user_scope
+    ] = lambda: RequestUserScope(
+        user_id=user_id,
+        subject_id=user_id,
+        account_id=user_id,
+        multi_user_enabled=False,
+    )
+    yield
+    test_client.app.dependency_overrides.pop(
+        chat_routes.get_request_user_scope, None
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -10,6 +10,22 @@ import pytest
 from guardian.memoryos.retriever import MemoryOSRetriever
 
 
+def _with_user_id(
+    rows: list[dict[str, Any]], user_id: str | None
+) -> list[dict[str, Any]]:
+    if not user_id:
+        return list(rows)
+    tagged: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        metadata_key = "metadata" if "metadata" in item else "meta"
+        metadata = dict(item.get(metadata_key) or {})
+        metadata.setdefault("user_id", user_id)
+        item[metadata_key] = metadata
+        tagged.append(item)
+    return tagged
+
+
 class MockVectorStore:
     """Mock vector store for testing."""
 
@@ -18,10 +34,17 @@ class MockVectorStore:
         self.results = results or []
         self.search_calls: list[tuple] = []
 
-    def search(self, query: str, k: int) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int,
+        namespace: str | None = None,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Mock search that returns predefined results."""
+        _ = namespace, user_id
         self.search_calls.append((query, k))
-        return self.results[:k]
+        return _with_user_id(self.results[:k], user_id)
 
 
 class AsyncMockVectorStore:
@@ -32,10 +55,17 @@ class AsyncMockVectorStore:
         self.results = results or []
         self.search_calls: list[tuple] = []
 
-    async def search(self, query: str, k: int) -> list[dict[str, Any]]:
+    async def search(
+        self,
+        query: str,
+        k: int,
+        namespace: str | None = None,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Mock async search that returns predefined results."""
+        _ = namespace, user_id
         self.search_calls.append((query, k))
-        return self.results[:k]
+        return _with_user_id(self.results[:k], user_id)
 
 
 def _candidate_k(limit: int) -> int:
@@ -78,7 +108,9 @@ async def test_retrieve_basic(sample_results):
     vector_store = MockVectorStore(sample_results)
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("programming languages", limit=3)
+    results = await retriever.retrieve(
+        "programming languages", limit=3, user_id="user-1"
+    )
 
     # Verify search was called
     assert len(vector_store.search_calls) == 1
@@ -90,7 +122,11 @@ async def test_retrieve_basic(sample_results):
     # Verify results
     assert len(results) == 3
     assert results[0]["text"] == "Python is a high-level programming language"
-    assert results[0]["metadata"] == {"source": "wiki", "page": 1}
+    assert results[0]["metadata"] == {
+        "source": "wiki",
+        "page": 1,
+        "user_id": "user-1",
+    }
     assert results[0]["score"] == 0.95
 
 
@@ -100,7 +136,9 @@ async def test_retrieve_limit(sample_results):
     vector_store = MockVectorStore(sample_results)
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("test query", limit=2)
+    results = await retriever.retrieve(
+        "test query", limit=2, user_id="user-1"
+    )
 
     assert len(results) == 2
     assert vector_store.search_calls[0][1] == _candidate_k(
@@ -132,7 +170,9 @@ async def test_retrieve_empty_vector_store():
     vector_store = MockVectorStore([])
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("test query", limit=5)
+    results = await retriever.retrieve(
+        "test query", limit=5, user_id="user-1"
+    )
 
     assert results == []
     assert len(vector_store.search_calls) == 1
@@ -144,7 +184,7 @@ async def test_retrieve_schema_normalization(sample_results):
     vector_store = MockVectorStore(sample_results)
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("test", limit=1)
+    results = await retriever.retrieve("test", limit=1, user_id="user-1")
 
     # Verify schema transformation: meta -> metadata
     result = results[0]
@@ -160,7 +200,9 @@ async def test_retrieve_async_vector_store(sample_results):
     async_store = AsyncMockVectorStore(sample_results)
     retriever = MemoryOSRetriever(async_store)
 
-    results = await retriever.retrieve("async test", limit=2)
+    results = await retriever.retrieve(
+        "async test", limit=2, user_id="user-1"
+    )
 
     assert len(results) == 2
     assert len(async_store.search_calls) == 1
@@ -173,7 +215,9 @@ async def test_retrieve_handles_exceptions():
     error_store.search = Mock(side_effect=Exception("Vector store error"))
 
     retriever = MemoryOSRetriever(error_store)
-    results = await retriever.retrieve("test query", limit=5)
+    results = await retriever.retrieve(
+        "test query", limit=5, user_id="user-1"
+    )
 
     # Should return empty list on error
     assert results == []
@@ -187,7 +231,7 @@ async def test_retrieve_handles_malformed_results():
     bad_store.search = Mock(return_value="not a list")
 
     retriever = MemoryOSRetriever(bad_store)
-    results = await retriever.retrieve("test", limit=5)
+    results = await retriever.retrieve("test", limit=5, user_id="user-1")
 
     assert results == []
 
@@ -204,12 +248,12 @@ async def test_retrieve_handles_missing_fields(sample_results):
     vector_store = MockVectorStore(incomplete_results)
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("test", limit=3)
+    results = await retriever.retrieve("test", limit=3, user_id="user-1")
 
     # Should handle gracefully with defaults
     assert len(results) == 3
     assert results[0]["text"] == "Only text field"
-    assert results[0]["metadata"] == {}
+    assert results[0]["metadata"] == {"user_id": "user-1"}
     assert results[0]["score"] == 0.0
 
     assert results[1]["text"] == ""
@@ -241,7 +285,7 @@ async def test_retrieve_default_limit(sample_results):
     retriever = MemoryOSRetriever(vector_store)
 
     # Call without limit parameter
-    results = await retriever.retrieve("test query")
+    results = await retriever.retrieve("test query", user_id="user-1")
 
     # Should use default limit=5
     assert vector_store.search_calls[0][1] == _candidate_k(5)
@@ -255,7 +299,7 @@ async def test_retrieve_preserves_score_order(sample_results):
     vector_store = MockVectorStore(shuffled)
     retriever = MemoryOSRetriever(vector_store)
 
-    results = await retriever.retrieve("test", limit=3)
+    results = await retriever.retrieve("test", limit=3, user_id="user-1")
 
     # VectorStore should already sort, so order should be preserved
     # (This tests that we don't accidentally re-sort or mess up ordering)
@@ -362,7 +406,9 @@ async def test_retrieve_stitches_neighbors_deduplicates_and_sorts():
 
     retriever._fetch_neighbors_for_hit = fake_neighbors  # type: ignore[method-assign]
 
-    results = await retriever.retrieve("chronological context", limit=2)
+    results = await retriever.retrieve(
+        "chronological context", limit=2, user_id="user-1"
+    )
 
     ids = [r["metadata"]["source_message_id"] for r in results]
     assert ids == ["m1", "m2", "m3", "m4"]
@@ -411,7 +457,9 @@ async def test_retrieve_sorts_with_missing_turn_index_by_timestamp():
     retriever = MemoryOSRetriever(vector_store)
     retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
 
-    results = await retriever.retrieve("sort fallback", limit=2)
+    results = await retriever.retrieve(
+        "sort fallback", limit=2, user_id="user-1"
+    )
     ids = [r["metadata"]["source_message_id"] for r in results]
     assert ids == ["m1", "m2"]
 
@@ -456,7 +504,9 @@ async def test_retrieve_prefers_live_over_archival_by_default():
     retriever = MemoryOSRetriever(vector_store)
     retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
 
-    results = await retriever.retrieve("what is the current status", limit=2)
+    results = await retriever.retrieve(
+        "what is the current status", limit=2, user_id="user-1"
+    )
 
     ids = {r["metadata"]["source_message_id"] for r in results}
     assert ids == {"l1", "l2"}
@@ -495,7 +545,9 @@ async def test_retrieve_allows_archival_for_history_queries():
     retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
 
     results = await retriever.retrieve(
-        "from import history what happened before codexify", limit=2
+        "from import history what happened before codexify",
+        limit=2,
+        user_id="user-1",
     )
 
     by_id = {r["metadata"]["source_message_id"]: r for r in results}
@@ -523,7 +575,9 @@ async def test_retrieve_with_trace_reports_attempted_no_hits():
     vector_store = MockVectorStore([])
     retriever = MemoryOSRetriever(vector_store)
 
-    results, trace = await retriever.retrieve_with_trace("test query", limit=3)
+    results, trace = await retriever.retrieve_with_trace(
+        "test query", limit=3, user_id="user-1"
+    )
 
     assert results == []
     assert trace["status"] == "attempted_no_hits"
@@ -538,7 +592,7 @@ async def test_retrieve_with_trace_reports_contributed_hits(sample_results):
     retriever = MemoryOSRetriever(vector_store)
 
     results, trace = await retriever.retrieve_with_trace(
-        "programming languages", limit=3
+        "programming languages", limit=3, user_id="user-1"
     )
 
     assert len(results) == 3
@@ -568,7 +622,7 @@ async def test_retrieve_accepts_temporal_metadata_values():
     retriever = MemoryOSRetriever(vector_store)
     retriever._fetch_neighbors_for_hit = lambda hit: []  # type: ignore[method-assign]
 
-    results = await retriever.retrieve("temporal", limit=1)
+    results = await retriever.retrieve("temporal", limit=1, user_id="user-1")
 
     assert results[0]["metadata"]["source_created_at"] == (
         "2026-03-31T12:00:00+00:00"
