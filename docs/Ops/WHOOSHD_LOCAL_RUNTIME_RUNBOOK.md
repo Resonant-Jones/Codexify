@@ -79,6 +79,11 @@ For MLX-VLM-backed Gemma 4 profiles:
 mkdir -p /Volumes/Dev_SSD/whooshd/model-weights
 ```
 
+If your Whoosh'd installation manages multiple local models, keep the
+registry in a file and point the launcher at it with
+`WHOOSHD_MODEL_REGISTRY_PATH=/path/to/registry.yaml`. You can also set
+`WHOOSHD_MLX_MODEL` to choose the default MLX model at launch time.
+
 ## Start Whoosh'd
 
 Stub mode proves the API contract without a model:
@@ -97,6 +102,10 @@ WHOOSHD_ADAPTER=mlx \
 WHOOSHD_MLX_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit \
 "$WHOOSHD_PYTHON" -m uvicorn whooshd.app:app --host 127.0.0.1 --port 8000
 ```
+
+If your runtime has several registered models, keep the default selected
+model in `WHOOSHD_MLX_MODEL` and point `WHOOSHD_MODEL_REGISTRY_PATH` at the
+registry file that enumerates the rest.
 
 MLX-VLM mode can serve a Gemma 4 profile directly through an OpenAI-compatible
 API:
@@ -158,6 +167,13 @@ LOCAL_COMPAT_FIRST=1
 LOCAL_ENABLE_OLLAMA_GENERATE_FALLBACK=0
 VAULTNODE_BASE_URL=http://host.docker.internal:8000
 VAULTNODE_HEALTH_ENDPOINTS=/v1/models,/api/tags
+```
+
+For a multi-model Whoosh'd host, the launcher can also pass through:
+
+```dotenv
+WHOOSHD_MODEL_REGISTRY_PATH=/path/to/whooshd-model-registry.yaml
+WHOOSHD_MLX_MODEL=mlx-community/Llama-3.2-3B-Instruct-4bit
 ```
 
 Then start the supported Compose path:

@@ -253,6 +253,13 @@ class TestSmokeWrapperScriptExists:
         content = script_path.read_text()
         assert "docker-compose.whooshd-smoke.yml" in content
 
+    def test_launcher_script_forwards_multi_model_env(self):
+        script_path = Path("scripts/whooshd_ensure.sh")
+        content = script_path.read_text()
+        assert "WHOOSHD_MODEL_REGISTRY_PATH" in content
+        assert "WHOOSHD_MLX_MODEL" in content
+        assert "WHOOSHD_ADAPTER" in content
+
     def test_script_passes_bash_syntax_check(self):
         """This is verified at module load time via bash -n above."""
         script_path = Path("scripts/whooshd_docker_smoke_up.sh")
