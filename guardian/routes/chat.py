@@ -2643,6 +2643,49 @@ def chat_get_thread(
     return {"ok": True, "thread": thread}
 
 
+@router.get("/threads/{thread_id}/tasks")
+def chat_list_tasks(
+    thread_id: int,
+    api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Return task lifecycle receipts for a thread.
+
+    Returns a list of task receipts derived from persisted task
+    identity tracking and task-event terminal-state evidence.
+    Missing or non-terminal tasks are reported honestly without
+    fabricating completion.
+    """
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    metadata = _fetch_thread_metadata(thread_id)
+    task_id = _thread_latest_task_id(thread_id, metadata)
+
+    receipts: list[dict[str, Any]] = []
+    if task_id:
+        state = task_events.describe_terminal_state(task_id)
+        receipts.append({
+            "task_id": task_id,
+            "state": state.get("state"),
+            "event_type": state.get("event_type"),
+            "reason": state.get("reason"),
+        })
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "tasks": receipts,
+        "count": len(receipts),
+    }
+
+
 # =========================
 # Chat Messages API
 # =========================
