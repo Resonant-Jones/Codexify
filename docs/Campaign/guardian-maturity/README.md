@@ -67,7 +67,7 @@ Reusable templates live in [`templates/`](./templates/):
 | 2 | C06 Guardian Operator Workspace | closed |
 | 3 | C04 Pi/Coder Invocation Boundary | closed |
 | 3 | C07 Persona Studio | planned |
-| 3 | C08 Whoosh'd Runtime Setup | planned |
+| 3 | C08 Whoosh'd Runtime Setup | active — C08-T001 seam audit accepted |
 | 4 | C09 Execution Ledger | planned |
 | 4 | C10 Recovery and Operator Repair | planned |
 | 5 | C12 Operator Auth | planned |
@@ -80,4 +80,4 @@ Waves 2 and 3 are complete. Wave 4 begins with C08: Whoosh'd Runtime.
 
 | Campaign | Status |
 |----------|--------|
-| C08 Whoosh'd Runtime Integration & Context Fidelity | closed |
+| C08 Whoosh'd Runtime Integration & Context Fidelity | **selected** — see `wave-4-selection-after-c04.md` |
