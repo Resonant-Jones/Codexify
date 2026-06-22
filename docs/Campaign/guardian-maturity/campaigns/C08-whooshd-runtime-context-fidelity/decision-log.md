@@ -51,3 +51,15 @@
 - **Evidence**: `context-assembly-seam-inspection.md` — 7-step chain, 4 critical functions, Whoosh'd/local lane map, candidate test seam.
 - **Consequence**: C08-T004a accepted. C08-T004b may proceed with focused tests at `_build_messages_for_llm_compat()`.
 - **Revisit Trigger**: C08-T004b context delivery proof — verify messages + model_id + context_bundle captured at provider-call boundary.
+
+---
+
+### Decision: C08-D004b
+
+- **Decision ID**: C08-D004b
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004b context delivery proof complete. Context bundle -> system message proven at `build_context_system_message_with_meta()`. Local provider path identified at `provider == "local"` branch. 12 tests, no daemon. C08-T004c next.
+- **Reason**: Context fidelity proved at the assembly seam: context bundle produces system message, metadata confirms injection, local/Whoosh'd provider path exists. No runtime changes.
+- **Evidence**: `test_whooshd_context_bundle_system_identity_delivery.py` — 12 tests. Context assembly, local path, boundary proofs.
+- **Consequence**: C08-T004b accepted. C08-T004c (closeout) may proceed.
+- **Revisit Trigger**: C08-T004c closeout — verify full context proof loop.
