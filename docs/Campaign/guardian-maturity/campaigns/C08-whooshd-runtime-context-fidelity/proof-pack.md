@@ -269,3 +269,20 @@ R1 reported "67 pre-existing". Re-running confirms: **67 failed, 323 passed, 1 s
 
 ### Next Task
 **C08-T004: Prove Whoosh'd context bundle and system identity delivery**
+
+---
+
+## C08-T003-R5: Core-Suite Rerun Seal (2026-06-20 04:55 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `3b2e448e8` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: `pytest -v tests/core` rerun not reported against quarantine manifest.
+
+### Core-Suite Rerun
+`pytest -v tests/core`: **67 failed, 323 passed, 1 skipped, 1 warning, 6 errors** — identical to R3 quarantine manifest. 0 new or changed failures. 0 touch `whooshd_model_profiles.py` or `test_whooshd_model_inventory_identity_semantics.py`. Quarantine manifest remains valid.
+
+### Gate Decision
+**`go`** — C08-T003-R5 accepted. C08-T004 may proceed.
+
+### Next Task
+**C08-T004: Prove Whoosh'd context bundle and system identity delivery**
