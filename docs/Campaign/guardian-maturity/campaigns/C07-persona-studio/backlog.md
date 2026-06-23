@@ -17,7 +17,7 @@ Make persona/profile identity and configuration inspectable and bounded before e
 | C07-T001 | audit | `go` | `TBD` | Current surface + contract seam audit — 13 surface rows, 10 gaps, 7 risks, 7-task backlog |
 | C07-T002 | docs | `go` | `TBD` | V1 contract and proof plan — 5-goal ladder, 12-row boundary table, 8 gaps, 8 risks |
 | C07-T003 | proof | `go` | `1e98f59c6` | Route/navigation boundary — 8 tests, configuration surface, no chat/memory/execution |
-| C07-T004 | proof | planned | — | Prove profile draft state and validation surface |
+| C07-T004 | proof | `go` | `TBD` | Profile draft/validation boundary — 9 tests, local storage state, config-level validation |
 | C07-T005 | proof | planned | — | Prove effective config preview without execution authority |
 | C07-T006 | proof | planned | — | Prove permission and retrieval policy preview boundaries |
 | C07-T007 | proof | planned | — | Close Persona Studio V1 beta boundary proof |

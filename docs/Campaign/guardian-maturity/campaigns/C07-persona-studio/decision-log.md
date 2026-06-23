@@ -39,3 +39,15 @@
 - **Evidence**: `persona-studio-route-navigation-boundary-proof.md` + 8 test file.
 - **Consequence**: C07-T003 accepted. C07-T004 (profile draft state) may proceed.
 - **Revisit Trigger**: C07-T004 draft state proof — verify Studio local draft and validation boundaries.
+
+---
+
+### Decision: C07-D004
+
+- **Decision ID**: C07-D004
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07-T004 draft/validation boundary proof complete. Draft state is local storage. Validation is type-level, not enforcement. 9 tests. No memory, chat, execution. C07-T005 next.
+- **Reason**: Profile draft state proven as local storage. Validation proven as config-level types only. No backend persistence, memory writes, chat writes, or execution authority.
+- **Evidence**: `persona-studio-profile-draft-validation-boundary-proof.md` + 9 tests.
+- **Consequence**: C07-T004 accepted. C07-T005 (effective config preview) may proceed.
+- **Revisit Trigger**: C07-T005 config preview proof — verify resolved thread_config from draft.

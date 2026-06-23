@@ -38,3 +38,20 @@
 
 ### Next Task
 **C07-T003: Prove Persona Studio route and navigation boundaries**
+
+---
+
+## C07-T004: Draft/Validation Boundary Proof (2026-06-20 13:40 UTC)
+
+### Files Created
+- `persona-studio-profile-draft-validation-boundary.test.tsx` — 9 tests
+- `persona-studio-profile-draft-validation-boundary-proof.md` — draft map, validation map, boundary table, forbidden checks
+
+### Proof Summary
+Draft state is local storage (`cfy.personaStudio.localState.v1`). State reads, persists, clears via localStorage functions. Validation is type-level only — no enforcement imports. 9 tests pass. No backend, daemon, network required.
+
+### Gate Decision
+**`go`** — C07-T004 accepted. C07-T005 may proceed.
+
+### Next Task
+**C07-T005: Prove effective config preview without execution authority**
