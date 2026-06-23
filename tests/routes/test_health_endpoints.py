@@ -73,6 +73,29 @@ def _mock_local_runtime_request(
     return _MockResponse({"status": "ok"})
 
 
+def _mock_whooshd_mixed_runtime_request(
+    url: str,
+    *args,
+    **kwargs,
+) -> _MockResponse:
+    _ = (args, kwargs)
+    if url.endswith("/api/tags"):
+        return _MockResponse(
+            {"models": [{"name": "mlx-community/Llama-3.2-3B-Instruct-4bit"}]}
+        )
+    if url.endswith("/v1/models"):
+        return _MockResponse(
+            {
+                "data": [
+                    {"id": "mlx-community/Llama-3.2-3B-Instruct-4bit"},
+                    {"id": "mlx-community/gemma-4-e4b-it-4bit"},
+                    {"id": "gemma-4-12b-it-qat-4bit"},
+                ]
+            }
+        )
+    return _MockResponse({"status": "ok"})
+
+
 def _healthy_completion_service() -> dict[str, object]:
     return {
         "ok": True,
@@ -197,6 +220,46 @@ def test_health_llm_reports_effective_local_chat_model(
         assert payload["provider_runtime"]["default_model"] == "qwen3.5:0.8b"
         assert payload["model_resolution"]["source"] == "LOCAL_CHAT_MODEL"
         assert payload["runtime"]["reasoning"]["mode"] == "no_think"
+    finally:
+        for field, value in snapshot.items():
+            setattr(settings, field, value)
+        health_routes._LLM_HEALTH_PROBE_CACHE = None
+        health_routes._LLM_HEALTH_PROBE_TS = 0.0
+
+
+def test_health_llm_merges_whooshd_inventory_sources(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        ai_router.requests, "get", _mock_whooshd_mixed_runtime_request
+    )
+    monkeypatch.setattr(
+        health_routes.requests, "get", _mock_whooshd_mixed_runtime_request
+    )
+    monkeypatch.setattr(
+        health_routes,
+        "_collect_completion_service_health",
+        _healthy_completion_service,
+    )
+    health_routes._LLM_HEALTH_PROBE_CACHE = None
+    health_routes._LLM_HEALTH_PROBE_TS = 0.0
+
+    settings = get_settings()
+    snapshot = _snapshot_settings(settings)
+    try:
+        _apply_local_only_runtime(settings)
+        settings.LOCAL_CHAT_MODEL = "mlx-community/gemma-4-e4b-it-4bit"
+        settings.LOCAL_LLM_MODEL = "mlx-community/gemma-4-e4b-it-4bit"
+        settings.DEFAULT_LOCAL_MODEL = "mlx-community/gemma-4-e4b-it-4bit"
+        settings.LLM_MODEL = "mlx-community/gemma-4-e4b-it-4bit"
+        payload = _llm_health_details(test_client.get("/health/llm").json())
+        assert payload["status"] == "online"
+        assert payload["model"] == "mlx-community/gemma-4-e4b-it-4bit"
+        assert payload["provider_runtime"]["default_model"] == (
+            "mlx-community/gemma-4-e4b-it-4bit"
+        )
+        assert payload["provider_truth"]["selectable"] is True
     finally:
         for field, value in snapshot.items():
             setattr(settings, field, value)

@@ -1938,6 +1938,7 @@ def discover_local_model_inventory(
             else local_base_v1
         )
         candidate_names: list[str] = []
+        successful_inventory_urls: list[str] = []
         for url in (f"{local_base}/api/tags", f"{local_base_v1}/models"):
             try:
                 response = fetch(url, timeout=timeout_seconds)
@@ -1963,16 +1964,28 @@ def discover_local_model_inventory(
                     f"{url} (invalid JSON: {type(exc).__name__}: {exc})"
                 )
                 continue
-            candidate_names.extend(_parse_local_catalog_payload(payload))
-            if candidate_names:
-                selected_inventory_url = url
-                selected_inventory_endpoint = (
-                    "/v1/models" if url.endswith("/v1/models") else "/api/tags"
-                )
-                break
+            parsed_names = _parse_local_catalog_payload(payload)
+            if not parsed_names:
+                continue
+            candidate_names.extend(parsed_names)
+            successful_inventory_urls.append(url)
         if candidate_names:
             names.extend(candidate_names)
             selected_base_url = candidate.base_url
+            if successful_inventory_urls:
+                selected_inventory_url = next(
+                    (
+                        url
+                        for url in successful_inventory_urls
+                        if url.endswith("/v1/models")
+                    ),
+                    successful_inventory_urls[0],
+                )
+                selected_inventory_endpoint = (
+                    "/v1/models"
+                    if selected_inventory_url.endswith("/v1/models")
+                    else "/api/tags"
+                )
             failure_kind = None
             break
 
