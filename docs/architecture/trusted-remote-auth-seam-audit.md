@@ -163,16 +163,23 @@ Why these are not a canonical User Profile surface:
 
 | Item | Status | What the repo search found |
 |---|---|---|
-| Dedicated `UserProfile` model/table | missing | No dedicated `UserProfile` ORM model or `user_profiles` table was found in [`guardian/db/models.py`](../../guardian/db/models.py). |
+| Dedicated `UserProfile` model/table | partial | A dedicated `UserProfile` ORM model and `user_profiles` table now exist in [`guardian/db/models.py`](../../guardian/db/models.py), but the frontend User Profile page is still missing. |
 | Dedicated User Profile frontend page/route | missing | No dedicated User Profile page or route was found in the frontend tree. |
-| Canonical durable user-profile ownership contract | missing | The remote-access contract defines the semantics, but there is no durable User Profile implementation yet. |
+| Canonical durable user-profile ownership contract | partial | The remote-access contract defines the semantics, and the backend now has a durable current-user User Profile spine, but the UI surface is still pending. |
 | Existing fields that could support later metadata | partial | `users.username`, `authenticated_principals.account_id`, persona profile names, and shell-local names/notes/prompt values could support future display metadata, but they are not a profile schema. |
 
 Read this as a gap, not a defect:
 
 - the repo has account and persona primitives
-- the repo does not yet have a dedicated user-profile primitive
+- the repo now has a backend user-profile primitive, but not the dedicated frontend page
 - display metadata can be layered later, but it is not present as canonical durable account truth today
+
+## User Profile Backend Spine Proof Note
+
+- The backend `user_profiles` table now exists and is owned by canonical `users.id`.
+- The current-user profile route exists for session-scoped profile reads and writes.
+- The profile payload is presentation metadata only and does not change Persona Profile state.
+- The frontend User Profile page remains unimplemented and must be treated as a separate slice.
 
 ## Ephemeral UI Session Cache
 
@@ -196,7 +203,7 @@ Future slices should be treated as separate work items:
 1. Backend session proof
 2. API-key fallback containment/refit
 3. Authenticated subject proof
-4. UserProfile schema/model decision
+4. User Profile frontend surface
 5. Login page refit
 6. User Profile page
 7. Tailnet/private-LAN operator runbook
@@ -241,19 +248,21 @@ This audit does not change runtime identity semantics. It labels the currently e
 - API-key fallback still exists in the transport layer.
 - Stable account mapping exists through `users` and `authenticated_principals`.
 - Persona Studio and imprint settings already exist as separate non-account surfaces.
+- A backend User Profile spine now exists for session-scoped profile metadata.
 
 ### What is not yet true
 
-- No dedicated User Profile surface exists.
+- No dedicated frontend User Profile surface exists.
 - No remote-friendly, session-only trusted login proof exists yet.
 - No explicit containment of API-key fallback for trusted remote mode exists yet.
-- No canonical durable user-profile schema has been introduced.
+- No frontend User Profile page is implemented yet.
 
 ### What the next implementation task may assume
 
 - the remote-account-access contract already names the future semantic boundary
 - the repo already has session token issuance and revocation
 - the repo already has canonical user/account and subject-to-account primitives
+- the repo already has a durable current-user User Profile backend spine
 - Persona Profile remains a distinct concept from User Profile
 
 ### What the next implementation task must not assume
@@ -301,4 +310,3 @@ It exists so the next implementation can be small, testable, and correctly scope
 - contain the API-key seam instead of pretending it does not matter
 - keep User Profile separate from Persona Profile
 - keep trusted remote access separate from public SaaS language
-
