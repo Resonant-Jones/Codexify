@@ -67,6 +67,122 @@ def _sensitive_key_error(key: str) -> HTTPException:
     )
 
 
+# ── Guardrail approval gating ──
+# These reason labels must block direct approval per
+# docs/architecture/personal-facts-guardrails-contract.md.
+_BLOCKING_REASONS: frozenset[str] = frozenset(
+    {
+        "source_role_assistant",
+        "source_role_system_like",
+        "source_role_ambiguous",
+        "quoted_or_hypothetical",
+        "missing_evidence",
+    }
+)
+
+
+def _is_guardrail_approval_blocked(
+    fact: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Check whether a candidate fact is blocked from direct approval.
+
+    Returns (blocked: bool, reason: str | None).
+    Treats missing or malformed guardrail_metadata conservatively —
+    if metadata cannot be trusted, approval is blocked.
+    """
+    meta = fact.get("guardrail_metadata")
+    if meta is None:
+        return False, None
+
+    if not isinstance(meta, dict):
+        # Malformed metadata — fail closed.
+        return True, "guardrail_metadata_malformed"
+
+    # Direct promotion_blocked flag
+    if meta.get("promotion_blocked") is True:
+        return True, "promotion_blocked"
+
+    # Check for blocking source/authorship reasons
+    reasons: list[str] = []
+    raw_reasons = meta.get("reasons")
+    if isinstance(raw_reasons, list):
+        reasons = [str(r) for r in raw_reasons]
+
+    for reason in reasons:
+        if reason in _BLOCKING_REASONS:
+            return True, reason
+
+    return False, None
+
+
+def _guardrail_blocked_error(
+    fact_id: int, block_reason: str
+) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": "personal_fact_promotion_blocked",
+            "fact_id": fact_id,
+            "block_reason": block_reason,
+            "message": (
+                "This candidate is blocked from direct approval. "
+                "It must be reviewed, edited, or explicitly overridden "
+                f"before promotion. Block reason: {block_reason}."
+            ),
+        },
+    )
+
+
+def _is_guardrail_override_allowed(
+    fact: dict[str, Any],
+    edited_key: str | None,
+    edited_value: str | None,
+    original_key: str,
+    original_value: str,
+    override_guardrail: bool,
+    override_note: str | None,
+) -> tuple[bool, str | None]:
+    """Check whether a guardrail-blocked candidate may be overridden.
+
+    Returns (allowed: bool, failure_reason: str | None).
+    """
+    is_blocked, _ = _is_guardrail_approval_blocked(fact)
+    if not is_blocked:
+        # Not blocked — normal approval applies.
+        return True, None
+
+    if not override_guardrail:
+        return False, "override_guardrail_not_set"
+
+    # Must have explicit override intent with edit or confirmation.
+    key_changed = bool(edited_key and edited_key != original_key)
+    value_changed = bool(edited_value and edited_value != original_value)
+    note_provided = bool(override_note and override_note.strip())
+
+    if not (key_changed or value_changed or note_provided):
+        return False, "override_requires_edit_or_note"
+
+    # Malformed metadata cannot be overridden.
+    meta = fact.get("guardrail_metadata")
+    if meta is not None and not isinstance(meta, dict):
+        return False, "guardrail_metadata_malformed"
+
+    return True, None
+
+
+def _guardrail_override_blocked_error(
+    fact_id: int, detail_code: str, detail_message: str
+) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": detail_code,
+            "fact_id": fact_id,
+            "message": detail_message,
+        },
+    )
+
+
 def _get_chatlog_db():
     global chatlog_db
     if chatlog_db is None:
@@ -128,6 +244,14 @@ class CandidateApproveRequest(BaseModel):
     force_sensitive: bool = Field(
         default=False,
         description="Set to true to approve a fact whose key matches a sensitive pattern. Requires reason.",
+    )
+    override_guardrail: bool = Field(
+        default=False,
+        description="Set to true to explicitly override guardrail blocking after correcting the fact. Requires edited key/value and override_note.",
+    )
+    override_note: str | None = Field(
+        default=None,
+        description="Required when override_guardrail=true. Describes why the guardrail block is being overridden.",
     )
 
 
@@ -336,9 +460,49 @@ def approve_candidate(
             body.reason,
         )
 
-    # Edit-before-approve: update value if provided
+    # Guardrail gate: block direct approval of promotion-blocked candidates
+    # unless an explicit override is provided.
+    key = str(fact.get("key") or "").strip()
+    effective_key = (body.key or key).strip()
     edited_value = (body.value or "").strip()
     original_value = str(fact.get("value") or "")
+
+    override_allowed, override_reason = _is_guardrail_override_allowed(
+        fact=fact,
+        edited_key=body.key,
+        edited_value=body.value,
+        original_key=key,
+        original_value=original_value,
+        override_guardrail=body.override_guardrail,
+        override_note=body.override_note,
+    )
+
+    if not override_allowed:
+        if override_reason == "override_guardrail_not_set":
+            # Not attempting override — use the standard blocked error.
+            is_blocked, block_reason = _is_guardrail_approval_blocked(fact)
+            if is_blocked:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "personal_fact_override_required",
+                        "fact_id": fact_id,
+                        "block_reason": block_reason or "unknown",
+                        "message": (
+                            "This candidate is guardrail-blocked and cannot be directly approved. "
+                            "Set override_guardrail=true with an edited value and override_note to override."
+                        ),
+                    },
+                )
+            # Not blocked after all — fall through to normal approval.
+        else:
+            raise _guardrail_override_blocked_error(
+                fact_id,
+                "personal_fact_override_invalid",
+                f"Override rejected: {override_reason}.",
+            )
+
+    # Edit-before-approve: update value if provided
     effective_value = edited_value if edited_value else original_value
 
     if not effective_value:

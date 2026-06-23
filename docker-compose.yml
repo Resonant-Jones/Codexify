@@ -140,10 +140,10 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
+    # NOTE: no guardian volume mounts — virtiofs stat bug on macOS Docker Desktop
+    # causes os.path.exists() to fail for files with com.apple.provenance xattr.
+    # Migration files come from the baked image (COPY guardian /app/guardian).
     volumes:
-      - ./guardian:/app/codexify
-      - ./guardian:/app/guardian
-      - ./guardian/db/migrations:/app/guardian/db/migrations
       - ./backend:/app/backend
     restart: "no"
     command: ["/app/backend/scripts/docker/run_migrator.py"]

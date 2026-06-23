@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import {
   hasResolvedRuntimeApiKey,
   hasRuntimeApiKey,
@@ -63,6 +64,10 @@ function resolveDevApiKey(): string {
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }
 
+function isRemoteAuthMode(): boolean {
+  return getRuntimeConfigSync().authMode === "remote";
+}
+
 function readStoredAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -76,8 +81,9 @@ function readStoredAuthToken(): string | null {
 
 function deriveAuthState(): AuthState {
   const token = readStoredAuthToken();
-  const devApiKey = resolveDevApiKey();
-  const runtimeApiKeyPresent = hasRuntimeApiKey();
+  const remoteAuthMode = isRemoteAuthMode();
+  const devApiKey = remoteAuthMode ? "" : resolveDevApiKey();
+  const runtimeApiKeyPresent = remoteAuthMode ? false : hasRuntimeApiKey();
   if (token || runtimeApiKeyPresent || devApiKey) {
     return {
       status: "authenticated",

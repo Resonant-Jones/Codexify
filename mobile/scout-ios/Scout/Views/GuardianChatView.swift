@@ -9,17 +9,26 @@ struct DocumentDetailNav: Hashable {
     let documentId: String
 }
 
+struct ThreadNav: Hashable {
+    let id: Int
+    let title: String?
+}
+
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var threads: [ScoutChatThreadSummary]?
     @State private var message: String?
     @State private var keychainError: String?
     @State private var isLoading = false
+    @State private var showNewThread = false
+    @State private var newThreadTitle = ""
+    @State private var isCreating = false
+    @State private var createError: String?
 
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 if isLoading {
                     Section {
@@ -50,13 +59,25 @@ struct GuardianChatView: View {
                 if let threads = threads {
                     if threads.isEmpty {
                         Section {
-                            Text("No threads found.")
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("No threads yet", systemImage: "tray")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Text("Create your first thread to start a conversation with Guardian.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    showNewThread = true
+                                } label: {
+                                    Label("New Thread", systemImage: "plus")
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
                     } else {
                         Section {
                             ForEach(threads, id: \.id) { thread in
-                                NavigationLink(value: thread.id) {
+                                NavigationLink(value: ThreadNav(id: thread.id ?? 0, title: thread.title)) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(thread.title?.isEmpty == false ? thread.title! : "Untitled")
                                             .font(.body)
@@ -95,6 +116,18 @@ struct GuardianChatView: View {
                 if !storedProfileData.isEmpty {
                     Section {
                         Button {
+                            showNewThread = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "plus")
+                                Text("New Thread")
+                                Spacer()
+                            }
+                        }
+                        .disabled(isLoading)
+
+                        Button {
                             Task { await loadThreads() }
                         } label: {
                             HStack {
@@ -113,8 +146,8 @@ struct GuardianChatView: View {
                 }
             }
             .navigationTitle("Guardian")
-            .navigationDestination(for: Int.self) { threadId in
-                ThreadMessagesView(threadId: threadId)
+            .navigationDestination(for: ThreadNav.self) { nav in
+                ThreadMessagesView(threadId: nav.id, threadTitle: nav.title)
             }
             .navigationDestination(for: TaskNav.self) { nav in
                 TaskEventsView(taskId: nav.taskId, threadId: nav.threadId)
@@ -122,10 +155,55 @@ struct GuardianChatView: View {
             .navigationDestination(for: DocumentDetailNav.self) { nav in
                 DocumentDetailView(documentId: nav.documentId)
             }
+            .sheet(isPresented: $showNewThread) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("Thread title", text: $newThreadTitle)
+                        }
+
+                        if let error = createError {
+                            Section {
+                                Text(error)
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                        }
+
+                        Section {
+                            Button {
+                                Task { await createThread() }
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isCreating {
+                                        ProgressView()
+                                            .padding(.trailing, 6)
+                                    }
+                                    Text("Create")
+                                    Spacer()
+                                }
+                            }
+                            .disabled(newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
+
+                            Button("Cancel", role: .cancel) {
+                                showNewThread = false
+                                newThreadTitle = ""
+                                createError = nil
+                            }
+                        }
+                    }
+                    .navigationTitle("New Thread")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
+            }
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadThreads() }
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ScoutThreadRenamedNotification)) { _ in
+                Task { await loadThreads() }
             }
         }
     }
@@ -158,12 +236,51 @@ struct GuardianChatView: View {
         }
         isLoading = false
     }
+
+    private func createThread() async {
+        let trimmed = newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isCreating = true
+        createError = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            createError = "Could not load saved endpoint profile."
+            isCreating = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutCreateThreadProbe.create(
+            endpoint: profile, title: trimmed, apiKey: apiKey
+        )
+
+        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
+            showNewThread = false
+            newThreadTitle = ""
+            createError = nil
+            await loadThreads()
+            if let tid = result.threadId {
+                navigationPath.append(ThreadNav(id: tid, title: trimmed))
+            }
+        } else {
+            createError = result.message
+        }
+        isCreating = false
+    }
 }
 
 // MARK: - Thread Messages Detail View
 
 private struct ThreadMessagesView: View {
     let threadId: Int
+    let threadTitle: String?
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var messages: [ScoutChatMessageSummary]?
@@ -205,9 +322,63 @@ private struct ThreadMessagesView: View {
                 inspectorList
             }
         }
-        .navigationTitle("Thread \(threadId)")
+        .navigationTitle(displayedTitle?.isEmpty == false ? displayedTitle! : "Thread \(threadId)")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    renameTitle = displayedTitle ?? ""
+                    renameError = nil
+                    showRename = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+            }
+        }
         .onAppear {
+            if displayedTitle == nil {
+                displayedTitle = threadTitle
+            }
             Task { await loadMessages() }
+        }
+        .sheet(isPresented: $showRename) {
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("Thread title", text: $renameTitle)
+                    }
+
+                    if let error = renameError {
+                        Section {
+                            Text(error)
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                        }
+                    }
+
+                    Section {
+                        Button {
+                            Task { await doRename() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isRenaming {
+                                    ProgressView()
+                                        .padding(.trailing, 6)
+                                }
+                                Text("Save")
+                                Spacer()
+                            }
+                        }
+                        .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRenaming)
+
+                        Button("Cancel", role: .cancel) {
+                            showRename = false
+                        }
+                    }
+                }
+                .navigationTitle("Rename Thread")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
     }
 
@@ -242,8 +413,16 @@ private struct ThreadMessagesView: View {
             if let messages = messages {
                 if messages.isEmpty {
                     Section {
-                        Text("No messages in this thread.")
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Thread ready", systemImage: "checkmark.circle")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.green)
+                            Text("Send the first message below to start the conversation. No completion has been requested yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
                     }
                 } else {
                     Section {
@@ -702,6 +881,40 @@ private struct ThreadMessagesView: View {
             statusMessage = result.message
         }
         isLoading = false
+    }
+
+    private func doRename() async {
+        let trimmed = renameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isRenaming = true
+        renameError = nil
+
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
+            renameError = "Could not load saved endpoint profile."
+            isRenaming = false
+            return
+        }
+
+        let apiKey: String?
+        do {
+            apiKey = try keychainStore.loadAPIKey()
+        } catch {
+            apiKey = nil
+        }
+
+        let result = await ScoutRenameThreadProbe.rename(
+            endpoint: profile, threadId: threadId, title: trimmed, apiKey: apiKey
+        )
+
+        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
+            displayedTitle = trimmed
+            showRename = false
+            NotificationCenter.default.post(name: ScoutThreadRenamedNotification, object: nil)
+        } else {
+            renameError = result.message
+        }
+        isRenaming = false
     }
 
     private func loadDocuments() async {

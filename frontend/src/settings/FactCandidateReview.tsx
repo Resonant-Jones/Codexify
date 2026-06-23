@@ -171,6 +171,10 @@ export default function FactCandidateReview({ userId }: Props) {
   const [sensitiveIds, setSensitiveIds] = React.useState<Set<number>>(
     new Set()
   );
+  const [blockedIds, setBlockedIds] = React.useState<Set<number>>(
+    new Set()
+  );
+  const [overrideNote, setOverrideNote] = React.useState("");
 
   const loadCandidates = React.useCallback(async () => {
     setLoading(true);
@@ -183,6 +187,7 @@ export default function FactCandidateReview({ userId }: Props) {
       });
       const enriched: ReviewCandidate[] = [];
       const sens = new Set<number>();
+      const blocked = new Set<number>();
       for (const fact of facts) {
         try {
           const evidence = await fetchPersonalFactEvidence(fact.id);
@@ -193,9 +198,13 @@ export default function FactCandidateReview({ userId }: Props) {
         if (isSensitiveKey(fact.key)) {
           sens.add(fact.id);
         }
+        if (fact.guardrail_metadata?.promotion_blocked === true) {
+          blocked.add(fact.id);
+        }
       }
       setCandidates(enriched);
       setSensitiveIds(sens);
+      setBlockedIds(blocked);
     } catch (e: unknown) {
       setError(
         e instanceof Error ? e.message : "Failed to load candidates"
@@ -209,9 +218,14 @@ export default function FactCandidateReview({ userId }: Props) {
     loadCandidates();
   }, [loadCandidates]);
 
-  const handleApprove = async (factId: number, editedValue?: string) => {
+  const handleApprove = async (
+    factId: number,
+    editedValue?: string,
+    opts?: { overrideGuardrail?: boolean; overrideNote?: string }
+  ) => {
     setActionError(null);
     const sensitive = sensitiveIds.has(factId);
+    const isBlocked = blockedIds.has(factId);
     try {
       await approveFactCandidate(factId, {
         reason: sensitive
@@ -219,10 +233,17 @@ export default function FactCandidateReview({ userId }: Props) {
           : "user approved from review panel",
         value: editedValue?.trim() || undefined,
         force_sensitive: sensitive || undefined,
+        override_guardrail:
+          (isBlocked || opts?.overrideGuardrail) ? true : undefined,
+        override_note:
+          (isBlocked || opts?.overrideGuardrail)
+            ? (opts?.overrideNote || "override confirmed from review panel")
+            : undefined,
       });
       setCandidates((prev) => prev.filter((c) => c.id !== factId));
       setEditingId(null);
       setEditValue("");
+      setOverrideNote("");
     } catch (e: unknown) {
       setActionError(
         e instanceof Error ? e.message : "Approval failed"
@@ -245,12 +266,14 @@ export default function FactCandidateReview({ userId }: Props) {
   const startEdit = (fact: ReviewCandidate) => {
     setEditingId(fact.id);
     setEditValue(fact.value);
+    setOverrideNote("");
     setActionError(null);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditValue("");
+    setOverrideNote("");
   };
 
   return (
@@ -384,6 +407,33 @@ export default function FactCandidateReview({ userId }: Props) {
                 )}
 
                 <GuardrailBlock meta={fact.guardrail_metadata} />
+
+                {blockedIds.has(fact.id) && (
+                  <div
+                    className="mt-2 text-[10px] opacity-70"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    This candidate is blocked from direct approval. Use edit +
+                    override only if you have reviewed and corrected or
+                    explicitly confirmed the fact.
+                  </div>
+                )}
+
+                {blockedIds.has(fact.id) && editingId === fact.id && (
+                  <input
+                    type="text"
+                    className="w-full rounded border p-1 text-xs mt-1"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      color: "var(--text)",
+                      background: "var(--input-bg)",
+                    }}
+                    value={overrideNote}
+                    onChange={(e) => setOverrideNote(e.target.value)}
+                    placeholder="Override reason (required)"
+                    aria-label="Override reason"
+                  />
+                )}
               </div>
             </div>
 
@@ -396,10 +446,16 @@ export default function FactCandidateReview({ userId }: Props) {
                       background: "var(--accent)",
                       color: "#fff",
                     }}
-                    onClick={() => handleApprove(fact.id, editValue)}
+                    onClick={() =>
+                      handleApprove(fact.id, editValue, {
+                        overrideNote: overrideNote || undefined,
+                      })
+                    }
                     aria-label="Save edited value and approve"
                   >
-                    ✓ Save &amp; Approve
+                    {blockedIds.has(fact.id)
+                      ? "\u2713 Override & Approve"
+                      : "\u2713 Save &amp; Approve"}
                   </button>
                   <button
                     className="px-2 py-0.5 rounded text-[11px]"
@@ -415,17 +471,19 @@ export default function FactCandidateReview({ userId }: Props) {
                 </>
               ) : (
                 <>
-                  <button
-                    className="px-2 py-0.5 rounded text-[11px] font-medium"
-                    style={{
-                      background: "var(--accent)",
-                      color: "#fff",
-                    }}
-                    onClick={() => handleApprove(fact.id)}
-                    aria-label={`Approve ${fact.key} candidate`}
-                  >
-                    ✓ Approve
-                  </button>
+                  {!blockedIds.has(fact.id) && (
+                    <button
+                      className="px-2 py-0.5 rounded text-[11px] font-medium"
+                      style={{
+                        background: "var(--accent)",
+                        color: "#fff",
+                      }}
+                      onClick={() => handleApprove(fact.id)}
+                      aria-label={`Approve ${fact.key} candidate`}
+                    >
+                      \u2713 Approve
+                    </button>
+                  )}
                   <button
                     className="px-2 py-0.5 rounded text-[11px]"
                     style={{
@@ -435,7 +493,7 @@ export default function FactCandidateReview({ userId }: Props) {
                     onClick={() => startEdit(fact)}
                     aria-label={`Edit ${fact.key} candidate`}
                   >
-                    ✎ Edit
+                    \u270e Edit
                   </button>
                   <button
                     className="px-2 py-0.5 rounded text-[11px]"
@@ -448,7 +506,7 @@ export default function FactCandidateReview({ userId }: Props) {
                     }
                     aria-label={`Reject ${fact.key} candidate`}
                   >
-                    ✕ Reject
+                    \u2715 Reject
                   </button>
                   {sensitiveIds.has(fact.id) && (
                     <span className="text-[10px] opacity-50">

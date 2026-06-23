@@ -104,6 +104,7 @@ All IDs, metadata, and relationships in the following families must be explicit 
 | Codex/artifact entries | Stable artifact IDs, artifact type, payload reference, source thread or message links, `created_from` (slash_command or semantic_suggestion), `retrieval_enabled` flag, `project_id`, `persona_id`, `trigger_message_id`, generation metadata, version, timestamps, tags/flags, and provenance. |
 | Thread-linked artifacts and related metadata | Stable artifact IDs, thread ID, relationship metadata, timestamps, tags/flags, and provenance. |
 | User-authored tags / flags / timestamps relevant to restore | Stable target IDs, tag or flag namespace, value, actor or owner where relevant, timestamps, and provenance if imported. |
+| User profile metadata | Stable user/profile ownership mapping, display name, avatar URL, timezone, timestamps, and provenance where preserved. |
 
 Every record family must preserve stable identifiers, owner or account scoping, and restore-relevant timestamps. If an object is derived from another object, the derivation link must be exported explicitly.
 
@@ -166,6 +167,7 @@ Required behavior:
 - Incompatible-version handling must fail closed unless the archive declares a supported migration path that the restore engine explicitly implements.
 - Partial restore failure must be explicit. If partial restore is allowed, the report must enumerate every skipped, repaired, or failed entity and relationship by stable ID.
 - Restore must produce an explicit report output. The report must include counts, migrated items, duplicate hits, missing blobs, warnings, failures, and any export-ID to local-ID mapping if remapping occurs.
+- Restore must preserve user profile metadata and the owning account mapping. If local persistence IDs are remapped, profile rows must follow the canonical owner and must not be reassigned by display label.
 
 Restore must never produce silent corruption.
 
