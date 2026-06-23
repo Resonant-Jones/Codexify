@@ -55,3 +55,20 @@ Draft state is local storage (`cfy.personaStudio.localState.v1`). State reads, p
 
 ### Next Task
 **C07-T005: Prove effective config preview without execution authority**
+
+---
+
+## C07-T006: Permission/Retrieval Preview (2026-06-20 14:40 UTC)
+
+### Files Created
+- `persona-studio-permission-retrieval-preview-boundary.test.tsx` — 9 tests
+- `persona-studio-permission-retrieval-preview-boundary-proof.md` — permission/retrieval maps, 18-row enforcement boundary, boundary table
+
+### Proof Summary
+Tools + retrieval config present in seed profiles. No enforcement, execution, command bus, PiCoder, memory, or chat imports. 9 tests pass. Preview-only posture proven.
+
+### Gate Decision
+**`go`** — C07-T006 accepted. C07-T007 may proceed.
+
+### Next Task
+**C07-T007: Close Persona Studio V1 beta boundary proof**

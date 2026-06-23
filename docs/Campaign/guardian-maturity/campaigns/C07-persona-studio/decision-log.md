@@ -63,3 +63,15 @@
 - **Evidence**: `persona-studio-effective-config-preview-boundary-proof.md` + 9 tests.
 - **Consequence**: C07-T005 accepted. C07-T006 (permission/retrieval preview) may proceed.
 - **Revisit Trigger**: C07-T006 permissions/retrieval preview — prove preview-only posture.
+
+---
+
+### Decision: C07-D006
+
+- **Decision ID**: C07-D006
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07-T006 permission/retrieval preview boundary proof complete. Tools + retrieval config present, no enforcement/execution imports. 9 tests. C07-T007 next.
+- **Reason**: Permission and retrieval surfaces proven as preview-only config types. No enforcement, execution, command bus, PiCoder, memory, or chat imports.
+- **Evidence**: `persona-studio-permission-retrieval-preview-boundary-proof.md` + 9 tests.
+- **Consequence**: C07-T006 accepted. C07-T007 (V1 closeout) may proceed.
+- **Revisit Trigger**: C07-T007 V1 closeout — verify all C07 boundaries sealed.
