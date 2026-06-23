@@ -30,11 +30,12 @@ This contract does not implement authentication, networking, UI, database change
 - Auth and exposure configuration already exists through current env/config seams.
 - Browser storage may hold auth, session, or API-key material depending on mode.
 - Persona and profile configuration exist as a separate concept from account identity.
+- A backend User Profile spine now exists for current-user profile metadata.
+- A frontend User Profile page now exists at `/profile` and is metadata-only over `/api/user/profile`.
 
 ### What is not yet true
 
 - No dedicated Login page is implemented by this task.
-- No User Profile page is implemented by this task.
 - No true multi-user runtime claim is introduced by this task.
 - No public internet exposure is introduced by this task.
 - No Tailnet automation is implemented by this task.
@@ -111,6 +112,12 @@ The login surface is an entry point for an authenticated browser session. It is 
 
 ## User Profile Surface Contract
 
+Backend implementation note:
+
+- The durable `user_profiles` table and current-user profile API now exist.
+- This contract now maps to the frontend User Profile page at `/profile`.
+- The page is metadata-only, backed by `/api/user/profile`, and does not alter canonical user identity, Persona Profile state, Tailnet behavior, or release posture.
+
 The future User Profile page may own:
 
 - display name
@@ -184,6 +191,8 @@ Future work should land in atomic slices:
 7. Tailnet/private-LAN operator runbook
 8. End-to-end trusted remote access proof
 
+Status note: the dedicated User Profile page has now landed in the frontend at `/profile`; the remaining slices stay future work.
+
 This contract intentionally stops before any of those slices are implemented.
 
 ## ADR Impact
@@ -210,11 +219,11 @@ This contract does not redefine runtime mode, identity ownership, exportability,
 - Auth/exposure seams already exist in config and dependency layers.
 - Browser storage can already carry sensitive runtime material depending on the selected mode.
 - Persona/profile configuration already exists as a distinct concept from account ownership.
+- A frontend User Profile page now exists at `/profile` and uses the session-authenticated profile spine.
 
 ### What is not yet true
 
 - No Login page exists as a supported surface.
-- No User Profile page exists as a supported surface.
 - No multi-user runtime support is being claimed here.
 - No Tailnet automation or public internet exposure is being introduced here.
 

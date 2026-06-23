@@ -544,6 +544,7 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.user_profile import router as user_profile_router
 from guardian.routes.voice import router as voice_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
@@ -999,6 +1000,12 @@ _include_router(
         app.include_router(auth_routes.router),
         app.include_router(auth_routes.api_router),
     ),
+    core_surface=True,
+)
+_include_router(
+    label="user_profile",
+    flag_name="CODEXIFY_ENABLE_USER_PROFILE_ROUTES",
+    include_fn=lambda: app.include_router(user_profile_router),
     core_surface=True,
 )
 _include_router(

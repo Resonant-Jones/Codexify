@@ -903,6 +903,7 @@ class _PostgresGuardianDB:
                 if fact.last_confirmed_at
                 else None
             ),
+            "guardrail_metadata": fact.guardrail_metadata,
             "created_at": fact.created_at.isoformat()
             if fact.created_at
             else None,
@@ -1160,6 +1161,54 @@ class _PostgresGuardianDB:
                 .all()
             )
             return [self._revision_to_dict(row) for row in revisions]
+
+    # ── guardrail metadata backfill helpers ────────────────────────────
+
+    def list_candidate_facts_missing_guardrail(
+        self,
+        user_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Return candidate/disputed personal facts that lack guardrail_metadata.
+
+        This is a narrow helper for the guardrail metadata backfill script.
+        Only rows with status 'candidate' or 'disputed' are returned.
+        Verified and archived facts are excluded.
+        """
+        with self.get_session() as session:
+            facts = (
+                session.query(PersonalFact)
+                .filter(
+                    PersonalFact.user_id == user_id,
+                    PersonalFact.status.in_(["candidate", "disputed"]),
+                    PersonalFact.guardrail_metadata.is_(None),
+                )
+                .order_by(PersonalFact.id.asc())
+                .all()
+            )
+            return [self._fact_to_dict(fact) for fact in facts]
+
+    def set_fact_guardrail_metadata(
+        self,
+        fact_id: int,
+        guardrail_metadata: dict,
+    ) -> bool:
+        """Set only the guardrail_metadata column on a personal fact.
+
+        This is a narrow helper for the guardrail metadata backfill script.
+        It does not create a revision row, does not change key/value/status/
+        confidence/evidence, and does not change runtime eligibility.
+
+        Returns True if a row was updated.
+        """
+        with self.get_session() as session:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            if not fact:
+                return False
+            fact.guardrail_metadata = dict(guardrail_metadata)
+            fact.updated_at = datetime.now(timezone.utc)
+            session.add(fact)
+            session.commit()
+            return True
 
     # =================================================================
     # Connectors

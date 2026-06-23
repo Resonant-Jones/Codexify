@@ -61,6 +61,15 @@ def main() -> int:
         f"Cleared Python caches under /app/backend: dirs={removed_dirs}, files={removed_files}",
     )
 
+    # Also clean the guardian migrations dir, which is volume-mounted
+    # separately and may carry stale host .pyc files that confuse Alembic.
+    g_dirs, g_files = clear_python_caches("/app/guardian/db/migrations")
+    if g_dirs or g_files:
+        log(
+            "Migrator",
+            f"Cleared guardian migration caches: dirs={g_dirs}, files={g_files}",
+        )
+
     print_script_location(cfg_path)
 
     try:
