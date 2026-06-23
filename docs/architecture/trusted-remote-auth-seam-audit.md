@@ -44,6 +44,7 @@ It documents what already exists, what is still only a seam, and what remains mi
 - Local-only provider posture remains unchanged.
 - Tailnet/private-LAN access remains trusted remote access to a local runtime, not public SaaS exposure.
 - Application-layer auth remains required.
+- A frontend User Profile page now exists at `/profile` over the session-authenticated profile spine.
 - This audit does not widen the supported release promise.
 
 ## Seam Status Legend
@@ -163,23 +164,23 @@ Why these are not a canonical User Profile surface:
 
 | Item | Status | What the repo search found |
 |---|---|---|
-| Dedicated `UserProfile` model/table | partial | A dedicated `UserProfile` ORM model and `user_profiles` table now exist in [`guardian/db/models.py`](../../guardian/db/models.py), but the frontend User Profile page is still missing. |
-| Dedicated User Profile frontend page/route | missing | No dedicated User Profile page or route was found in the frontend tree. |
-| Canonical durable user-profile ownership contract | partial | The remote-access contract defines the semantics, and the backend now has a durable current-user User Profile spine, but the UI surface is still pending. |
+| Dedicated `UserProfile` model/table | proven | A dedicated `UserProfile` ORM model and `user_profiles` table now exist in [`guardian/db/models.py`](../../guardian/db/models.py), and the frontend User Profile page now exists at `/profile`. |
+| Dedicated User Profile frontend page/route | proven | A dedicated User Profile page and route now exist in the frontend tree at `/profile`. |
+| Canonical durable user-profile ownership contract | partial | The remote-access contract defines the semantics, the backend has a durable current-user User Profile spine, and the frontend metadata page now sits on top of it. |
 | Existing fields that could support later metadata | partial | `users.username`, `authenticated_principals.account_id`, persona profile names, and shell-local names/notes/prompt values could support future display metadata, but they are not a profile schema. |
 
 Read this as a gap, not a defect:
 
 - the repo has account and persona primitives
-- the repo now has a backend user-profile primitive, but not the dedicated frontend page
-- display metadata can be layered later, but it is not present as canonical durable account truth today
+- the repo now has both the backend user-profile primitive and the dedicated frontend page
+- display metadata is now layered on the authenticated session path, but it is still not canonical durable account truth
 
 ## User Profile Backend Spine Proof Note
 
 - The backend `user_profiles` table now exists and is owned by canonical `users.id`.
 - The current-user profile route exists for session-scoped profile reads and writes.
 - The profile payload is presentation metadata only and does not change Persona Profile state.
-- The frontend User Profile page remains unimplemented and must be treated as a separate slice.
+- The frontend User Profile page now exists at `/profile`, and Tailnet/live remote runbook proof remains deferred.
 
 ## Ephemeral UI Session Cache
 
@@ -199,6 +200,8 @@ Bottom line:
 ## Implementation Map
 
 Future slices should be treated as separate work items:
+
+Status note: the frontend User Profile page has now landed at `/profile`; the remaining slices stay future work.
 
 1. Backend session proof
 2. API-key fallback containment/refit
@@ -249,13 +252,13 @@ This audit does not change runtime identity semantics. It labels the currently e
 - Stable account mapping exists through `users` and `authenticated_principals`.
 - Persona Studio and imprint settings already exist as separate non-account surfaces.
 - A backend User Profile spine now exists for session-scoped profile metadata.
+- A frontend User Profile page now exists at `/profile` and uses the session-authenticated profile spine.
 
 ### What is not yet true
 
-- No dedicated frontend User Profile surface exists.
+- No Tailnet/live remote runbook proof exists yet.
 - No remote-friendly, session-only trusted login proof exists yet.
 - No explicit containment of API-key fallback for trusted remote mode exists yet.
-- No frontend User Profile page is implemented yet.
 
 ### What the next implementation task may assume
 
