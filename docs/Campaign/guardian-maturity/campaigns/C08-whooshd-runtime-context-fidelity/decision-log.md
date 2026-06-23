@@ -63,3 +63,15 @@
 - **Evidence**: `test_whooshd_context_bundle_system_identity_delivery.py` — 12 tests. Context assembly, local path, boundary proofs.
 - **Consequence**: C08-T004b accepted. C08-T004c (closeout) may proceed.
 - **Revisit Trigger**: C08-T004c closeout — verify full context proof loop.
+
+---
+
+### Decision: C08-D004c
+
+- **Decision ID**: C08-D004c
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004c context fidelity closeout complete. C08-T004a/b verified. 42 regression tests pass. Context bundle -> system message -> local provider path proven. No code or test changes. 3 gaps remain. C08-T005 next.
+- **Reason**: Context fidelity proof slice closed. Preconditions verified: T004a inspection, T004b delivery proof, all tests pass. No runtime, provider, or frontend changes.
+- **Evidence**: `context-fidelity-closeout.md` — boundary table, invariants, gaps, risks. 42 tests pass.
+- **Consequence**: C08-T004c accepted. C08-T005 (operator diagnostics) may proceed.
+- **Revisit Trigger**: C08-T005 operator diagnostics proof — verify Whoosh'd status is operator-visible.
