@@ -1026,19 +1026,6 @@ export default function AppShell({
   useEffect(() => clearDockCollapseTimer, [clearDockCollapseTimer]);
 
   useEffect(() => {
-    if (!dockAutoCollapseEnabled || dockCollapsed || dockFocused || dockHovered) {
-      return;
-    }
-    scheduleDockCollapse();
-  }, [
-    dockAutoCollapseEnabled,
-    dockCollapsed,
-    dockFocused,
-    dockHovered,
-    scheduleDockCollapse,
-  ]);
-
-  useEffect(() => {
     if (typeof window === "undefined" || !dockAutoCollapseEnabled) return undefined;
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -1056,11 +1043,11 @@ export default function AppShell({
         return;
       }
 
-      if (dockHovered) {
+      if (dockHovered && !pointerInsideDock) {
         setDockHovered(false);
-      }
-      if (!dockCollapsed && !dockFocused && dockCollapseTimerRef.current == null) {
-        scheduleDockCollapse();
+        if (!dockFocused) {
+          scheduleDockCollapse();
+        }
       }
     };
 
@@ -1068,7 +1055,6 @@ export default function AppShell({
     return () => window.removeEventListener("pointermove", handlePointerMove);
   }, [
     dockAutoCollapseEnabled,
-    dockCollapsed,
     dockFocused,
     dockHovered,
     expandDock,
