@@ -67,7 +67,6 @@ Reusable templates live in [`templates/`](./templates/):
 | 2 | C06 Guardian Operator Workspace | closed |
 | 3 | C04 Pi/Coder Invocation Boundary | closed |
 | 3 | C07 Persona Studio | planned |
-| 3 | C08 Whoosh'd Runtime Setup | active — C08-T001 seam audit accepted |
 | 4 | C09 Execution Ledger | planned |
 | 4 | C10 Recovery and Operator Repair | planned |
 | 5 | C12 Operator Auth | planned |
