@@ -67,7 +67,7 @@ Reusable templates live in [`templates/`](./templates/):
 | 2 | C06 Guardian Operator Workspace | closed |
 | 3 | C04 Pi/Coder Invocation Boundary | closed |
 | 3 | C07 Persona Studio | planned |
-| 4 | C09 Execution Ledger | planned |
+| 4 | C09 Pi/Coder Execution Authority | **selected** — see `wave-4-selection-after-c07.md` |
 | 4 | C10 Recovery and Operator Repair | planned |
 | 5 | C12 Operator Auth | planned |
 | 5 | C13 SSE/Task-Event Reliability | planned |
@@ -76,8 +76,6 @@ Reusable templates live in [`templates/`](./templates/):
 Waves 2 and 3 are complete. Wave 4 begins with C08, now closed. Next: C09 Pi/Coder Execution Authority.
 | 5 | C09 Pi/Coder Execution Authority | **selected** — see `wave-4-selection-after-c07.md` |
 | 4 | C07 Persona Studio | closed |
-
-### Wave 4
 
 | Campaign | Status |
 |----------|--------|
