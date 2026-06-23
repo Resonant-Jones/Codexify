@@ -10,7 +10,7 @@ Make persona/profile identity and configuration inspectable and bounded before e
 
 ## Status
 
-**Gate**: `go` — C07-T001 accepted. Campaign **active**.
+**Gate**: `go` — C07-T001 accepted. Campaign **closed**.
 
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
@@ -28,7 +28,7 @@ Make persona/profile identity and configuration inspectable and bounded before e
 
 ## Campaign Status
 
-**active**
+**closed**
 
 ## Deferred / Non-Goals
 

@@ -72,3 +72,19 @@ Tools + retrieval config present in seed profiles. No enforcement, execution, co
 
 ### Next Task
 **C07-T007: Close Persona Studio V1 beta boundary proof**
+
+---
+
+## C07-T007: Campaign Closed (2026-06-20 14:50 UTC)
+
+### Files Created
+- `campaign-closeout.md` — 6 preconditions, final bounded claim, 6-task proof chain, 16-row boundary table, non-goals, gaps, risks, invariants
+
+### Campaign Closed
+C07 Persona Studio V1 beta boundary proof closed. All 6 tasks `go`. 34 focused tests across 4 test files. Route, draft state, config preview, permission/retrieval preview all proven as configuration/observability only. No execution, memory, chat, or enforcement.
+
+### Gate Decision
+**`go`** — C07 closed. Next campaign selection required.
+
+### Next Step
+**Select next Guardian Maturity campaign after C07 closeout**

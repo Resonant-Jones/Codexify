@@ -75,3 +75,15 @@
 - **Evidence**: `persona-studio-permission-retrieval-preview-boundary-proof.md` + 9 tests.
 - **Consequence**: C07-T006 accepted. C07-T007 (V1 closeout) may proceed.
 - **Revisit Trigger**: C07-T007 V1 closeout — verify all C07 boundaries sealed.
+
+---
+
+### Decision: C07-D007
+
+- **Decision ID**: C07-D007
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07 Persona Studio V1 campaign closed. 6 tasks accepted. Route, draft state, config preview, permission/retrieval preview proven as bounded configuration surface. No execution, memory, chat, or enforcement. Next campaign selection required.
+- **Reason**: All proof surfaces sealed. 34 focused tests across 4 test files. No backend, daemon, network, or execution dependency. Persona Studio V1 remains a non-conversational configuration surface bounded away from C09/C10/C11.
+- **Evidence**: `campaign-closeout.md` — preconditions, proof chain, boundary table, non-goals, gaps, risks, 21 invariants.
+- **Consequence**: C07 closed. Next campaign selection required. C09/C10/C11 remain deferred.
+- **Revisit Trigger**: Next campaign selection after C07 closeout.
