@@ -338,3 +338,19 @@ C08-T004a/b verified. 42 regression tests pass. Context bundle -> system message
 
 ### Next Task
 **C08-T005: Prove Whoosh'd operator-visible runtime truth surfaces**
+
+---
+
+## C08-T006: Campaign Closed (2026-06-20 05:50 UTC)
+
+### Files Created
+- `campaign-closeout.md` — 7 preconditions verified, final bounded claim, 19-row proof chain, 12-row boundary table, 55-test validation, 17 invariants, 3 gaps, 3 risks
+
+### Campaign Closed
+C08 Whoosh'd Runtime Integration & Context Fidelity closed. All 7 tasks `go`. Endpoint health, model inventory identity, context fidelity, and operator-visible runtime truth proven. No daemon controls, execution controls, or release widening.
+
+### Gate Decision
+**`go`** — C08 closed. Next Wave 4 selection required.
+
+### Next Step
+**Select next Wave 4 task after C08 closeout**
