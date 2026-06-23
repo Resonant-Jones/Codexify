@@ -80,4 +80,4 @@ Waves 2 and 3 are complete. Wave 4 begins with C08, now closed. Next: C07 Person
 
 | Campaign | Status |
 |----------|--------|
-| 3 | C08 Whoosh-d Runtime Integration & Context Fidelity | closed |
+| 3 | C08 Whoosh'd Runtime Integration & Context Fidelity | closed |
