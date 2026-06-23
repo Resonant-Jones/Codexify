@@ -25,3 +25,16 @@
 
 ### Next Task
 **C07-T002: Define Persona Studio bounded V1 contract and proof plan**
+
+---
+
+## C07-T002: V1 Contract & Proof Plan (2026-06-20 06:15 UTC)
+
+### Files Created
+- `persona-studio-bounded-v1-contract-proof-plan.md` — 11 V1 goals, 13 non-goals, entity/state/authority boundaries, 5-task proof ladder, 10 acceptance criteria, 12-row boundary table
+
+### Gate Decision
+**`go`** — C07-T002 accepted. C07-T003 may proceed.
+
+### Next Task
+**C07-T003: Prove Persona Studio route and navigation boundaries**

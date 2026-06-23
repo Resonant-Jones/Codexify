@@ -15,3 +15,15 @@
 - **Evidence**: `persona-studio-current-surface-seam-audit.md` — 13 surfaces, 10 gaps, 7 risks.
 - **Consequence**: C07 campaign active. C07-T002 (contract + proof plan) next.
 - **Revisit Trigger**: C07-T002 V1 contract — define bounded scope for Studio without execution authority.
+
+---
+
+### Decision: C07-D002
+
+- **Decision ID**: C07-D002
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07 Persona Studio V1 contract and proof plan defined. 11 V1 goals, 13 non-goals, 5-task proof ladder, 10 acceptance criteria, 12-row boundary table. No implementation. C07-T003 next.
+- **Reason**: C07-T001 audit gaps mapped to bounded V1 contract. Proof ladder defines 5 tasks (T003–T007) with goals, non-goals, and boundaries. No code, UI, routes, persistence, permissions, retrieval, memory, chat, or execution added.
+- **Evidence**: `persona-studio-bounded-v1-contract-proof-plan.md`.
+- **Consequence**: C07-T002 accepted. C07-T003 (route/navigation boundaries) may proceed.
+- **Revisit Trigger**: C07-T003 navigation boundaries proof — verify Studio page routes safely.

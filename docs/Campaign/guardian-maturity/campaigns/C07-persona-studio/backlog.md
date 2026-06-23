@@ -15,7 +15,7 @@ Make persona/profile identity and configuration inspectable and bounded before e
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
 | C07-T001 | audit | `go` | `TBD` | Current surface + contract seam audit — 13 surface rows, 10 gaps, 7 risks, 7-task backlog |
-| C07-T002 | docs | planned | — | Define Persona Studio bounded V1 contract and proof plan |
+| C07-T002 | docs | `go` | `TBD` | V1 contract and proof plan — 5-goal ladder, 12-row boundary table, 8 gaps, 8 risks |
 | C07-T003 | proof | planned | — | Prove Persona Studio route and navigation boundaries |
 | C07-T004 | proof | planned | — | Prove profile draft state and validation surface |
 | C07-T005 | proof | planned | — | Prove effective config preview without execution authority |
