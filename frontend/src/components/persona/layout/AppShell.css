@@ -1,6 +1,6 @@
 .codexify-shell {
-  --dock-collapsed-height: clamp(18px, calc(var(--shell-gap) * 1.35), 28px);
-  --dock-collapse-shift: calc(-1 * clamp(8px, var(--shell-gap), 16px));
+  --dock-collapsed-height: clamp(14px, calc(var(--shell-gap) * 0.9), 20px);
+  --dock-collapse-shift: calc(-1 * clamp(10px, calc(var(--shell-gap) * 0.85), 16px));
 }
 
 .codexify-shell__top-chrome {
@@ -36,26 +36,24 @@
 
 .codexify-shell--dock-collapsed .codexify-shell__top-chrome {
   max-height: var(--dock-collapsed-height);
-  opacity: 0.78;
-  overflow: hidden;
+  opacity: 1;
+  overflow: visible;
 }
 
 .codexify-shell--dock-collapsed .codexify-dock {
-  max-height: var(--dock-collapsed-height);
-  padding-block: 2px;
-  transform: translateY(var(--dock-collapse-shift)) scale(0.82);
+  max-height: none;
+  padding-block: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transform: translateY(var(--dock-collapse-shift));
   transform-origin: top left;
-  opacity: 0.72;
+  opacity: 0.94;
 }
 
-.codexify-shell--dock-collapsed .codexify-dock__rail > :not(.brand-tab) {
+.codexify-shell--dock-collapsed .codexify-dock .absolute.inset-0 {
   opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-}
-
-.codexify-shell--dock-collapsed .codexify-shell__top-chrome .brand-tab {
-  opacity: 1;
 }
 
 .codexify-shell--dock-collapsed .codexify-dock__utility-cluster {
