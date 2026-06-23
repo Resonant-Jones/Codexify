@@ -74,10 +74,10 @@ Reusable templates live in [`templates/`](./templates/):
 | 5 | C13 SSE/Task-Event Reliability | planned |
 | 5 | C14 Frontend State Management Audit | planned |
 
-Waves 2 and 3 are complete. Wave 4 begins with C08: Whoosh'd Runtime.
+Waves 2 and 3 are complete. Wave 4 begins with C08, now closed. Next: C07 Persona Studio.
 
 ### Wave 4
 
 | Campaign | Status |
 |----------|--------|
-| C08 Whoosh'd Runtime Integration & Context Fidelity | **selected** — see `wave-4-selection-after-c04.md` |
+| 3 | C08 Whoosh-d Runtime Integration & Context Fidelity | closed |
