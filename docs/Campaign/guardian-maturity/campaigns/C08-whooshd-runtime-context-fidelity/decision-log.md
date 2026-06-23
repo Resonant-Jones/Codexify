@@ -87,3 +87,15 @@
 - **Evidence**: `test_whooshd_operator_runtime_truth_surfaces.py` — 13 tests. Route inspection + provider registry + supported profile posture.
 - **Consequence**: C08-T005 accepted. C08-T006 (campaign closeout) may proceed.
 - **Revisit Trigger**: C08-T006 closeout — verify full C08 campaign proof trail.
+
+---
+
+### Decision: C08-D006
+
+- **Decision ID**: C08-D006
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08 Whoosh'd Runtime Integration & Context Fidelity campaign closed. All 7 tasks `go`. 55 regression tests pass. Endpoint health, model inventory identity, context fidelity, and operator-visible runtime truth proven. No daemon/execution controls, no release widening. Next Wave 4 selection required.
+- **Reason**: Full C08 proof chain verified. Campaign closeout artifact documents preconditions, proof chain, boundaries, gaps, and risks. No code or test changes.
+- **Evidence**: `campaign-closeout.md` — 7-task precondition check, proof chain table, boundary table, 55-test validation.
+- **Consequence**: C08 closed. Next Wave 4 selection required. No C09/C10/C11 started.
+- **Revisit Trigger**: Wave 4 selection after C08 closeout.
