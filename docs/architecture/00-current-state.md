@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-22
+2026-06-23
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work tightened Guardian CI, expanded import coverage, and added a Zac Mac Studio local bring-up path, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work on `main` added identity and Scout-facing architecture contracts plus the Zac Mac Studio local bring-up path, but those additions do not widen the release promise.
 
 ## What changed recently
-- `main` repaired Guardian CI drift.
+- `main` added collab chat identity contract docs.
+- `main` added Scout Vault operator-surface baseline docs.
+- `main` added personal-facts guardrails contract docs.
+- `main` added Scout endpoint configuration and iOS Scout Vault remote contract docs.
 - `main` added a Zac Mac Studio local bring-up path.
-- `main` deferred OpenAI import embeddings out of text import.
-- `main` expanded OpenAI import coverage and sharded fixture validation.
 - `main` preserved the local-only beta posture and current-state override pattern.
 
 ## Current supported reality
@@ -41,6 +42,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
+- Do not assume the Scout/iOS contract docs mean shipped Scout runtime support.
+- Do not assume personal-facts guardrails or collab chat identity contracts are release-proven runtime behavior from docs alone.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
@@ -65,12 +68,12 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Graph-write enablement stays outside the default release promise.
 - OpenAI import coverage and embedding deferral still need ongoing regression proof.
 
-## This week's priorities
+## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
 2. Preserve proof for chat, upload, retrieval, and OpenAI import paths.
 3. Keep the Zac Mac Studio bring-up path aligned with the supported local posture.
 4. Keep legacy config compatibility narrow and clearly labeled.
-5. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
+5. Keep docs-only contract work separate from shipped runtime claims.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.

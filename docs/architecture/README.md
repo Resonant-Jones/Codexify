@@ -1,4 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map.
+Start here for current-state interpretation and release readiness: [`00-current-state.md`](./00-current-state.md).
 Start here: read [`00-current-state.md`](./00-current-state.md) first for current-state interpretation, release readiness, or short-horizon priorities.
 Start here for live operational truth rather than structural architecture: [`00-current-state.md`](./00-current-state.md).
 If you need current-state interpretation rather than subsystem structure, begin with [`00-current-state.md`](./00-current-state.md).
