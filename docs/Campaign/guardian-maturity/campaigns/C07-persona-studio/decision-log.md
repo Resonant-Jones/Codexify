@@ -51,3 +51,15 @@
 - **Evidence**: `persona-studio-profile-draft-validation-boundary-proof.md` + 9 tests.
 - **Consequence**: C07-T004 accepted. C07-T005 (effective config preview) may proceed.
 - **Revisit Trigger**: C07-T005 config preview proof — verify resolved thread_config from draft.
+
+---
+
+### Decision: C07-D005
+
+- **Decision ID**: C07-D005
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07-T005 effective config preview boundary proof complete. Config fields from local state only. No provider, chat, memory, or execution. 9 tests. C07-T006 next.
+- **Reason**: Effective config preview bounded: config derived from local storage seed state. TruthMatrix/DiagnosticsPanel importable. No execution, provider calls, memory writes, or chat history.
+- **Evidence**: `persona-studio-effective-config-preview-boundary-proof.md` + 9 tests.
+- **Consequence**: C07-T005 accepted. C07-T006 (permission/retrieval preview) may proceed.
+- **Revisit Trigger**: C07-T006 permissions/retrieval preview — prove preview-only posture.
