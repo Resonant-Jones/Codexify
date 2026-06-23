@@ -1,0 +1,101 @@
+# C08 Decision Log: Whoosh'd Runtime Integration & Context Fidelity
+
+| ID | Date | Decision | Status |
+|----|------|----------|--------|
+| C08-D001 | 2026-06-20 | `go` — C08 seam audit complete; 17 files, 7 gaps, 7 risks, C08-T002 next | active |
+
+---
+
+### Decision: C08-D001
+
+- **Decision ID**: C08-D001
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08 Whoosh'd runtime configuration and model inventory seam audit complete. 17 files inspected across 8 seam groups. 7 gaps and 7 risks registered. 6-task backlog defined. No runtime, provider, context, or frontend changes made. Release boundary preserved.
+- **Reason**: Audit confirms Whoosh'd sidecar, model profiles, and local runtime presets exist. Key gaps: context fidelity not proven, system identity not proven at call boundary, model inventory not operator-visible, local-only posture not verified at call site. C08 started after C04 closure and Wave 4 selection.
+- **Evidence**: `runtime-config-model-inventory-seam-audit.md` — 8 seam groups, 17 files, 7 gaps, 7 risks, 6-task candidates.
+- **Consequence**: C08 campaign active. C08-T002 (endpoint config + health check proof) next.
+- **Revisit Trigger**: C08-T002 health-check proof — verify Whoosh'd endpoint and state visibility.
+
+---
+
+### Decision: C08-D002
+
+- **Decision ID**: C08-D002
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T002 endpoint health proof complete. Base URL from `WHOOSHD_HOST:WHOOSHD_PORT`. 4 health probes proved. States and ownership tracked. 16 tests without real daemon. Model inventory, context fidelity, and operator diagnostics remain unproven. C08-T003 next.
+- **Reason**: Endpoint configuration and health-check semantics proven via focused tests and proof artifact. No runtime, provider, model inventory, or context changes.
+- **Evidence**: `endpoint-health-proof.md` — truth table, boundary table, gaps, risks. 16 tests pass.
+- **Consequence**: C08-T002 accepted. C08-T003 (model inventory identity) may proceed.
+- **Revisit Trigger**: C08-T003 model inventory proof — cross-reference against endpoint health findings.
+
+---
+
+### Decision: C08-D003
+
+- **Decision ID**: C08-D003
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T003 model inventory identity proof complete. Registry ID ≠ repo ID. Display label ≠ canonical identity. 14 tests. 4 gaps. No real daemon. C08-T004 next.
+- **Reason**: Model inventory identity proven via file-backed profiles. Key finding: profile `id` and `model.repo` are distinct fields — identity not collapsed. Duplicate handling, validation, runtime model ID, and operator visibility remain gaps.
+- **Evidence**: `model-inventory-identity-proof.md` — truth table, boundary table, gaps, risks. 14 tests pass.
+- **Consequence**: C08-T003 accepted. C08-T004 (context bundle + system identity) may proceed.
+- **Revisit Trigger**: C08-T004 context fidelity proof — verify model identity propagates to context boundary.
+
+---
+
+### Decision: C08-D004a
+
+- **Decision ID**: C08-D004a
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004 split because `chat_completion_service.py` is 4966 lines. Inspection artifact created: 7-step assembly chain, candidate proof seam at `_build_messages_for_llm_compat()`. No code or test changes. C08-T004b next.
+- **Reason**: Monolithic C08-T004 was too large. Split into T004a (inspect), T004b (prove), T004c (close). Assembly chain mapped from chat route through worker, completion service, message assembly, context injection, provider dispatch.
+- **Evidence**: `context-assembly-seam-inspection.md` — 7-step chain, 4 critical functions, Whoosh'd/local lane map, candidate test seam.
+- **Consequence**: C08-T004a accepted. C08-T004b may proceed with focused tests at `_build_messages_for_llm_compat()`.
+- **Revisit Trigger**: C08-T004b context delivery proof — verify messages + model_id + context_bundle captured at provider-call boundary.
+
+---
+
+### Decision: C08-D004b
+
+- **Decision ID**: C08-D004b
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004b context delivery proof complete. Context bundle -> system message proven at `build_context_system_message_with_meta()`. Local provider path identified at `provider == "local"` branch. 12 tests, no daemon. C08-T004c next.
+- **Reason**: Context fidelity proved at the assembly seam: context bundle produces system message, metadata confirms injection, local/Whoosh'd provider path exists. No runtime changes.
+- **Evidence**: `test_whooshd_context_bundle_system_identity_delivery.py` — 12 tests. Context assembly, local path, boundary proofs.
+- **Consequence**: C08-T004b accepted. C08-T004c (closeout) may proceed.
+- **Revisit Trigger**: C08-T004c closeout — verify full context proof loop.
+
+---
+
+### Decision: C08-D004c
+
+- **Decision ID**: C08-D004c
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T004c context fidelity closeout complete. C08-T004a/b verified. 42 regression tests pass. Context bundle -> system message -> local provider path proven. No code or test changes. 3 gaps remain. C08-T005 next.
+- **Reason**: Context fidelity proof slice closed. Preconditions verified: T004a inspection, T004b delivery proof, all tests pass. No runtime, provider, or frontend changes.
+- **Evidence**: `context-fidelity-closeout.md` — boundary table, invariants, gaps, risks. 42 tests pass.
+- **Consequence**: C08-T004c accepted. C08-T005 (operator diagnostics) may proceed.
+- **Revisit Trigger**: C08-T005 operator diagnostics proof — verify Whoosh'd status is operator-visible.
+
+---
+
+### Decision: C08-D005
+
+- **Decision ID**: C08-D005
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T005 operator runtime truth surfaces proof complete. `/api/health/llm` exposes provider, model, completion_service, supported_profile_posture. `/api/health/chat` separates queue health. 13 tests. No daemon/execution controls. C08-T006 next.
+- **Reason**: Operator-visible runtime truth for Whoosh'd/local posture proven via source inspection and route tests. Health surfaces are read-only GET. Provider governance tracks local_only. No UI, daemon, or execution controls added.
+- **Evidence**: `test_whooshd_operator_runtime_truth_surfaces.py` — 13 tests. Route inspection + provider registry + supported profile posture.
+- **Consequence**: C08-T005 accepted. C08-T006 (campaign closeout) may proceed.
+- **Revisit Trigger**: C08-T006 closeout — verify full C08 campaign proof trail.
+
+---
+
+### Decision: C08-D006
+
+- **Decision ID**: C08-D006
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08 Whoosh'd Runtime Integration & Context Fidelity campaign closed. All 7 tasks `go`. 55 regression tests pass. Endpoint health, model inventory identity, context fidelity, and operator-visible runtime truth proven. No daemon/execution controls, no release widening. Next Wave 4 selection required.
+- **Reason**: Full C08 proof chain verified. Campaign closeout artifact documents preconditions, proof chain, boundaries, gaps, and risks. No code or test changes.
+- **Evidence**: `campaign-closeout.md` — 7-task precondition check, proof chain table, boundary table, 55-test validation.
+- **Consequence**: C08 closed. Next Wave 4 selection required. No C09/C10/C11 started.
+- **Revisit Trigger**: Wave 4 selection after C08 closeout.

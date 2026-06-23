@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-21
+2026-06-23
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work now includes OpenAI export import into chat history and a native task prompt archive, but it does not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work on `main` added identity and Scout-facing architecture contracts plus the Zac Mac Studio local bring-up path, but those additions do not widen the release promise.
 
 ## What changed recently
-- `main` imported OpenAI export conversations into chat history.
-- `main` added a native Task Prompt Archive representation.
-- `main` added OpenAI export artifact catalog and reconciliation passes.
-- `main` added OpenAI export workspace protections and import diagnostics.
+- `main` added collab chat identity contract docs.
+- `main` added Scout Vault operator-surface baseline docs.
+- `main` added personal-facts guardrails contract docs.
+- `main` added Scout endpoint configuration and iOS Scout Vault remote contract docs.
+- `main` added a Zac Mac Studio local bring-up path.
 - `main` preserved the local-only beta posture and current-state override pattern.
 
 ## Current supported reality
@@ -29,6 +30,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `LOCAL_RUNTIME_PRESET` selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` under the same local provider boundary.
 - Whoosh'd remains the supported Apple Silicon local runtime preset.
 - Whoosh'd local runtime config is standardized across setup and compose surfaces.
+- The Zac Mac Studio bring-up path is documented on `main`.
 - OpenAI export import into chat history is on `main`.
 - Task Prompt Archive exists as a native Codexify representation on `main`.
 - Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
@@ -40,6 +42,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
+- Do not assume the Scout/iOS contract docs mean shipped Scout runtime support.
+- Do not assume personal-facts guardrails or collab chat identity contracts are release-proven runtime behavior from docs alone.
 - Do not assume command bus, delegation, federation, or graph write surfaces are part of the present release promise.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Guardian Retrieval Navigation Model, adaptive route hints, reviewable graph evolution proposals, or self-improving memory are shipped runtime features.
@@ -54,6 +58,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume legacy `AI_BACKEND` config is the preferred runtime contract.
 - Do not infer desktop packaging readiness from architecture docs alone.
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
+- Do not assume the Zac Mac Studio bring-up path is a wider deployment promise than the documented local path.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
@@ -61,14 +66,14 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - End-to-end Guardian delegation is not yet a release-supported path.
 - Federation remains high-blast-radius and trust-policy sensitive.
 - Graph-write enablement stays outside the default release promise.
-- OpenAI import coverage is new and still needs ongoing regression proof.
+- OpenAI import coverage and embedding deferral still need ongoing regression proof.
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
 2. Preserve proof for chat, upload, retrieval, and OpenAI import paths.
-3. Keep legacy config compatibility narrow and clearly labeled.
-4. Keep delegation, federation, and graph-write work explicitly out of the release promise until proven.
-5. Keep the release-truth docs synced with the live `main` posture.
+3. Keep the Zac Mac Studio bring-up path aligned with the supported local posture.
+4. Keep legacy config compatibility narrow and clearly labeled.
+5. Keep docs-only contract work separate from shipped runtime claims.
 
 ## Release definition right now
 - [x] Supported-profile flags match the local-only beta contract.
@@ -76,6 +81,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] Fresh live evidence exists on the current `main` tip for the supported path.
 - [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are in the supported claim set.
 - [x] OpenAI export import and Task Prompt Archive are documented as present on `main`.
+- [x] The Zac Mac Studio bring-up path is documented without widening the release promise.
 - [ ] Queue, config, delegation, and federation risks must stay explicitly documented and rechecked when the supported path drifts.
 - [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
 
