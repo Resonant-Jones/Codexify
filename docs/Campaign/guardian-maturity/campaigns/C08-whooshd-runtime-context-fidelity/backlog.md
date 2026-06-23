@@ -19,7 +19,7 @@ Prove Codexify can route to Whoosh'd cleanly, preserve system identity and conte
 | C08-T003 | proof | `go` | `82742d8fc` | Model inventory identity proof — 14 tests, profile ID vs repo ID separation, 4 gaps |
 | C08-T004a | docs | `go` | `TBD` | Context assembly seam inspection — 7-step chain, candidate proof seam, 3 gaps |
 | C08-T004b | proof | `go` | `345265704` | Context delivery proof — 12 tests, context -> system message, local provider path |
-| C08-T004c | proof | planned | — | Close Whoosh'd context fidelity proof |
+| C08-T004c | proof | `go` | `48a9a02e6` | Context fidelity closeout — 42-test validation, boundary table, 3 gaps |
 C08-T004 was split into C08-T004a, C08-T004b, C08-T004c — see context-assembly-seam-inspection.md |
 | C08-T005 | frontend | planned | — | Expose Whoosh'd runtime truth in operator diagnostics |
 | C08-T006 | proof | planned | — | Close C08 Whoosh'd runtime context fidelity proof |

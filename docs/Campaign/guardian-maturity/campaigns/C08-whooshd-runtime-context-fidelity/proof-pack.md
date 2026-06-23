@@ -322,3 +322,19 @@ Context bundle -> system message proven. `build_context_system_message_with_meta
 
 ### Next Task
 **C08-T004c: Close Whoosh'd context fidelity proof**
+
+---
+
+## C08-T004c: Context Fidelity Closeout (2026-06-20 05:30 UTC)
+
+### Files Created
+- `context-fidelity-closeout.md` — preconditions, proof chain, final claim, boundary table, invariants, gaps, risks
+
+### Closeout Summary
+C08-T004a/b verified. 42 regression tests pass. Context bundle -> system message -> local provider path proven. No code or test changes. 3 remaining gaps: operator diagnostics, live model availability, full C08 closure. C08-T005 next.
+
+### Gate Decision
+**`go`** — C08-T004c accepted. C08-T005 may proceed.
+
+### Next Task
+**C08-T005: Prove Whoosh'd operator-visible runtime truth surfaces**
