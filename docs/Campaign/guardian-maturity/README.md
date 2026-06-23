@@ -74,6 +74,7 @@ Reusable templates live in [`templates/`](./templates/):
 | 5 | C14 Frontend State Management Audit | planned |
 
 Waves 2 and 3 are complete. Wave 4 begins with C08, now closed. Next: C07 Persona Studio.
+| 4 | C07 Persona Studio | active — C07-T001 seam audit accepted |
 
 ### Wave 4
 
