@@ -74,7 +74,6 @@ Reusable templates live in [`templates/`](./templates/):
 | 5 | C14 Frontend State Management Audit | planned |
 
 Waves 2 and 3 are complete. Wave 4 begins with C08, now closed. Next: C09 Pi/Coder Execution Authority.
-| 5 | C09 Pi/Coder Execution Authority | **selected** — see `wave-4-selection-after-c07.md` |
 | 4 | C07 Persona Studio | closed |
 
 | Campaign | Status |
