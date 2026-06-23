@@ -10,7 +10,7 @@ Prove Codexify can route to Whoosh'd cleanly, preserve system identity and conte
 
 ## Status
 
-**Gate**: `go` — C08-T001 accepted. Campaign **active**.
+**Gate**: `go` — C08-T001 accepted. Campaign **closed**.
 
 | Task | Domain | Gate | Commit | Summary |
 |------|--------|------|--------|---------|
@@ -31,7 +31,7 @@ C08-T004 was split into C08-T004a, C08-T004b, C08-T004c — see context-assembly
 
 ## Campaign Status
 
-**active**
+**closed**
 
 ## Deferred / Non-Goals
 
