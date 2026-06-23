@@ -111,6 +111,7 @@ import {
   getFlowBuilderPath,
   type FlowBuilderMode,
 } from "@/features/flowBuilder/flowBuilderRoute";
+import "./AppShell.css";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -244,6 +245,8 @@ const APP_SHELL_VIEWS = [
 ] as const satisfies readonly AppShellView[];
 
 const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
+const DOCK_AUTO_COLLAPSE_DELAY_MS = 900;
+const DOCK_TOP_ENGAGEMENT_ZONE_PX = 48;
 
 function isAppShellView(value: string | null): value is AppShellView {
   return value != null && APP_SHELL_VIEW_SET.has(value as AppShellView);
@@ -959,6 +962,100 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.layoutMode");
     return raw === "zen" ? "zen" : "focus";
   });
+  const dockAutoCollapseEnabled = true;
+  const topChromeRef = useRef<HTMLDivElement | null>(null);
+  const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockHovered, setDockHovered] = useState(false);
+  const [dockFocused, setDockFocused] = useState(false);
+
+  const clearDockCollapseTimer = useCallback(() => {
+    if (dockCollapseTimerRef.current == null) return;
+    window.clearTimeout(dockCollapseTimerRef.current);
+    dockCollapseTimerRef.current = null;
+  }, []);
+
+  const expandDock = useCallback(() => {
+    clearDockCollapseTimer();
+    setDockCollapsed(false);
+  }, [clearDockCollapseTimer]);
+
+  const scheduleDockCollapse = useCallback(() => {
+    clearDockCollapseTimer();
+    if (!dockAutoCollapseEnabled) return;
+    dockCollapseTimerRef.current = window.setTimeout(() => {
+      dockCollapseTimerRef.current = null;
+      setDockCollapsed(true);
+    }, DOCK_AUTO_COLLAPSE_DELAY_MS);
+  }, [clearDockCollapseTimer, dockAutoCollapseEnabled]);
+
+  const handleDockPointerEnter = useCallback(() => {
+    setDockHovered(true);
+    expandDock();
+  }, [expandDock]);
+
+  const handleDockPointerLeave = useCallback(() => {
+    setDockHovered(false);
+    if (!dockFocused) {
+      scheduleDockCollapse();
+    }
+  }, [dockFocused, scheduleDockCollapse]);
+
+  const handleDockFocus = useCallback(() => {
+    setDockFocused(true);
+    expandDock();
+  }, [expandDock]);
+
+  const handleDockBlur = useCallback<React.FocusEventHandler<HTMLDivElement>>(
+    (event) => {
+      const nextFocusTarget = event.relatedTarget;
+      if (
+        nextFocusTarget instanceof Node &&
+        event.currentTarget.contains(nextFocusTarget)
+      ) {
+        return;
+      }
+      setDockFocused(false);
+      if (!dockHovered) {
+        scheduleDockCollapse();
+      }
+    },
+    [dockHovered, scheduleDockCollapse]
+  );
+
+  useEffect(() => clearDockCollapseTimer, [clearDockCollapseTimer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !dockAutoCollapseEnabled) return undefined;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const target = event.target;
+      const pointerInsideDock =
+        target instanceof Node && topChromeRef.current?.contains(target);
+
+      if (event.clientY <= DOCK_TOP_ENGAGEMENT_ZONE_PX) {
+        setDockHovered(true);
+        expandDock();
+        return;
+      }
+
+      if (dockHovered && !pointerInsideDock) {
+        setDockHovered(false);
+        if (!dockFocused) {
+          scheduleDockCollapse();
+        }
+      }
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", handlePointerMove);
+  }, [
+    dockAutoCollapseEnabled,
+    dockFocused,
+    dockHovered,
+    expandDock,
+    scheduleDockCollapse,
+  ]);
 
   // Persist layoutMode to localStorage when it changes
   useEffect(() => {
@@ -1764,6 +1861,7 @@ export default function AppShell({
     "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
+    "--dock-collapsed-page-gutter": "clamp(4px, calc(var(--shell-gap) * 0.35), 10px)",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
     "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
@@ -2774,7 +2872,7 @@ export default function AppShell({
         />
       </div>
       <div
-        className={`relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""}`}
+        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
@@ -2799,8 +2897,14 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
+        ref={topChromeRef}
         data-testid="app-shell-top-chrome"
-        className={`relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        className={`codexify-shell__top-chrome relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        data-dock-collapsed={dockCollapsed ? "true" : "false"}
+        onPointerEnter={handleDockPointerEnter}
+        onPointerLeave={handleDockPointerLeave}
+        onFocusCapture={handleDockFocus}
+        onBlurCapture={handleDockBlur}
         style={
           isPhoneShell
             ? undefined
@@ -2822,8 +2926,10 @@ export default function AppShell({
           }
         >
           <div
-            className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
+            className="codexify-dock glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
+            data-dock-hovered={dockHovered ? "true" : "false"}
+            data-dock-focused={dockFocused ? "true" : "false"}
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
             }
@@ -2841,7 +2947,7 @@ export default function AppShell({
             </div>
 
             <div
-              className="inline-flex min-w-0 items-center"
+              className="codexify-dock__rail inline-flex min-w-0 items-center"
               data-testid="app-shell-top-nav-rail"
               style={desktopTopNavRailStyle}
             >
@@ -2943,7 +3049,7 @@ export default function AppShell({
         </div>
         <div
           data-testid="app-shell-utility-cluster"
-          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
+          className={`codexify-dock__utility-cluster flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
           style={
             isPhoneShell
               ? undefined
@@ -3052,7 +3158,9 @@ export default function AppShell({
         <div
           className="flex-1 h-full min-h-0 flex overflow-hidden"
           style={{
-            paddingTop: "var(--page-gutter-top)",   // always-on gutter under the pill dock
+            paddingTop: dockCollapsed
+              ? "var(--dock-collapsed-page-gutter)"
+              : "var(--page-gutter-top)",   // always-on gutter under the pill dock
             paddingRight: "var(--page-pad)",        // mode-dependent
             paddingBottom: "var(--page-pad)",       // mode-dependent
             paddingLeft: "var(--page-pad)",         // mode-dependent
