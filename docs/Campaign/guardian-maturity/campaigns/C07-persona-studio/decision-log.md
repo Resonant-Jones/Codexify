@@ -27,3 +27,15 @@
 - **Evidence**: `persona-studio-bounded-v1-contract-proof-plan.md`.
 - **Consequence**: C07-T002 accepted. C07-T003 (route/navigation boundaries) may proceed.
 - **Revisit Trigger**: C07-T003 navigation boundaries proof — verify Studio page routes safely.
+
+---
+
+### Decision: C07-D003
+
+- **Decision ID**: C07-D003
+- **Date**: 2026-06-20
+- **Decision**: `go`. C07-T003 navigation boundary proof complete. `/persona-studio` route recognized, page framed as configuration surface. 8 tests. No chat/memory/execution. C07-T004 next.
+- **Reason**: Route/navigation boundaries proven: Studio is a configuration surface reachable at `/persona-studio`, not a chat or execution surface. No forbidden imports or controls. 8 deterministic tests.
+- **Evidence**: `persona-studio-route-navigation-boundary-proof.md` + 8 test file.
+- **Consequence**: C07-T003 accepted. C07-T004 (profile draft state) may proceed.
+- **Revisit Trigger**: C07-T004 draft state proof — verify Studio local draft and validation boundaries.
