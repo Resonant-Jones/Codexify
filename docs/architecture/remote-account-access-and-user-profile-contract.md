@@ -30,6 +30,7 @@ This contract does not implement authentication, networking, UI, database change
 - Auth and exposure configuration already exists through current env/config seams.
 - Browser storage may hold auth, session, or API-key material depending on mode.
 - Persona and profile configuration exist as a separate concept from account identity.
+- A backend User Profile spine now exists for current-user profile metadata.
 
 ### What is not yet true
 
@@ -110,6 +111,12 @@ The future dedicated Login page must not:
 The login surface is an entry point for an authenticated browser session. It is not a shortcut around the backend boundary, and it is not a substitute for operator-managed auth configuration.
 
 ## User Profile Surface Contract
+
+Backend implementation note:
+
+- The durable `user_profiles` table and current-user profile API now exist.
+- This contract still describes the frontend/presentation surface that must sit on top of that backend spine.
+- The frontend User Profile page is still not implemented by this task.
 
 The future User Profile page may own:
 
