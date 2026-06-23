@@ -75,3 +75,15 @@
 - **Evidence**: `context-fidelity-closeout.md` — boundary table, invariants, gaps, risks. 42 tests pass.
 - **Consequence**: C08-T004c accepted. C08-T005 (operator diagnostics) may proceed.
 - **Revisit Trigger**: C08-T005 operator diagnostics proof — verify Whoosh'd status is operator-visible.
+
+---
+
+### Decision: C08-D005
+
+- **Decision ID**: C08-D005
+- **Date**: 2026-06-20
+- **Decision**: `go`. C08-T005 operator runtime truth surfaces proof complete. `/api/health/llm` exposes provider, model, completion_service, supported_profile_posture. `/api/health/chat` separates queue health. 13 tests. No daemon/execution controls. C08-T006 next.
+- **Reason**: Operator-visible runtime truth for Whoosh'd/local posture proven via source inspection and route tests. Health surfaces are read-only GET. Provider governance tracks local_only. No UI, daemon, or execution controls added.
+- **Evidence**: `test_whooshd_operator_runtime_truth_surfaces.py` — 13 tests. Route inspection + provider registry + supported profile posture.
+- **Consequence**: C08-T005 accepted. C08-T006 (campaign closeout) may proceed.
+- **Revisit Trigger**: C08-T006 closeout — verify full C08 campaign proof trail.

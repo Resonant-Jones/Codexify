@@ -20,6 +20,7 @@ Prove Codexify can route to Whoosh'd cleanly, preserve system identity and conte
 | C08-T004a | docs | `go` | `TBD` | Context assembly seam inspection — 7-step chain, candidate proof seam, 3 gaps |
 | C08-T004b | proof | `go` | `345265704` | Context delivery proof — 12 tests, context -> system message, local provider path |
 | C08-T004c | proof | `go` | `48a9a02e6` | Context fidelity closeout — 42-test validation, boundary table, 3 gaps |
+| C08-T005 | proof | `go` | `fef59df8b` | Operator runtime truth surfaces — 13 tests, health/llm + health/chat routes, provider governance |
 C08-T004 was split into C08-T004a, C08-T004b, C08-T004c — see context-assembly-seam-inspection.md |
 | C08-T005 | frontend | planned | — | Expose Whoosh'd runtime truth in operator diagnostics |
 | C08-T006 | proof | planned | — | Close C08 Whoosh'd runtime context fidelity proof |
