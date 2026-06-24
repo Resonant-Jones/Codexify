@@ -1,6 +1,20 @@
 .codexify-shell {
   --dock-collapsed-height: 32px;
   --dock-collapsed-page-gutter: 6px;
+  /* Surface Tuning — fallbacks used until AppShell JS sets the live values.
+     Depth 50 / Warmth 0 reproduce the existing neutral look exactly. */
+  --surface-depth: 50;
+  --surface-warmth: 0;
+  --surface-depth-norm: 0;
+  --surface-warmth-norm: 0;
+  --surface-sheet: var(--panel-sheet, #1b1b1d);
+  --surface-chip: var(--chip-bg, #262629);
+}
+
+/* Override defaults for the light theme so JS-less renders still look sane. */
+.codexify-shell:not(.dark) {
+  --surface-sheet: #f1ede8;
+  --surface-chip: #e9e4dc;
 }
 
 .codexify-shell__top-chrome {

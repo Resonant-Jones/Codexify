@@ -1676,6 +1676,20 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 2;
     return Math.max(1, Math.min(4, Math.round(raw)));
   });
+  // Surface Tuning — manual "True Tone" for shared AppShell surfaces.
+  // Defaults (50 / 0) preserve the existing neutral look exactly.
+  const [surfaceDepth, setSurfaceDepth] = useState<number>(() => {
+    if (typeof window === "undefined") return 50;
+    const raw = Number(window.localStorage.getItem("cfy.surfaceDepth"));
+    if (!Number.isFinite(raw)) return 50;
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  });
+  const [surfaceWarmth, setSurfaceWarmth] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    const raw = Number(window.localStorage.getItem("cfy.surfaceWarmth"));
+    if (!Number.isFinite(raw)) return 0;
+    return Math.max(-100, Math.min(100, Math.round(raw)));
+  });
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("cfy.baseColor", baseColor);
@@ -1688,6 +1702,16 @@ export default function AppShell({
       window.localStorage.setItem("cfy.dashboard.threadRows", String(dashboardThreadRows));
     }
   }, [dashboardThreadRows]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cfy.surfaceDepth", String(surfaceDepth));
+    }
+  }, [surfaceDepth]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cfy.surfaceWarmth", String(surfaceWarmth));
+    }
+  }, [surfaceWarmth]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🌈 SECTION: Color Helpers and Gradient Generators
@@ -1746,6 +1770,36 @@ export default function AppShell({
   }
 
   /* ─────────────────────────────────────────────────────────────────────────────
+     🎚️ SECTION: Surface Tuning Derivation
+     Apply the user's Surface Depth + Surface Warmth preferences to a base
+     neutral surface color. The math is HSL-based so output stays subtle
+     (no neon/saturation) and the default (depth=50, warmth=0) returns the
+     input unchanged.
+     ───────────────────────────────────────────────────────────────────────────── */
+  function tuneSurfaceColor(
+    baseHex: string,
+    depthNorm: number,
+    warmthNorm: number
+  ): string {
+    const { r, g, b } = hexToRgb(baseHex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    // Depth (-1 lighter, +1 darker), bounded so we never invert polarity.
+    const depthShift = depthNorm * 9; // ±9% lightness around the base
+    const newL = Math.max(0, Math.min(100, l + depthShift));
+    // Warmth (-1 cool → H~210°, +1 warm → H~35°). Cap pull at 0.7 of the gap so
+    // we don't slam to a neon target.
+    const warmTarget = 35;
+    const coolTarget = 210;
+    const pull = Math.abs(warmthNorm) * 0.7;
+    const targetH = warmthNorm >= 0 ? warmTarget : coolTarget;
+    let newH = h + (targetH - h) * pull;
+    newH = ((newH % 360) + 360) % 360;
+    // Saturation: stay subtle. Add a small amount with warmth magnitude, cap at 22%.
+    const newS = Math.min(22, s + Math.abs(warmthNorm) * 10);
+    return hslToHex(newH, newS, newL);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────────
      🖼️ SECTION: App-wide Visual Background Handling
      - If no wallpaper is set, we use a smooth color gradient based on the base color.
      - If wallpaper is set, we overlay a subtle gradient to help the theme (light/dark)
@@ -1784,9 +1838,15 @@ export default function AppShell({
       backgroundRepeat: "no-repeat",
     } as React.CSSProperties;
   })();
-  const panelSheet = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
+  const panelSheetBase = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
+  const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
+  // Surface Tuning: depth/warmth in normalized [-1, 1] space.
+  // depthNorm: -1 = lighter, +1 = darker. warmthNorm: -1 = cool, +1 = warm.
+  const depthNorm = (surfaceDepth - 50) / 50;
+  const warmthNorm = surfaceWarmth / 100;
+  const panelSheet = tuneSurfaceColor(panelSheetBase, depthNorm, warmthNorm);
   const panelBg = panelSheet;
-  const chipBg = resolved === "dark" ? "#262629" : "#e9e4dc";
+  const chipBg = tuneSurfaceColor(chipBgBase, depthNorm, warmthNorm);
   // Global: soften panel border
   const panelBorder = resolved === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,24,39,0.08)";
   const panelSheetBorder = resolved === "dark" ? "rgba(255,255,255,0.18)" : "rgba(17,24,39,0.14)";
@@ -1917,6 +1977,13 @@ export default function AppShell({
     "--icon-muted": iconMutedColor,
     "--surface-hover": surfaceHover,
     "--surface-soft": surfaceSoft,
+    /* Surface Tuning raw inputs (consumed by AppShell-level derivation). */
+    "--surface-depth": String(surfaceDepth),
+    "--surface-warmth": String(surfaceWarmth),
+    "--surface-sheet": panelSheet,
+    "--surface-chip": chipBg,
+    "--surface-depth-norm": depthNorm.toFixed(4),
+    "--surface-warmth-norm": warmthNorm.toFixed(4),
     "--text-on-accent": textOnAccent,
     "--info-surface": infoSurface,
     "--info-text": infoText,
@@ -3599,6 +3666,10 @@ export default function AppShell({
                     setExtColors={setExtColors}
                     dashboardThreadRows={dashboardThreadRows}
                     setDashboardThreadRows={setDashboardThreadRows}
+                    surfaceDepth={surfaceDepth}
+                    setSurfaceDepth={setSurfaceDepth}
+                    surfaceWarmth={surfaceWarmth}
+                    setSurfaceWarmth={setSurfaceWarmth}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
                   />
