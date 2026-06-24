@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Codexify</title>
+<style>
+:root {
+  --bg: #0a0a0a; --surface: #111; --surface2: #1a1a1a; --surface3: #222;
+  --border: #2a2a2a; --text: #e4e4e4; --text-dim: #777; --text-faint: #555;
+  --accent: #6c8cff; --accent-dim: #3a4d8c; --accent-soft: rgba(108,140,255,0.12);
+  --green: #4caf50; --orange: #ff9800; --red: #ff4d4d;
+  --user-bg: #162240; --other-bg: #1a2a1a; --assistant-bg: #141414; --luna-bg: #1a1428;
+  --radius: 12px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  background: var(--bg); color: var(--text); height: 100dvh; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.app { display: flex; height: 100dvh; width: 100%; }
+
+.sidebar {
+  width: 300px; min-width: 300px; background: var(--surface);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  transition: transform 0.25s ease;
+}
+.sidebar-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sidebar-header h1 { font-size: 15px; font-weight: 600; flex: 1; }
+.sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.sidebar-tab {
+  flex: 1; padding: 10px 0; text-align: center; font-size: 12px; font-weight: 500;
+  color: var(--text-dim); background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.sidebar-panel { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.thread-list, .doc-list { display: none; flex-direction: column; }
+.thread-list.active, .doc-list.active { display: flex; }
+.thread-item {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+.thread-item:active, .thread-item.active { background: var(--surface2); }
+.thread-item .thread-info { flex: 1; min-width: 0; }
+.thread-item .title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-item .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.del-btn {
+  background: none; border: none; color: var(--text-faint); font-size: 14px;
+  cursor: pointer; padding: 4px 6px; border-radius: 4px; flex-shrink: 0;
+}
+.doc-item { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.doc-item .doc-icon { font-size: 18px; flex-shrink: 0; }
+.doc-item .doc-info { flex: 1; min-width: 0; }
+.doc-item .doc-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-item .doc-meta { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.doc-item .doc-status { font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+.doc-status.ready { color: var(--green); background: rgba(76,175,80,0.12); }
+.doc-status.processing { color: var(--orange); background: rgba(255,152,0,0.12); }
+.upload-zone {
+  margin: 12px 16px; padding: 24px; border: 2px dashed var(--border);
+  border-radius: var(--radius); text-align: center; color: var(--text-dim);
+  font-size: 13px; cursor: pointer;
+}
+.upload-zone input { display: none; }
+.empty-panel { padding: 32px 16px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.atlas-pane { flex: 1; display: none; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
+.atlas-pane.active { display: flex; }
+.atlas-toolbar {
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 10px; align-items: center; font-size: 12px;
+  color: var(--text-dim); background: var(--surface);
+}
+.atlas-toolbar select, .atlas-toolbar button {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px;
+}
+.atlas-toolbar button { cursor: pointer; }
+.atlas-toolbar button:hover { border-color: var(--accent); }
+.atlas-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+.atlas-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+.atlas-tooltip {
+  position: absolute; pointer-events: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--text);
+  max-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  display: none; z-index: 10;
+}
+.atlas-tooltip .tt-meta { color: var(--text-dim); font-size: 11px; margin-bottom: 4px; }
+.atlas-tooltip .tt-text { white-space: pre-wrap; max-height: 140px; overflow: auto; line-height: 1.4; }
+.atlas-empty { padding: 32px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; background: var(--surface); min-height: 46px;
+}
+.chat-header .thread-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.user-badge { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 3px 8px; border-radius: 10px; cursor: pointer; }
+.menu-btn { display: none; background: none; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 4px; }
+
+.messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.message { max-width: 82%; padding: 8px 12px; border-radius: var(--radius); font-size: 14px; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
+.message.user-self { align-self: flex-end; background: var(--user-bg); border-bottom-right-radius: 4px; }
+.message.user-other { align-self: flex-start; background: var(--other-bg); border-bottom-left-radius: 4px; }
+.message.assistant { align-self: flex-start; background: var(--assistant-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; max-width: 90%; }
+.message .msg-name { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.message.user-self .msg-name { color: var(--accent); }
+.message.user-other .msg-name { color: #6dbb6d; }
+.message.assistant .msg-name { color: var(--text-dim); }
+.message.luna { background: var(--luna-bg); border-color: #2d1f4e; }
+.message.luna .msg-name { color: #b39ddb; }
+
+.typing-indicator { align-self: flex-start; padding: 8px 12px; background: var(--assistant-bg); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; color: var(--text-dim); display: none; }
+.typing-indicator.visible { display: block; }
+
+.no-thread { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 13px; text-align: center; padding: 32px; }
+
+.composer { padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text); padding: 10px 14px;
+  font-size: 15px; font-family: inherit; line-height: 1.4;
+  resize: none; outline: none; max-height: 120px; min-height: 42px;
+}
+.composer textarea::placeholder { color: var(--text-faint); }
+.composer textarea:focus { border-color: var(--accent-dim); }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none; color: #fff;
+  font-size: 16px; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0;
+}
+.icon-btn:disabled { opacity: 0.25; }
+.send-btn { background: var(--accent); }
+.attach-btn { background: var(--surface3); color: var(--text-dim); font-size: 18px; }
+.attach-btn input { display: none; }
+
+.status-bar { padding: 5px 16px; background: var(--surface); border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.status-dot.offline { background: var(--red); }
+.status-dot.pending { background: var(--orange); }
+
+.btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; }
+.overlay.open { display: block; }
+
+@media (max-width: 700px) {
+  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); width: 280px; min-width: 0; }
+  .sidebar.open { transform: translateX(0); }
+  .menu-btn { display: block; }
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="app" style="display:none" id="appRoot">
+  <div class="overlay" id="overlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1>Codexify</h1>
+      <button class="btn btn-sm" id="btnNew">+ New</button>
+    </div>
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="threads" id="tabThreads">Threads</button>
+      <button class="sidebar-tab" data-tab="docs" id="tabDocs">Docs</button>
+      <button class="sidebar-tab" data-tab="atlas" id="tabAtlas">Atlas</button>
+    </div>
+    <div class="sidebar-panel">
+      <div class="thread-list active" id="threadList"><div class="empty-panel">Loading...</div></div>
+      <div class="doc-list" id="docList">
+        <div class="upload-zone" id="uploadZone">
+          Drop files here or tap to upload
+          <input type="file" id="uploadInput" multiple accept=".md,.txt,.pdf,.csv,.json,.html,.doc,.docx">
+        </div>
+        <div id="docItems"></div>
+      </div>
+    </div>
+  </aside>
+  <main class="chat-pane" id="chatPane">
+    <div class="chat-header">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="thread-title" id="chatTitle">Codexify</div>
+      <div class="user-badge" id="userBadge"></div>
+    </div>
+    <div class="messages" id="messages">
+      <div class="no-thread">Select or create a thread to start</div>
+    </div>
+    <div class="typing-indicator" id="typing"><span>Thinking...</span></div>
+    <div class="composer" id="composer" style="display:none;">
+      <button class="icon-btn attach-btn" id="attachBtn">+</button>
+      <input type="file" id="attachInput" multiple accept=".md,.txt,.pdf,.csv,.json,.html,.doc,.docx" style="display:none">
+      <textarea id="input" placeholder="Message... (@Guardian to invoke AI)" rows="1"></textarea>
+      <button class="icon-btn send-btn" id="sendBtn" disabled>&#9654;</button>
+    </div>
+    <div class="status-bar">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </main>
+  <main class="atlas-pane" id="atlasPane">
+    <div class="atlas-toolbar">
+      <select id="atlasNamespace"><option value="">All namespaces</option></select>
+      <span id="atlasCount">—</span>
+      <button id="atlasRefresh">Refresh</button>
+      <span style="margin-left:auto;color:var(--text-faint);font-size:11px;">Drag a chunk for details · Esc to close</span>
+    </div>
+    <div class="atlas-canvas-wrap" id="atlasWrap">
+      <canvas id="atlasCanvas"></canvas>
+      <div class="atlas-tooltip" id="atlasTooltip"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function() {
+  // --- State ---
+  var apiKey = localStorage.getItem('codexify_apikey') || '';
+  var userName = localStorage.getItem('codexify_username') || '';
+  var currentThreadId = null;
+  var lastMessageId = null;
+  var pollTimer = null;
+  var waitingForAssistant = false;
+  var activeTab = 'threads';
+  // Atlas state
+  var atlasLoaded = false;
+  var atlasLoading = false;
+  var atlasChunks = [];
+  var atlasProjection = [];
+  var atlasHover = -1;
+  var atlasPin = -1;
+  var atlasActiveNamespace = '';
+
+  // --- Prompt for API key & name ---
+  while (!apiKey) {
+    var k = prompt('Enter Guardian API key:');
+    if (k && k.trim()) { apiKey = k.trim(); localStorage.setItem('codexify_apikey', apiKey); }
+  }
+  while (!userName) {
+    var n = prompt('Enter your display name:');
+    if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); }
+  }
+  document.getElementById('appRoot').style.display = 'flex';
+  document.getElementById('userBadge').textContent = userName;
+
+  // --- API ---
+  function api(path, method, body) {
+    var opts = { method: method || 'GET', headers: { 'x-api-key': apiKey } };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(path, opts).then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+  }
+
+  // --- Sound ---
+  function ping() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var osc = ctx.createOscillator(); var g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.frequency.value = 880; osc.type = 'sine'; g.gain.value = 1.0;
+      osc.start(); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+  }
+
+  // --- Render ---
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderMessages(msgs) {
+    var el = document.getElementById('messages');
+    if (!msgs || !msgs.length) { el.innerHTML = '<div class="no-thread">No messages yet</div>'; return; }
+    el.innerHTML = msgs.map(function(m) {
+      if (m.role === 'assistant') {
+        var content = m.content || '';
+        var isLuna = /^\[luna\]/i.test(content);
+        if (isLuna) { content = content.replace(/^\[luna\]\s*/i, ''); }
+        var aClass = isLuna ? 'message assistant luna' : 'message assistant';
+        var aName = isLuna ? 'Luna' : 'Guardian';
+        return '<div class="' + aClass + '"><div class="msg-name">' + aName + '</div>' + esc(content) + '</div>';
+      }
+      var content = m.content || '';
+      var name = 'User';
+      var match = content.match(/^\[([^\]]{1,30})\]:\s*/);
+      if (match) { name = match[1]; content = content.slice(match[0].length); }
+      var cls = (name === userName) ? 'user-self' : 'user-other';
+      return '<div class="message ' + cls + '"><div class="msg-name">' + esc(name) + '</div>' + esc(content) + '</div>';
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // --- Poll (the ONE loop) ---
+  function startPoll() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function() {
+      if (!currentThreadId) return;
+      api('/api/chat/' + currentThreadId + '/messages').then(function(data) {
+        var msgs = data.messages || [];
+        var newLastId = msgs.length ? msgs[msgs.length - 1].id : null;
+        if (newLastId !== lastMessageId) {
+          lastMessageId = newLastId;
+          ping();
+          renderMessages(msgs);
+          if (waitingForAssistant && msgs.length && msgs[msgs.length - 1].role === 'assistant') {
+            waitingForAssistant = false;
+            document.getElementById('typing').style.display = 'none';
+            loadThreads();
+          }
+        }
+      }).catch(function() {});
+    }, 500);
+  }
+
+  function stopPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    lastMessageId = null;
+  }
+
+  // --- Threads ---
+  function loadThreads() {
+    api('/api/chat/threads?limit=50&offset=0').then(function(data) {
+      var threads = data.threads || data;
+      var list = document.getElementById('threadList');
+      if (!threads.length) { list.innerHTML = '<div class="empty-panel">No threads yet. Tap + New.</div>'; return; }
+      list.innerHTML = threads.map(function(t) {
+        var ago = timeAgo(new Date(t.updated_at || t.created_at));
+        var active = (currentThreadId === t.id) ? ' active' : '';
+        return '<div class="thread-item' + active + '" data-id="' + t.id + '">' +
+          '<div class="thread-info"><div class="title">' + esc(t.title || 'Untitled') + '</div><div class="meta">' + ago + '</div></div>' +
+          '<button class="del-btn" data-rename="' + t.id + '" title="Rename">&#9998;</button>' +
+          '<button class="del-btn" data-delete="' + t.id + '" title="Delete">&times;</button></div>';
+      }).join('');
+    }).catch(function() {});
+  }
+
+  function selectThread(id) {
+    stopPoll();
+    currentThreadId = id;
+    api('/api/chat/' + id + '/messages').then(function(data) {
+      var msgs = data.messages || [];
+      lastMessageId = msgs.length ? msgs[msgs.length - 1].id : null;
+      renderMessages(msgs);
+      document.getElementById('chatTitle').textContent = 'Thread ' + id;
+      document.getElementById('composer').style.display = 'flex';
+      document.querySelectorAll('.thread-item').forEach(function(e) { e.classList.toggle('active', +e.dataset.id === id); });
+      var el = document.querySelector('.thread-item[data-id="' + id + '"] .title');
+      if (el) document.getElementById('chatTitle').textContent = el.textContent;
+      closeSidebar();
+      startPoll();
+    }).catch(function() {});
+  }
+
+  // --- Send ---
+  function sendMessage() {
+    var input = document.getElementById('input');
+    var text = input.value.trim();
+    if (!text || !currentThreadId) return;
+    input.value = ''; input.style.height = 'auto';
+    document.getElementById('sendBtn').disabled = true;
+
+    var tagged = '[' + userName + ']: ' + text;
+    var invokeGuardian = /@guardian/i.test(text) || /@luna/i.test(text);
+
+    api('/api/chat/' + currentThreadId + '/messages', 'POST', { role: 'user', content: tagged }).then(function() {
+      return api('/api/chat/' + currentThreadId + '/messages');
+    }).then(function(data) {
+      var msgs = data.messages || [];
+      lastMessageId = msgs.length ? msgs[msgs.length - 1].id : null;
+      renderMessages(msgs);
+
+      if (invokeGuardian) {
+        document.getElementById('typing').style.display = 'block';
+        waitingForAssistant = true;
+        api('/api/chat/' + currentThreadId + '/complete', 'POST', {}).catch(function() {
+          waitingForAssistant = false;
+          document.getElementById('typing').style.display = 'none';
+        });
+      }
+    }).catch(function(e) {
+      console.error('send failed', e);
+    }).finally(function() {
+      document.getElementById('sendBtn').disabled = false;
+    });
+  }
+
+  // --- Docs ---
+  function loadDocs() {
+    api('/api/media/documents').then(function(data) {
+      var docs = data.documents || [];
+      var el = document.getElementById('docItems');
+      if (!docs.length) { el.innerHTML = '<div class="empty-panel">No documents yet</div>'; return; }
+      el.innerHTML = docs.map(function(d) {
+        var size = d.filesize < 1048576 ? (d.filesize/1024).toFixed(1)+' KB' : (d.filesize/1048576).toFixed(1)+' MB';
+        var st = d.embedding_status || 'unknown';
+        var cls = (st==='completed'||st==='ready') ? 'ready' : st==='processing' ? 'processing' : '';
+        var label = st==='completed' ? 'Indexed' : st;
+        return '<div class="doc-item"><div class="doc-icon">\u{1F4C4}</div><div class="doc-info"><div class="doc-name">' +
+          esc(d.filename) + '</div><div class="doc-meta">' + size + '</div></div><div class="doc-status ' + cls + '">' +
+          esc(label) + '</div><button class="del-btn" data-deldoc="' + d.id + '">&times;</button></div>';
+      }).join('');
+    }).catch(function() {});
+  }
+
+  function uploadFile(file) {
+    var form = new FormData(); form.append('file', file);
+    fetch('/api/media/upload/document', { method: 'POST', headers: { 'x-api-key': apiKey }, body: form }).then(function() { loadDocs(); }).catch(function() {});
+  }
+
+  // --- Health ---
+  function checkHealth() {
+    api('/health/chat').then(function(h) {
+      document.getElementById('statusDot').className = h.ok ? 'status-dot' : 'status-dot pending';
+      document.getElementById('statusText').textContent = h.ok ? ((h.model||'').split('/').pop()||'local') + ' • ready' : 'Degraded';
+    }).catch(function() {
+      document.getElementById('statusDot').className = 'status-dot offline';
+      document.getElementById('statusText').textContent = 'Offline';
+    });
+  }
+
+  function timeAgo(d) {
+    var s = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60)+'m ago';
+    if (s < 86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+  }
+
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('open');
+  }
+
+  // --- Events (all delegated) ---
+  document.getElementById('overlay').onclick = function() { closeSidebar(); };
+  document.getElementById('menuBtn').onclick = function() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('open');
+  };
+  document.getElementById('userBadge').onclick = function() {
+    var n = prompt('Change display name:', userName);
+    if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); this.textContent = userName; }
+  };
+  document.getElementById('btnNew').onclick = function() {
+    api('/api/chat/threads', 'POST', { title: 'New chat' }).then(function(d) {
+      var id = d.id || (d.thread && d.thread.id);
+      loadThreads(); if (id) selectThread(id);
+    }).catch(function(){});
+  };
+  document.getElementById('tabThreads').onclick = function() {
+    activeTab = 'threads';
+    document.getElementById('tabThreads').classList.add('active'); document.getElementById('tabDocs').classList.remove('active'); document.getElementById('tabAtlas').classList.remove('active');
+    document.getElementById('threadList').classList.add('active'); document.getElementById('docList').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex'; document.getElementById('atlasPane').classList.remove('active');
+  };
+  document.getElementById('tabDocs').onclick = function() {
+    activeTab = 'docs';
+    document.getElementById('tabDocs').classList.add('active'); document.getElementById('tabThreads').classList.remove('active'); document.getElementById('tabAtlas').classList.remove('active');
+    document.getElementById('docList').classList.add('active'); document.getElementById('threadList').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex'; document.getElementById('atlasPane').classList.remove('active');
+    loadDocs();
+  };
+  document.getElementById('tabAtlas').onclick = function() {
+    activeTab = 'atlas';
+    document.getElementById('tabAtlas').classList.add('active'); document.getElementById('tabThreads').classList.remove('active'); document.getElementById('tabDocs').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'none'; document.getElementById('atlasPane').classList.add('active');
+    loadAtlas();
+  };
+  document.getElementById('threadList').onclick = function(e) {
+    var item = e.target.closest('.thread-item');
+    if (e.target.dataset.rename) {
+      e.stopPropagation();
+      var id = +e.target.dataset.rename;
+      var el = e.target.closest('.thread-item').querySelector('.title');
+      var cur = el ? el.textContent : '';
+      var name = prompt('Rename thread:', cur);
+      if (name && name.trim()) { api('/api/chat/threads/' + id, 'PATCH', { title: name.trim() }).then(function() { loadThreads(); if (currentThreadId === id) document.getElementById('chatTitle').textContent = name.trim(); }); }
+      return;
+    }
+    if (e.target.dataset.delete) {
+      e.stopPropagation();
+      if (confirm('Delete thread?')) {
+        var id = +e.target.dataset.delete;
+        api('/api/chat/threads/' + id, 'DELETE').then(function() {
+          if (currentThreadId === id) { currentThreadId = null; stopPoll(); document.getElementById('messages').innerHTML = '<div class="no-thread">Select a thread</div>'; document.getElementById('composer').style.display = 'none'; }
+          loadThreads();
+        });
+      }
+      return;
+    }
+    if (item) selectThread(+item.dataset.id);
+  };
+  document.getElementById('docItems').onclick = function(e) {
+    if (e.target.dataset.deldoc) {
+      if (confirm('Delete document?')) { api('/api/media/documents/' + e.target.dataset.deldoc, 'DELETE').then(function() { loadDocs(); }); }
+    }
+  };
+  document.getElementById('uploadZone').onclick = function() { document.getElementById('uploadInput').click(); };
+  document.getElementById('uploadInput').onchange = function() { Array.from(this.files).forEach(uploadFile); };
+  document.getElementById('attachBtn').onclick = function() { document.getElementById('attachInput').click(); };
+  document.getElementById('attachInput').onchange = function() { Array.from(this.files).forEach(uploadFile); };
+  document.getElementById('sendBtn').onclick = sendMessage;
+  document.getElementById('input').oninput = function() {
+    this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    document.getElementById('sendBtn').disabled = !this.value.trim();
+  };
+  document.getElementById('input').onkeydown = function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  // --- Atlas ---
+  // Colour palette used to colour-code chunks by namespace. Rotates through
+  // the design tokens (--accent, --green, --orange, --red) plus a few
+  // hand-picked extras so adjacent namespaces stay distinguishable.
+  var ATLAS_PALETTE = [
+    '#6c8cff', '#4caf50', '#ff9800', '#ff4d4d',
+    '#b39ddb', '#26c6da', '#ffd54f', '#ec407a',
+  ];
+
+  function atlasColourForNamespace(ns) {
+    if (!ns) return ATLAS_PALETTE[0];
+    var h = 0;
+    for (var i = 0; i < ns.length; i++) h = ((h << 5) - h + ns.charCodeAt(i)) | 0;
+    return ATLAS_PALETTE[Math.abs(h) % ATLAS_PALETTE.length];
+  }
+
+  function loadAtlas() {
+    if (atlasLoading) return;
+    atlasLoading = true;
+    document.getElementById('atlasCount').textContent = 'Loading…';
+    api('/api/atlas/chunks?limit=2000&include_embeddings=true', 'GET')
+      .then(function(resp) {
+        atlasLoaded = true;
+        atlasLoading = false;
+        atlasChunks = (resp && resp.items) || [];
+        atlasProjection = pcaProject(atlasChunks, 2);
+        populateAtlasNamespaceFilter();
+        document.getElementById('atlasCount').textContent =
+          atlasChunks.length + ' / ' + (resp && resp.total || 0) + ' chunks (' + (resp && resp.backend || '?') + ')';
+        renderAtlas();
+      })
+      .catch(function(err) {
+        atlasLoading = false;
+        document.getElementById('atlasCount').textContent = 'Error: ' + (err && err.message || err);
+      });
+  }
+
+  function populateAtlasNamespaceFilter() {
+    var select = document.getElementById('atlasNamespace');
+    var seen = {};
+    atlasChunks.forEach(function(c) {
+      var ns = (c.metadata && c.metadata.namespace) || '';
+      if (ns) seen[ns] = true;
+    });
+    var current = atlasActiveNamespace;
+    select.innerHTML = '<option value="">All namespaces</option>';
+    Object.keys(seen).sort().forEach(function(ns) {
+      var opt = document.createElement('option');
+      opt.value = ns; opt.textContent = ns;
+      if (ns === current) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  // Power-iteration PCA on the embedding matrix.
+  // - Centres the data, builds the covariance matrix, then finds the top
+  //   `dims` eigenvectors via repeated multiplication. No deps.
+  // - Skips degenerate cases (< 3 vectors or zero variance) by returning
+  //   the raw 2 leading axes so the canvas still draws something useful.
+  function pcaProject(chunks, dims) {
+    dims = dims || 2;
+    var pts = chunks
+      .map(function(c) { return c.embedding; })
+      .filter(function(e) { return e && e.length; });
+    if (!pts.length) return [];
+    var D = pts[0].length;
+    var N = Math.min(pts.length, dims);
+    var out = chunks.map(function() { return new Array(dims).fill(0); });
+    if (pts.length < 3) {
+      // Fallback: use the first two dimensions verbatim
+      for (var i = 0; i < chunks.length; i++) {
+        if (!chunks[i].embedding || !chunks[i].embedding.length) continue;
+        out[i][0] = chunks[i].embedding[0] || 0;
+        out[i][1] = chunks[i].embedding[1] || 0;
+      }
+      return out;
+    }
+    // Mean-centre
+    var mean = new Array(D).fill(0);
+    for (var ii = 0; ii < pts.length; ii++) {
+      for (var j = 0; j < D; j++) mean[j] += pts[ii][j];
+    }
+    for (var jj = 0; jj < D; jj++) mean[jj] /= pts.length;
+    var centred = pts.map(function(p) {
+      return p.map(function(v, k) { return v - mean[k]; });
+    });
+    // Top-N eigenvectors via power iteration on the covariance matrix
+    var vectors = [];
+    var deflated = centred.slice();
+    for (var d = 0; d < N; d++) {
+      var v = new Array(D);
+      for (var s = 0; s < D; s++) v[s] = Math.sin((s + 1) * (d + 1) * 0.7) * 0.5;
+      // Iterate
+      for (var iter = 0; iter < 60; iter++) {
+        var Av = new Array(D).fill(0);
+        for (var r = 0; r < deflated.length; r++) {
+          var row = deflated[r];
+          for (var c2 = 0; c2 < D; c2++) Av[c2] += row[c2] * v[c2] / deflated.length;
+        }
+        // Orthogonalise against previously found vectors
+        for (var p2 = 0; p2 < vectors.length; p2++) {
+          var dot = 0;
+          for (var q2 = 0; q2 < D; q2++) dot += Av[q2] * vectors[p2][q2];
+          for (var q3 = 0; q3 < D; q3++) Av[q3] -= dot * vectors[p2][q3];
+        }
+        var norm = 0;
+        for (var n2 = 0; n2 < D; n2++) norm += Av[n2] * Av[n2];
+        norm = Math.sqrt(norm) || 1;
+        v = Av.map(function(x) { return x / norm; });
+      }
+      vectors.push(v);
+      // Deflate: remove this component's contribution from the data
+      deflated = deflated.map(function(row) {
+        var proj = 0;
+        for (var t = 0; t < D; t++) proj += row[t] * v[t];
+        return row.map(function(x, k) { return x - proj * v[k]; });
+      });
+    }
+    // Project chunks onto the eigenvectors
+    var projIdx = 0;
+    for (var ci = 0; ci < chunks.length; ci++) {
+      if (!chunks[ci].embedding || !chunks[ci].embedding.length) continue;
+      var emb = chunks[ci].embedding;
+      for (var dd = 0; dd < N && dd < dims; dd++) {
+        var dot2 = 0;
+        for (var kk = 0; kk < D; kk++) dot2 += (emb[kk] - mean[kk]) * vectors[dd][kk];
+        out[ci][dd] = dot2;
+      }
+    }
+    return out;
+  }
+
+  function atlasFilteredIndices() {
+    if (!atlasActiveNamespace) {
+      return atlasChunks.map(function(_, i) { return i; });
+    }
+    var out = [];
+    atlasChunks.forEach(function(c, i) {
+      var ns = (c.metadata && c.metadata.namespace) || '';
+      if (ns === atlasActiveNamespace) out.push(i);
+    });
+    return out;
+  }
+
+  function renderAtlas() {
+    var canvas = document.getElementById('atlasCanvas');
+    var wrap = document.getElementById('atlasWrap');
+    if (!canvas || !wrap) return;
+    // Size canvas to its container
+    var w = wrap.clientWidth, h = wrap.clientHeight;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    var indices = atlasFilteredIndices();
+    if (!indices.length) {
+      ctx.fillStyle = '#777';
+      ctx.font = '13px -apple-system, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(atlasLoaded ? 'No chunks in this namespace' : 'Atlas not loaded', w / 2, h / 2);
+      return;
+    }
+    // Compute bounds across the projected points
+    var xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+    indices.forEach(function(i) {
+      var p = atlasProjection[i];
+      if (!p) return;
+      if (p[0] < xmin) xmin = p[0];
+      if (p[0] > xmax) xmax = p[0];
+      if (p[1] < ymin) ymin = p[1];
+      if (p[1] > ymax) ymax = p[1];
+    });
+    var xpad = (xmax - xmin) * 0.08 || 1;
+    var ypad = (ymax - ymin) * 0.08 || 1;
+    xmin -= xpad; xmax += xpad; ymin -= ypad; ymax += ypad;
+    var margin = 24;
+    function project(p) {
+      var x = margin + ((p[0] - xmin) / (xmax - xmin)) * (w - 2 * margin);
+      var y = margin + ((p[1] - ymin) / (ymax - ymin)) * (h - 2 * margin);
+      return { x: x, y: y };
+    }
+    // Draw points
+    var radius = Math.max(2, Math.min(5, 240 / Math.max(indices.length, 50)));
+    var positions = new Array(indices.length);
+    for (var i = 0; i < indices.length; i++) {
+      var idx = indices[i];
+      var p = atlasProjection[idx];
+      if (!p) continue;
+      var pt = project(p);
+      positions[i] = { x: pt.x, y: pt.y, idx: idx };
+      var c = atlasChunks[idx];
+      var ns = (c.metadata && c.metadata.namespace) || '';
+      ctx.fillStyle = atlasColourForNamespace(ns);
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, (idx === atlasPin || idx === atlasHover) ? radius + 2 : radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Stash for hit-testing
+    canvas._atlasPositions = positions;
+    canvas._atlasIndices = indices;
+  }
+
+  function atlasShowTooltip(idx, screenX, screenY, locked) {
+    var tip = document.getElementById('atlasTooltip');
+    var c = atlasChunks[idx];
+    if (!c) { tip.style.display = 'none'; return; }
+    var meta = c.metadata || {};
+    var metaLine = (meta.namespace || '?') + ' · ' + (meta.source || '?');
+    if (meta.role) metaLine += ' · ' + meta.role;
+    if (meta.thread_id) metaLine += ' · thread:' + meta.thread_id;
+    var preview = c.preview || c.text || '';
+    tip.innerHTML = '<div class="tt-meta">' + esc(metaLine) + '</div>' +
+                   '<div class="tt-text">' + esc(preview || '(no preview)') + '</div>';
+    tip.style.display = 'block';
+    var wrap = document.getElementById('atlasWrap').getBoundingClientRect();
+    var left = screenX - wrap.left + 12;
+    var top = screenY - wrap.top + 12;
+    if (left + 320 > wrap.width) left = screenX - wrap.left - 320 - 12;
+    if (top + 160 > wrap.height) top = screenY - wrap.top - 160 - 12;
+    tip.style.left = Math.max(4, left) + 'px';
+    tip.style.top = Math.max(4, top) + 'px';
+    tip._locked = !!locked;
+  }
+
+  function atlasHideTooltip() {
+    if (document.getElementById('atlasTooltip')._locked) return;
+    document.getElementById('atlasTooltip').style.display = 'none';
+  }
+
+  // Wire Atlas DOM events
+  var atlasCanvasEl = document.getElementById('atlasCanvas');
+  atlasCanvasEl.onmousemove = function(e) {
+    var positions = atlasCanvasEl._atlasPositions || [];
+    var found = -1;
+    var bestD2 = 64; // 8px radius squared
+    for (var i = 0; i < positions.length; i++) {
+      var dx = positions[i].x - (e.offsetX);
+      var dy = positions[i].y - (e.offsetY);
+      var d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; found = positions[i].idx; }
+    }
+    if (found !== atlasHover) {
+      atlasHover = found;
+      renderAtlas();
+    }
+    if (found >= 0) atlasShowTooltip(found, e.clientX, e.clientY, false);
+    else atlasHideTooltip();
+  };
+  atlasCanvasEl.onmouseleave = function() {
+    atlasHover = -1;
+    renderAtlas();
+    atlasHideTooltip();
+  };
+  atlasCanvasEl.onclick = function(e) {
+    var positions = atlasCanvasEl._atlasPositions || [];
+    var found = -1;
+    var bestD2 = 64;
+    for (var i = 0; i < positions.length; i++) {
+      var dx = positions[i].x - (e.offsetX);
+      var dy = positions[i].y - (e.offsetY);
+      var d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; found = positions[i].idx; }
+    }
+    if (found >= 0) {
+      atlasPin = found;
+      atlasHover = found;
+      renderAtlas();
+      atlasShowTooltip(found, e.clientX, e.clientY, true);
+    } else {
+      atlasPin = -1;
+      atlasHideTooltip();
+      renderAtlas();
+    }
+  };
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && atlasPin >= 0) {
+      atlasPin = -1;
+      atlasHideTooltip();
+      renderAtlas();
+    }
+  });
+  document.getElementById('atlasNamespace').onchange = function(e) {
+    atlasActiveNamespace = e.target.value;
+    renderAtlas();
+  };
+  document.getElementById('atlasRefresh').onclick = function() {
+    atlasLoaded = false; atlasChunks = []; atlasProjection = [];
+    loadAtlas();
+  };
+  var atlasResizeTimer = null;
+  window.addEventListener('resize', function() {
+    if (atlasResizeTimer) clearTimeout(atlasResizeTimer);
+    atlasResizeTimer = setTimeout(renderAtlas, 150);
+  });
+
+  // --- Boot ---
+  checkHealth();
+  loadThreads();
+  setInterval(checkHealth, 15000);
+  console.log('Codexify UI loaded, user=' + userName);
+})();
+</script>
+</body>
+</html>
