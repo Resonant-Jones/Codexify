@@ -6,6 +6,7 @@ import {
 import {
   getRuntimeConfigSync,
   resolveApiUrl,
+  type RuntimeConfig,
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
@@ -90,6 +91,10 @@ function resolveDevApiKey(): string {
   if (explicitDevKey) return explicitDevKey;
   // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
+}
+
+function isRemoteAuthMode(config: RuntimeConfig = getRuntimeConfigSync()): boolean {
+  return config.authMode === "remote";
 }
 
 function toHeaderRecord(headers?: HeadersInit): Record<string, string> {
@@ -212,9 +217,12 @@ function applyAuthHeaders(
   const runtimeApiKey = getRuntimeApiKey();
   const hasAuthorization = hasHeader(headers, "Authorization");
   const hasApiKey = hasHeader(headers, "X-API-Key");
-  const remoteAuthMode = isRemoteAuthMode();
+  const remoteAuth = isRemoteAuthMode();
 
-  if (!remoteAuthMode) {
+  // In remote auth mode, the backend rejects static X-API-Key (local-only)
+  // and only accepts session/JWT tokens. Skip X-API-Key attachment entirely
+  // so the dev key fallback can never poison a protected request.
+  if (!remoteAuth) {
     if (runtimeApiKey && !hasApiKey) {
       headers["X-API-Key"] = runtimeApiKey;
     } else {
@@ -226,7 +234,10 @@ function applyAuthHeaders(
     }
   }
 
-  if (token && !hasAuthorization && (!forceApiKey || remoteAuthMode)) {
+  // In remote auth mode the Bearer session/JWT is mandatory, regardless of
+  // the local-only forceApiKey hint used by media uploads.
+  const skipBearerForApiKey = forceApiKey && !remoteAuth;
+  if (!skipBearerForApiKey && token && !hasAuthorization) {
     headers.Authorization = `Bearer ${token}`;
   }
 }
@@ -1158,12 +1169,15 @@ api.interceptors.request.use((config) => {
 
   const token = getAuthToken();
   const runtimeApiKey = getRuntimeApiKey();
-  if (runtimeApiKey && !existingApiKey) {
-    setHeader("X-API-Key", runtimeApiKey);
-  } else if (!token) {
-    const devApiKey = resolveDevApiKey();
-    if (devApiKey && !existingAuthorization && !existingApiKey) {
-      setHeader("X-API-Key", devApiKey);
+  const remoteAuth = isRemoteAuthMode();
+  if (!remoteAuth) {
+    if (runtimeApiKey && !existingApiKey) {
+      setHeader("X-API-Key", runtimeApiKey);
+    } else if (!token) {
+      const devApiKey = resolveDevApiKey();
+      if (devApiKey && !existingAuthorization && !existingApiKey) {
+        setHeader("X-API-Key", devApiKey);
+      }
     }
   }
   if (token && !existingAuthorization) {
