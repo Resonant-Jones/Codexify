@@ -81,8 +81,8 @@ function isProxyRuntime(): boolean {
   return readRuntimeEnv("VITE_USE_PROXY", "false") === "true";
 }
 
-function isRemoteAuthMode(): boolean {
-  return getRuntimeConfigSync().authMode === "remote";
+function isRemoteAuthMode(config: RuntimeConfig = getRuntimeConfigSync()): boolean {
+  return config.authMode === "remote";
 }
 
 function resolveDevApiKey(): string {
@@ -91,10 +91,6 @@ function resolveDevApiKey(): string {
   if (explicitDevKey) return explicitDevKey;
   // Backward-compat: existing local setups may still use VITE_GUARDIAN_API_KEY.
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
-}
-
-function isRemoteAuthMode(config: RuntimeConfig = getRuntimeConfigSync()): boolean {
-  return config.authMode === "remote";
 }
 
 function toHeaderRecord(headers?: HeadersInit): Record<string, string> {
