@@ -35,6 +35,7 @@ route_posture:
     - migration
     - embeddings
     - obsidian
+    - atlas
   internal_only:
     - command_bus
   quarantined:
