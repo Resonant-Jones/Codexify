@@ -631,6 +631,9 @@ function isAxiosResponseLike(value: unknown): value is Record<string, unknown> {
 }
 
 export function hasRequestAuthCredential(): boolean {
+  if (isRemoteAuthMode()) {
+    return Boolean(getAuthToken());
+  }
   return Boolean(getRuntimeApiKey() || getAuthToken() || resolveDevApiKey());
 }
 
