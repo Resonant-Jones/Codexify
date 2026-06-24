@@ -965,7 +965,9 @@ export default function AppShell({
   const dockAutoCollapseEnabled = true;
   const topChromeRef = useRef<HTMLDivElement | null>(null);
   const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const dockEngagedRef = useRef(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockEngaged, setDockEngaged] = useState(false);
   const [dockHovered, setDockHovered] = useState(false);
   const [dockFocused, setDockFocused] = useState(false);
 
@@ -980,9 +982,15 @@ export default function AppShell({
     setDockCollapsed(false);
   }, [clearDockCollapseTimer]);
 
+  const markDockEngaged = useCallback(() => {
+    if (dockEngagedRef.current) return;
+    dockEngagedRef.current = true;
+    setDockEngaged(true);
+  }, []);
+
   const scheduleDockCollapse = useCallback(() => {
     clearDockCollapseTimer();
-    if (!dockAutoCollapseEnabled) return;
+    if (!dockAutoCollapseEnabled || !dockEngagedRef.current) return;
     dockCollapseTimerRef.current = window.setTimeout(() => {
       dockCollapseTimerRef.current = null;
       setDockCollapsed(true);
@@ -990,9 +998,10 @@ export default function AppShell({
   }, [clearDockCollapseTimer, dockAutoCollapseEnabled]);
 
   const handleDockPointerEnter = useCallback(() => {
+    markDockEngaged();
     setDockHovered(true);
     expandDock();
-  }, [expandDock]);
+  }, [expandDock, markDockEngaged]);
 
   const handleDockPointerLeave = useCallback(() => {
     setDockHovered(false);
@@ -1002,9 +1011,10 @@ export default function AppShell({
   }, [dockFocused, scheduleDockCollapse]);
 
   const handleDockFocus = useCallback(() => {
+    markDockEngaged();
     setDockFocused(true);
     expandDock();
-  }, [expandDock]);
+  }, [expandDock, markDockEngaged]);
 
   const handleDockBlur = useCallback<React.FocusEventHandler<HTMLDivElement>>(
     (event) => {
@@ -1034,6 +1044,7 @@ export default function AppShell({
         target instanceof Node && topChromeRef.current?.contains(target);
 
       if (event.clientY <= DOCK_TOP_ENGAGEMENT_ZONE_PX) {
+        markDockEngaged();
         setDockHovered(true);
         expandDock();
         return;
@@ -1058,6 +1069,7 @@ export default function AppShell({
     dockFocused,
     dockHovered,
     expandDock,
+    markDockEngaged,
     scheduleDockCollapse,
   ]);
 
@@ -1865,7 +1877,7 @@ export default function AppShell({
     "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
-    "--dock-collapsed-page-gutter": "clamp(4px, calc(var(--shell-gap) * 0.35), 10px)",
+    "--dock-collapsed-page-gutter": "6px",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
     "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
@@ -2888,6 +2900,7 @@ export default function AppShell({
           colorScheme: resolved,
         }}
         data-shell-profile={mobileShellProfile.shellMode}
+        data-dock-engaged={dockEngaged ? "true" : "false"}
       >
       <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
@@ -2905,6 +2918,7 @@ export default function AppShell({
         data-testid="app-shell-top-chrome"
         className={`codexify-shell__top-chrome relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
         data-dock-collapsed={dockCollapsed ? "true" : "false"}
+        data-dock-engaged={dockEngaged ? "true" : "false"}
         onPointerEnter={handleDockPointerEnter}
         onPointerLeave={handleDockPointerLeave}
         onFocusCapture={handleDockFocus}
