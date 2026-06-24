@@ -73,20 +73,18 @@ describe("Persona Studio Page", () => {
     expect(header).toBeVisible();
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
-    expect(within(header).getByText("Persona Preview")).toBeVisible();
-    expect(within(header).getByText(/^draft only$/i)).toBeVisible();
-    expect(within(header).getByText(/^no memory writes$/i)).toBeVisible();
-    expect(within(header).getByText(/^no thread persistence$/i)).toBeVisible();
-    expect(within(header).getByText(/sandboxed response tuning/i)).toBeVisible();
-    expect(within(header).getByText(/isolated from guardian runtime/i)).toBeVisible();
+    expect(within(header).getByText("Draft Preview")).toBeVisible();
+    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
+      /draft sandbox · local until saved · not chat history/i
+    );
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(within(shell).getByTestId("persona-studio-support-surfaces")).toBeVisible();
-    expect(screen.getByText(/sandboxed response tuning/i)).toBeVisible();
-    expect(screen.getByText(/^draft only$/i)).toBeVisible();
-    expect(screen.getByText(/^no memory writes$/i)).toBeVisible();
-    expect(screen.getByText(/^no thread persistence$/i)).toBeVisible();
+    expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
+      /draft sandbox · local until saved · not chat history/i
+    );
     expect(
-      screen.getByPlaceholderText(/draft-only, no memory writes, no thread persistence/i)
+      screen.getByPlaceholderText(/send a prompt to test this draft/i)
     ).toBeVisible();
   });
 
@@ -209,17 +207,12 @@ describe("Persona Studio Page", () => {
     );
   });
 
-  it("renders the truthful empty-state copy for draft-only tuning", () => {
+  it("renders the truthful empty-state copy for the draft preview", () => {
     renderPage();
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^empty preview$/i)).toBeVisible();
-    expect(within(transcript).getByText(/draft-only tuning/i)).toBeVisible();
     expect(
-      within(transcript).getByText(/use this draft-only surface to test the active persona draft/i)
-    ).toBeVisible();
-    expect(
-      within(transcript).getByText(/send a temporary prompt, inspect the draft snapshot/i)
+      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
     ).toBeVisible();
   });
 

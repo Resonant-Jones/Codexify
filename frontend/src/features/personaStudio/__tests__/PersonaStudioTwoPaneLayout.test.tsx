@@ -33,18 +33,17 @@ describe("Persona Studio two-pane layout", () => {
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
   });
 
-  it("renders the Persona Preview heading and boundary chips in the panel header", () => {
+  it("renders the Draft Preview heading and consolidated safety row in the panel header", () => {
     renderPage();
 
     const previewPanel = screen.getByTestId("persona-preview-panel");
     const header = within(previewPanel).getByTestId("persona-preview-panel-header");
 
-    expect(within(header).getByRole("heading", { name: "Persona Preview" })).toBeVisible();
-    expect(within(header).getByText("Draft only")).toBeVisible();
-    expect(within(header).getByText("No memory writes")).toBeVisible();
-    expect(within(header).getByText("No thread persistence")).toBeVisible();
-    expect(within(header).getByText(/sandboxed response tuning/i)).toBeVisible();
-    expect(within(header).getByText(/isolated from guardian runtime/i)).toBeVisible();
+    expect(within(header).getByRole("heading", { name: "Draft Preview" })).toBeVisible();
+    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
+      /draft sandbox · local until saved · not chat history/i
+    );
   });
 
   it("keeps the Persona Preview panel visible while the editor scrolls", () => {

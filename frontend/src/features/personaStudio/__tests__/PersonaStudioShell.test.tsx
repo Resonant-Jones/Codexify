@@ -128,13 +128,9 @@ describe("Persona Studio Shell Integration", () => {
     renderAppShell();
 
     expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
-    expect(
-      screen.getByText(/profiles and diagnostics stay subordinate to the primary editor and harness/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/configure reusable agent profiles\./i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: /persona studio utility pane/i })).toBeInTheDocument();
-    expect(screen.getByText("Selection")).toBeInTheDocument();
-    expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
       "data-state",
       "active"

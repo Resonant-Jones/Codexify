@@ -836,12 +836,12 @@ export default function PersonaStudioPage() {
             <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
               <div className="space-y-4" data-testid="persona-studio-shell-header">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-                    Configuration &amp; Observability
-                  </div>
-                  <h1 className="mt-1 text-2xl font-semibold" style={{ color: "var(--text)" }}>
+                  <h1 className="text-2xl font-semibold" style={{ color: "var(--text)" }}>
                     Persona Studio
                   </h1>
+                  <p className="mt-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
+                    Configure reusable agent profiles.
+                  </p>
                 </div>
                 <div
                   className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
@@ -871,11 +871,8 @@ export default function PersonaStudioPage() {
                   borderColor: "var(--panel-border)",
                 }}
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0 space-y-1.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-                      Active profile
-                    </div>
                     <CardTitle className="text-lg leading-6">{selectedProfile?.name || "Editor"}</CardTitle>
                     <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--muted)" }}>
                       {selectedProfile?.description || "Select a persona profile to edit its runtime identity and behavior."}
@@ -883,53 +880,23 @@ export default function PersonaStudioPage() {
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                     <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
-                      {selectedProfile?.isDefault ? "Default profile" : "Custom profile"}
+                      {selectedProfile?.isDefault ? "Default" : "Custom"}
                     </Badge>
                     <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
-                      Active profile
+                      Active
                     </Badge>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(160px,0.32fr)]" style={{ borderColor: "color-mix(in srgb, var(--panel-border) 86%, transparent)" }}>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                        Selection
-                      </div>
-                      <div className="mt-1 text-sm font-medium">
-                        {selectedProfile?.isDefault ? "Default runtime profile" : "Custom runtime profile"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                        Status
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--panel-border)" }}>
-                          {selectedProfile?.isDefault ? "Default" : "Custom"}
-                        </Badge>
-                        <Badge variant="outline" className="px-2 py-1 text-[10px]" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
-                          Active
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="rounded-[var(--tile-radius)] border px-3 py-3"
-                    style={{
-                      borderColor: "var(--panel-border)",
-                      background: "color-mix(in srgb, var(--panel-bg) 96%, transparent)",
-                    }}
-                  >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
-                      Draft state
-                    </div>
-                    <div className="mt-3 flex flex-col gap-3">
-                      {[0, 1, 2].map((dot) => (
-                        <div key={dot} className="h-3.5 w-3.5 rounded-full border" style={{ borderColor: "var(--panel-border)", background: dot === 0 ? "color-mix(in srgb, var(--accent) 24%, var(--panel-bg))" : "transparent" }} />
-                      ))}
-                    </div>
-                  </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2.5">
+                  <Button type="button" onClick={handleSave} disabled={!isDirty}>
+                    Save
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={handleSaveAsNew} disabled={!currentConfig}>
+                    Save As New
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={handleReset} disabled={!isDirty}>
+                    Reset
+                  </Button>
                 </div>
               </div>
 
@@ -946,14 +913,7 @@ export default function PersonaStudioPage() {
                 }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-                      Persona modules
-                    </div>
-                    <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                      Editable parameter surfaces sit directly on the parent surface and stay focused on draft testing only.
-                    </p>
-                  </div>
+                  <div className="space-y-1" />
                   <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
                     {activeTab}
                   </Badge>
@@ -964,15 +924,6 @@ export default function PersonaStudioPage() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2.5">
-                  <Button type="button" onClick={handleSave} disabled={!isDirty}>
-                    Save
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleSaveAsNew} disabled={!currentConfig}>
-                    Save As New
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleReset} disabled={!isDirty}>
-                    Reset
-                  </Button>
                   <Button
                     type="button"
                     variant="ghost"

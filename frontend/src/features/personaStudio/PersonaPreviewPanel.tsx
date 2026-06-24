@@ -27,12 +27,6 @@ const PREVIEW_SCENARIO_CHIPS = [
   "Casual Help",
 ] as const;
 
-const BOUNDARY_CHIPS = [
-  "Draft only",
-  "No memory writes",
-  "No thread persistence",
-] as const;
-
 type PreviewDraftSnapshot = {
   signature: string;
   personaName: string;
@@ -159,21 +153,6 @@ function buildPreviewReply(
   ].join(" ");
 }
 
-function BoundaryChip({ label }: { label: string }) {
-  return (
-    <Badge
-      variant="outline"
-      className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-      data-testid={`persona-preview-panel-boundary-${label
-        .toLowerCase()
-        .replace(/\s+/g, "-")}`}
-      style={{ borderColor: "var(--panel-border)" }}
-    >
-      {label}
-    </Badge>
-  );
-}
-
 export interface PersonaPreviewPanelProps {
   profile: PersonaProfileDraft | null;
 }
@@ -282,26 +261,20 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
       <CardHeader className="space-y-4 pb-4" data-testid="persona-preview-panel-header">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base font-semibold">
-                Persona Preview
-              </CardTitle>
-              {BOUNDARY_CHIPS.map((label) => (
-                <BoundaryChip key={label} label={label} />
-              ))}
-            </div>
+            <CardTitle className="text-base font-semibold">
+              Draft Preview
+            </CardTitle>
             <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Sandboxed response tuning for the current draft. Preview-only, isolated
-              from Guardian runtime, and clears on reload.
+              Test this profile before saving changes.
+            </p>
+            <p
+              className="text-xs leading-5"
+              data-testid="persona-preview-panel-safety-row"
+              style={{ color: "var(--muted)" }}
+            >
+              Draft sandbox · Local until saved · Not chat history
             </p>
           </div>
-          <Badge
-            variant="outline"
-            className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
-            Preview
-          </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {PREVIEW_SCENARIO_CHIPS.map((prompt) => (
@@ -634,34 +607,14 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 </div>
               ) : (
                 <div
-                  className="space-y-3 rounded-[var(--tile-radius)] border px-4 py-4"
+                  className="rounded-[var(--tile-radius)] border px-4 py-4"
                   style={{
                     borderColor: "var(--panel-border)",
                     background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
                   }}
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                      style={{ borderColor: "var(--panel-border)" }}
-                    >
-                      Empty preview
-                    </Badge>
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Draft-only tuning
-                    </span>
-                  </div>
                   <p className="text-sm" style={{ color: "var(--muted)" }}>
-                    No preview turns yet. Use this draft-only surface to test the active
-                    persona draft before anything becomes runtime chat or durable state.
-                  </p>
-                  <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                    Send a temporary prompt, inspect the draft snapshot, and keep
-                    iterating in this mounted Studio session only.
+                    No preview turns yet. Send a temporary prompt to test this draft.
                   </p>
                 </div>
               )}
@@ -706,7 +659,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 ref={inputRef}
                 value={previewPrompt}
                 onChange={(event) => setPreviewPrompt(event.target.value)}
-                placeholder="Draft-only, no memory writes, no thread persistence"
+                placeholder="Send a prompt to test this draft"
                 aria-label="Persona preview prompt"
                 className="min-w-0 flex-1"
                 disabled={isResponding}
