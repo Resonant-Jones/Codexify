@@ -21,6 +21,7 @@
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -3646,7 +3647,7 @@ export default function AppShell({
       </div>
       </div>
       {startupOverlay && <div className="absolute inset-0 z-[1400]">{startupOverlay}</div>}
-      {projectModalOpen && (
+      {projectModalOpen && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[1200] flex items-center justify-center px-4">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -3720,7 +3721,11 @@ export default function AppShell({
               </Button>
             </div>
           </form>
-        </div>
+        </div>,
+        document.getElementById("cfy-portal-root") ??
+          document.getElementById("app") ??
+          document.getElementById("root") ??
+          document.body
       )}
       <ToastPortal />
       {galleryMenu && (
