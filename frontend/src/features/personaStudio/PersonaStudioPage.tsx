@@ -830,15 +830,13 @@ export default function PersonaStudioPage() {
           }}
         >
           <div
-            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch"
+            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:grid-cols-[minmax(0,4fr)_minmax(280px,1fr)] lg:items-stretch"
             data-testid="persona-studio-editor-two-lane-layout"
             style={
               {
                 "--persona-studio-editor-flex": "4fr",
                 "--persona-studio-preview-flex": "1fr",
                 "--persona-studio-preview-min": "280px",
-                gridTemplateColumns:
-                  "minmax(0, var(--persona-studio-editor-flex)) minmax(var(--persona-studio-preview-min), var(--persona-studio-preview-flex))",
               } as React.CSSProperties
             }
           >
