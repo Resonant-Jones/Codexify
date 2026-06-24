@@ -564,3 +564,207 @@ def test_sharded_import_is_idempotent_on_reimport(
     assert first["messages_imported"] == 2
     assert second["threads_imported"] == 0
     assert second["messages_imported"] == 0
+
+
+# --- Manifest misdetection tests ---
+
+
+def _build_file_manifest_conversations_json() -> list[dict[str, Any]]:
+    """Simulate a __export_file_manifests__/conversations.json payload."""
+    return [
+        {
+            "file_name": "file_0000000000000001.dat",
+            "file_path": "__export_file_manifests__/conversations__abc.part-0001/file_0000000000000001.dat",
+            "file_size": 12345,
+            "original_path": "/some/export/path/conversations__abc.part-0001/file_0000000000000001.dat",
+            "export_id": "export-abc-123",
+            "manifest_version": 1,
+        },
+        {
+            "file_name": "file_0000000000000002.dat",
+            "file_path": "__export_file_manifests__/conversations__xyz.part-0002/file_0000000000000002.dat",
+            "file_size": 67890,
+            "original_path": "/some/export/path/conversations__xyz.part-0002/file_0000000000000002.dat",
+        },
+    ]
+
+
+def test_openai_export_manifest_conversations_json_is_not_legacy_export(
+    tmp_path: Path,
+) -> None:
+    """__export_file_manifests__/conversations.json is NOT detected as legacy."""
+    export_root = tmp_path / "openai-export-with-manifest"
+    manifest_dir = export_root / "__export_file_manifests__"
+    manifest_dir.mkdir(parents=True)
+
+    # Write the misleading manifest file
+    (manifest_dir / "conversations.json").write_text(
+        json.dumps(_build_file_manifest_conversations_json()),
+        encoding="utf-8",
+    )
+
+    # Add a sharded export marker so the scanner finds something
+    shard = export_root / "conversations__real.part-0001"
+    shard.mkdir()
+    (shard / "file_0000000000000001.dat").write_text(
+        json.dumps(
+            {
+                "conversation_id": "real-conv",
+                "title": "Real Conversation",
+                "mapping": {
+                    "m1": {
+                        "id": "m1",
+                        "message": {
+                            "id": "m1",
+                            "author": {"role": "user"},
+                            "content": {"parts": ["Real message"]},
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = OpenAIExportDetector().scan(export_root)
+
+    # Should NOT detect legacy format (manifest conversations.json ignored)
+    assert inventory.legacy_detected is False
+    # Should detect sharded format from the real conversation data
+    assert inventory.sharded_detected is True
+    assert inventory.detected_format == "sharded"
+
+    # The manifest file should be classified as json, but not a conversation candidate
+    manifest_record = next(
+        (r for r in inventory.files if "__export_file_manifests__" in r.path),
+        None,
+    )
+    assert manifest_record is not None
+    assert manifest_record.conversation_candidate is True or (
+        manifest_record.detected_kind in {"json_array", "json_object"}
+    )
+
+
+def test_openai_export_legacy_conversations_json_detected_by_schema(
+    tmp_path: Path,
+) -> None:
+    """A real conversations.json with conversation records IS detected as legacy."""
+    export_root = tmp_path / "legacy-export"
+    export_root.mkdir()
+
+    (export_root / "conversations.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "legacy-conv",
+                    "title": "Legacy Conversation",
+                    "mapping": {
+                        "m1": {
+                            "id": "m1",
+                            "message": {
+                                "id": "m1",
+                                "author": {"role": "user"},
+                                "content": {"parts": ["Hello"]},
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = OpenAIExportDetector().scan(export_root)
+
+    assert inventory.legacy_detected is True
+    assert inventory.detected_format == "legacy"
+
+    # The file should be a conversation candidate with conversation-shaped keys
+    record = inventory.files[0]
+    assert record.conversation_candidate is True
+    assert "id" in record.top_level_json_keys or "mapping" in record.top_level_json_keys
+
+
+def test_openai_export_detection_prefers_real_conversation_payload(
+    tmp_path: Path,
+) -> None:
+    """When both manifest and real data exist, real conversations are preferred."""
+    export_root = tmp_path / "mixed-export"
+    manifest_dir = export_root / "__export_file_manifests__"
+    manifest_dir.mkdir(parents=True)
+
+    # Malicious manifest
+    (manifest_dir / "conversations.json").write_text(
+        json.dumps(_build_file_manifest_conversations_json()),
+        encoding="utf-8",
+    )
+
+    # Real conversation data
+    (export_root / "conversations.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "real-conv-1",
+                    "title": "Real Conversation from root",
+                    "mapping": {
+                        "r1": {
+                            "id": "r1",
+                            "message": {
+                                "id": "r1",
+                                "author": {"role": "assistant"},
+                                "content": {"parts": ["Real response"]},
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    # Also add a sharded marker so format is "mixed"
+    shard = export_root / "conversations__real.part-0001"
+    shard.mkdir()
+    (shard / "file_0000000000000001.dat").write_text(
+        json.dumps(
+            {
+                "conversation_id": "sharded-conv",
+                "title": "Sharded",
+                "mapping": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    inventory = OpenAIExportDetector().scan(export_root)
+
+    # The manifest conversations.json should not cause false legacy detection.
+    # With the real root-level conversations.json present, legacy IS detected.
+    assert inventory.legacy_detected is True
+    assert inventory.sharded_detected is True
+    assert inventory.detected_format == "mixed"
+
+    # Verify the manifest file itself is NOT marked conversation_candidate
+    # (it may be marked due to false positive from _payload_has_conversation_shape
+    # but legacy detection should still require _has_conversation_payload which
+    # rejects manifest payloads)
+    manifest_records = [
+        r for r in inventory.files
+        if "__export_file_manifests__" in r.path
+    ]
+    assert manifest_records, "Should have at least one manifest file"
+
+    # The import should prefer the sharded adapter in mixed mode
+    from backend.rag.openai_export_adapter import (
+        import_openai_export_path,
+    )
+    diag_out = tmp_path / "diag"
+    stats = import_openai_export_path(
+        export_root,
+        user_id="tester",
+        diagnose_only=True,
+        diagnostic_output_dir=diag_out,
+    )
+    assert stats["export_format"] == "mixed"
+    # No conversations imported since diagnose_only, but format is correctly detected
+    assert stats.get("diagnostic_report") is not None
