@@ -830,15 +830,8 @@ export default function PersonaStudioPage() {
           }}
         >
           <div
-            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:grid-cols-[minmax(0,4fr)_minmax(280px,1fr)] lg:items-stretch"
+            className="persona-studio-two-lane-layout grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch"
             data-testid="persona-studio-editor-two-lane-layout"
-            style={
-              {
-                "--persona-studio-editor-flex": "4fr",
-                "--persona-studio-preview-flex": "1fr",
-                "--persona-studio-preview-min": "280px",
-              } as React.CSSProperties
-            }
           >
             <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
               <div className="space-y-4" data-testid="persona-studio-shell-header">
