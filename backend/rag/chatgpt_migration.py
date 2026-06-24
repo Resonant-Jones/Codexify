@@ -447,6 +447,7 @@ def _ingest_canonical_messages(
     filtered_reasons: Dict[str, int],
     conversation_level_candidates: List[Dict[str, Any]] | None = None,
     embedding_mode: str = "enqueue",
+    disable_personal_facts: bool = False,
 ) -> Tuple[int, int]:
     thread_id = _find_existing_thread_for_source(
         chatlog_db, user_id=user_id, source_thread_id=source_thread_id
@@ -568,38 +569,39 @@ def _ingest_canonical_messages(
             ))
         )
 
-        personal_fact_candidates = extract_personal_fact_candidates(msg)
-        if personal_fact_candidates:
-            classified, skipped_discard, _ = _classify_import_candidates(
-                personal_fact_candidates,
-                source_role=msg.get("role"),
-                source_type=f"{import_source}_import",
-                source_label=import_source,
-            )
-            if skipped_discard:
-                logger.debug(
-                    "Guardrail discarded %d import candidates for message %s",
-                    skipped_discard,
-                    mid,
+        if not disable_personal_facts:
+            personal_fact_candidates = extract_personal_fact_candidates(msg)
+            if personal_fact_candidates:
+                classified, skipped_discard, _ = _classify_import_candidates(
+                    personal_fact_candidates,
+                    source_role=msg.get("role"),
+                    source_type=f"{import_source}_import",
+                    source_label=import_source,
                 )
-            if classified:
-                try:
-                    persist_personal_fact_candidates(
-                        chatlog_db,
-                        user_id=user_id,
-                        message={
-                            **msg,
-                            "chatlog_message_id": mid,
-                        },
-                        candidates=classified,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to persist %s personal fact candidates for message %s: %s",
-                        import_source,
+                if skipped_discard:
+                    logger.debug(
+                        "Guardrail discarded %d import candidates for message %s",
+                        skipped_discard,
                         mid,
-                        exc,
                     )
+                if classified:
+                    try:
+                        persist_personal_fact_candidates(
+                            chatlog_db,
+                            user_id=user_id,
+                            message={
+                                **msg,
+                                "chatlog_message_id": mid,
+                            },
+                            candidates=classified,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to persist %s personal fact candidates for message %s: %s",
+                            import_source,
+                            mid,
+                            exc,
+                        )
 
         if should_queue_embedding:
             try:
@@ -644,7 +646,7 @@ def _ingest_canonical_messages(
     # These have no per-message database record, so require_message_db_id=False.
     # model_editable_context is system-instructor-facing and gets classified
     # with ambiguous/system-like source role.
-    if conversation_level_candidates:
+    if not disable_personal_facts and conversation_level_candidates:
         conv_message = {
             "source_thread_id": source_thread_id,
             "source_message_id": None,
@@ -1840,6 +1842,7 @@ def ingest_chatgpt_conversation_records(
     data: List[Dict[str, Any]],
     user_id: Optional[str] = None,
     embedding_mode: str = "enqueue",
+    disable_personal_facts: bool = False,
 ) -> Dict[str, int]:
     """Ingest validated ChatGPT-shaped conversation records.
 
@@ -1847,6 +1850,9 @@ def ingest_chatgpt_conversation_records(
     - "defer": skip inline enqueue, leave embeddings to worker backfill
     - "enqueue": best-effort enqueue after import (backward-compatible default)
     - "off": skip inline enqueue, report as explicitly disabled
+
+    disable_personal_facts: skip personal fact extraction during import
+        (useful for Stage A messages-only passes).
     """
     if not user_id:
         raise ValueError(
@@ -1936,6 +1942,7 @@ def ingest_chatgpt_conversation_records(
                 filtered_reasons=filtered_reasons,
                 conversation_level_candidates=model_editable_context_candidates,
                 embedding_mode=embedding_mode,
+                disable_personal_facts=disable_personal_facts,
             )
             threads_count += imported_threads
             messages_count += imported_messages
