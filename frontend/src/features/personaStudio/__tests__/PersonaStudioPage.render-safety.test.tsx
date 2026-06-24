@@ -86,24 +86,24 @@ beforeEach(() => {
 });
 
 describe("Persona Studio Page render safety", () => {
-  it("mounts the edited shell, utility pane, truth matrix, and ephemeral harness together", async () => {
+  it("mounts the edited shell, utility pane, truth matrix, and preview panel together", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
 
     const shell = screen.getByTestId("persona-studio-shell");
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const ephemeralLane = within(layout).getByTestId("persona-studio-ephemeral-chat-lane");
+    const previewLane = within(layout).getByTestId("persona-preview-lane");
 
     expect(configurationLane).toBeVisible();
-    expect(ephemeralLane).toBeVisible();
+    expect(previewLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
     expect(screen.getByTestId("persona-studio-support-surfaces")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-pane")).toBeVisible();
     expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-harness")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-composer")).toBeVisible();
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
+    expect(screen.getByTestId("persona-preview-panel-transcript")).toBeVisible();
+    expect(screen.getByTestId("persona-preview-panel-composer")).toBeVisible();
 
     const truthMatrixTab = screen.getByRole("button", { name: /^truth matrix$/i });
     expect(truthMatrixTab).toHaveAttribute("data-state", "active");
