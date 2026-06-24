@@ -170,6 +170,7 @@ body {
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h1>Codexify</h1>
+      <select id="projectPicker" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px;max-width:120px;"></select>
       <button class="btn btn-sm" id="btnNew">+ New</button>
     </div>
     <div class="sidebar-tabs">
@@ -233,6 +234,7 @@ body {
   var pollTimer = null;
   var waitingForAssistant = false;
   var activeTab = 'threads';
+  var currentProjectId = null;
   // Atlas state
   var atlasLoaded = false;
   var atlasLoading = false;
@@ -327,7 +329,9 @@ body {
 
   // --- Threads ---
   function loadThreads() {
-    api('/api/chat/threads?limit=50&offset=0').then(function(data) {
+    var url = '/api/chat/threads?limit=50&offset=0';
+    if (currentProjectId !== null) url += '&project_id=' + currentProjectId;
+    api(url).then(function(data) {
       var threads = data.threads || data;
       var list = document.getElementById('threadList');
       if (!threads.length) { list.innerHTML = '<div class="empty-panel">No threads yet. Tap + New.</div>'; return; }
@@ -448,7 +452,9 @@ body {
     if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); this.textContent = userName; }
   };
   document.getElementById('btnNew').onclick = function() {
-    api('/api/chat/threads', 'POST', { title: 'New chat' }).then(function(d) {
+    var body = { title: 'New chat' };
+    if (currentProjectId !== null) body.project_id = currentProjectId;
+    api('/api/chat/threads', 'POST', body).then(function(d) {
       var id = d.id || (d.thread && d.thread.id);
       loadThreads(); if (id) selectThread(id);
     }).catch(function(){});
@@ -534,7 +540,9 @@ body {
     if (atlasLoading) return;
     atlasLoading = true;
     document.getElementById('atlasCount').textContent = 'Loading…';
-    api('/api/atlas/chunks?limit=2000&include_embeddings=true', 'GET')
+    var atlasUrl = '/api/atlas/chunks?limit=2000&include_embeddings=true';
+    if (currentProjectId !== null) atlasUrl += '&project_id=' + currentProjectId;
+    api(atlasUrl, 'GET')
       .then(function(resp) {
         atlasLoaded = true;
         atlasLoading = false;
@@ -812,8 +820,31 @@ body {
     atlasResizeTimer = setTimeout(renderAtlas, 150);
   });
 
+  // --- Projects ---
+  function loadProjects() {
+    api('/api/projects').then(function(data) {
+      var projects = Array.isArray(data) ? data : (data.projects || []);
+      var picker = document.getElementById('projectPicker');
+      picker.innerHTML = '<option value="">All Projects</option>';
+      projects.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if (currentProjectId !== null && +p.id === +currentProjectId) opt.selected = true;
+        picker.appendChild(opt);
+      });
+    }).catch(function() {});
+  }
+  document.getElementById('projectPicker').onchange = function() {
+    var v = this.value;
+    currentProjectId = v ? +v : null;
+    loadThreads();
+    if (activeTab === 'atlas') { atlasLoaded = false; atlasChunks = []; atlasProjection = []; loadAtlas(); }
+  };
+
   // --- Boot ---
   checkHealth();
+  loadProjects();
   loadThreads();
   setInterval(checkHealth, 15000);
   console.log('Codexify UI loaded, user=' + userName);
