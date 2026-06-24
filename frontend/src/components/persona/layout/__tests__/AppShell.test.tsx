@@ -663,6 +663,48 @@ describe("AppShell settings utility trigger", () => {
     expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
   });
 
+  it("collapses the engaged Dock after cooldown and expands it on focus", () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+
+    render(<AppShell />);
+
+    const shell = screen.getByTestId("app-shell-top-chrome").parentElement;
+    const topChrome = screen.getByTestId("app-shell-top-chrome");
+    const dock = screen.getByTestId("app-shell-top-nav");
+
+    expect(shell).not.toHaveClass("codexify-shell--dock-collapsed");
+    expect(shell).toHaveAttribute("data-dock-engaged", "false");
+    expect(topChrome).toHaveAttribute("data-dock-collapsed", "false");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        fireEvent.pointerEnter(topChrome);
+      });
+      expect(shell).toHaveAttribute("data-dock-engaged", "true");
+
+      act(() => {
+        fireEvent.pointerLeave(topChrome);
+        vi.advanceTimersByTime(899);
+      });
+      expect(shell).not.toHaveClass("codexify-shell--dock-collapsed");
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(shell).toHaveClass("codexify-shell--dock-collapsed");
+      expect(topChrome).toHaveAttribute("data-dock-collapsed", "true");
+
+      act(() => {
+        fireEvent.focus(dock);
+      });
+      expect(shell).not.toHaveClass("codexify-shell--dock-collapsed");
+      expect(topChrome).toHaveAttribute("data-dock-collapsed", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("routes Project Knowledge Base requests to the Documents surface", async () => {
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);
