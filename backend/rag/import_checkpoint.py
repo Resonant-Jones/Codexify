@@ -88,7 +88,7 @@ class ImportCheckpointManager:
         return self._run_id
 
     def load_completed(self) -> set[str]:
-        """Load conversation_ids already imported in this run."""
+        """Load conversation_ids already imported across all runs."""
         if self._completed:
             return self._completed
 
@@ -105,10 +105,9 @@ class ImportCheckpointManager:
                         record = CheckpointRecord.from_dict(json.loads(line))
                     except Exception:
                         continue
-                    if (
-                        record.import_run_id == self._run_id
-                        and record.status == "imported"
-                    ):
+                    # Accept imported entries from any run, not just the current one.
+                    # This enables resume across process restarts.
+                    if record.status == "imported":
                         self._completed.add(record.conversation_id)
         except Exception as exc:
             logger.warning(
@@ -176,7 +175,7 @@ class ImportCheckpointManager:
         return conversation_id in self._completed
 
     def summary(self) -> dict[str, int]:
-        """Return a quick summary of checkpoint state."""
+        """Return a quick summary of checkpoint state across all runs."""
         if not self._path.exists():
             return {"imported": 0, "failed": 0, "skipped": 0, "total": 0}
 
@@ -192,8 +191,6 @@ class ImportCheckpointManager:
                     try:
                         record = json.loads(line)
                     except Exception:
-                        continue
-                    if record.get("import_run_id") != self._run_id:
                         continue
                     status = record.get("status")
                     if status == "imported":
