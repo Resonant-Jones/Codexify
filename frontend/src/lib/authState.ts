@@ -3,6 +3,7 @@ import {
   hasResolvedRuntimeApiKey,
   hasRuntimeApiKey,
 } from "@/lib/runtimeAuth";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 
 export type AuthStatus = "unknown" | "authenticated" | "unauthenticated";
 
@@ -63,6 +64,10 @@ function resolveDevApiKey(): string {
   return readRuntimeEnv("VITE_GUARDIAN_API_KEY").trim();
 }
 
+function isRemoteAuthMode(): boolean {
+  return getRuntimeConfigSync().authMode === "remote";
+}
+
 function readStoredAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -76,6 +81,17 @@ function readStoredAuthToken(): string | null {
 
 function deriveAuthState(): AuthState {
   const token = readStoredAuthToken();
+  if (isRemoteAuthMode()) {
+    if (token) {
+      return {
+        status: "authenticated",
+        ready: true,
+        token,
+      };
+    }
+    return { status: "unauthenticated", ready: true };
+  }
+
   const devApiKey = resolveDevApiKey();
   const runtimeApiKeyPresent = hasRuntimeApiKey();
   if (token || runtimeApiKeyPresent || devApiKey) {

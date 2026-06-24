@@ -5,6 +5,7 @@ import {
   buildAuthenticatedFetchInit,
   clearRuntimeApiKey,
   fetchProviderState,
+  hasRequestAuthCredential,
   setAuthToken,
   setRuntimeApiKey,
 } from "@/lib/api";
@@ -268,6 +269,20 @@ describe("remote auth mode", () => {
       "Bearer session-jwt"
     );
     expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBeUndefined();
+  });
+
+  it("does not count dev or runtime API keys as remote thread request credentials", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+    await initRuntimeConfig({ force: true });
+    setRuntimeApiKey("desktop-key");
+    setAuthToken(null);
+
+    expect(hasRequestAuthCredential()).toBe(false);
+
+    setAuthToken("session-jwt");
+
+    expect(hasRequestAuthCredential()).toBe(true);
   });
 
   it("sends Bearer session/JWT to protected thread reads in remote mode without X-API-Key", async () => {

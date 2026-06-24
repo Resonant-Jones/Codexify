@@ -11,12 +11,16 @@ import {
   __resetRuntimeApiKeyForTests,
   __setRuntimeApiKeyForTests,
 } from "@/lib/runtimeAuth";
+import { initRuntimeConfig } from "@/lib/runtimeConfig";
 
 describe("auth state", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.unstubAllEnvs();
     vi.stubEnv("VITE_GUARDIAN_API_KEY", "");
     vi.stubEnv("VITE_GUARDIAN_DEV_API_KEY", "");
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "");
+    vi.stubEnv("GUARDIAN_AUTH_MODE", "");
+    await initRuntimeConfig({ force: true });
     __resetAuthStateForTests();
     __resetRuntimeApiKeyForTests();
     delete (window as any).__TAURI_IPC__;
@@ -42,6 +46,31 @@ describe("auth state", () => {
 
     expect(state.status).toBe("authenticated");
     expect(state.ready).toBe(true);
+  });
+
+  it("does not treat local dev keys as authenticated in remote auth mode", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "legacy-dev-key");
+    __setRuntimeApiKeyForTests("desktop-runtime-key");
+    await initRuntimeConfig({ force: true });
+
+    const state = resolveAuthStateOnBoot();
+
+    expect(state.status).toBe("unauthenticated");
+    expect(state.ready).toBe(true);
+    expect(getAuthState().status).toBe("unauthenticated");
+  });
+
+  it("treats a stored session token as authenticated in remote auth mode", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    window.sessionStorage.setItem("guardian.auth.token", "session-jwt");
+
+    const state = resolveAuthStateOnBoot();
+
+    expect(state.status).toBe("authenticated");
+    expect(state.ready).toBe(true);
+    expect(state.token).toBe("session-jwt");
   });
 
   it("stays pending while desktop runtime auth is still hydrating", () => {
