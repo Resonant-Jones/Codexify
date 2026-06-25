@@ -472,3 +472,103 @@ def operator_diagnostics(
 
     finally:
         session.close()
+
+
+# ── Reality State Readback ──────────────────────────────────────────────────
+
+
+class RealityStateReadbackResponse(BaseModel):
+    """Response for a single reality state readback."""
+
+    state_id: str
+    found: bool
+    schema_version: str | None = None
+    scope: str | None = None
+    compiled_at: str | None = None
+    summary: str | None = None
+    state: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    source_packet_count: int = 0
+    deleted: bool = False
+    graph_used: bool = False
+    runtime_event_published: bool = False
+    project_pulse_enabled: bool = False
+    export_restore_enabled: bool = False
+    read_at: str | None = None
+
+
+@router.get(
+    "/reality-states/{state_id}",
+    response_model=RealityStateReadbackResponse,
+)
+def read_reality_state(
+    state_id: str,
+    api_key: str = Depends(require_api_key),
+) -> RealityStateReadbackResponse:
+    """Read a single Reality State by exact state ID.
+
+    Requires explicit API-key authentication.  Reads exactly one state
+    record — no list, search, compilation, graph traversal, or writes.
+    Source packet payloads are not expanded by default.
+    Soft-deleted records are treated as not found.
+    """
+    from datetime import datetime, timezone
+
+    dsn = get_database_dsn()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    engine = create_engine(dsn, echo=False)
+    session = Session(engine)
+
+    try:
+        row = (
+            session.query(ContinuityRealityState)
+            .filter(
+                ContinuityRealityState.id == state_id,
+                ContinuityRealityState.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if row is None:
+            return RealityStateReadbackResponse(
+                state_id=state_id,
+                found=False,
+                read_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+        source_pids = row.source_packet_ids_json or []
+        source_count = len(source_pids) if isinstance(source_pids, list) else 0
+
+        return RealityStateReadbackResponse(
+            state_id=row.id,
+            found=True,
+            schema_version=row.schema_version,
+            scope=row.scope,
+            compiled_at=str(row.compiled_at) if row.compiled_at else None,
+            summary=row.active_branch or "",
+            state=row.state_json or {},
+            metadata={
+                "active_branch": row.active_branch,
+            },
+            provenance=row.provenance_json or {},
+            source_packet_count=source_count,
+            deleted=False,
+            graph_used=False,
+            runtime_event_published=False,
+            project_pulse_enabled=False,
+            export_restore_enabled=False,
+            read_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to read reality state %s", state_id)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "read_state_failed", "message": str(exc)},
+        )
+
+    finally:
+        session.close()
