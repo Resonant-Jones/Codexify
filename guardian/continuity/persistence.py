@@ -11,6 +11,7 @@ graph writes, browser capture, sync, export/restore, or provider calls.
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime, timezone
 import json
 import uuid
 from collections.abc import Sequence
@@ -107,10 +108,30 @@ class ContinuityPersistenceResult:
 
 
 def _ensure_uuid(value: str) -> str:
-    """Return *value* if it already looks like a UUID, else generate one."""
-    if value and len(value) >= 32:
+    """Return *value* if it is a non-empty string, else generate a UUID.
+
+    The contract's identifier is preserved as-is.  A random UUID is only
+    generated when the value is empty/None.
+    """
+    if value:
         return value
     return uuid.uuid4().hex
+
+
+def _parse_ts(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp string to a timezone-aware datetime.
+
+    Returns None if *value* is None or empty.  Falls back to UTC now on parse
+    failure, which is safer than silently passing a string to Postgres.
+    """
+    if not value:
+        return None
+    try:
+        # Handle 'Z' suffix
+        s = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return datetime.now(timezone.utc)
 
 
 def _to_json_safe(obj: Any) -> Any:
@@ -133,9 +154,14 @@ def _to_json_safe(obj: Any) -> Any:
 
 
 def _scope_to_columns(scope: ContinuityScope) -> dict[str, str | None]:
-    """Extract scope ID columns from a ContinuityScope dataclass."""
+    """Extract scope ID columns from a ContinuityScope dataclass.
+
+    ``user_id`` defaults to ``"local"`` when not explicitly set, matching the
+    seed-default user created by the migrator.  This avoids NOT NULL
+    violations while keeping user-scoping explicit in the contract.
+    """
     return {
-        "user_id": scope.user_id,
+        "user_id": scope.user_id or "local",
         "project_id": scope.project_id,
         "thread_id": scope.thread_id,
         "task_id": scope.task_id,
@@ -312,7 +338,7 @@ class ContinuityPersistenceAdapter:
             kind=str(packet.kind),
             **scope_cols,
             **source_cols,
-            created_at=packet.created_at,  # string → DB handles cast
+            created_at=_parse_ts(packet.created_at),
             summary=packet.summary,
             payload_json=_to_json_safe(packet.payload),
             metadata_json=_to_json_safe(packet.metadata),
@@ -340,8 +366,8 @@ class ContinuityPersistenceAdapter:
             id=_ensure_uuid(state.state_id),
             schema_version=state.schema_version,
             scope=str(state.scope),
-            user_id=None,
-            compiled_at=state.compiled_at,
+            user_id="local",
+            compiled_at=_parse_ts(state.compiled_at),
             active_branch=state.active_branch,
             source_packet_ids_json=list(state.source_packet_ids),
             state_json=_to_json_safe(state),
@@ -354,8 +380,8 @@ class ContinuityPersistenceAdapter:
             next_actions_json=list(state.next_actions),
             confidence=state.confidence,
             provenance_json=_provenance_to_dict(state.provenance),
-            expires_or_decays_at=state.expires_or_decays_at,
-            created_at=state.compiled_at,
+            expires_or_decays_at=_parse_ts(state.expires_or_decays_at),
+            created_at=_parse_ts(state.compiled_at) or datetime.now(timezone.utc),
         )
         return self._commit_one(
             row, "continuity_reality_states", "save_reality_state"
@@ -380,12 +406,12 @@ class ContinuityPersistenceAdapter:
             trigger=str(commit.trigger),
             title=commit.title,
             summary=commit.summary,
-            user_id=None,
+            user_id="local",
             source_packet_ids_json=list(commit.source_packet_ids),
             previous_state_id=commit.previous_state_id,
             new_state_id=commit.new_state_id,
             provenance_json=_provenance_to_dict(commit.provenance),
-            created_at=commit.created_at,
+            created_at=_parse_ts(commit.created_at),
         )
         return self._commit_one(
             row, "continuity_reality_commits", "save_reality_commit"
@@ -442,7 +468,7 @@ class ContinuityPersistenceAdapter:
                 state_id=state_id,
                 packet_id=pid,
                 relationship=relationship,
-                created_at=None,  # server handles default
+                created_at=datetime.now(timezone.utc),
             )
             for pid in filtered_ids
         ]

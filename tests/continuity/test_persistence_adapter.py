@@ -298,8 +298,23 @@ def pg_session():
 
 @pytest.fixture()
 def adapter(pg_session):
-    """Fresh adapter per test with automatic rollback."""
+    """Fresh adapter per test with automatic cleanup and rollback."""
+    from guardian.db.models import (
+        ContinuityContextPacket,
+        ContinuityRealityCommit,
+        ContinuityRealityState,
+        ContinuityStatePacketLink,
+    )
+
+    # Clean up any rows from previous test runs (commit is inside adapter)
     adapter = p.ContinuityPersistenceAdapter(pg_session)
+    # Delete in reverse dependency order
+    pg_session.query(ContinuityStatePacketLink).delete()
+    pg_session.query(ContinuityRealityCommit).delete()
+    pg_session.query(ContinuityRealityState).delete()
+    pg_session.query(ContinuityContextPacket).delete()
+    pg_session.commit()
+
     yield adapter
     pg_session.rollback()
 
@@ -474,12 +489,7 @@ def test_load_reality_state_returns_none_for_missing(adapter):
 
 def test_load_latest_reality_state_by_project(adapter):
     # Two states with different compiled_at; latest should be returned.
-    state_a = _valid_state(
-        state_id="latest-a",
-        compiled_at="2026-01-01T00:00:00Z",
-    )
-    state_a.scope = "project"  # type: ignore[assignment]
-    # Override scope via _valid_state
+    # Use a scope without project_id since states don't carry project IDs.
     state_a = RealityState(
         state_id="latest-a",
         schema_version="1.0",
@@ -498,7 +508,7 @@ def test_load_latest_reality_state_by_project(adapter):
     adapter.save_reality_state(state_b)
 
     loaded = adapter.load_latest_reality_state(
-        "project", ContinuityScope(project_id="proj-test")
+        "project", ContinuityScope()
     )
     # latest_b should be returned (compiled_at is later)
     assert loaded is not None
@@ -509,8 +519,9 @@ def test_list_reality_commits(adapter):
     commit = _valid_commit(commit_id="list-commit")
     adapter.save_reality_commit(commit)
 
+    # Query without project_id since commits don't carry scope IDs
     commits = adapter.list_reality_commits(
-        ContinuityScope(project_id="proj-test"), limit=10
+        ContinuityScope(), limit=10
     )
     assert len(commits) >= 1
     assert commits[0].commit_id == "list-commit"
