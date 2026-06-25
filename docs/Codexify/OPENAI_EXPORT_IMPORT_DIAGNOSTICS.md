@@ -4,6 +4,9 @@ This note documents the V1 OpenAI export importer diagnostics lane. It covers
 both the legacy `conversations.json` export shape and newer sharded export
 folders that store conversation and asset payloads in opaque files.
 
+For archive-scale imports (5,000+ conversations) with resumable checkpointing,
+see [`OPENAI_EXPORT_RESUMABLE_IMPORT.md`](OPENAI_EXPORT_RESUMABLE_IMPORT.md).
+
 ## Supported Export Shapes
 
 Codexify now inspects OpenAI export folders by content, not by filename alone.
@@ -120,6 +123,78 @@ an orphaned export asset.
 
 The V1 diagnostic posture is intentionally forensic: Codexify records what it
 found instead of silently discarding unknown payloads.
+
+## Resumable Import CLI
+
+The `import:openai-conversations` command provides the primary import path
+for production use. It supports bounded batches, checkpoint-based resume,
+and staged import (threads, personal facts, embeddings as separate passes).
+
+```bash
+# Diagnostic preview (no DB writes)
+PYTHONPATH="$(pwd)" \
+DATABASE_URL="postgresql://codexify:codexify@localhost:5433/Codexify" \
+GUARDIAN_DATABASE_URL="postgresql+psycopg://codexify:codexify@localhost:5433/Codexify" \
+.venv/bin/python scripts/chatgpt_import/cli_migrate.py import:openai-conversations \
+  --path /path/to/OpenAI-export \
+  --parse-only \
+  --limit 25
+
+# Full Stage A import (messages only, resumable)
+PYTHONPATH="$(pwd)" \
+DATABASE_URL="postgresql://codexify:codexify@localhost:5433/Codexify" \
+GUARDIAN_DATABASE_URL="postgresql+psycopg://codexify:codexify@localhost:5433/Codexify" \
+.venv/bin/python scripts/chatgpt_import/cli_migrate.py import:openai-conversations \
+  --path /path/to/OpenAI-export \
+  --user-id local \
+  --resume --batch-conversations 10 --messages-only
+
+# Stage B (personal facts extraction from stable messages)
+PYTHONPATH="$(pwd)" \
+DATABASE_URL="postgresql://codexify:codexify@localhost:5433/Codexify" \
+GUARDIAN_DATABASE_URL="postgresql+psycopg://codexify:codexify@localhost:5433/Codexify" \
+.venv/bin/python scripts/chatgpt_import/cli_migrate.py import:openai-conversations \
+  --path /path/to/OpenAI-export \
+  --user-id local \
+  --resume \
+  --batch-conversations 10
+```
+
+Key flags:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--resume` | off | Skip conversations already in checkpoint |
+| `--batch-conversations` | 10 | Conversations per DB commit |
+| `--messages-only` | off | Import threads/messages only; skip embeddings + personal facts |
+| `--disable-personal-facts` | off | Skip personal facts extraction (Stage A) |
+| `--parse-only` | off | Scan + write diagnostics, no DB writes |
+| `--limit N` | none | Import only first N conversations |
+
+Stage B does not have a dedicated `--disable-embeddings` flag. Keep
+`--messages-only` and `--disable-personal-facts` omitted, and leave
+`--embedding-mode` at its default unless you explicitly need a different
+embedding pass.
+
+For the full workflow, see [`OPENAI_EXPORT_RESUMABLE_IMPORT.md`](OPENAI_EXPORT_RESUMABLE_IMPORT.md).
+
+## Manifest File Protection
+
+Modern OpenAI exports include an `__export_file_manifests__/` directory with
+a `conversations.json` file that contains **file manifest metadata**, not
+conversation records (keys: `file_name`, `file_size`, `export_id`,
+`manifest_version`).
+
+The adapter protects against manifest misdetection with three layers:
+
+1. **Path exclusion** — files under `__export_file_manifests__/` are excluded
+   from legacy format detection.
+2. **Payload validation** — candidate `conversations.json` files are validated
+   for conversation-shaped content (keys like `mapping`, `messages`).
+3. **Manifest rejection** — payloads containing only file-metadata keys are
+   rejected even if they happen to pass path checks.
+
+No manifest file will trigger a legacy import or be imported as a conversation.
 
 ## Schema And Migration Scope
 
