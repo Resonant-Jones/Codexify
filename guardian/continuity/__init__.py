@@ -1,8 +1,8 @@
 """Continuity Protocol Suite — pure backend contract seam.
 
-This package defines inert, importable, deterministic contract types and a
-pure compiler harness for candidate continuity structures. No persistence,
-routes, workers, graph writes, browser capture, sync, or provider routing.
+This package defines inert, importable, deterministic contract types, a
+pure compiler harness, and an explicit persistence adapter for the four
+Phase A continuity tables.
 
 Modules
 -------
@@ -10,6 +10,8 @@ Modules
     candidate value tuples, and pure validation helpers.
 ``guardian.continuity.compiler`` — pure deterministic compiler contract harness
     with ContinuityCompileResult and compile_reality_state.
+``guardian.continuity.persistence`` — explicit persistence adapter requiring an
+    explicit SQLAlchemy session.  Not wired into runtime.
 """
 
 from guardian.continuity.compiler import (  # noqa: F401
@@ -22,3 +24,9 @@ from guardian.continuity.compiler import (  # noqa: F401
     packet_sort_key,
 )
 from guardian.continuity.contracts import *  # noqa: F401,F403
+from guardian.continuity.persistence import (  # noqa: F401
+    ContinuityPersistenceAdapter,
+    ContinuityPersistenceError,
+    ContinuityPersistenceResult,
+    StoredContinuityRecord,
+)
