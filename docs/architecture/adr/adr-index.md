@@ -66,8 +66,9 @@ Use this note as the local map for all ADRs.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
 28. [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]] — runtime gate for the Continuity Protocol Suite; requires ADR-gated implementation with token-domain review, storage review, provenance review, identity review, and graph-optionality verification before any runtime behavior lands. Docs-only; does not implement runtime behavior.
-29. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
-30. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
+29. [[031-continuity-phase-a-storage-migration-gate|ADR-031 Continuity Phase A Storage Migration Gate]] — migration gate for Phase A continuity storage; gates Alembic/SQLAlchemy work behind explicit proof requirements (clean-start, existing-instance upgrade, downgrade, graph-off baseline, token constraint alignment, provenance preservation, and runtime write gate). Accepts four-phase-A-table boundary; defers Phase B normalization. Docs-only; does not implement migrations, models, or runtime writes.
+30. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
+31. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
 
 ---
 
@@ -388,6 +389,22 @@ Primary companion notes:
   * [[data-and-storage|Data and Storage]]
   * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
   * [[codexify-workspace-surface-spec-v1|Workspace Surface Spec v1]]
+  * [[00-current-state]]
+
+* [[031-continuity-phase-a-storage-migration-gate|ADR-031 Continuity Phase A Storage Migration Gate]] links to:
+
+  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]]
+  * [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]]
+  * [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]]
+  * [[continuity-protocol-suite|Continuity Protocol Suite]]
+  * [[continuity-token-domain-proposal|Continuity Token Domain Proposal]]
+  * [[continuity-storage-schema-proposal|Continuity Storage Schema Proposal]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[data-and-storage|Data and Storage]]
+  * [[modules-and-ownership|Modules and Ownership]]
+  * [[config-and-ops|Config and Ops]]
   * [[00-current-state]]
 
 * [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] links to:
