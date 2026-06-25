@@ -35,6 +35,8 @@ Begin with [`00-current-state.md`](./00-current-state.md) whenever you need curr
 
 If you need the live operational truth layer, read [`00-current-state.md`](./00-current-state.md) first and treat the rest of the KB as supporting context.
 
+For trusted collaborator onboarding, start with [`../Collaborators/README.md`](../Collaborators/README.md). That directory explains collaboration protocol, dev-kit inventory, worktree/branching norms, and task-spec workflow. Use it as the human collaboration front door; use this architecture KB for runtime and system truth.
+
 ## What Codexify Is
 
 Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
