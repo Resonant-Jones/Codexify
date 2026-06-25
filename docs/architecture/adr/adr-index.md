@@ -65,8 +65,9 @@ Use this note as the local map for all ADRs.
 25. [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] — repairs the default-off graph-write runtime boundary on the supported Docker Compose path so documented contract matches enforced behavior.
 26. [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] — defines Execution Ledger as a governed Campaign Runner extension over goals, campaigns, work orders, attempts, and Guardian-owned lineage/evidence seams.
 27. [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] — chat-native `/codex_entry` slash command that generates transient draft cards from prior context with Save/Download/Dismiss actions, reusing the existing codex save seam and enforcing default retrieval exclusion.
-28. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
-29. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
+28. [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]] — runtime gate for the Continuity Protocol Suite; requires ADR-gated implementation with token-domain review, storage review, provenance review, identity review, and graph-optionality verification before any runtime behavior lands. Docs-only; does not implement runtime behavior.
+29. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
+30. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
 
 ---
 
@@ -372,6 +373,21 @@ Primary companion notes:
   * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
   * [[account-export-restore-contract|Account Export + Restore Contract]]
   * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[00-current-state]]
+
+* [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]] links to:
+
+  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]]
+  * [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]]
+  * [[continuity-protocol-suite|Continuity Protocol Suite]]
+  * [[chat-runtime-contract|Chat Runtime Contract]]
+  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
+  * [[canonical-token-philosophy|Canonical Token Philosophy]]
+  * [[account-export-restore-contract|Account Export + Restore Contract]]
+  * [[router-decision-table|Retrieval Router Decision Table]]
+  * [[data-and-storage|Data and Storage]]
+  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
+  * [[codexify-workspace-surface-spec-v1|Workspace Surface Spec v1]]
   * [[00-current-state]]
 
 * [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] links to:
