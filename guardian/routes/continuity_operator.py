@@ -31,7 +31,12 @@ from guardian.continuity.write_actions import (
     RealityStampInput,
 )
 from guardian.core.dependencies import get_database_dsn, require_api_key
-from guardian.db.models import ContinuityContextPacket
+from guardian.db.models import (
+    ContinuityContextPacket,
+    ContinuityRealityCommit,
+    ContinuityRealityState,
+    ContinuityStatePacketLink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +324,150 @@ def read_context_packet(
         raise HTTPException(
             status_code=500,
             detail={"error": "read_failed", "message": str(exc)},
+        )
+
+    finally:
+        session.close()
+
+
+# ── Diagnostics models ──────────────────────────────────────────────────────
+
+
+class ContinuityOperatorDiagnosticsResponse(BaseModel):
+    """Aggregate gate/profile/count diagnostics for the continuity operator loop."""
+
+    profile_name: str = "unknown"
+    supported_beta_quarantined: bool = True
+    test_profile_enabled: bool = False
+    feature_flag_enabled: bool = False
+    write_route_available: bool = False
+    readback_route_available: bool = False
+    auth_required: bool = True
+    write_action_kind: str = "create_reality_stamp"
+    readback_mode: str = "exact_context_packet_id"
+    context_packet_count: int = 0
+    state_count: int = 0
+    commit_count: int = 0
+    state_packet_link_count: int = 0
+    last_context_packet_created_at: str | None = None
+    graph_used: bool = False
+    runtime_event_published: bool = False
+    project_pulse_enabled: bool = False
+    export_restore_enabled: bool = False
+    diagnostics_generated_at: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ── Diagnostics route ───────────────────────────────────────────────────────
+
+
+@router.get(
+    "/diagnostics",
+    response_model=ContinuityOperatorDiagnosticsResponse,
+)
+def operator_diagnostics(
+    api_key: str = Depends(require_api_key),
+) -> ContinuityOperatorDiagnosticsResponse:
+    """Report aggregate continuity operator gate/profile/count truth.
+
+    Requires explicit API-key authentication.  Returns counts, gate
+    posture, and hard-false flags only — no raw payloads, no record
+    listing, no graph, no compiler, no writes, no Project Pulse, and
+    no export/restore semantics.
+    """
+    import os
+    from datetime import datetime, timezone
+
+    from sqlalchemy import func
+
+    dsn = get_database_dsn()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    engine = create_engine(dsn, echo=False)
+    session = Session(engine)
+    warnings: list[str] = []
+
+    try:
+        # ── Profile / gate posture ─────────────────────────────────────
+
+        active_profile = os.getenv("CODEXIFY_SUPPORTED_PROFILE", "")
+        if not active_profile:
+            active_profile = "v1-local-core-web-mcp"
+            warnings.append(
+                "CODEXIFY_SUPPORTED_PROFILE not set; assuming default"
+            )
+
+        flag_on = os.getenv(
+            "CODEXIFY_ENABLE_CONTINUITY_OPERATOR_ROUTES", ""
+        ).strip().lower() in ("true", "1", "yes")
+
+        profile_name = active_profile or "unknown"
+        supported_beta = profile_name == "v1-local-core-web-mcp"
+        test_profile = profile_name == "test-continuity"
+
+        # ── Aggregate counts ──────────────────────────────────────────
+
+        packet_count = (
+            session.query(func.count(ContinuityContextPacket.id))
+            .filter(ContinuityContextPacket.deleted_at.is_(None))
+            .scalar()
+            or 0
+        )
+        state_count = (
+            session.query(func.count(ContinuityRealityState.id))
+            .filter(ContinuityRealityState.deleted_at.is_(None))
+            .scalar()
+            or 0
+        )
+        commit_count = (
+            session.query(func.count(ContinuityRealityCommit.id))
+            .filter(ContinuityRealityCommit.deleted_at.is_(None))
+            .scalar()
+            or 0
+        )
+        link_count = (
+            session.query(func.count(ContinuityStatePacketLink.id))
+            .scalar()
+            or 0
+        )
+
+        last_created = (
+            session.query(func.max(ContinuityContextPacket.created_at))
+            .filter(ContinuityContextPacket.deleted_at.is_(None))
+            .scalar()
+        )
+
+        return ContinuityOperatorDiagnosticsResponse(
+            profile_name=profile_name,
+            supported_beta_quarantined=supported_beta,
+            test_profile_enabled=test_profile,
+            feature_flag_enabled=flag_on,
+            write_route_available=flag_on and not supported_beta,
+            readback_route_available=flag_on and not supported_beta,
+            auth_required=True,
+            write_action_kind="create_reality_stamp",
+            readback_mode="exact_context_packet_id",
+            context_packet_count=packet_count,
+            state_count=state_count,
+            commit_count=commit_count,
+            state_packet_link_count=link_count,
+            last_context_packet_created_at=(
+                str(last_created) if last_created else None
+            ),
+            graph_used=False,
+            runtime_event_published=False,
+            project_pulse_enabled=False,
+            export_restore_enabled=False,
+            diagnostics_generated_at=datetime.now(timezone.utc).isoformat(),
+            warnings=warnings,
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to collect continuity diagnostics")
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "diagnostics_failed", "message": str(exc)},
         )
 
     finally:
