@@ -148,6 +148,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Build Proposal Artifact Contract](./build-proposal-artifact-contract.md): canonical review artifact between diagnosis and execution in the Guardian Build Loop. It does not approve, execute, or prove work, and it does not claim autonomous execution.
 - [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
+- [Guardian Chat Portal](./guardian-chat-portal.md): browser shell guide for the Guardian chat surface, session rail, sidebar, and mobile portal overlay. It explains how the current portal is wired and how to operate it.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.
 - [Identity Precedence Contract](./identity-precedence-contract.md): canonical identity-layer precedence, actor-plus-role posture, and persisted/resolved/request-scoped semantics.
 - [IDDB Policy v1](./iddb_policy_v1.md): identity-data governance covering diary/identity layer separation, Imprint_Zero/light identity, opt-in deep identity, persona borrowing semantics, and sensitive-trait non-inference rules; not a runtime topology source.
