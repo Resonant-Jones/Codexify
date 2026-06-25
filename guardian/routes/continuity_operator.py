@@ -31,6 +31,7 @@ from guardian.continuity.write_actions import (
     RealityStampInput,
 )
 from guardian.core.dependencies import get_database_dsn, require_api_key
+from guardian.db.models import ContinuityContextPacket
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,122 @@ def create_reality_stamp(
             )
 
         return _receipt_to_response(receipt)
+
+    finally:
+        session.close()
+
+
+# ── Readback models ─────────────────────────────────────────────────────────
+
+
+class ContextPacketReadbackResponse(BaseModel):
+    """Response for a single context packet readback."""
+
+    packet_id: str
+    found: bool
+    schema_version: str | None = None
+    kind: str | None = None
+    scope: dict[str, Any] = Field(default_factory=dict)
+    source: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    summary: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    sensitivity: str | None = None
+    retention: str | None = None
+    integrity: dict[str, Any] = Field(default_factory=dict)
+    deleted: bool = False
+    graph_used: bool = False
+    runtime_event_published: bool = False
+    read_at: str | None = None
+
+
+# ── Readback route ──────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/context-packets/{packet_id}",
+    response_model=ContextPacketReadbackResponse,
+)
+def read_context_packet(
+    packet_id: str,
+    api_key: str = Depends(require_api_key),
+) -> ContextPacketReadbackResponse:
+    """Read a single Context Packet by exact packet ID.
+
+    Requires explicit API-key authentication.  Reads exactly one row —
+    no list, search, retrieval, graph, compiler, or write behaviour.
+    Soft-deleted records are treated as not found.
+    """
+    from datetime import datetime, timezone
+
+    dsn = get_database_dsn()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    engine = create_engine(dsn, echo=False)
+    session = Session(engine)
+
+    try:
+        row = (
+            session.query(ContinuityContextPacket)
+            .filter(
+                ContinuityContextPacket.id == packet_id,
+                ContinuityContextPacket.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if row is None:
+            return ContextPacketReadbackResponse(
+                packet_id=packet_id,
+                found=False,
+                read_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+        return ContextPacketReadbackResponse(
+            packet_id=row.id,
+            found=True,
+            schema_version=row.schema_version,
+            kind=row.kind,
+            scope={
+                "user_id": row.user_id,
+                "project_id": row.project_id,
+                "thread_id": row.thread_id,
+                "task_id": row.task_id,
+                "tab_id": row.tab_id,
+                "persona_id": row.persona_id,
+                "node_id": row.node_id,
+                "team_id": row.team_id,
+                "dyad_id": row.dyad_id,
+            },
+            source={
+                "system": row.source_system,
+                "plugin": row.source_plugin,
+                "provider": row.source_provider,
+                "origin_ref": row.origin_ref,
+            },
+            created_at=str(row.created_at) if row.created_at else None,
+            summary=row.summary,
+            payload=row.payload_json or {},
+            metadata=row.metadata_json or {},
+            provenance=row.provenance_json or {},
+            sensitivity=row.sensitivity,
+            retention=row.retention,
+            integrity=row.integrity_json or {},
+            deleted=False,
+            graph_used=False,
+            runtime_event_published=False,
+            read_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to read context packet %s", packet_id)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "read_failed", "message": str(exc)},
+        )
 
     finally:
         session.close()
