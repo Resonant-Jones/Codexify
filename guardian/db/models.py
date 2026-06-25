@@ -4584,3 +4584,150 @@ class ChannelMessage(Base):
         Index("ix_channel_messages_created_at", "created_at"),
     )
     __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Continuity Phase A Tables
+# =========================
+#
+# These tables store the durable envelope records for the Continuity Protocol
+# Suite.  Phase A includes only the four tables below.  Phase B normalisation
+# tables are deferred.  See ADR-031 and continuity-storage-schema-proposal.md.
+
+
+class ContinuityContextPacket(Base):
+    """Persisted Context Packet envelopes with indexed envelope fields."""
+
+    __tablename__ = "continuity_context_packets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(String(128))
+    thread_id: Mapped[str | None] = mapped_column(String(128))
+    task_id: Mapped[str | None] = mapped_column(String(128))
+    tab_id: Mapped[str | None] = mapped_column(String(128))
+    persona_id: Mapped[str | None] = mapped_column(String(128))
+    node_id: Mapped[str | None] = mapped_column(String(128))
+    team_id: Mapped[str | None] = mapped_column(String(128))
+    dyad_id: Mapped[str | None] = mapped_column(String(128))
+    source_system: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_plugin: Mapped[str | None] = mapped_column(String(128))
+    source_provider: Mapped[str | None] = mapped_column(String(128))
+    origin_ref: Mapped[str | None] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB)
+    provenance_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    sensitivity: Mapped[str] = mapped_column(String(32), nullable=False)
+    retention: Mapped[str] = mapped_column(String(32), nullable=False)
+    integrity_json: Mapped[dict | None] = mapped_column(JSONB)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ContinuityRealityState(Base):
+    """Compiled Reality State snapshots with extracted JSON sub-records."""
+
+    __tablename__ = "continuity_reality_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(String(128))
+    thread_id: Mapped[str | None] = mapped_column(String(128))
+    task_id: Mapped[str | None] = mapped_column(String(128))
+    node_id: Mapped[str | None] = mapped_column(String(128))
+    team_id: Mapped[str | None] = mapped_column(String(128))
+    dyad_id: Mapped[str | None] = mapped_column(String(128))
+    compiled_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    active_branch: Mapped[str | None] = mapped_column(String(256))
+    source_packet_ids_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    state_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    accepted_decisions_json: Mapped[dict | None] = mapped_column(JSONB)
+    open_loops_json: Mapped[dict | None] = mapped_column(JSONB)
+    rejected_paths_json: Mapped[dict | None] = mapped_column(JSONB)
+    active_artifacts_json: Mapped[dict | None] = mapped_column(JSONB)
+    assumptions_json: Mapped[dict | None] = mapped_column(JSONB)
+    risks_json: Mapped[dict | None] = mapped_column(JSONB)
+    next_actions_json: Mapped[dict | None] = mapped_column(JSONB)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    provenance_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    expires_or_decays_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ContinuityRealityCommit(Base):
+    """Durable Reality Commit records with trigger, kind, and provenance."""
+
+    __tablename__ = "continuity_reality_commits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(String(128))
+    thread_id: Mapped[str | None] = mapped_column(String(128))
+    task_id: Mapped[str | None] = mapped_column(String(128))
+    node_id: Mapped[str | None] = mapped_column(String(128))
+    team_id: Mapped[str | None] = mapped_column(String(128))
+    dyad_id: Mapped[str | None] = mapped_column(String(128))
+    source_packet_ids_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    previous_state_id: Mapped[str | None] = mapped_column(String(36))
+    new_state_id: Mapped[str | None] = mapped_column(String(36))
+    provenance_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class ContinuityStatePacketLink(Base):
+    """Many-to-many provenance link between states and contributing packets."""
+
+    __tablename__ = "continuity_state_packet_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID
+    state_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    packet_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    relationship: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "state_id",
+            "packet_id",
+            "relationship",
+            name="uq_cty_state_packet_link",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
