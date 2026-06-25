@@ -20,52 +20,42 @@ function renderPage() {
 }
 
 describe("Persona Studio Page", () => {
-  it("keeps the editor, support surfaces, and preview panel on one unified parent surface", () => {
+  it("keeps the editor and right rail on one unified parent surface", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
     const editor = within(shell).getByTestId("persona-studio-editor");
     const header = within(shell).getByTestId("persona-studio-shell-header");
-    const supportSurfaces = within(shell).getByTestId("persona-studio-support-surfaces");
-    const previewLane = within(shell).getByTestId("persona-preview-lane");
-    const previewPanel = within(previewLane).getByTestId("persona-preview-panel");
+    const railLane = within(shell).getByTestId("persona-studio-rail-lane");
+    const rail = within(railLane).getByTestId("persona-studio-rail");
+    const previewPanel = within(rail).getByTestId("persona-preview-panel");
     const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
 
     expect(shell).toBeVisible();
     expect(header).toBeVisible();
     expect(editor).toBeVisible();
-    expect(supportSurfaces).toBeVisible();
-    expect(previewLane).toBeVisible();
+    expect(railLane).toBeVisible();
+    expect(rail).toBeVisible();
     expect(previewPanel).toBeVisible();
     expect(shell).toHaveClass("overflow-y-auto");
     expect(configurationLane).toHaveClass("overflow-y-auto");
-    expect(within(shell).queryByRole("button", { name: /hide utility pane/i })).not.toBeInTheDocument();
-    expect(within(shell).getByTestId("persona-studio-utility-pane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
+    expect(screen.getByTestId("persona-studio-rail-tabs")).toBeVisible();
   });
 
-  it("renders the primary two-lane shell with the preview panel on the right", () => {
+  it("renders the primary two-lane shell with the rail on the right (Preview tab default)", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const previewLane = within(layout).getByTestId("persona-preview-lane");
-    const previewPanel = within(previewLane).getByTestId("persona-preview-panel");
+    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
+    const previewPanel = within(railLane).getByTestId("persona-preview-panel");
     const header = within(previewPanel).getByTestId("persona-preview-panel-header");
     const transcript = within(previewPanel).getByTestId("persona-preview-panel-transcript");
     const composer = within(previewPanel).getByTestId("persona-preview-panel-composer");
 
     expect(configurationLane).toBeVisible();
-    expect(previewLane).toBeVisible();
+    expect(railLane).toBeVisible();
     expect(within(shell).getByRole("heading", { name: /persona studio/i })).toBeVisible();
     expect(within(shell).getByTestId("persona-studio-tabs")).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
@@ -79,7 +69,6 @@ describe("Persona Studio Page", () => {
       /draft sandbox · local until saved · not chat history/i
     );
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
-    expect(within(shell).getByTestId("persona-studio-support-surfaces")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
       /draft sandbox · local until saved · not chat history/i
     );
@@ -234,29 +223,40 @@ describe("Persona Studio Page", () => {
     expect(sessionSetItemSpy).not.toHaveBeenCalled();
   });
 
-  it("switches the utility pane between Profiles and Diagnostics", async () => {
+  it("switches the rail between Profiles and Diagnostics tabs", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    // Default Preview tab — diagnostics not visible
+    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
 
+    // Switch to Profiles
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
+    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
+
+    // Switch to Diagnostics
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
     expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
       "data-state",
       "active"
     );
-    expect(screen.queryByTestId("persona-studio-utility-profiles-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute("data-state", "active");
+    expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
+    // Switch back to Preview
+    await user.click(screen.getByRole("button", { name: /^preview$/i }));
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
       "data-state",
       "active"
     );
-    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 
   it("renders the section tabs in the header area", () => {
@@ -272,7 +272,7 @@ describe("Persona Studio Page", () => {
 
     expect(screen.getAllByTestId("persona-studio-active-profile-summary")).toHaveLength(1);
     expect(
-      within(screen.getByTestId("persona-studio-utility-pane")).queryByTestId(
+      within(screen.getByTestId("persona-studio-rail-lane")).queryByTestId(
         "persona-studio-active-profile-summary"
       )
     ).not.toBeInTheDocument();

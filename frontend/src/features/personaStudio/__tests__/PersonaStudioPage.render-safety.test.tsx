@@ -86,21 +86,20 @@ beforeEach(() => {
 });
 
 describe("Persona Studio Page render safety", () => {
-  it("mounts the edited shell, utility pane, truth matrix, and preview panel together", async () => {
+  it("mounts the edited shell, rail, truth matrix, and preview panel together", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
 
     const shell = screen.getByTestId("persona-studio-shell");
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const previewLane = within(layout).getByTestId("persona-preview-lane");
+    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
+    const rail = within(railLane).getByTestId("persona-studio-rail");
 
     expect(configurationLane).toBeVisible();
-    expect(previewLane).toBeVisible();
+    expect(railLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-support-surfaces")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-utility-pane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeVisible();
+    expect(rail).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-transcript")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-composer")).toBeVisible();
@@ -113,7 +112,7 @@ describe("Persona Studio Page render safety", () => {
     expect(within(matrix).getByRole("rowheader", { name: /persona name/i })).toBeInTheDocument();
     expect(within(matrix).getByRole("rowheader", { name: /retrieval top k/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
 
     expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeVisible();
     expect(screen.getByText("Save Status")).toBeVisible();

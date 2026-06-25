@@ -20,17 +20,18 @@ function renderPage() {
 }
 
 describe("Persona Studio two-pane layout", () => {
-  it("renders the editor region and the Persona Preview panel side by side", () => {
+  it("renders the editor region and the right rail side by side", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const previewLane = within(layout).getByTestId("persona-preview-lane");
+    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
 
     expect(configurationLane).toBeVisible();
-    expect(previewLane).toBeVisible();
+    expect(railLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(railLane).getByTestId("persona-studio-rail")).toBeVisible();
   });
 
   it("renders the Draft Preview heading and consolidated safety row in the panel header", () => {
@@ -46,17 +47,17 @@ describe("Persona Studio two-pane layout", () => {
     );
   });
 
-  it("keeps the Persona Preview panel visible while the editor scrolls", () => {
+  it("keeps the right rail visible while the editor scrolls", () => {
     renderPage();
 
     const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
+    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
     const previewPanel = screen.getByTestId("persona-preview-panel");
-    const previewLane = within(layout).getByTestId("persona-preview-lane");
 
     expect(configurationLane).toHaveClass("overflow-y-auto");
     expect(previewPanel).toBeVisible();
-    expect(previewLane).toHaveClass("lg:sticky");
+    expect(railLane).toHaveClass("lg:sticky");
   });
 
   it("preserves the existing Persona Studio tab navigation", async () => {
@@ -108,5 +109,40 @@ describe("Persona Studio two-pane layout", () => {
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /no preview turns yet/i
     );
+  });
+
+  it("renders the right rail with Preview | Profiles | Diagnostics tabs and Preview as default", () => {
+    renderPage();
+
+    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole(
+      "button"
+    );
+    const tabNames = railTabs.map((tab) => tab.textContent?.trim());
+    expect(tabNames).toEqual(["Preview", "Profiles", "Diagnostics"]);
+    expect(railTabs[0]).toHaveAttribute("data-state", "active");
+  });
+
+  it("switches the rail between Preview, Profiles, and Diagnostics", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // Preview is default
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
+
+    // Switch to Profiles
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
+
+    // Switch to Diagnostics
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
   });
 });

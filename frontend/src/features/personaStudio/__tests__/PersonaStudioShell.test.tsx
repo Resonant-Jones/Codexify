@@ -119,9 +119,8 @@ describe("Persona Studio Shell Integration", () => {
 
     expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: /persona studio utility pane/i })).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-preview-panel")).toBeInTheDocument();
   });
 
   it("renders Persona Studio hierarchy directly from the route", () => {
@@ -130,7 +129,7 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByRole("heading", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.getByText(/configure reusable agent profiles\./i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: /persona studio utility pane/i })).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
       "data-state",
       "active"
@@ -143,10 +142,15 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
   });
 
-  it("renders the profile list panel when Persona Studio is active", () => {
+  it("renders the right rail with the Preview tab default", () => {
     renderAppShell();
 
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-rail-tabs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
   });
 
   it("renders the editor tabs when Persona Studio is active", () => {
@@ -199,11 +203,13 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
+    // Profiles tab in the rail is hidden by default (Preview is default).
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
     const codeAssistantCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
     if (codeAssistantCard) {
       await user.click(codeAssistantCard);
     }
-    expect(screen.getByTestId("persona-studio-framecard")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
   });
 
   it("renders Save, Save As New, and Reset controls", () => {
