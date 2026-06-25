@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-23
+2026-06-24
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,15 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work on `main` added identity and Scout-facing architecture contracts plus the Zac Mac Studio local bring-up path, but those additions do not widen the release promise.
+Codexify is in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture, and the week’s merged work is mostly contract and operator-surface expansion rather than new runtime scope.
 
 ## What changed recently
 - `main` added collab chat identity contract docs.
 - `main` added Scout Vault operator-surface baseline docs.
-- `main` added personal-facts guardrails contract docs.
+- `main` added personal-facts guardrails contract docs and review UI support.
 - `main` added Scout endpoint configuration and iOS Scout Vault remote contract docs.
 - `main` added a Zac Mac Studio local bring-up path.
+- `main` imported OpenAI export conversations into chat history and added Task Prompt Archive.
 - `main` preserved the local-only beta posture and current-state override pattern.
 
 ## Current supported reality
