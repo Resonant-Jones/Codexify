@@ -14,6 +14,8 @@ struct ThreadNav: Hashable {
     let title: String?
 }
 
+private let ScoutThreadRenamedNotification = Notification.Name("ScoutThreadRenamedNotification")
+
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var threads: [ScoutChatThreadSummary]?
@@ -24,6 +26,7 @@ struct GuardianChatView: View {
     @State private var newThreadTitle = ""
     @State private var isCreating = false
     @State private var createError: String?
+    @State private var navigationPath: [ThreadNav] = []
 
     private let keychainStore = ScoutKeychainStore()
 
@@ -283,6 +286,7 @@ private struct ThreadMessagesView: View {
     let threadTitle: String?
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @State private var displayedTitle: String?
     @State private var messages: [ScoutChatMessageSummary]?
     @State private var statusMessage: String?
     @State private var keychainError: String?
@@ -303,6 +307,10 @@ private struct ThreadMessagesView: View {
     @State private var tasksMessage: String?
     @State private var isLoadingTasks = false
     @State private var selectedTab = 0
+    @State private var showRename = false
+    @State private var renameTitle = ""
+    @State private var renameError: String?
+    @State private var isRenaming = false
 
     private let keychainStore = ScoutKeychainStore()
 
