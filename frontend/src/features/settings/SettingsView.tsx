@@ -1284,96 +1284,6 @@ export function SettingsView({
               />
             </div>
 
-            <div
-              className="space-y-[calc(var(--radius-micro)/2)]"
-              data-testid="surface-tuning-section"
-            >
-              <div style={SETTINGS_DENSITY.sectionTitle}>Surface Tuning</div>
-              <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-                Harmonize the shared Codexify frame, panel, and chip surfaces
-                with your wallpaper. Lower values feel softer and lighter;
-                higher values feel deeper and darker. Warmth shifts the
-                neutrals cooler (graphite / steel) or warmer (ivory / amber)
-                without becoming saturated.
-              </p>
-              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
-                <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
-                  <div className="space-y-[calc(var(--radius-micro)/4)]">
-                    <label
-                      htmlFor="surface-depth-slider"
-                      className="text-sm font-medium"
-                      style={SETTINGS_DENSITY.sectionTitle}
-                    >
-                      Surface Depth
-                    </label>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>
-                      0 = softer / lighter, 100 = deeper / darker.
-                    </p>
-                  </div>
-                  <span
-                    aria-live="polite"
-                    className="text-xs font-semibold tabular-nums"
-                    style={{ color: "var(--text)" }}
-                  >
-                    {surfaceDepth}
-                  </span>
-                </div>
-                <Input
-                  id="surface-depth-slider"
-                  data-testid="surface-depth-slider"
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={surfaceDepth}
-                  aria-label="Surface Depth"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={surfaceDepth}
-                  onChange={(e) => setSurfaceDepth(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
-                <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
-                  <div className="space-y-[calc(var(--radius-micro)/4)]">
-                    <label
-                      htmlFor="surface-warmth-slider"
-                      className="text-sm font-medium"
-                      style={SETTINGS_DENSITY.sectionTitle}
-                    >
-                      Surface Warmth
-                    </label>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>
-                      -100 = cooler (graphite / steel), +100 = warmer (ivory / amber).
-                    </p>
-                  </div>
-                  <span
-                    aria-live="polite"
-                    className="text-xs font-semibold tabular-nums"
-                    style={{ color: "var(--text)" }}
-                  >
-                    {surfaceWarmth > 0 ? `+${surfaceWarmth}` : surfaceWarmth}
-                  </span>
-                </div>
-                <Input
-                  id="surface-warmth-slider"
-                  data-testid="surface-warmth-slider"
-                  type="range"
-                  min={-100}
-                  max={100}
-                  step={1}
-                  value={surfaceWarmth}
-                  aria-label="Surface Warmth"
-                  aria-valuemin={-100}
-                  aria-valuemax={100}
-                  aria-valuenow={surfaceWarmth}
-                  onChange={(e) => setSurfaceWarmth(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-            </div>
-
             <div className="space-y-[calc(var(--radius-micro)/2)]">
               <div style={SETTINGS_DENSITY.sectionTitle}>File Type Colors</div>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-[var(--shell-gap)] max-w-md">
@@ -1413,6 +1323,86 @@ export function SettingsView({
                   <span className="text-xs" style={SETTINGS_DENSITY.sectionDescription}>CODEX</span>
                   <Input id="color-codex" type="color" value={extColors.codex} onChange={(e) => setExtColors({ ...extColors, codex: e.target.value })} className="color-swatch" />
                 </div>
+              </div>
+            </div>
+
+            <div
+              className="space-y-[calc(var(--radius-micro)/2)]"
+              data-testid="material-controls-section"
+            >
+              <div style={SETTINGS_DENSITY.sectionTitle}>Material Controls</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Tune the shared frame, panel, and chip material.
+              </p>
+              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+                <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                  <label
+                    htmlFor="surface-depth-slider"
+                    className="text-sm font-medium"
+                    style={SETTINGS_DENSITY.sectionTitle}
+                    title="Lower values feel softer and lighter. Higher values feel deeper and darker."
+                  >
+                    Surface Depth
+                  </label>
+                  <span
+                    aria-live="polite"
+                    className="text-xs font-semibold tabular-nums"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {surfaceDepth}
+                  </span>
+                </div>
+                <Input
+                  id="surface-depth-slider"
+                  data-testid="surface-depth-slider"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={surfaceDepth}
+                  aria-label="Surface Depth — lower values feel softer and lighter; higher values feel deeper and darker."
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={surfaceDepth}
+                  title="Lower values feel softer and lighter. Higher values feel deeper and darker."
+                  onChange={(e) => setSurfaceDepth(Number(e.target.value))}
+                  className="material-slider"
+                />
+              </div>
+              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+                <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                  <label
+                    htmlFor="surface-warmth-slider"
+                    className="text-sm font-medium"
+                    style={SETTINGS_DENSITY.sectionTitle}
+                    title="Negative values cool the material toward graphite and steel. Positive values warm it toward ivory and amber."
+                  >
+                    Surface Warmth
+                  </label>
+                  <span
+                    aria-live="polite"
+                    className="text-xs font-semibold tabular-nums"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {surfaceWarmth > 0 ? `+${surfaceWarmth}` : surfaceWarmth}
+                  </span>
+                </div>
+                <Input
+                  id="surface-warmth-slider"
+                  data-testid="surface-warmth-slider"
+                  type="range"
+                  min={-100}
+                  max={100}
+                  step={1}
+                  value={surfaceWarmth}
+                  aria-label="Surface Warmth — negative values cool the material toward graphite and steel; positive values warm it toward ivory and amber."
+                  aria-valuemin={-100}
+                  aria-valuemax={100}
+                  aria-valuenow={surfaceWarmth}
+                  title="Negative values cool the material toward graphite and steel. Positive values warm it toward ivory and amber."
+                  onChange={(e) => setSurfaceWarmth(Number(e.target.value))}
+                  className="material-slider"
+                />
               </div>
             </div>
 

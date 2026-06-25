@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -268,5 +268,70 @@ describe("SettingsView", () => {
       "aria-selected",
       "true"
     );
+  });
+
+  test("exposes the Material Controls section with both surface sliders", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const materialSection = screen.getByTestId("material-controls-section");
+    expect(materialSection).toBeInTheDocument();
+    expect(
+      within(materialSection).getByText("Material Controls")
+    ).toBeInTheDocument();
+
+    const depthSlider = screen.getByTestId("surface-depth-slider");
+    const warmthSlider = screen.getByTestId("surface-warmth-slider");
+    expect(depthSlider).toBeInTheDocument();
+    expect(depthSlider).toHaveAttribute("type", "range");
+    expect(depthSlider).toHaveClass("material-slider");
+    expect(warmthSlider).toBeInTheDocument();
+    expect(warmthSlider).toHaveAttribute("type", "range");
+    expect(warmthSlider).toHaveClass("material-slider");
+  });
+
+  test("orders Material Controls between File Type Colors and Dashboard Layout", () => {
+    const props = createSettingsViewProps();
+    const { container } = render(<SettingsView {...props} />);
+
+    const surface = container.querySelector(
+      '[data-testid="settings-appearance-surface"]'
+    );
+    expect(surface).not.toBeNull();
+    if (!surface) return;
+
+    const fileTypeTitle = screen.getByText("File Type Colors");
+    const materialTitle = screen.getByText("Material Controls");
+    const dashboardTitle = screen.getByText("Dashboard Layout");
+
+    const fileTypeSection = fileTypeTitle.closest("div[class*='space-y']");
+    const materialSection = materialTitle.closest(
+      '[data-testid="material-controls-section"]'
+    );
+    const dashboardSection = dashboardTitle.closest("div[class*='space-y']");
+
+    expect(fileTypeSection).not.toBeNull();
+    expect(materialSection).not.toBeNull();
+    expect(dashboardSection).not.toBeNull();
+    if (!fileTypeSection || !materialSection || !dashboardSection) return;
+
+    const position =
+      fileTypeSection.compareDocumentPosition(materialSection) &
+      Node.DOCUMENT_POSITION_FOLLOWING;
+    const materialFollowsDashboard =
+      materialSection.compareDocumentPosition(dashboardSection) &
+      Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(position).toBeTruthy();
+    expect(materialFollowsDashboard).toBeTruthy();
+  });
+
+  test("does not retain the legacy Surface Tuning heading", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    expect(screen.queryByText("Surface Tuning")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("surface-tuning-section")
+    ).not.toBeInTheDocument();
   });
 });
