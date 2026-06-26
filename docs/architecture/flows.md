@@ -42,6 +42,7 @@ Sequence:
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes; proving reliable selection/injection in executed turns remains an active validation target.
+   - Remote Recall Search-as-RAG is a narrow, gated web-evidence branch on this flow. Local retrieval remains the default. Remote Recall is invoked ONLY when the resolved retrieval posture is explicit `global_search`, `REMOTE_RECALL_ENABLED=true`, provider feature flags/credentials/egress are all enabled, and every candidate result passes the Web Evidence Intake Gate before any web content enters synthesis. It is off by default and never enables web search for ordinary local/conversation/workspace turns. Queue acceptance still means the work was accepted, not that web search succeeded.
    - For the workspace proof harness, executed-path worker-visible completion payload evidence is the canonical proof surface; debug trace remains diagnostic-only and cannot replace the executed completion record.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
@@ -67,6 +68,7 @@ Failure modes:
 - Cloud-provider failure that rescues to local execution instead of failing outright
 - Blank or malformed provider output forcing fallback assistant text
 - Structured tool-decision failure that stops after one bounded tool turn and surfaces explicit loop-stop metadata
+- Remote Recall failure-closed conditions (feature flag off, local-only mode, egress blocked, missing credentials, provider unauthorized, empty result set, or intake-gate blocking all candidates). These never break chat completion acceptance; no web evidence is injected and the trace carries the canonical failure reason.
 - Eval snapshot persistence or enqueue failure, which is isolated from chat completion acceptance
 - Eval worker failure, which is isolated from chat completion acceptance and transcript persistence
 - Worker downtime causing tasks to queue without completion
