@@ -1,0 +1,16 @@
+services:
+  backend:
+    volumes:
+      - ./webui-basic:/app/webui-basic:ro
+  worker-chat:
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./config:/app/config:ro
+      - ./plugins:/app/plugins:ro
+      - codexify_cli_home:/home/codexify
+      - hf_cache:/root/.cache/huggingface
+      - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
+      - ./models:/models
+      - ./.chroma:/app/.chroma
