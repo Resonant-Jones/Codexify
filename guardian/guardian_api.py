@@ -511,6 +511,7 @@ from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
+    continuity_operator,
     delegations,
     devtools,
     documents,
@@ -1282,6 +1283,13 @@ _include_router(
     include_fn=lambda: app.include_router(guardian_delegations.router),
     default_enabled=False,
     core_surface=True,
+)
+_include_router(
+    label="continuity_operator",
+    flag_name="CODEXIFY_ENABLE_CONTINUITY_OPERATOR_ROUTES",
+    include_fn=lambda: app.include_router(continuity_operator.router),
+    default_enabled=False,
+    core_surface=False,
 )
 
 logger.info(

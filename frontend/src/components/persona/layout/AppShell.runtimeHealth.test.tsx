@@ -458,7 +458,6 @@ describe("AppShell runtime health banner", () => {
 
   it("does not render banner when runtime is healthy", () => {
     render(<AppShell />);
-    expect(screen.getByText(/Provider online/i)).toBeInTheDocument();
     expect(screen.queryByText(/Runtime degraded/i)).toBeNull();
   });
 
@@ -633,10 +632,11 @@ describe("AppShell runtime health banner", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders sanitized technical details when runtime health is degraded", () => {
+  it("renders sanitized technical details when llm health is degraded", () => {
     runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
-    runtimeHealthState.failureKind =
-      RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
+    runtimeHealthState.failureKind = RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY;
+    runtimeHealthState.llmDetail =
+      "MiniMax live discovery unavailable using documented model list";
     runtimeHealthState.lastFailedAt = Date.parse("2026-03-20T11:54:30Z");
     runtimeHealthState.diagnostics = {
       resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
@@ -652,6 +652,92 @@ describe("AppShell runtime health banner", () => {
         transportErrorClass: null,
         parsedStatus: "healthy",
         parsedOk: true,
+      },
+      llm: {
+        endpoint: "/api/health/llm",
+        httpStatus: 200,
+        transportErrorClass: null,
+        parsedStatus: "offline",
+        parsedOk: false,
+        detailsStatus: "offline",
+        detailsOk: false,
+        provider: "local",
+        model: "library2/ministral-3:8b",
+        providerRuntimeAvailable: false,
+        endpointResolutionState: "unavailable",
+        failureReason: "provider_runtime.available=false",
+      },
+      liveEvents: {
+        endpoint: "http://127.0.0.1:8888/api/events",
+        connectionState: LIVE_EVENT_CONNECTION_STATES.CONNECTED,
+        lastEventAt: Date.parse("2026-03-20T11:59:58Z"),
+        lastPingAt: Date.parse("2026-03-20T11:59:58Z"),
+        statusUpdatedAt: Date.parse("2026-03-20T12:00:00Z"),
+        lastHttpStatus: 200,
+        transportErrorClass: null,
+        authSource: "runtime-desktop",
+        apiKeyPresent: true,
+        hydrationState: "ready",
+        nativeCommandStatus: "ready",
+        reconnectAttempts: 0,
+        retryMs: 1000,
+        subscribers: 1,
+        readyState: 1,
+        lastErrorAt: null,
+        lastEventId: "evt-1",
+      },
+      failureKind: RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY,
+      lastSuccessAt: Date.parse("2026-03-20T11:55:00Z"),
+      lastFailedAt: Date.parse("2026-03-20T11:54:30Z"),
+      lastCheckedAt: Date.parse("2026-03-20T12:00:00Z"),
+      currentComputedStateSource: "live-poll",
+    };
+
+    render(<AppShell />);
+
+    expect(screen.getByText(/Technical details/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/resolved api base url=http:\/\/127\.0\.0\.1:8888\/api/i)
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/^apiKeyPresent=true$/i)[0]).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/^authSource=runtime-desktop$/i)[0]
+    ).toBeInTheDocument();
+    expect(screen.getByText(/chat endpoint called=\/health\/chat/i)).toBeInTheDocument();
+    expect(screen.getByText(/llm endpoint called=\/api\/health\/llm/i)).toBeInTheDocument();
+    expect(screen.getByText(/parsed llm details status=offline/i)).toBeInTheDocument();
+    expect(screen.getByText(/parsed llm provider=local/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm model=library2\/ministral-3:8b/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm provider runtime available=false/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/parsed llm endpoint resolution state=unavailable/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/failureKind=llm_unhealthy/i)).toBeInTheDocument();
+    expect(screen.queryByText("desktop-secret-key")).toBeNull();
+  });
+
+  it("does not render the provider banner for chat_unhealthy when provider checks are green", () => {
+    runtimeHealthState.status = RUNTIME_HEALTH_STATUSES.DEGRADED;
+    runtimeHealthState.failureKind =
+      RUNTIME_HEALTH_FAILURE_KINDS.CHAT_UNHEALTHY;
+    runtimeHealthState.diagnostics = {
+      resolvedApiBaseUrl: "http://127.0.0.1:8888/api",
+      resolvedApiBaseUrlSource: "runtime-desktop",
+      apiKeyPresent: true,
+      apiKeySource: "runtime-desktop",
+      hydrationState: "ready",
+      nativeCommandStatus: "ready",
+      authSource: "runtime-desktop",
+      chat: {
+        endpoint: "/health/chat",
+        httpStatus: 503,
+        transportErrorClass: null,
+        parsedStatus: "degraded",
+        parsedOk: false,
       },
       llm: {
         endpoint: "/api/health/llm",
@@ -695,28 +781,8 @@ describe("AppShell runtime health banner", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByText(/Technical details/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/resolved api base url=http:\/\/127\.0\.0\.1:8888\/api/i)
-    ).toBeInTheDocument();
-    expect(screen.getAllByText(/^apiKeyPresent=true$/i)[0]).toBeInTheDocument();
-    expect(
-      screen.getAllByText(/^authSource=runtime-desktop$/i)[0]
-    ).toBeInTheDocument();
-    expect(screen.getByText(/chat endpoint called=\/health\/chat/i)).toBeInTheDocument();
-    expect(screen.getByText(/llm endpoint called=\/api\/health\/llm/i)).toBeInTheDocument();
-    expect(screen.getByText(/parsed llm details status=online/i)).toBeInTheDocument();
-    expect(screen.getByText(/parsed llm provider=local/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/parsed llm model=library2\/ministral-3:8b/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/parsed llm provider runtime available=true/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/parsed llm endpoint resolution state=available/i)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/failureKind=chat_unhealthy/i)).toBeInTheDocument();
-    expect(screen.queryByText("desktop-secret-key")).toBeNull();
+    expect(screen.queryByText(/Provider degraded/i)).toBeNull();
+    expect(screen.queryByText(/failure:\s*chat_unhealthy/i)).toBeNull();
+    expect(screen.queryByText(/Technical details/i)).toBeNull();
   });
 });

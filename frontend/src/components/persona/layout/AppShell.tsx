@@ -746,14 +746,12 @@ function resolveProviderRuntimeState(
   runtimeHealth: {
     backendReachable: boolean | null;
     failureKind: RuntimeHealthFailureKindToken | null;
+    llmHealthy: boolean | null;
     status: RuntimeHealthStatusToken;
     diagnostics: { hydrationState: "pending" | "ready" | "failed" };
   }
 ): ProviderRuntimeState {
   if (runtimeHealth.diagnostics.hydrationState === "pending") {
-    return PROVIDER_RUNTIME_STATES.ONLINE;
-  }
-  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
     return PROVIDER_RUNTIME_STATES.ONLINE;
   }
   if (
@@ -764,7 +762,16 @@ function resolveProviderRuntimeState(
   if (runtimeHealth.backendReachable === false) {
     return PROVIDER_RUNTIME_STATES.OFFLINE;
   }
-  return PROVIDER_RUNTIME_STATES.DEGRADED;
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY ||
+    runtimeHealth.llmHealthy === false
+  ) {
+    return PROVIDER_RUNTIME_STATES.DEGRADED;
+  }
+  if (runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.STALE) {
+    return PROVIDER_RUNTIME_STATES.DEGRADED;
+  }
+  return PROVIDER_RUNTIME_STATES.ONLINE;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -2688,11 +2695,7 @@ export default function AppShell({
     ? "flex h-full min-h-0 w-full flex-col gap-[var(--gutter)]"
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
-  const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
-    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
-  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
   const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
@@ -2701,10 +2704,16 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
-  const runtimeDiagnosticLines =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
-      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
-      : [];
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
+
+  const runtimePresentation = describeProviderState(providerRuntimeState);
+
+  const runtimeDegraded =
+    providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED ||
+    providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE;
+  const runtimeDiagnosticLines = runtimeDegraded
+    ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+    : [];
   const liveUpdatesDisconnected =
     runtimeHealth.diagnostics.liveEvents.connectionState ===
       LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
@@ -2714,11 +2723,6 @@ export default function AppShell({
     !runtimeDegraded && liveUpdatesDisconnected
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
-
-  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
-
-  const runtimePresentation = describeProviderState(providerRuntimeState);
-
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
