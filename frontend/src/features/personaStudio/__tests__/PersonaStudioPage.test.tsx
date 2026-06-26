@@ -66,14 +66,16 @@ describe("Persona Studio Page", () => {
     expect(within(header).getByText("Draft Preview")).toBeVisible();
     expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
+    expect(within(header).getByTestId("persona-preview-panel-scenario-row")).toBeVisible();
+    expect(within(header).getByText(/try a scenario/i)).toBeVisible();
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
     expect(
-      screen.getByPlaceholderText(/send a prompt to test this draft/i)
+      screen.getByPlaceholderText(/send a temporary test prompt/i)
     ).toBeVisible();
   });
 
@@ -86,7 +88,7 @@ describe("Persona Studio Page", () => {
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^preview transcript$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
@@ -201,7 +203,7 @@ describe("Persona Studio Page", () => {
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(
-      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
+      within(transcript).getByText(/no preview turns yet\./i)
     ).toBeVisible();
   });
 
@@ -307,6 +309,20 @@ describe("Persona Studio Page", () => {
 
     expect(screen.queryByText(/^support surfaces$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^utility pane$/i)).not.toBeInTheDocument();
+
+    // Removed doctrine strings from content density pass
+    expect(screen.queryByText(/draft sandbox/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/preview turns stay in this mounted studio session only/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/local-only draft input for bounded tests/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^preview transcript$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^session cache$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^preview composer$/i)).not.toBeInTheDocument();
+
+    // New compressed copy is present
+    expect(screen.getByText(/temporary preview\. not saved to chat history/i)).toBeVisible();
+    expect(screen.getByText(/^transcript$/i)).toBeVisible();
+    expect(screen.getByText(/try a scenario/i)).toBeVisible();
+    expect(screen.getByPlaceholderText(/send a temporary test prompt/i)).toBeVisible();
   });
 
   it("updates the selected profile when a profile is chosen from the Profiles rail tab", async () => {
