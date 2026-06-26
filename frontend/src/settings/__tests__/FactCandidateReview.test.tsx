@@ -780,6 +780,47 @@ describe("FactCandidateReview guardrail override", () => {
     });
   });
 
+  it("requires a non-empty override reason before approving a blocked candidate", async () => {
+    setupMockCandidates([
+      makeFact({
+        id: 1,
+        key: "profession",
+        value: "chef",
+        guardrail_metadata: {
+          disposition: "quarantine",
+          reasons: ["source_role_assistant"],
+          promotion_blocked: true,
+        },
+      }),
+    ]);
+    render(<FactCandidateReview />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Edit profession candidate")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Edit profession candidate"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Override reason")).toBeDefined();
+    });
+
+    const noteInput = screen.getByLabelText("Override reason") as HTMLInputElement;
+    fireEvent.change(noteInput, {
+      target: { value: "   " },
+    });
+
+    const saveButton = screen.getByLabelText(
+      "Save edited value and approve"
+    ) as HTMLButtonElement;
+
+    await waitFor(() => {
+      expect(saveButton.disabled).toBe(true);
+    });
+
+    expect(mockApproveFactCandidate).not.toHaveBeenCalled();
+  });
+
   it("clean candidate does not send override_guardrail", async () => {
     setupMockCandidates([
       makeFact({
