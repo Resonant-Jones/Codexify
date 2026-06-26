@@ -674,3 +674,88 @@ def read_reality_commit(
 
     finally:
         session.close()
+
+
+# ── State-Packet Link Readback ──────────────────────────────────────────────
+
+
+class StatePacketLinkReadbackResponse(BaseModel):
+    """Response for a single state-packet link readback."""
+
+    link_id: str
+    found: bool
+    state_id: str | None = None
+    packet_id: str | None = None
+    link_kind: str | None = None
+    created_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    deleted: bool = False
+    graph_used: bool = False
+    runtime_event_published: bool = False
+    project_pulse_enabled: bool = False
+    export_restore_enabled: bool = False
+    read_at: str | None = None
+
+
+@router.get(
+    "/state-packet-links/{link_id}",
+    response_model=StatePacketLinkReadbackResponse,
+)
+def read_state_packet_link(
+    link_id: str,
+    api_key: str = Depends(require_api_key),
+) -> StatePacketLinkReadbackResponse:
+    """Read a single State-Packet Link by exact link ID.
+
+    Requires explicit API-key authentication.  Reads exactly one link
+    record — no list, search, relationship traversal, state/packet
+    payload expansion, graph, compilation, or writes.
+    """
+    from datetime import datetime, timezone
+
+    dsn = get_database_dsn()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    engine = create_engine(dsn, echo=False)
+    session = Session(engine)
+
+    try:
+        row = (
+            session.query(ContinuityStatePacketLink)
+            .filter(ContinuityStatePacketLink.id == link_id)
+            .first()
+        )
+
+        if row is None:
+            return StatePacketLinkReadbackResponse(
+                link_id=link_id,
+                found=False,
+                read_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+        return StatePacketLinkReadbackResponse(
+            link_id=row.id,
+            found=True,
+            state_id=row.state_id,
+            packet_id=row.packet_id,
+            link_kind=row.relationship,
+            created_at=str(row.created_at) if row.created_at else None,
+            metadata={},
+            deleted=False,
+            graph_used=False,
+            runtime_event_published=False,
+            project_pulse_enabled=False,
+            export_restore_enabled=False,
+            read_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to read state-packet link %s", link_id)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "read_link_failed", "message": str(exc)},
+        )
+
+    finally:
+        session.close()
