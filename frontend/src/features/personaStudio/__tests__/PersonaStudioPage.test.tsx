@@ -20,121 +20,109 @@ function renderPage() {
 }
 
 describe("Persona Studio Page", () => {
-  it("keeps the editor, support surfaces, and chat card on one unified parent surface", () => {
+  it("keeps the editor and right rail on one unified parent surface", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
     const editor = within(shell).getByTestId("persona-studio-editor");
     const header = within(shell).getByTestId("persona-studio-shell-header");
-    const supportSurfaces = within(shell).getByTestId("persona-studio-support-surfaces");
-    const chatLane = within(shell).getByTestId("persona-studio-ephemeral-chat-lane");
-    const harness = within(chatLane).getByTestId("persona-studio-ephemeral-chat-harness");
+    const railLane = within(shell).getByTestId("persona-studio-rail-lane");
+    const rail = within(railLane).getByTestId("persona-studio-rail");
+    const previewPanel = within(rail).getByTestId("persona-preview-panel");
     const configurationLane = within(shell).getByTestId("persona-studio-configuration-lane");
 
     expect(shell).toBeVisible();
     expect(header).toBeVisible();
     expect(editor).toBeVisible();
-    expect(supportSurfaces).toBeVisible();
-    expect(chatLane).toBeVisible();
-    expect(harness).toBeVisible();
+    expect(railLane).toBeVisible();
+    expect(rail).toBeVisible();
+    expect(previewPanel).toBeVisible();
     expect(shell).toHaveClass("overflow-y-auto");
     expect(configurationLane).toHaveClass("overflow-y-auto");
-    expect(within(shell).queryByRole("button", { name: /hide utility pane/i })).not.toBeInTheDocument();
-    expect(within(shell).getByTestId("persona-studio-utility-pane")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
+    expect(screen.getByTestId("persona-studio-rail-tabs")).toBeVisible();
   });
 
-  it("renders the primary two-lane shell with the harness on the right", () => {
+  it("renders the primary two-lane shell with the rail on the right (Preview tab default)", () => {
     renderPage();
 
     const shell = screen.getByTestId("persona-studio-shell");
     const layout = within(shell).getByTestId("persona-studio-editor-two-lane-layout");
     const configurationLane = within(layout).getByTestId("persona-studio-configuration-lane");
-    const ephemeralLane = within(layout).getByTestId("persona-studio-ephemeral-chat-lane");
-    const harness = within(ephemeralLane).getByTestId("persona-studio-ephemeral-chat-harness");
-    const header = within(harness).getByTestId("persona-studio-ephemeral-chat-header");
-    const transcript = within(harness).getByTestId("persona-studio-ephemeral-chat-transcript");
-    const composer = within(harness).getByTestId("persona-studio-ephemeral-chat-composer");
+    const railLane = within(layout).getByTestId("persona-studio-rail-lane");
+    const previewPanel = within(railLane).getByTestId("persona-preview-panel");
+    const header = within(previewPanel).getByTestId("persona-preview-panel-header");
+    const transcript = within(previewPanel).getByTestId("persona-preview-panel-transcript");
+    const composer = within(previewPanel).getByTestId("persona-preview-panel-composer");
 
     expect(configurationLane).toBeVisible();
-    expect(ephemeralLane).toBeVisible();
+    expect(railLane).toBeVisible();
     expect(within(shell).getByRole("heading", { name: /persona studio/i })).toBeVisible();
     expect(within(shell).getByTestId("persona-studio-tabs")).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
-    expect(harness).toBeVisible();
+    expect(previewPanel).toBeVisible();
     expect(header).toBeVisible();
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
-    expect(within(header).getByText("Ephemeral Chat Harness")).toBeVisible();
-    expect(within(header).getByText(/^session-local$/i)).toBeVisible();
-    expect(within(header).getByText(/^non-runtime$/i)).toBeVisible();
-    expect(within(header).getByText(/^ephemeral$/i)).toBeVisible();
-    expect(within(composer).getByRole("button", { name: /clear ephemeral session/i })).toBeVisible();
-    expect(within(shell).getByTestId("persona-studio-support-surfaces")).toBeVisible();
-    expect(screen.getByText(/session-scoped draft-testing surface/i)).toBeVisible();
-    expect(screen.getByText(/^session-local$/i)).toBeVisible();
-    expect(screen.getByText(/^non-runtime$/i)).toBeVisible();
-    expect(screen.getByText(/^ephemeral$/i)).toBeVisible();
-    expect(screen.getByText(/isolated from guardian runtime/i)).toBeVisible();
+    expect(within(header).getByText("Draft Preview")).toBeVisible();
+    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
+      /draft sandbox · local until saved · not chat history/i
+    );
+    expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
+    expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
+      /draft sandbox · local until saved · not chat history/i
+    );
     expect(
-      screen.getByPlaceholderText(/session-local, ephemeral, non-runtime draft test/i)
+      screen.getByPlaceholderText(/send a prompt to test this draft/i)
     ).toBeVisible();
   });
 
-  it("supports a multi-turn ephemeral transcript", async () => {
+  it("supports a multi-turn preview transcript", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^coding$/i }));
-    await user.type(screen.getByRole("textbox", { name: /ephemeral chat prompt/i }), "Summarize the plan");
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
-    expect(within(transcript).getByText(/^session transcript$/i)).toBeVisible();
+    const transcript = screen.getByTestId("persona-preview-panel-transcript");
+    expect(within(transcript).getByText(/^preview transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 4$/i)).toBeVisible();
     expect(within(transcript).getAllByText(/^user bubble$/i).length).toBeGreaterThan(0);
-    expect(within(transcript).getAllByText(/^session preview block$/i).length).toBeGreaterThan(0);
+    expect(within(transcript).getAllByText(/^preview block$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
     expect(within(transcript).getByText(/^summarize the plan$/i)).toBeVisible();
-    expect(within(transcript).getByText(/this is the first temporary turn in this studio session/i)).toBeVisible();
+    expect(within(transcript).getByText(/this is the first preview turn in this studio session/i)).toBeVisible();
     expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(2);
-    expect(within(transcript).getByText(/this is temporary turn 2 in the current studio session/i)).toBeVisible();
+    expect(within(transcript).getByText(/this is preview turn 2 in the current studio session/i)).toBeVisible();
     expect(within(transcript).queryByText(/^ephemeral assistant$/i)).not.toBeInTheDocument();
-    expect(within(transcript).getAllByTestId("persona-studio-ephemeral-chat-turn-row")).toHaveLength(4);
+    expect(within(transcript).getAllByTestId("persona-preview-panel-turn-row")).toHaveLength(4);
     expect(within(transcript).getAllByText(/^user bubble$/i)).toHaveLength(2);
-    expect(within(transcript).getAllByText(/^session preview block$/i)).toHaveLength(2);
+    expect(within(transcript).getAllByText(/^preview block$/i)).toHaveLength(2);
     expect(
       within(transcript)
-        .getAllByTestId("persona-studio-ephemeral-chat-turn-row")
+        .getAllByTestId("persona-preview-panel-turn-row")
         .map((row) => row.getAttribute("data-message-layout"))
     ).toEqual(["user-bubble", "preview-block", "user-bubble", "preview-block"]);
   });
 
-  it("keeps prior messages visible and changes later replies when the draft changes", async () => {
+  it("keeps prior turns visible and changes later replies when the draft changes", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
     await user.type(
-      screen.getByRole("textbox", { name: /ephemeral chat prompt/i }),
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
       "Refine the answer"
     );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(
-        screen.getByTestId("persona-studio-ephemeral-chat-transcript")
+        screen.getByTestId("persona-preview-panel-transcript")
       ).toHaveTextContent(/current draft snapshot:/i)
     );
 
@@ -146,12 +134,12 @@ describe("Persona Studio Page", () => {
     );
 
     await user.type(
-      screen.getByRole("textbox", { name: /ephemeral chat prompt/i }),
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
       "Refine the answer again"
     );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
@@ -166,36 +154,36 @@ describe("Persona Studio Page", () => {
 
     await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
-    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
+    const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
     expect(within(transcript).getByText(/^guardian default$/i)).toBeVisible();
     expect(within(transcript).getByText(/^openai \/ gpt-4o$/i)).toBeVisible();
     expect(within(transcript).getByText(/^0\.7$/i)).toBeVisible();
   });
 
-  it("clears the ephemeral session on demand", async () => {
+  it("clears the preview session on demand", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole("button", { name: /^research$/i }));
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
     );
 
-    await user.click(screen.getByRole("button", { name: /clear ephemeral session/i }));
+    await user.click(screen.getByRole("button", { name: /clear preview session/i }));
 
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
-      /no ephemeral turns yet/i
+    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
+      /no preview turns yet/i
     );
   });
 
-  it("does not persist the ephemeral session across remounts", async () => {
+  it("does not persist the preview session across remounts", async () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
     await user.click(screen.getByRole("button", { name: /^coding$/i }));
     await waitFor(() =>
-      expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+      expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
       )
     );
@@ -203,22 +191,17 @@ describe("Persona Studio Page", () => {
     firstRender.unmount();
     renderPage();
 
-    expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
-      /no ephemeral turns yet/i
+    expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
+      /no preview turns yet/i
     );
   });
 
-  it("renders the truthful empty-state copy for draft testing", () => {
+  it("renders the truthful empty-state copy for the draft preview", () => {
     renderPage();
 
-    const transcript = screen.getByTestId("persona-studio-ephemeral-chat-transcript");
-    expect(within(transcript).getByText(/^empty harness$/i)).toBeVisible();
-    expect(within(transcript).getByText(/local draft testing/i)).toBeVisible();
+    const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(
-      within(transcript).getByText(/use this session-local harness to test the active persona draft/i)
-    ).toBeVisible();
-    expect(
-      within(transcript).getByText(/send a temporary message, inspect the draft snapshot/i)
+      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
     ).toBeVisible();
   });
 
@@ -229,7 +212,7 @@ describe("Persona Studio Page", () => {
 
     await user.click(screen.getByRole("button", { name: /^coding$/i }));
     await waitFor(() =>
-      expect(screen.getByTestId("persona-studio-ephemeral-chat-transcript")).toHaveTextContent(
+      expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
       )
     );
@@ -240,29 +223,40 @@ describe("Persona Studio Page", () => {
     expect(sessionSetItemSpy).not.toHaveBeenCalled();
   });
 
-  it("switches the utility pane between Profiles and Diagnostics", async () => {
+  it("switches the rail between Profiles and Diagnostics tabs", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    // Default Preview tab — diagnostics not visible
+    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
 
+    // Switch to Profiles
+    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
+    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
+
+    // Switch to Diagnostics
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
     expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
       "data-state",
       "active"
     );
-    expect(screen.queryByTestId("persona-studio-utility-profiles-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-diagnostics")).toHaveAttribute("data-state", "active");
+    expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-
-    expect(screen.getByTestId("persona-studio-utility-profiles-panel")).toHaveAttribute(
+    // Switch back to Preview
+    await user.click(screen.getByRole("button", { name: /^preview$/i }));
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
       "data-state",
       "active"
     );
-    expect(screen.queryByTestId("persona-studio-diagnostics")).not.toBeInTheDocument();
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 
   it("renders the section tabs in the header area", () => {
@@ -278,7 +272,7 @@ describe("Persona Studio Page", () => {
 
     expect(screen.getAllByTestId("persona-studio-active-profile-summary")).toHaveLength(1);
     expect(
-      within(screen.getByTestId("persona-studio-utility-pane")).queryByTestId(
+      within(screen.getByTestId("persona-studio-rail-lane")).queryByTestId(
         "persona-studio-active-profile-summary"
       )
     ).not.toBeInTheDocument();

@@ -570,7 +570,9 @@ function buildRuntimeConfig(
   );
 
   const authMode = coerceAuthMode(
-    tauriConfig?.authMode || readRuntimeEnv("GUARDIAN_AUTH_MODE", "local")
+    tauriConfig?.authMode ||
+      readRuntimeEnv("VITE_GUARDIAN_AUTH_MODE", "") ||
+      readRuntimeEnv("GUARDIAN_AUTH_MODE", "local")
   );
 
   return {

@@ -1,13 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   default as api,
   buildAuthenticatedFetchInit,
   clearRuntimeApiKey,
   fetchProviderState,
+  hasRequestAuthCredential,
   setAuthToken,
   setRuntimeApiKey,
 } from "@/lib/api";
+import { initRuntimeConfig } from "@/lib/runtimeConfig";
 
 function normalizeHeaders(headers: RequestInit["headers"]): Record<string, string> {
   if (!headers) return {};
@@ -26,6 +28,13 @@ function normalizeHeaders(headers: RequestInit["headers"]): Record<string, strin
 
 describe("desktop auth headers", () => {
   const originalAdapter = api.defaults.adapter;
+
+  beforeEach(async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "");
+    vi.stubEnv("GUARDIAN_AUTH_MODE", "");
+    await initRuntimeConfig({ force: true });
+  });
 
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -180,5 +189,178 @@ describe("desktop auth headers", () => {
     expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBe(
       "desktop-key"
     );
+  });
+});
+
+describe("remote auth mode", () => {
+  const originalAdapter = api.defaults.adapter;
+
+  beforeEach(async () => {
+    vi.unstubAllEnvs();
+    setAuthToken(null);
+    clearRuntimeApiKey();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "");
+    vi.stubEnv("GUARDIAN_AUTH_MODE", "");
+    await initRuntimeConfig({ force: true });
+    api.defaults.adapter = originalAdapter;
+    setAuthToken(null);
+    clearRuntimeApiKey();
+  });
+
+  it("strips the dev key from authenticated fetch init when VITE_GUARDIAN_AUTH_MODE=remote", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+
+    const init = buildAuthenticatedFetchInit();
+    const headers = normalizeHeaders(init.headers);
+
+    expect(headers["Authorization"] ?? headers["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBeUndefined();
+  });
+
+  it("strips the desktop runtime key from authenticated fetch init when VITE_GUARDIAN_AUTH_MODE=remote", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+    setRuntimeApiKey("desktop-key");
+
+    const init = buildAuthenticatedFetchInit();
+    const headers = normalizeHeaders(init.headers);
+
+    expect(headers["Authorization"] ?? headers["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBeUndefined();
+  });
+
+  it("does not attach X-API-Key on thread creation requests in remote mode even with forceApiKey", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { ok: true, id: 4242, thread: { id: 4242, title: "Remote thread" } },
+        status: 201,
+        statusText: "Created",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.post(
+      "/api/chat/threads",
+      { title: "Remote thread" },
+      { headers: { "X-User-Id": "alice" } }
+    );
+
+    expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBeUndefined();
+  });
+
+  it("does not count dev or runtime API keys as remote thread request credentials", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+    await initRuntimeConfig({ force: true });
+    setRuntimeApiKey("desktop-key");
+    setAuthToken(null);
+
+    expect(hasRequestAuthCredential()).toBe(false);
+
+    setAuthToken("session-jwt");
+
+    expect(hasRequestAuthCredential()).toBe(true);
+  });
+
+  it("sends Bearer session/JWT to protected thread reads in remote mode without X-API-Key", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    vi.stubEnv("VITE_GUARDIAN_API_KEY", "default-dev-key");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+
+    let capturedHeaders: Record<string, string> = {};
+    api.defaults.adapter = async (config) => {
+      capturedHeaders = normalizeHeaders(config.headers);
+      return {
+        data: { ok: true, threads: [] },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
+    };
+
+    await api.get("/chat/threads");
+
+    expect(capturedHeaders["Authorization"] ?? capturedHeaders["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(capturedHeaders["X-API-Key"] ?? capturedHeaders["x-api-key"]).toBeUndefined();
+  });
+
+  it("attaches Bearer even when forceApiKey is set in remote mode", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+    setRuntimeApiKey("desktop-key");
+
+    const init = buildAuthenticatedFetchInit({}, { forceApiKey: true });
+    const headers = normalizeHeaders(init.headers);
+
+    // forceApiKey is a local-mode media-upload hint; in remote mode the Bearer
+    // session/JWT is the canonical credential and must always be present.
+    expect(headers["Authorization"] ?? headers["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBeUndefined();
+  });
+});
+
+describe("remote auth mode honors GUARDIAN_AUTH_MODE fallback", () => {
+  const originalAdapter = api.defaults.adapter;
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    setAuthToken(null);
+    clearRuntimeApiKey();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "");
+    vi.stubEnv("GUARDIAN_AUTH_MODE", "");
+    await initRuntimeConfig({ force: true });
+    api.defaults.adapter = originalAdapter;
+    setAuthToken(null);
+    clearRuntimeApiKey();
+  });
+
+  it("treats non-VITE GUARDIAN_AUTH_MODE=remote as remote when the env is exposed", async () => {
+    vi.stubEnv("VITE_GUARDIAN_AUTH_MODE", "");
+    vi.stubEnv("GUARDIAN_AUTH_MODE", "remote");
+    await initRuntimeConfig({ force: true });
+    setAuthToken("session-jwt");
+    setRuntimeApiKey("desktop-key");
+
+    const init = buildAuthenticatedFetchInit();
+    const headers = normalizeHeaders(init.headers);
+
+    expect(headers["Authorization"] ?? headers["authorization"]).toBe(
+      "Bearer session-jwt"
+    );
+    expect(headers["X-API-Key"] ?? headers["x-api-key"]).toBeUndefined();
   });
 });

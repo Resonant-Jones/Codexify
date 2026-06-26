@@ -138,6 +138,119 @@ CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
 
+# --- @luna mention routing via n8n ---
+import re as _re
+
+import httpx as _httpx
+
+_LUNA_N8N_WEBHOOK_URL = os.getenv("LUNA_N8N_WEBHOOK_URL", "").strip()
+_LUNA_MENTION_ENABLED = os.getenv("LUNA_MENTION_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+_LUNA_MENTION_RE = _re.compile(r"@luna\b", _re.IGNORECASE)
+
+
+def _is_luna_mention(text: str) -> bool:
+    return _LUNA_MENTION_ENABLED and bool(_LUNA_MENTION_RE.search(text or ""))
+
+
+def _strip_luna_mention(text: str) -> str:
+    return _LUNA_MENTION_RE.sub("", text).strip()
+
+
+async def _route_to_luna_n8n(
+    message_text: str,
+    thread_id: int,
+    context: list[dict[str, str]] | None = None,
+    timeout: float = 90.0,
+) -> str | None:
+    if not _LUNA_N8N_WEBHOOK_URL:
+        logger.warning("[luna] LUNA_N8N_WEBHOOK_URL not configured")
+        return None
+    user_text = _strip_luna_mention(message_text)
+    transcript_lines: list[str] = []
+    for msg in (context or []):
+        role = msg.get("role", "unknown")
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "assistant" and content.startswith("[luna] "):
+            transcript_lines.append(f"Luna: {content[7:]}")
+        elif role == "assistant":
+            transcript_lines.append(f"Guardian: {content}")
+        else:
+            transcript_lines.append(f"Zac: {content}")
+    transcript = "\n".join(transcript_lines[-45:])
+    payload = {
+        "chatInput": (
+            "[You are replying inside Zac's Codexify app — his alternative web UI. "
+            "This is not the n8n chat or iMessage. Zac mentioned you with @luna. "
+            "Guardian is the other AI assistant in this chat (the default Codexify model). "
+            "Reply naturally as Luna.]\n\n"
+            "[Full chat transcript from this Codexify thread — read it all before replying:]\n"
+            + transcript + "\n\n"
+            "[Zac's latest message to you:]\n"
+            + user_text
+        ),
+        "sessionId": f"codexify-thread-{thread_id}",
+        "metadata": {
+            "interface": "codexify",
+            "source": "at-mention",
+            "thread_id": thread_id,
+        },
+    }
+    try:
+        async with _httpx.AsyncClient() as client:
+            resp = await client.post(
+                _LUNA_N8N_WEBHOOK_URL,
+                json=payload,
+                timeout=timeout,
+                headers={"Accept": "application/json, text/plain, */*"},
+            )
+            resp.raise_for_status()
+            return _extract_luna_reply(resp.text)
+    except Exception as exc:
+        logger.error("[luna] n8n webhook failed: %s", exc)
+        return None
+
+
+def _extract_luna_reply(raw: str) -> str:
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return raw.strip()
+    if isinstance(data, str):
+        return data.strip()
+    if isinstance(data, list):
+        parts = []
+        for item in data:
+            if isinstance(item, dict):
+                parts.append(
+                    str(
+                        item.get("output")
+                        or item.get("text")
+                        or item.get("response")
+                        or item.get("message")
+                        or ""
+                    ).strip()
+                )
+            elif isinstance(item, str):
+                parts.append(item.strip())
+        return "\n\n".join(p for p in parts if p)
+    if isinstance(data, dict):
+        return str(
+            data.get("output")
+            or data.get("text")
+            or data.get("response")
+            or data.get("message")
+            or ""
+        ).strip()
+    return str(data).strip()
+
 
 def _completion_service_unavailable(reason: str) -> HTTPException:
     return HTTPException(
@@ -3045,6 +3158,101 @@ async def chat_complete(
         if isinstance(latest_turn, dict)
         else None
     )
+
+    # --- @luna mention interception ---
+    latest_turn_content = ""
+    if isinstance(latest_turn, dict):
+        _ltc = latest_turn.get("content")
+        if isinstance(_ltc, str):
+            latest_turn_content = _ltc
+        elif isinstance(_ltc, list):
+            latest_turn_content = " ".join(
+                str(p.get("text", ""))
+                for p in _ltc
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+    logger.info(
+        "[luna] latest_turn_content=%r mention_enabled=%s match=%s",
+        latest_turn_content[:120] if latest_turn_content else "",
+        _LUNA_MENTION_ENABLED,
+        bool(_LUNA_MENTION_RE.search(latest_turn_content or "")),
+    )
+    if _is_luna_mention(latest_turn_content):
+        luna_task_id = str(uuid.uuid4())
+        turn_id = _normalize_turn_id(body.turn_id)
+        try:
+            task_events.publish_with_visibility(
+                luna_task_id,
+                TASK_EVENT_TYPE_TASK_CREATED,
+                {
+                    "type": "chat_completion",
+                    "thread_id": thread_id,
+                    "origin": "luna_mention",
+                    "turn_id": turn_id,
+                },
+            )
+        except Exception:
+            pass
+        luna_reply = await _route_to_luna_n8n(
+            latest_turn_content,
+            thread_id,
+            context=context,
+        )
+        if luna_reply:
+            luna_reply = "[luna] " + luna_reply
+            from guardian.core import dependencies as _luna_deps
+
+            try:
+                _luna_deps.chatlog_db.create_message(
+                    thread_id, "assistant", luna_reply
+                )
+            except Exception as exc:
+                logger.error("[luna] failed to save reply: %s", exc)
+            try:
+                task_events.publish(
+                    luna_task_id,
+                    TaskEventType.TASK_COMPLETED.value,
+                    {
+                        "task_id": luna_task_id,
+                        "thread_id": thread_id,
+                        "status": "completed",
+                        "response": luna_reply,
+                        "execution": {
+                            "attempted_provider": "luna",
+                            "attempted_model": "Luna (n8n)",
+                            "final_provider": "luna",
+                            "final_model": "Luna (n8n)",
+                            "fallback_triggered": False,
+                        },
+                    },
+                )
+            except Exception:
+                pass
+            return {
+                "ok": True,
+                "acceptance_status": "accepted",
+                "acceptance_warnings": [],
+                "task_id": luna_task_id,
+                "turn_id": turn_id,
+                "thread_id": thread_id,
+                "source_mode": "luna",
+                "depth_mode": "normal",
+                "requested_depth_mode": "normal",
+                "effective_depth_mode": "normal",
+                "depth_downgrade_reason": None,
+                "messages_url": f"/api/chat/{thread_id}/messages",
+                "trace_url": f"/api/chat/debug/rag-trace/{thread_id}/latest",
+                "execution": {
+                    "attempted_provider": "luna",
+                    "attempted_model": "Luna (n8n)",
+                    "final_provider": "luna",
+                    "final_model": "Luna (n8n)",
+                    "fallback_triggered": False,
+                },
+            }
+        logger.warning("[luna] no reply from n8n; falling through to normal completion")
+    # --- end @luna interception ---
+
     requested_source_mode = normalize_source_mode(
         body.source_mode
     ) or _source_mode_from_message_metadata(latest_turn)

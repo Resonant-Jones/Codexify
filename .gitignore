@@ -239,3 +239,4 @@ codex_runner.zip
 
 RESEARCH:CODE
 .playwright-mcp/
+.build/

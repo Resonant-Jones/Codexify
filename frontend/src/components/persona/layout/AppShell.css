@@ -1,0 +1,146 @@
+.codexify-shell {
+  --dock-collapsed-height: 32px;
+  --dock-collapsed-page-gutter: 6px;
+  /* Surface Tuning — fallbacks used until AppShell JS sets the live values.
+     Depth 50 / Warmth 0 reproduce the existing neutral look exactly. */
+  --surface-depth: 50;
+  --surface-warmth: 0;
+  --surface-depth-norm: 0;
+  --surface-warmth-norm: 0;
+  --surface-sheet: var(--panel-sheet, #1b1b1d);
+  --surface-chip: var(--chip-bg, #262629);
+}
+
+/* Override defaults for the light theme so JS-less renders still look sane. */
+.codexify-shell:not(.dark) {
+  --surface-sheet: #f1ede8;
+  --surface-chip: #e9e4dc;
+}
+
+.codexify-shell__top-chrome {
+  min-height: var(--dock-collapsed-height);
+  max-height: 120px;
+  transition:
+    max-height 180ms ease,
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.codexify-shell__top-chrome::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--edge-chrome));
+  height: calc(var(--edge-chrome) + var(--dock-collapsed-height) + 14px);
+}
+
+.codexify-shell__top-chrome > * {
+  position: relative;
+  z-index: 1;
+}
+
+.codexify-dock,
+.codexify-dock::before,
+.codexify-dock__rail,
+.codexify-dock__rail > *,
+.codexify-dock__utility-cluster {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    padding 180ms ease,
+    max-height 180ms ease,
+    width 180ms ease,
+    max-width 180ms ease,
+    margin 180ms ease;
+}
+
+.codexify-dock::before {
+  content: "";
+  position: absolute;
+  inset-block: -10px;
+  inset-inline: -10px;
+  z-index: -1;
+  border-radius: 999px;
+  pointer-events: auto;
+}
+
+.codexify-shell--dock-collapsed .codexify-shell__top-chrome {
+  max-height: var(--dock-collapsed-height);
+  opacity: 1;
+  overflow: visible;
+}
+
+.codexify-shell--dock-collapsed {
+  --page-gutter-top: 6px;
+}
+
+.codexify-shell--dock-collapsed .codexify-dock {
+  min-height: var(--dock-collapsed-height);
+  max-height: none;
+  padding: 0 !important;
+  margin-bottom: 0;
+  border-color: transparent;
+  border-width: 0 !important;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: none;
+  transform-origin: top left;
+  opacity: 1;
+}
+
+.codexify-shell--dock-collapsed .codexify-dock .absolute.inset-0 {
+  opacity: 0;
+}
+
+.codexify-shell--dock-collapsed .codexify-dock__rail {
+  gap: 0 !important;
+  height: var(--dock-collapsed-height);
+  max-height: var(--dock-collapsed-height);
+}
+
+.codexify-shell--dock-collapsed .codexify-dock__rail > :not(.brand-tab) {
+  width: 0 !important;
+  max-width: 0 !important;
+  min-width: 0 !important;
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  border-width: 0 !important;
+  opacity: 0 !important;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-4px) scale(0.96);
+}
+
+.codexify-shell--dock-collapsed .codexify-dock__rail > .brand-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--dock-collapsed-height);
+  height: var(--dock-collapsed-height);
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.codexify-shell--dock-collapsed .codexify-dock__utility-cluster {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  overflow: hidden;
+  transform: translateY(-6px) scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codexify-shell__top-chrome,
+  .codexify-dock,
+  .codexify-dock::before,
+  .codexify-dock__rail,
+  .codexify-dock__rail > *,
+  .codexify-dock__utility-cluster {
+    transition-duration: 1ms;
+  }
+}

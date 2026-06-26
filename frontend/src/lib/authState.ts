@@ -4,6 +4,7 @@ import {
   hasResolvedRuntimeApiKey,
   hasRuntimeApiKey,
 } from "@/lib/runtimeAuth";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 
 export type AuthStatus = "unknown" | "authenticated" | "unauthenticated";
 
@@ -81,9 +82,19 @@ function readStoredAuthToken(): string | null {
 
 function deriveAuthState(): AuthState {
   const token = readStoredAuthToken();
-  const remoteAuthMode = isRemoteAuthMode();
-  const devApiKey = remoteAuthMode ? "" : resolveDevApiKey();
-  const runtimeApiKeyPresent = remoteAuthMode ? false : hasRuntimeApiKey();
+  if (isRemoteAuthMode()) {
+    if (token) {
+      return {
+        status: "authenticated",
+        ready: true,
+        token,
+      };
+    }
+    return { status: "unauthenticated", ready: true };
+  }
+
+  const devApiKey = resolveDevApiKey();
+  const runtimeApiKeyPresent = hasRuntimeApiKey();
   if (token || runtimeApiKeyPresent || devApiKey) {
     return {
       status: "authenticated",

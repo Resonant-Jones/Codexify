@@ -21,6 +21,7 @@
 import api from "@/lib/api";
 import { Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -111,6 +112,7 @@ import {
   getFlowBuilderPath,
   type FlowBuilderMode,
 } from "@/features/flowBuilder/flowBuilderRoute";
+import "./AppShell.css";
 
 // TEMPORARY: inject static design tokens until full migration is done.
 import { injectCssVars } from "@/theme";
@@ -244,6 +246,8 @@ const APP_SHELL_VIEWS = [
 ] as const satisfies readonly AppShellView[];
 
 const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
+const DOCK_AUTO_COLLAPSE_DELAY_MS = 900;
+const DOCK_TOP_ENGAGEMENT_ZONE_PX = 48;
 
 function isAppShellView(value: string | null): value is AppShellView {
   return value != null && APP_SHELL_VIEW_SET.has(value as AppShellView);
@@ -742,14 +746,12 @@ function resolveProviderRuntimeState(
   runtimeHealth: {
     backendReachable: boolean | null;
     failureKind: RuntimeHealthFailureKindToken | null;
+    llmHealthy: boolean | null;
     status: RuntimeHealthStatusToken;
     diagnostics: { hydrationState: "pending" | "ready" | "failed" };
   }
 ): ProviderRuntimeState {
   if (runtimeHealth.diagnostics.hydrationState === "pending") {
-    return PROVIDER_RUNTIME_STATES.ONLINE;
-  }
-  if (runtimeHealth.status === RUNTIME_HEALTH_STATUSES.HEALTHY) {
     return PROVIDER_RUNTIME_STATES.ONLINE;
   }
   if (
@@ -760,7 +762,16 @@ function resolveProviderRuntimeState(
   if (runtimeHealth.backendReachable === false) {
     return PROVIDER_RUNTIME_STATES.OFFLINE;
   }
-  return PROVIDER_RUNTIME_STATES.DEGRADED;
+  if (
+    runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY ||
+    runtimeHealth.llmHealthy === false
+  ) {
+    return PROVIDER_RUNTIME_STATES.DEGRADED;
+  }
+  if (runtimeHealth.failureKind === RUNTIME_HEALTH_FAILURE_KINDS.STALE) {
+    return PROVIDER_RUNTIME_STATES.DEGRADED;
+  }
+  return PROVIDER_RUNTIME_STATES.ONLINE;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -959,6 +970,116 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.layoutMode");
     return raw === "zen" ? "zen" : "focus";
   });
+  const dockAutoCollapseEnabled = true;
+  const topChromeRef = useRef<HTMLDivElement | null>(null);
+  const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const dockEngagedRef = useRef(false);
+  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockEngaged, setDockEngaged] = useState(false);
+  const [dockHovered, setDockHovered] = useState(false);
+  const [dockFocused, setDockFocused] = useState(false);
+
+  const clearDockCollapseTimer = useCallback(() => {
+    if (dockCollapseTimerRef.current == null) return;
+    window.clearTimeout(dockCollapseTimerRef.current);
+    dockCollapseTimerRef.current = null;
+  }, []);
+
+  const expandDock = useCallback(() => {
+    clearDockCollapseTimer();
+    setDockCollapsed(false);
+  }, [clearDockCollapseTimer]);
+
+  const markDockEngaged = useCallback(() => {
+    if (dockEngagedRef.current) return;
+    dockEngagedRef.current = true;
+    setDockEngaged(true);
+  }, []);
+
+  const scheduleDockCollapse = useCallback(() => {
+    clearDockCollapseTimer();
+    if (!dockAutoCollapseEnabled || !dockEngagedRef.current) return;
+    dockCollapseTimerRef.current = window.setTimeout(() => {
+      dockCollapseTimerRef.current = null;
+      setDockCollapsed(true);
+    }, DOCK_AUTO_COLLAPSE_DELAY_MS);
+  }, [clearDockCollapseTimer, dockAutoCollapseEnabled]);
+
+  const handleDockPointerEnter = useCallback(() => {
+    markDockEngaged();
+    setDockHovered(true);
+    expandDock();
+  }, [expandDock, markDockEngaged]);
+
+  const handleDockPointerLeave = useCallback(() => {
+    setDockHovered(false);
+    if (!dockFocused) {
+      scheduleDockCollapse();
+    }
+  }, [dockFocused, scheduleDockCollapse]);
+
+  const handleDockFocus = useCallback(() => {
+    markDockEngaged();
+    setDockFocused(true);
+    expandDock();
+  }, [expandDock, markDockEngaged]);
+
+  const handleDockBlur = useCallback<React.FocusEventHandler<HTMLDivElement>>(
+    (event) => {
+      const nextFocusTarget = event.relatedTarget;
+      if (
+        nextFocusTarget instanceof Node &&
+        event.currentTarget.contains(nextFocusTarget)
+      ) {
+        return;
+      }
+      setDockFocused(false);
+      if (!dockHovered) {
+        scheduleDockCollapse();
+      }
+    },
+    [dockHovered, scheduleDockCollapse]
+  );
+
+  useEffect(() => clearDockCollapseTimer, [clearDockCollapseTimer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !dockAutoCollapseEnabled) return undefined;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const target = event.target;
+      const pointerInsideDock =
+        target instanceof Node && topChromeRef.current?.contains(target);
+
+      if (event.clientY <= DOCK_TOP_ENGAGEMENT_ZONE_PX) {
+        markDockEngaged();
+        setDockHovered(true);
+        expandDock();
+        return;
+      }
+
+      if (pointerInsideDock) {
+        return;
+      }
+
+      if (dockHovered && !pointerInsideDock) {
+        setDockHovered(false);
+        if (!dockFocused) {
+          scheduleDockCollapse();
+        }
+      }
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", handlePointerMove);
+  }, [
+    dockAutoCollapseEnabled,
+    dockFocused,
+    dockHovered,
+    expandDock,
+    markDockEngaged,
+    scheduleDockCollapse,
+  ]);
 
   // Persist layoutMode to localStorage when it changes
   useEffect(() => {
@@ -1562,6 +1683,20 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 2;
     return Math.max(1, Math.min(4, Math.round(raw)));
   });
+  // Surface Tuning — manual "True Tone" for shared AppShell surfaces.
+  // Defaults (50 / 0) preserve the existing neutral look exactly.
+  const [surfaceDepth, setSurfaceDepth] = useState<number>(() => {
+    if (typeof window === "undefined") return 50;
+    const raw = Number(window.localStorage.getItem("cfy.surfaceDepth"));
+    if (!Number.isFinite(raw)) return 50;
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  });
+  const [surfaceWarmth, setSurfaceWarmth] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    const raw = Number(window.localStorage.getItem("cfy.surfaceWarmth"));
+    if (!Number.isFinite(raw)) return 0;
+    return Math.max(-100, Math.min(100, Math.round(raw)));
+  });
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("cfy.baseColor", baseColor);
@@ -1574,6 +1709,16 @@ export default function AppShell({
       window.localStorage.setItem("cfy.dashboard.threadRows", String(dashboardThreadRows));
     }
   }, [dashboardThreadRows]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cfy.surfaceDepth", String(surfaceDepth));
+    }
+  }, [surfaceDepth]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cfy.surfaceWarmth", String(surfaceWarmth));
+    }
+  }, [surfaceWarmth]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🌈 SECTION: Color Helpers and Gradient Generators
@@ -1632,6 +1777,36 @@ export default function AppShell({
   }
 
   /* ─────────────────────────────────────────────────────────────────────────────
+     🎚️ SECTION: Surface Tuning Derivation
+     Apply the user's Surface Depth + Surface Warmth preferences to a base
+     neutral surface color. The math is HSL-based so output stays subtle
+     (no neon/saturation) and the default (depth=50, warmth=0) returns the
+     input unchanged.
+     ───────────────────────────────────────────────────────────────────────────── */
+  function tuneSurfaceColor(
+    baseHex: string,
+    depthNorm: number,
+    warmthNorm: number
+  ): string {
+    const { r, g, b } = hexToRgb(baseHex);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    // Depth (-1 lighter, +1 darker), bounded so we never invert polarity.
+    const depthShift = depthNorm * 9; // ±9% lightness around the base
+    const newL = Math.max(0, Math.min(100, l + depthShift));
+    // Warmth (-1 cool → H~210°, +1 warm → H~35°). Cap pull at 0.7 of the gap so
+    // we don't slam to a neon target.
+    const warmTarget = 35;
+    const coolTarget = 210;
+    const pull = Math.abs(warmthNorm) * 0.7;
+    const targetH = warmthNorm >= 0 ? warmTarget : coolTarget;
+    let newH = h + (targetH - h) * pull;
+    newH = ((newH % 360) + 360) % 360;
+    // Saturation: stay subtle. Add a small amount with warmth magnitude, cap at 22%.
+    const newS = Math.min(22, s + Math.abs(warmthNorm) * 10);
+    return hslToHex(newH, newS, newL);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────────
      🖼️ SECTION: App-wide Visual Background Handling
      - If no wallpaper is set, we use a smooth color gradient based on the base color.
      - If wallpaper is set, we overlay a subtle gradient to help the theme (light/dark)
@@ -1670,9 +1845,15 @@ export default function AppShell({
       backgroundRepeat: "no-repeat",
     } as React.CSSProperties;
   })();
-  const panelSheet = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
+  const panelSheetBase = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
+  const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
+  // Surface Tuning: depth/warmth in normalized [-1, 1] space.
+  // depthNorm: -1 = lighter, +1 = darker. warmthNorm: -1 = cool, +1 = warm.
+  const depthNorm = (surfaceDepth - 50) / 50;
+  const warmthNorm = surfaceWarmth / 100;
+  const panelSheet = tuneSurfaceColor(panelSheetBase, depthNorm, warmthNorm);
   const panelBg = panelSheet;
-  const chipBg = resolved === "dark" ? "#262629" : "#e9e4dc";
+  const chipBg = tuneSurfaceColor(chipBgBase, depthNorm, warmthNorm);
   // Global: soften panel border
   const panelBorder = resolved === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,24,39,0.08)";
   const panelSheetBorder = resolved === "dark" ? "rgba(255,255,255,0.18)" : "rgba(17,24,39,0.14)";
@@ -1764,6 +1945,7 @@ export default function AppShell({
     "--viewport-radius": shellViewportProfile.viewportRadius,                // Rounding for main window
     "--tile-radius": "var(--radius-tile)",      // Default internal card rounding
     "--page-gutter-top": shellViewportProfile.shellPageGutterTop,                // Fixed gutter under the pill dock
+    "--dock-collapsed-page-gutter": "6px",
     "--page-pad": shellViewportProfile.viewportClass === "desktop" ? (layoutMode === "zen" ? "48px" : "0px") : "0px",  // Layout mode: zen (12px) or focus (0px)
     /* === CARD GEOMETRY === */
     "--card-pad": shellViewportProfile.shellCardPad,                       // Internal card padding
@@ -1802,6 +1984,13 @@ export default function AppShell({
     "--icon-muted": iconMutedColor,
     "--surface-hover": surfaceHover,
     "--surface-soft": surfaceSoft,
+    /* Surface Tuning raw inputs (consumed by AppShell-level derivation). */
+    "--surface-depth": String(surfaceDepth),
+    "--surface-warmth": String(surfaceWarmth),
+    "--surface-sheet": panelSheet,
+    "--surface-chip": chipBg,
+    "--surface-depth-norm": depthNorm.toFixed(4),
+    "--surface-warmth-norm": warmthNorm.toFixed(4),
     "--text-on-accent": textOnAccent,
     "--info-surface": infoSurface,
     "--info-text": infoText,
@@ -2506,11 +2695,7 @@ export default function AppShell({
     ? "flex h-full min-h-0 w-full flex-col gap-[var(--gutter)]"
     : "flex h-full min-h-0 w-full items-stretch gap-[var(--gutter)]";
 
-  const runtimeDegraded =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED &&
-    runtimeHealth.diagnostics.hydrationState !== "pending";
   const runtimeFailureKind = runtimeHealth.failureKind ?? "unknown";
-  const runtimeHydrationState = runtimeHealth.diagnostics.hydrationState;
   const now = Date.now();
   const runtimeDetail =
     typeof process !== "undefined" &&
@@ -2519,10 +2704,16 @@ export default function AppShell({
     runtimeFailureKind === RUNTIME_HEALTH_FAILURE_KINDS.LLM_UNHEALTHY
       ? runtimeHealth.llmDetail
       : null;
-  const runtimeDiagnosticLines =
-    runtimeHealth.status === RUNTIME_HEALTH_STATUSES.DEGRADED
-      ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
-      : [];
+  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
+
+  const runtimePresentation = describeProviderState(providerRuntimeState);
+
+  const runtimeDegraded =
+    providerRuntimeState === PROVIDER_RUNTIME_STATES.DEGRADED ||
+    providerRuntimeState === PROVIDER_RUNTIME_STATES.OFFLINE;
+  const runtimeDiagnosticLines = runtimeDegraded
+    ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
+    : [];
   const liveUpdatesDisconnected =
     runtimeHealth.diagnostics.liveEvents.connectionState ===
       LIVE_EVENT_CONNECTION_STATES.DISCONNECTED &&
@@ -2532,11 +2723,6 @@ export default function AppShell({
     !runtimeDegraded && liveUpdatesDisconnected
       ? formatRuntimeHealthDiagnostics(runtimeHealth.diagnostics)
       : [];
-
-  const providerRuntimeState = resolveProviderRuntimeState(runtimeHealth);
-
-  const runtimePresentation = describeProviderState(providerRuntimeState);
-
   const showRuntimeBanner =
     runtimeDegraded &&
     runtimeFailureKind !== RUNTIME_HEALTH_FAILURE_KINDS.HEALTH_ENDPOINT_MISSING;
@@ -2774,7 +2960,7 @@ export default function AppShell({
         />
       </div>
       <div
-        className={`relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""}`}
+        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
@@ -2786,6 +2972,7 @@ export default function AppShell({
           colorScheme: resolved,
         }}
         data-shell-profile={mobileShellProfile.shellMode}
+        data-dock-engaged={dockEngaged ? "true" : "false"}
       >
       <div id="cfy-portal-root" />
       {/* {view === "dashboard" && (
@@ -2799,8 +2986,15 @@ export default function AppShell({
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
       <div
+        ref={topChromeRef}
         data-testid="app-shell-top-chrome"
-        className={`relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        className={`codexify-shell__top-chrome relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        data-dock-collapsed={dockCollapsed ? "true" : "false"}
+        data-dock-engaged={dockEngaged ? "true" : "false"}
+        onPointerEnter={handleDockPointerEnter}
+        onPointerLeave={handleDockPointerLeave}
+        onFocusCapture={handleDockFocus}
+        onBlurCapture={handleDockBlur}
         style={
           isPhoneShell
             ? undefined
@@ -2822,8 +3016,10 @@ export default function AppShell({
           }
         >
           <div
-            className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
+            className="codexify-dock glass-pill isolate relative inline-flex w-fit max-w-full min-w-0"
             data-testid="app-shell-top-nav"
+            data-dock-hovered={dockHovered ? "true" : "false"}
+            data-dock-focused={dockFocused ? "true" : "false"}
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
             }
@@ -2841,7 +3037,7 @@ export default function AppShell({
             </div>
 
             <div
-              className="inline-flex min-w-0 items-center"
+              className="codexify-dock__rail inline-flex min-w-0 items-center"
               data-testid="app-shell-top-nav-rail"
               style={desktopTopNavRailStyle}
             >
@@ -2943,7 +3139,7 @@ export default function AppShell({
         </div>
         <div
           data-testid="app-shell-utility-cluster"
-          className={`flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
+          className={`codexify-dock__utility-cluster flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
           style={
             isPhoneShell
               ? undefined
@@ -3052,7 +3248,9 @@ export default function AppShell({
         <div
           className="flex-1 h-full min-h-0 flex overflow-hidden"
           style={{
-            paddingTop: "var(--page-gutter-top)",   // always-on gutter under the pill dock
+            paddingTop: dockCollapsed
+              ? "var(--dock-collapsed-page-gutter)"
+              : "var(--page-gutter-top)",   // always-on gutter under the pill dock
             paddingRight: "var(--page-pad)",        // mode-dependent
             paddingBottom: "var(--page-pad)",       // mode-dependent
             paddingLeft: "var(--page-pad)",         // mode-dependent
@@ -3472,6 +3670,10 @@ export default function AppShell({
                     setExtColors={setExtColors}
                     dashboardThreadRows={dashboardThreadRows}
                     setDashboardThreadRows={setDashboardThreadRows}
+                    surfaceDepth={surfaceDepth}
+                    setSurfaceDepth={setSurfaceDepth}
+                    surfaceWarmth={surfaceWarmth}
+                    setSurfaceWarmth={setSurfaceWarmth}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
                   />
@@ -3520,7 +3722,7 @@ export default function AppShell({
       </div>
       </div>
       {startupOverlay && <div className="absolute inset-0 z-[1400]">{startupOverlay}</div>}
-      {projectModalOpen && (
+      {projectModalOpen && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[1200] flex items-center justify-center px-4">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -3594,7 +3796,11 @@ export default function AppShell({
               </Button>
             </div>
           </form>
-        </div>
+        </div>,
+        document.getElementById("cfy-portal-root") ??
+          document.getElementById("app") ??
+          document.getElementById("root") ??
+          document.body
       )}
       <ToastPortal />
       {galleryMenu && (

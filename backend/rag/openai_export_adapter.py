@@ -35,6 +35,22 @@ _CONVERSATION_HINT_KEYS = {
     "parts",
 }
 
+# Keys that strongly indicate a file manifest record (not a conversation).
+_MANIFEST_HINT_KEYS = {
+    "file_name",
+    "file_path",
+    "file_size",
+    "original_path",
+    "export_path",
+    "export_id",
+    "manifest_version",
+}
+
+# Directories that contain export metadata rather than conversation data.
+_MANIFEST_DIR_PATTERNS = (
+    "__export_file_manifests__",
+)
+
 
 @dataclass
 class OpenAIExportFileRecord:
@@ -334,6 +350,8 @@ class OpenAIExportDetector:
         legacy_detected = any(
             Path(record.path).name == "conversations.json"
             and record.detected_kind in {"json_array", "json_object"}
+            and not _is_manifest_path(record.path)
+            and _has_conversation_payload(record)
             for record in records
         )
         sharded_detected = any(_is_modern_marker(record) for record in records)
@@ -470,10 +488,12 @@ def import_openai_export_path(
         return stats
 
     adapter: OpenAILegacyExportAdapter | OpenAIShardedExportAdapter
-    if inventory.legacy_detected:
-        adapter = OpenAILegacyExportAdapter()
-    elif inventory.sharded_detected:
+    # In "mixed" exports, prefer the sharded adapter. This avoids the
+    # __export_file_manifests__/conversations.json false-positive problem.
+    if inventory.sharded_detected:
         adapter = OpenAIShardedExportAdapter()
+    elif inventory.legacy_detected:
+        adapter = OpenAILegacyExportAdapter()
     else:
         raise ValueError(
             "Unrecognized OpenAI export structure: no conversations.json, "
@@ -589,6 +609,46 @@ def _looks_textual(sample: bytes) -> bool:
     if "\x00" in text:
         return False
     return True
+
+
+def _is_manifest_path(path: str) -> bool:
+    """Check if a file path is inside a manifest metadata directory."""
+    parts = Path(path).parts
+    for pattern in _MANIFEST_DIR_PATTERNS:
+        if pattern in parts:
+            return True
+    return False
+
+
+def _has_conversation_payload(record: OpenAIExportFileRecord) -> bool:
+    """Check that a conversations.json candidate contains actual conversation
+    records, not file manifest entries."""
+    if not record.conversation_candidate:
+        return True  # Let schema detection handle non-candidates
+    try:
+        payload = _load_json_record(record)
+    except Exception:
+        return False
+    return _payload_has_conversation_shape(payload) and not _payload_is_manifest(
+        payload
+    )
+
+
+def _payload_is_manifest(payload: Any) -> bool:
+    """Returns True if payload looks like a file manifest, not conversations."""
+    if not isinstance(payload, (dict, list)):
+        return False
+    items = [payload] if isinstance(payload, dict) else payload[:5]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        keys = set(str(key) for key in item.keys())
+        # Strong manifest signals: multiple file-metadata keys with no conversation keys
+        if len(keys & _MANIFEST_HINT_KEYS) >= 2 and not (
+            keys & _CONVERSATION_HINT_KEYS
+        ):
+            return True
+    return False
 
 
 def _is_modern_marker(record: OpenAIExportFileRecord) -> bool:

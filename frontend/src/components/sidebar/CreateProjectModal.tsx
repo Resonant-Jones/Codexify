@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 
 type Props = {
@@ -9,6 +10,17 @@ type Props = {
   defaultIcon?: string;
   error?: string | null;
 };
+
+function getPortalTarget(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  return (
+    document.getElementById("cfy-portal-root") ??
+    document.getElementById("app") ??
+    document.getElementById("root") ??
+    document.body ??
+    document.documentElement
+  );
+}
 
 export default function CreateProjectModal({
   open,
@@ -36,7 +48,14 @@ export default function CreateProjectModal({
     await onCreateProject({ name: trimmed, icon: icon || defaultIcon });
   };
 
-  return (
+  // Render to a top-level portal so the modal escapes any ancestor that
+  // establishes a containing block via `backdrop-filter`, `transform`,
+  // `filter`, `will-change`, etc. — which would otherwise clip `position: fixed`
+  // to the sidebar panel and push the action buttons off-screen.
+  const portalTarget = getPortalTarget();
+  if (!portalTarget) return null;
+
+  return createPortal(
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-[999] flex items-center justify-center">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -102,6 +121,7 @@ export default function CreateProjectModal({
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    portalTarget
   );
 }

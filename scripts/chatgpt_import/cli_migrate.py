@@ -369,6 +369,11 @@ def import_openai_conversations(
         "--dry-run",
         help="Diagnose and report without writing to the database",
     ),
+    parse_only: bool = typer.Option(
+        False,
+        "--parse-only",
+        help="Scan and write diagnostics only, then exit (alias for --dry-run --diagnose)",
+    ),
     limit: Optional[int] = typer.Option(
         None,
         "--limit",
@@ -389,7 +394,7 @@ def import_openai_conversations(
     diagnostic_dir: Path = typer.Option(
         Path("logs/openai_import"),
         "--diagnostic-dir",
-        help="Directory for import diagnostic reports",
+        help="Directory for import diagnostic reports and checkpoints",
     ),
     order: str = typer.Option(
         "file",
@@ -397,21 +402,48 @@ def import_openai_conversations(
         help="Import order: file (default), newest, oldest, updated",
     ),
     embedding_mode: str = typer.Option(
-        "defer",
+        "off",
         "--embedding-mode",
-        help="Embedding behavior: defer (default), enqueue, off",
+        help="Embedding behavior: defer, enqueue, off (default: off for Stage A)",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Resume from last checkpoint, skipping already-imported conversations",
+    ),
+    checkpoint_path: Optional[str] = typer.Option(
+        None,
+        "--checkpoint-path",
+        help="Explicit directory for checkpoint file (default: diagnostic-dir)",
+    ),
+    batch_conversations: int = typer.Option(
+        10,
+        "--batch-conversations",
+        help="Conversations per batch commit (default: 10)",
+        min=1,
+    ),
+    disable_personal_facts: bool = typer.Option(
+        False,
+        "--disable-personal-facts",
+        help="Skip personal facts extraction during import (Stage A messages-only)",
+    ),
+    messages_only: bool = typer.Option(
+        False,
+        "--messages-only",
+        help="Import threads/messages only; skip embeddings and personal facts",
     ),
 ):
     """
     Import OpenAI export conversations into Codexify-native chat threads.
 
-    Preserves source provenance, idempotent on re-import. No embeddings,
-    no graph writes, no personal facts. Use --dry-run to preview.
+    Supports resumable, bounded-batch import for archive-scale exports.
+    Use --parse-only to preview, --limit for bounded tests, --resume to
+    continue after interruption, and --messages-only for Stage A import.
 
-    Example:
-        codexify import:openai-conversations --path ./OpenAI-export --dry-run
-        codexify import:openai-conversations --path ./OpenAI-export --limit 25
-        codexify import:openai-conversations --path ./OpenAI-export --title-contains Codexify
+    Examples:
+        codexify import:openai-conversations --path ./OpenAI-export --parse-only
+        codexify import:openai-conversations --path ./OpenAI-export --limit 25 --batch-conversations 5 --resume
+        codexify import:openai-conversations --path ./OpenAI-export --resume --messages-only
     """
     load_dotenv()
 
@@ -424,38 +456,55 @@ def import_openai_conversations(
     if not resolved_user_id:
         raise typer.BadParameter("Unable to resolve Codexify user_id")
 
+    # --parse-only implies --dry-run
+    effective_dry_run = dry_run or parse_only
+
     diag = import_openai_export_conversations(
         path,
         user_id=resolved_user_id,
-        dry_run=dry_run,
+        dry_run=effective_dry_run,
         limit=limit,
         title_contains=title_contains,
         diagnostic_dir=diagnostic_dir,
         order=order,
         embedding_mode=embedding_mode,
+        resume=resume,
+        checkpoint_path=checkpoint_path,
+        batch_conversations=batch_conversations,
+        disable_personal_facts=disable_personal_facts or messages_only,
+        messages_only=messages_only,
     )
 
     print_header()
-    if dry_run:
-        print_message("[bold cyan]OpenAI export dry run complete (no DB writes)[/bold cyan]")
+    if parse_only or effective_dry_run:
+        print_message("[bold cyan]OpenAI export parse/dry run complete (no DB writes)[/bold cyan]")
     else:
         print_message("[bold cyan]OpenAI export conversation import complete[/bold cyan]")
 
     print_summary(
         {
             "export_format": diag.export_format,
+            "import_run_id": diag.import_run_id,
             "conversations_discovered": diag.conversations_discovered,
             "conversations_imported": diag.conversations_imported,
             "conversations_skipped_title": diag.conversations_skipped_title,
             "conversations_skipped_limit": diag.conversations_skipped_limit,
             "conversations_skipped_duplicate": diag.conversations_skipped_duplicate,
+            "conversations_skipped_checkpoint": diag.conversations_skipped_checkpoint,
+            "conversations_failed": diag.conversations_failed,
             "messages_discovered": diag.messages_discovered,
             "messages_imported": diag.messages_imported,
             "messages_skipped_duplicate": diag.messages_skipped_duplicate,
             "parse_failures": diag.parse_failures,
+            "embedding_mode": diag.embedding_mode,
+            "disable_personal_facts": diag.disable_personal_facts,
+            "messages_only": diag.messages_only,
+            "elapsed_seconds": round(diag.elapsed_seconds, 1),
         }
     )
     print_message(f"Diagnostic output: {diagnostic_dir.resolve()}")
+    if diag.checkpoint_path:
+        print_message(f"Checkpoint file: {diag.checkpoint_path}/import_checkpoint.ndjson")
 
 
 @app.command("export-scraper:tasks")

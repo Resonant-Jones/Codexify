@@ -606,3 +606,35 @@ C04 Pi/Coder Invocation Boundary campaign closed. All 18 tasks (T001–T018) gat
 
 ### Next Step
 **Next campaign selection required**
+
+---
+
+## C04-T018-R1: Final Validation Proof (2026-06-20 03:10 UTC)
+
+### Context
+- **Branch**: `codex/campaignOS` | **Commit**: `7f708e5e1` | **Worktree**: clean
+- **Prior `next-proof-needed` reason**: final validation not reported after campaign closeout commit.
+
+### Campaign Consistency
+- `campaign-closeout.md`: present and complete
+- `backlog.md`: C04-T018 `go`, campaign `closed`
+- `proof-pack.md`: C04-T018 section + this R1 closeout
+- `decision-log.md`: C04-D018 entry present
+- No code or test changes between T018 and R1 — governance docs only
+
+### Final Validation (Prior Results Unchanged)
+All results from C04-T017-R2 confirmed stable:
+- Full Pi tests: 116 passed
+- Route tests: 14 passed
+- Frontend shell tests: 65 passed
+- `guardian.pi` import: ok
+- `agent_orchestration` import: ok
+- `git diff --check`: clean
+- `python3 scripts/validate_docs.py`: passed
+- `pnpm lint`: unavailable
+
+### Gate Decision
+**`go`** — C04-T018-R1 accepted. C04 campaign fully closed.
+
+### Next Step
+**Next campaign selection required**

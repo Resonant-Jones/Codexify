@@ -593,6 +593,15 @@ button.brand-tab,
   max-width: min(100%, 1024px);
 }
 
+/* Persona Studio two-pane layout — uses global design tokens from /src/theme */
+@media (min-width: 1024px) {
+  .persona-studio-two-lane-layout {
+    grid-template-columns:
+      minmax(0, var(--persona-studio-editor-flex))
+      minmax(var(--persona-studio-preview-min), var(--persona-studio-preview-flex));
+  }
+}
+
 /* Dashboard Layout helpers */
 .dashboard-doc-tile {
   width: 125px !important;
