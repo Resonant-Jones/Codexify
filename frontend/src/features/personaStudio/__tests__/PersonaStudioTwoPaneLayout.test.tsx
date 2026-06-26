@@ -114,12 +114,15 @@ describe("Persona Studio two-pane layout", () => {
   it("renders the right rail with Preview | Profiles | Diagnostics tabs and Preview as default", () => {
     renderPage();
 
-    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole(
-      "button"
-    );
+    const tablist = screen.getByTestId("persona-studio-rail-tabs");
+    expect(tablist).toHaveAttribute("role", "tablist");
+
+    const railTabs = within(tablist).getAllByRole("tab");
     const tabNames = railTabs.map((tab) => tab.textContent?.trim());
     expect(tabNames).toEqual(["Preview", "Profiles", "Diagnostics"]);
-    expect(railTabs[0]).toHaveAttribute("data-state", "active");
+    expect(railTabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(railTabs[1]).toHaveAttribute("aria-selected", "false");
+    expect(railTabs[2]).toHaveAttribute("aria-selected", "false");
   });
 
   it("switches the rail between Preview, Profiles, and Diagnostics", async () => {
@@ -130,18 +133,18 @@ describe("Persona Studio two-pane layout", () => {
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
 
     // Switch to Profiles
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
+    expect(screen.getByRole("tab", { name: /^profiles$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
   });

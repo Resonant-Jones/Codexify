@@ -229,21 +229,25 @@ describe("Persona Studio Page", () => {
 
     // Default Preview tab — diagnostics not visible
     expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
 
     // Switch to Profiles
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
+    expect(screen.getByRole("tab", { name: /^profiles$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
     expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
     expect(screen.getByText("Save Status")).toBeVisible();
@@ -251,12 +255,72 @@ describe("Persona Studio Page", () => {
     expect(screen.getByText("Debug Log")).toBeVisible();
 
     // Switch back to Preview
-    await user.click(screen.getByRole("button", { name: /^preview$/i }));
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
+  });
+
+  it("renders the rail tabs in the order Preview | Profiles | Diagnostics with proper tab semantics", () => {
+    renderPage();
+
+    const tablist = screen.getByTestId("persona-studio-rail-tabs");
+    expect(tablist).toHaveAttribute("role", "tablist");
+    expect(tablist).toHaveAttribute("aria-label", /persona studio companion rail/i);
+
+    const tabs = within(tablist).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+      "Preview",
+      "Profiles",
+      "Diagnostics",
+    ]);
+
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "false");
+    expect(tabs[2]).toHaveAttribute("aria-selected", "false");
+
+    expect(tabs[0]).toHaveAttribute(
+      "aria-controls",
+      "persona-studio-rail-panel-preview"
+    );
+    expect(tabs[1]).toHaveAttribute(
+      "aria-controls",
+      "persona-studio-rail-panel-profiles"
+    );
+    expect(tabs[2]).toHaveAttribute(
+      "aria-controls",
+      "persona-studio-rail-panel-diagnostics"
+    );
+
+    const previewPanel = screen.getByTestId("persona-studio-rail-preview-panel");
+    expect(previewPanel).toHaveAttribute("role", "tabpanel");
+    expect(previewPanel).toHaveAttribute(
+      "aria-labelledby",
+      "persona-studio-rail-tab-preview"
+    );
+  });
+
+  it("does not render the obsolete Support Surfaces or Utility Pane labels", () => {
+    renderPage();
+
+    expect(screen.queryByText(/^support surfaces$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^utility pane$/i)).not.toBeInTheDocument();
+  });
+
+  it("updates the selected profile when a profile is chosen from the Profiles rail tab", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
+    const profileCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
+    expect(profileCard).not.toBeNull();
+    await user.click(profileCard as HTMLElement);
+
+    // Profile list re-renders with the newly selected profile highlighted.
+    const profilesPanel = screen.getByTestId("persona-studio-rail-profiles-panel");
+    expect(within(profilesPanel).getByText("Code Assistant")).toBeVisible();
   });
 
   it("renders the section tabs in the header area", () => {

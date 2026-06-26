@@ -147,10 +147,18 @@ describe("Persona Studio Shell Integration", () => {
 
     expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-rail-tabs")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    const previewTab = screen.getByRole("tab", { name: /^preview$/i });
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    expect(previewTab).toHaveAttribute(
+      "aria-controls",
+      "persona-studio-rail-panel-preview"
     );
+
+    const profilesTab = screen.getByRole("tab", { name: /^profiles$/i });
+    expect(profilesTab).toHaveAttribute("aria-selected", "false");
+
+    const diagnosticsTab = screen.getByRole("tab", { name: /^diagnostics$/i });
+    expect(diagnosticsTab).toHaveAttribute("aria-selected", "false");
   });
 
   it("renders the editor tabs when Persona Studio is active", () => {
@@ -169,8 +177,13 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
-    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
+    const diagnosticsPanel = screen.getByTestId("persona-studio-rail-diagnostics-panel");
+    expect(diagnosticsPanel).toHaveAttribute("role", "tabpanel");
+    expect(diagnosticsPanel).toHaveAttribute(
+      "aria-labelledby",
+      "persona-studio-rail-tab-diagnostics"
+    );
     expect(screen.getByText("Save Status")).toBeInTheDocument();
     expect(screen.getByText("Effective Config")).toBeInTheDocument();
     expect(screen.getByText("Debug Log")).toBeInTheDocument();
@@ -204,7 +217,7 @@ describe("Persona Studio Shell Integration", () => {
     renderAppShell();
 
     // Profiles tab in the rail is hidden by default (Preview is default).
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
     const codeAssistantCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
     if (codeAssistantCard) {
       await user.click(codeAssistantCard);
