@@ -572,3 +572,105 @@ def read_reality_state(
 
     finally:
         session.close()
+
+
+# ── Reality Commit Readback ─────────────────────────────────────────────────
+
+
+class RealityCommitReadbackResponse(BaseModel):
+    """Response for a single reality commit readback."""
+
+    commit_id: str
+    found: bool
+    state_id: str | None = None
+    schema_version: str | None = None
+    committed_at: str | None = None
+    summary: str | None = None
+    change_reason: str | None = None
+    actor: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    deleted: bool = False
+    graph_used: bool = False
+    runtime_event_published: bool = False
+    project_pulse_enabled: bool = False
+    export_restore_enabled: bool = False
+    read_at: str | None = None
+
+
+@router.get(
+    "/reality-commits/{commit_id}",
+    response_model=RealityCommitReadbackResponse,
+)
+def read_reality_commit(
+    commit_id: str,
+    api_key: str = Depends(require_api_key),
+) -> RealityCommitReadbackResponse:
+    """Read a single Reality Commit by exact commit ID.
+
+    Requires explicit API-key authentication.  Reads exactly one commit
+    record — no list, search, history traversal, compilation, graph,
+    or writes.  Related state/packet payloads are not expanded.
+    Soft-deleted records are treated as not found.
+    """
+    from datetime import datetime, timezone
+
+    dsn = get_database_dsn()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    engine = create_engine(dsn, echo=False)
+    session = Session(engine)
+
+    try:
+        row = (
+            session.query(ContinuityRealityCommit)
+            .filter(
+                ContinuityRealityCommit.id == commit_id,
+                ContinuityRealityCommit.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if row is None:
+            return RealityCommitReadbackResponse(
+                commit_id=commit_id,
+                found=False,
+                read_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+        return RealityCommitReadbackResponse(
+            commit_id=row.id,
+            found=True,
+            state_id=row.new_state_id or row.previous_state_id,
+            schema_version=row.schema_version,
+            committed_at=str(row.created_at) if row.created_at else None,
+            summary=row.summary,
+            change_reason=row.trigger,
+            actor={
+                "user_id": row.user_id,
+                "kind": row.kind,
+                "trigger": row.trigger,
+            },
+            metadata={
+                "title": row.title,
+                "scope": row.scope,
+            },
+            provenance=row.provenance_json or {},
+            deleted=False,
+            graph_used=False,
+            runtime_event_published=False,
+            project_pulse_enabled=False,
+            export_restore_enabled=False,
+            read_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    except Exception as exc:
+        logger.exception("Failed to read reality commit %s", commit_id)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "read_commit_failed", "message": str(exc)},
+        )
+
+    finally:
+        session.close()
