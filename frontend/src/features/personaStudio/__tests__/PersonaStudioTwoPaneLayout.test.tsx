@@ -41,7 +41,7 @@ describe("Persona Studio two-pane layout", () => {
     const header = within(previewPanel).getByTestId("persona-preview-panel-header");
 
     expect(within(header).getByRole("heading", { name: "Draft Preview" })).toBeVisible();
-    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByText(/test before saving/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
       /temporary preview\. not saved to chat history/i
     );

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { PersonaProfileDraft } from "./personaStudioStore";
 
 /**
@@ -19,13 +19,6 @@ import type { PersonaProfileDraft } from "./personaStudioStore";
  * /api/chat/*, does not invoke provider routing, and does not write to
  * memory or identity. The composer is local-only; turns clear on remount.
  */
-
-const PREVIEW_SCENARIO_CHIPS = [
-  "Coding",
-  "Research",
-  "Planning",
-  "Casual Help",
-] as const;
 
 type PreviewDraftSnapshot = {
   signature: string;
@@ -163,7 +156,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
   const [isResponding, setIsResponding] = React.useState(false);
   const messageIdRef = React.useRef(0);
   const sessionVersionRef = React.useRef(0);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   const currentDraftSnapshot = React.useMemo(
     () => buildPreviewDraftSnapshot(profile),
@@ -190,7 +183,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
     setPreviewTurns([]);
     setPreviewPrompt("");
     setIsResponding(false);
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
   }, []);
 
   const sendPreviewPrompt = React.useCallback(
@@ -234,7 +227,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
       messageIdRef.current += 1;
       setPreviewTurns((previous) => [...previous, assistantMessage]);
       setIsResponding(false);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
     },
     [previewTurns, isResponding, profile]
   );
@@ -258,14 +251,14 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
         boxShadow: "0 10px 30px color-mix(in srgb, var(--bg) 62%, transparent)",
       }}
     >
-      <CardHeader className="space-y-3 pb-3" data-testid="persona-preview-panel-header">
+      <CardHeader className="space-y-2 pb-3" data-testid="persona-preview-panel-header">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-base font-semibold">
+            <CardTitle className="text-lg font-semibold">
               Draft Preview
             </CardTitle>
-            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Test this profile before saving changes.
+            <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+              Test before saving.
             </p>
             <p
               className="text-xs leading-5"
@@ -275,33 +268,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
               Temporary preview. Not saved to chat history.
             </p>
           </div>
-        </div>
-        <div
-          className="flex flex-wrap items-center gap-1.5 rounded-[var(--tile-radius)] border px-3 py-2"
-          data-testid="persona-preview-panel-scenario-row"
-          style={{
-            borderColor: "var(--panel-border)",
-            background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
-          }}
-        >
-          <span
-            className="text-[10px] font-semibold uppercase tracking-[0.16em] shrink-0"
-            style={{ color: "var(--muted)" }}
-          >
-            Try a scenario
-          </span>
-          {PREVIEW_SCENARIO_CHIPS.map((prompt) => (
-            <Button
-              key={prompt}
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void sendPreviewPrompt(prompt)}
-              disabled={isResponding}
-            >
-              {prompt}
-            </Button>
-          ))}
         </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 pt-0">
@@ -650,19 +616,27 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 earlier replies remain as historical preview turns.
               </p>
             ) : null}
-            <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
-              <Input
-                ref={inputRef}
+            <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
+              <Textarea
+                ref={textareaRef}
                 value={previewPrompt}
                 onChange={(event) => setPreviewPrompt(event.target.value)}
                 placeholder="Send a temporary test prompt"
                 aria-label="Persona preview prompt"
-                className="min-w-0 flex-1"
+                className="min-h-[80px] w-full resize-y"
                 disabled={isResponding}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendPreviewPrompt(previewPrompt);
+                  }
+                }}
               />
-              <Button type="submit" disabled={!previewPrompt.trim() || isResponding}>
-                Send
-              </Button>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={!previewPrompt.trim() || isResponding}>
+                  Send
+                </Button>
+              </div>
             </form>
           </section>
         </div>

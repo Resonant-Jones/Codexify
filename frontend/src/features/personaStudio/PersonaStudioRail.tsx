@@ -51,10 +51,18 @@ export default function PersonaStudioRail({
       data-testid="persona-studio-rail"
     >
       <div
-        className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
+        className="rounded-[var(--card-radius)] p-1"
         role="tablist"
         aria-label="Persona Studio companion rail"
         data-testid="persona-studio-rail-tabs"
+        style={{
+          background: "color-mix(in srgb, var(--panel-bg) 88%, transparent)",
+          border: "1px solid var(--panel-border)",
+          boxShadow: "0 2px 12px color-mix(in srgb, var(--bg) 48%, transparent)",
+        }}
+      >
+      <div
+        className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto"
         style={
           {
             "--pill-active-text": "var(--text-on-accent)",
@@ -85,6 +93,7 @@ export default function PersonaStudioRail({
             </button>
           );
         })}
+      </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">

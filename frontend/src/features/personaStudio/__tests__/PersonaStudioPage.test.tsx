@@ -64,12 +64,10 @@ describe("Persona Studio Page", () => {
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
     expect(within(header).getByText("Draft Preview")).toBeVisible();
-    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByText(/test before saving/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
       /temporary preview\. not saved to chat history/i
     );
-    expect(within(header).getByTestId("persona-preview-panel-scenario-row")).toBeVisible();
-    expect(within(header).getByText(/try a scenario/i)).toBeVisible();
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
       /temporary preview\. not saved to chat history/i
@@ -83,7 +81,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
@@ -115,7 +114,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     await user.type(
       screen.getByRole("textbox", { name: /persona preview prompt/i }),
@@ -154,7 +154,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
@@ -167,7 +168,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^research$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Research");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
     );
@@ -183,7 +185,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -212,7 +215,8 @@ describe("Persona Studio Page", () => {
     const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -318,10 +322,17 @@ describe("Persona Studio Page", () => {
     expect(screen.queryByText(/^session cache$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^preview composer$/i)).not.toBeInTheDocument();
 
+    // Removed scenario chips
+    expect(screen.queryByText(/try a scenario/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^coding$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^research$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^planning$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^casual help$/i })).not.toBeInTheDocument();
+
     // New compressed copy is present
     expect(screen.getByText(/temporary preview\. not saved to chat history/i)).toBeVisible();
+    expect(screen.getByText(/test before saving/i)).toBeVisible();
     expect(screen.getByText(/^transcript$/i)).toBeVisible();
-    expect(screen.getByText(/try a scenario/i)).toBeVisible();
     expect(screen.getByPlaceholderText(/send a temporary test prompt/i)).toBeVisible();
   });
 
