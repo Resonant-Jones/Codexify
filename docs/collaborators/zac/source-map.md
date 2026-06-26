@@ -10,6 +10,7 @@ Before exploring any area, orient from:
 - `docs/architecture/00-current-state.md` — the release-truth anchor.
 - `docs/collaborators/zac/README.md` — this directory's entrypoint.
 - `docs/collaborators/zac/agent-rag-brief.md` — your agent operating brief.
+- `docs/collaborators/zac/agent-startup-prompt.md` — copy-paste startup prompt for Zac's agent.
 
 ## Current Continuity Milestone
 

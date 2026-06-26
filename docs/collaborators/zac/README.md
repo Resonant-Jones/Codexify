@@ -42,6 +42,11 @@ Resonant Jones wants Zac to work from curiosity and inspiration, not assigned ti
 | `safe-and-sensitive-zones.md` | Map of where Zac can explore freely and where proposals are required. |
 | `proposal-template.md` | Copy-paste template for proposals. |
 | `source-map.md` | Deeper pointers into architecture docs, code entrypoints, and sensitive domains. |
+| `agent-startup-prompt.md` | Copy-paste prompt Zac can give to an AI agent as the initial instruction. |
+
+## Quick Start: Copy-Paste Prompt
+
+Zac can copy the prompt from `agent-startup-prompt.md` into an AI agent and point the agent at this directory. The agent will orient from the RAG source, explore one area, and produce a scout report/proposal — not implementation. This removes the need to manually summarize the directory each time.
 
 ## Suggested Agent Orientation Order
 
