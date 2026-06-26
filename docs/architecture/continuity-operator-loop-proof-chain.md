@@ -59,6 +59,7 @@ All six routes share the `continuity_operator` surface key, `CODEXIFY_ENABLE_CON
 | Commit readback live proof | Proof artifact | Live Docker + profile | Beta quarantine, commit round-trip, hard-false flags | Supported beta activation |
 | Link readback implementation | Implemented | Test-covered | Exact link by ID; no state/packet expansion | List/search, traversal |
 | Link readback live proof | Proof artifact | Live Docker + profile | Beta quarantine, link round-trip, hard-false flags | Supported beta activation |
+| Hardening regression rerun | Proof artifact | Regression rerun (PASS) | All suites pass with Postgres; no surface expansion; beta quarantine intact | Supported beta activation, UI, Project Pulse, export/restore, graph, list/search, traversal |
 
 ## Gate Model
 
