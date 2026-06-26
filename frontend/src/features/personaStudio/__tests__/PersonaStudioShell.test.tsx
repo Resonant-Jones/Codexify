@@ -134,9 +134,8 @@ describe("Persona Studio Shell Integration", () => {
       "data-state",
       "active"
     );
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+    // Profile selector is present
+    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
@@ -147,10 +146,18 @@ describe("Persona Studio Shell Integration", () => {
 
     expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-rail-tabs")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    const previewTab = screen.getByRole("tab", { name: /^preview$/i });
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    expect(previewTab).toHaveAttribute(
+      "aria-controls",
+      "persona-studio-rail-panel-preview"
     );
+
+    const diagnosticsTab = screen.getByRole("tab", { name: /^diagnostics$/i });
+    expect(diagnosticsTab).toHaveAttribute("aria-selected", "false");
+
+    // Profiles tab no longer exists on the rail
+    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
   });
 
   it("renders the editor tabs when Persona Studio is active", () => {
@@ -169,8 +176,13 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
-    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
+    const diagnosticsPanel = screen.getByTestId("persona-studio-rail-diagnostics-panel");
+    expect(diagnosticsPanel).toHaveAttribute("role", "tabpanel");
+    expect(diagnosticsPanel).toHaveAttribute(
+      "aria-labelledby",
+      "persona-studio-rail-tab-diagnostics"
+    );
     expect(screen.getByText("Save Status")).toBeInTheDocument();
     expect(screen.getByText("Effective Config")).toBeInTheDocument();
     expect(screen.getByText("Debug Log")).toBeInTheDocument();
@@ -199,24 +211,114 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByText(/distinct from generation top k/i)).toBeInTheDocument();
   });
 
-  it("can switch between profile tabs", async () => {
+  it("can select a profile from the profile selector", async () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    // Profiles tab in the rail is hidden by default (Preview is default).
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-    const codeAssistantCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
-    if (codeAssistantCard) {
-      await user.click(codeAssistantCard);
-    }
-    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+    // Open profile selector
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    await user.click(trigger);
+
+    // Select Code Assistant
+    const codeAssistantOption = screen.getByTestId("persona-studio-profile-option-profile-2");
+    await user.click(codeAssistantOption);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant/i);
   });
 
-  it("renders Save, Save As New, and Reset controls", () => {
+  it("renders the profile selector as a compact inline text trigger (no square tile)", () => {
     renderAppShell();
 
-    expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+
+    // Visible profile name text — not icon-only
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(
+      screen.getByTestId("persona-studio-profile-selector-trigger-name")
+    ).toHaveTextContent(/guardian default/i);
+
+    // Accessible label/title for selecting profile
+    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
+    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
+
+    // The trigger must not be the old oversized icon element — no SVG chevron block
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    // The selector must not render a tile/card test id
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-tile")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-card")
+    ).not.toBeInTheDocument();
+
+    // Compact: trigger height matches action button height (no taller, no min-height override)
+    const triggerRect = trigger.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    expect(triggerRect.height).toBeLessThanOrEqual(saveRect.height + 1);
+    expect(triggerRect.height).toBeLessThan(40); // never a square tile
+  });
+
+  it("renders profile actions in the selector dropdown", async () => {
+    const user = userEvent.setup();
+    renderAppShell();
+
+    // Open profile selector
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    // Profile actions are inside the dropdown
+    expect(screen.getByTestId("persona-studio-action-save")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toBeVisible();
+  });
+
+  it("renders profile-level actions and the Studio reset exactly once, and not the old 'Reset All Data'", () => {
+    renderAppShell();
+
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^reset local studio data$/i })
+    ).toBeInTheDocument();
+
+    // Reset local Studio data must appear exactly once
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+
+    // Old "Reset All Data" wording must not appear anywhere
+    expect(
+      screen.queryByRole("button", { name: /^reset all data$/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/reset all data/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a bounded scrollable profile list when the compact selector is clicked", async () => {
+    const user = userEvent.setup();
+    renderAppShell();
+
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    const list = screen.getByTestId("persona-studio-profile-selector-list");
+    expect(list).toBeInTheDocument();
+
+    // Bounded scroll container — explicit test id + overflow utility
+    expect(list.className).toMatch(/overflow-y-auto/);
+    expect(list.className).toMatch(/max-h-/);
+
+    // Dropdown exposes the same available profiles
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-1")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-2")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-3")
+    ).toBeInTheDocument();
   });
 
   it("renders a truthful matrix for current Persona Studio controls", async () => {

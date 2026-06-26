@@ -7,11 +7,11 @@ establishment between federated Codexify nodes.
 import json
 import logging
 import secrets
+from importlib import import_module
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
-import jwt
 import requests
 from fastapi import (
     APIRouter,
@@ -56,6 +56,10 @@ _node_id: Optional[str] = None
 _private_key: Optional[str] = None
 _public_key: Optional[str] = None
 _relay_endpoint: Optional[str] = None
+
+
+def _jwt_module():
+    return import_module("jwt")
 
 
 def _normalize_origin(url: str) -> str | None:
@@ -238,6 +242,7 @@ def _decode_verified_relay_token(
     token: str,
 ) -> tuple[dict[str, Any], NodeManifest]:
     """Verify a relay token against cached peer manifests."""
+    jwt = _jwt_module()
     manifests = list(manager.peer_manifests.values())
     if not manifests:
         raise HTTPException(status_code=400, detail="Unknown source node")
@@ -411,6 +416,7 @@ async def request_session(body: SessionRequestBody) -> Dict[str, Any]:
             status_code=503,
             detail="Invalid local federation private key configuration.",
         ) from exc
+    jwt = _jwt_module()
     token = jwt.encode(token_payload, signing_key, algorithm="EdDSA")
 
     # Create relay session locally

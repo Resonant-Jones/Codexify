@@ -58,6 +58,12 @@ Source anchors:
 | `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Global timeout shaping for provider calls | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `REMOTE_RECALL_ENABLED` | Default `false`. Master gate for the Remote Recall Search-as-RAG web-evidence lane. Off by default to preserve the local-only beta posture. | `guardian/core/config.py`, `guardian/web/remote_recall.py` |
+| `REMOTE_RECALL_PROVIDER` | Default `groq`. Provider-neutral Search-as-RAG adapter target; only effective when `REMOTE_RECALL_ENABLED=true`. | `guardian/core/config.py`, `guardian/web/remote_recall.py` |
+| `REMOTE_RECALL_MAX_RESULTS` | Default `5`. Client-side cap on Remote Recall evidence items returned for synthesis after the intake gate. | `guardian/core/config.py` |
+| `REMOTE_RECALL_TIMEOUT_SECONDS` | Default bounded `20.0`. Timeout for a single Remote Recall provider adapter call. | `guardian/core/config.py` |
+| `GROQ_WEB_SEARCH_ENABLED` | Default `false`. Groq web-search adapter flag. Requires `REMOTE_RECALL_ENABLED=true`, `ALLOW_CLOUD_PROVIDERS=true`, `CODEXIFY_LOCAL_ONLY_MODE=false`, a present `GROQ_API_KEY`, and an egress-allowed `groq` target. | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
+| `GROQ_WEB_SEARCH_MODEL` | Default `groq/compound-mini`. Groq Compound system model id for built-in web search (supported: `groq/compound`, `groq/compound-mini`). | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
 
 ## Provider Governance and Beta Operator Workflow
 
@@ -193,6 +199,17 @@ The supported local Docker Compose path enforces a default-off contract for grap
 - The Neo4j service may be present in the Compose topology, but its presence does not imply graph-write enablement.
 - Graph-write enablement requires both flags to be explicitly set: `CODEXIFY_ENABLE_GRAPH_WRITES=true` AND `CODEXIFY_GRAPH_BACKEND=neo4j`.
 - The factory in `guardian/memory_graph/graph_backend_factory.py` is fail-closed: invalid backend values, missing flags, or absent Neo4j adapter all resolve to `NoopGraphBackendAdapter`.
+
+#### Remote Recall (Search-as-RAG) runtime boundary
+
+Remote Recall is a governed, default-off web-evidence lane. The supported local Docker Compose path keeps it off, and the runtime is fail-closed:
+
+- `REMOTE_RECALL_ENABLED=false` and `GROQ_WEB_SEARCH_ENABLED=false` are the defaults. Web search is not enabled by default and is not exposed in the Composer UI.
+- Remote Recall executes only behind an explicit policy-approved `global_search` retrieval posture; local, conversation, workspace, and ordinary broad-retrieval turns never trigger it.
+- The lane fails closed (no web call, no injected evidence) when `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, the provider is not in `CODEXIFY_EGRESS_ALLOWLIST`, the feature flag is off, credentials are missing, or the requested provider is unauthorized.
+- Raw web content never reaches synthesis: every candidate result must pass the Web Evidence Intake Gate before it is eligible for completion-context injection.
+- Remote Recall is retrieval evidence, not a separate answer oracle, and does not write web results to durable memory.
+- Egress is enforced before any provider adapter invocation via the shared `guardian/core/egress.py` policy.
 
 ### Frontend and desktop runtime
 

@@ -181,8 +181,8 @@ assert_value "LOCAL_PROVIDER_VENDOR=whooshd" \
     'LOCAL_PROVIDER_VENDOR: whooshd' \
     "$RESOLVED_CONFIG" || ((FAILURES++))
 
-assert_value "LOCAL_CHAT_MODEL=gemma-4-e4b-it-4bit" \
-    'LOCAL_CHAT_MODEL: gemma-4-e4b-it-4bit' \
+assert_value "LOCAL_CHAT_MODEL=${SMOKE_MODEL}" \
+    "LOCAL_CHAT_MODEL: ${SMOKE_MODEL}" \
     "$RESOLVED_CONFIG" || ((FAILURES++))
 
 if [ "$FAILURES" -gt 0 ]; then

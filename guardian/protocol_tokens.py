@@ -369,6 +369,62 @@ class ImageRoutingPath(str, Enum):
     INTERPRETER = "interpreter"
 
 
+class RemoteRecallSourceKind(str, Enum):
+    """Bounded source-kind vocabulary for Remote Recall Search-as-RAG adapters.
+
+    Only ``groq_web_search`` is implemented in the first seam. The remaining
+    values are typed future-compatible source kinds so later adapters can plug
+    into the same provider-neutral boundary without renaming tokens.
+    """
+
+    GROQ_WEB_SEARCH = "groq_web_search"
+    WIKIPEDIA = "wikipedia"
+    ARXIV = "arxiv"
+    SEMANTIC_SCHOLAR = "semantic_scholar"
+    BRAVE_SEARCH = "brave_search"
+    GOOGLE_CUSTOM_SEARCH = "google_custom_search"
+    LOCAL_PRIVATE_INDEX = "local_private_index"
+
+
+class WebEvidenceGateDecision(str, Enum):
+    """Canonical Web Evidence Intake Gate decisions.
+
+    Kept intentionally bounded to the contract-bearing values promoted into the
+    runtime seam. Candidate evidence is either eligible for synthesis, blocked,
+    or flagged for human review.
+    """
+
+    ELIGIBLE_FOR_SYNTHESIS = "eligible_for_synthesis"
+    BLOCKED = "blocked"
+    NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+
+class RemoteRecallFailureReason(str, Enum):
+    """Canonical failure reasons for the Remote Recall orchestration seam."""
+
+    DISABLED = "disabled"
+    LOCAL_ONLY_MODE = "local_only_mode"
+    NOT_GLOBAL_SEARCH_POSTURE = "not_global_search_posture"
+    PROVIDER_NOT_CONFIGURED = "provider_not_configured"
+    PROVIDER_UNAUTHORIZED = "provider_unauthorized"
+    EGRESS_BLOCKED = "egress_blocked"
+    AUTH_REQUIRED = "auth_required"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    EMPTY_RESULT_SET = "empty_result_set"
+    SAFETY_SCREEN_BLOCKED = "safety_screen_blocked"
+    NORMALIZATION_FAILED = "normalization_failed"
+    ADAPTER_ERROR = "adapter_error"
+
+
+class RemoteRecallTraceEvent(str, Enum):
+    """Canonical Remote Recall trace event labels."""
+
+    INVOKED = "remote_recall.invoked"
+    SKIPPED = "remote_recall.skipped"
+    BLOCKED = "remote_recall.blocked"
+    COMPLETED = "remote_recall.completed"
+
+
 ACCEPTANCE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in AcceptanceStatus}
 )
@@ -509,6 +565,18 @@ TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
 IMAGE_ROUTING_PATHS: frozenset[str] = frozenset(
     {path.value for path in ImageRoutingPath}
 )
+REMOTE_RECALL_SOURCE_KINDS: frozenset[str] = frozenset(
+    {kind.value for kind in RemoteRecallSourceKind}
+)
+WEB_EVIDENCE_GATE_DECISIONS: frozenset[str] = frozenset(
+    {decision.value for decision in WebEvidenceGateDecision}
+)
+REMOTE_RECALL_FAILURE_REASONS: frozenset[str] = frozenset(
+    {reason.value for reason in RemoteRecallFailureReason}
+)
+REMOTE_RECALL_TRACE_EVENTS: frozenset[str] = frozenset(
+    {event.value for event in RemoteRecallTraceEvent}
+)
 
 __all__ = [
     "AcceptanceStatus",
@@ -553,6 +621,10 @@ __all__ = [
     "CampaignExecutionAttemptStatus",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
+    "RemoteRecallSourceKind",
+    "WebEvidenceGateDecision",
+    "RemoteRecallFailureReason",
+    "RemoteRecallTraceEvent",
     "ACCEPTANCE_STATUSES",
     "GUARDIAN_DELEGATION_INTERACTION_MODES",
     "GUARDIAN_DELEGATION_APPROVAL_MODES",
@@ -596,4 +668,8 @@ __all__ = [
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",
+    "REMOTE_RECALL_SOURCE_KINDS",
+    "WEB_EVIDENCE_GATE_DECISIONS",
+    "REMOTE_RECALL_FAILURE_REASONS",
+    "REMOTE_RECALL_TRACE_EVENTS",
 ]

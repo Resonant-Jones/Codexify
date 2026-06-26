@@ -144,3 +144,80 @@
     transition-duration: 1ms;
   }
 }
+
+/* Material Controls sliders — touch-friendly, single-column control stack.
+   Resets the default <Input> wrapper visuals (border, background, padding)
+   and supplies a chunkier track + thumb suitable for iPad/iPhone targets. */
+.material-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--accent-strong);
+  color: var(--text);
+}
+
+.material-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 70%, transparent);
+  border: 0;
+}
+
+.material-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--accent-strong);
+  border: 2px solid color-mix(in oklab, var(--text) 90%, transparent);
+  margin-top: -9px;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-strong) 25%, transparent);
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+
+.material-slider::-moz-range-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--panel-border) 70%, transparent);
+  border: 0;
+}
+
+.material-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--accent-strong);
+  border: 2px solid color-mix(in oklab, var(--text) 90%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-strong) 25%, transparent);
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+
+.material-slider:hover::-webkit-slider-thumb,
+.material-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-strong) 40%, transparent);
+}
+
+.material-slider:hover::-moz-range-thumb,
+.material-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-strong) 40%, transparent);
+}
+
+.material-slider:active::-webkit-slider-thumb {
+  transform: scale(1.05);
+}
+
+.material-slider:active::-moz-range-thumb {
+  transform: scale(1.05);
+}
+
+.material-slider:focus-visible {
+  outline: none;
+}

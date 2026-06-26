@@ -55,12 +55,16 @@ from guardian.protocol_tokens import (
     LOOP_STOP_REASONS,
     ORCHESTRATOR_DECISION_TOKENS,
     ORCHESTRATOR_REASON_CODES,
+    REMOTE_RECALL_FAILURE_REASONS,
+    REMOTE_RECALL_SOURCE_KINDS,
+    REMOTE_RECALL_TRACE_EVENTS,
     TASK_EVENT_TYPES,
     TEST_RESULT_STATUSES,
     TOOL_LOOP_STOP_REASONS,
     TOOL_TURN_STATES,
     TRACE_SNAPSHOT_ABSENCE_REASONS,
     TRACE_SUPPRESSION_REASONS,
+    WEB_EVIDENCE_GATE_DECISIONS,
     AcceptanceStatus,
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
@@ -94,12 +98,16 @@ from guardian.protocol_tokens import (
     LoopStopReason,
     OrchestratorDecisionToken,
     OrchestratorReasonCode,
+    RemoteRecallFailureReason,
+    RemoteRecallSourceKind,
+    RemoteRecallTraceEvent,
     TaskEventType,
     TestResultStatus,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSnapshotAbsenceReason,
     TraceSuppressionReason,
+    WebEvidenceGateDecision,
 )
 
 
@@ -1139,4 +1147,108 @@ def test_chat_event_type_tokens() -> None:
     )
     assert CHAT_EVENT_TYPES == {
         "chat.orphaned_turn_recovered",
+    }
+
+
+def test_remote_recall_source_kind_tokens() -> None:
+    assert (
+        RemoteRecallSourceKind.GROQ_WEB_SEARCH.value == "groq_web_search"
+    )
+    assert RemoteRecallSourceKind.WIKIPEDIA.value == "wikipedia"
+    assert RemoteRecallSourceKind.ARXIV.value == "arxiv"
+    assert RemoteRecallSourceKind.SEMANTIC_SCHOLAR.value == "semantic_scholar"
+    assert RemoteRecallSourceKind.BRAVE_SEARCH.value == "brave_search"
+    assert (
+        RemoteRecallSourceKind.GOOGLE_CUSTOM_SEARCH.value
+        == "google_custom_search"
+    )
+    assert RemoteRecallSourceKind.LOCAL_PRIVATE_INDEX.value == (
+        "local_private_index"
+    )
+    assert REMOTE_RECALL_SOURCE_KINDS == {
+        "groq_web_search",
+        "wikipedia",
+        "arxiv",
+        "semantic_scholar",
+        "brave_search",
+        "google_custom_search",
+        "local_private_index",
+    }
+
+
+def test_web_evidence_gate_decision_tokens() -> None:
+    assert (
+        WebEvidenceGateDecision.ELIGIBLE_FOR_SYNTHESIS.value
+        == "eligible_for_synthesis"
+    )
+    assert WebEvidenceGateDecision.BLOCKED.value == "blocked"
+    assert WebEvidenceGateDecision.NEEDS_HUMAN_REVIEW.value == (
+        "needs_human_review"
+    )
+    assert WEB_EVIDENCE_GATE_DECISIONS == {
+        "eligible_for_synthesis",
+        "blocked",
+        "needs_human_review",
+    }
+
+
+def test_remote_recall_failure_reason_tokens() -> None:
+    assert RemoteRecallFailureReason.DISABLED.value == "disabled"
+    assert RemoteRecallFailureReason.LOCAL_ONLY_MODE.value == "local_only_mode"
+    assert (
+        RemoteRecallFailureReason.NOT_GLOBAL_SEARCH_POSTURE.value
+        == "not_global_search_posture"
+    )
+    assert (
+        RemoteRecallFailureReason.PROVIDER_NOT_CONFIGURED.value
+        == "provider_not_configured"
+    )
+    assert (
+        RemoteRecallFailureReason.PROVIDER_UNAUTHORIZED.value
+        == "provider_unauthorized"
+    )
+    assert RemoteRecallFailureReason.EGRESS_BLOCKED.value == "egress_blocked"
+    assert RemoteRecallFailureReason.AUTH_REQUIRED.value == "auth_required"
+    assert (
+        RemoteRecallFailureReason.PROVIDER_UNAVAILABLE.value
+        == "provider_unavailable"
+    )
+    assert (
+        RemoteRecallFailureReason.EMPTY_RESULT_SET.value == "empty_result_set"
+    )
+    assert (
+        RemoteRecallFailureReason.SAFETY_SCREEN_BLOCKED.value
+        == "safety_screen_blocked"
+    )
+    assert (
+        RemoteRecallFailureReason.NORMALIZATION_FAILED.value
+        == "normalization_failed"
+    )
+    assert RemoteRecallFailureReason.ADAPTER_ERROR.value == "adapter_error"
+    assert REMOTE_RECALL_FAILURE_REASONS == {
+        "disabled",
+        "local_only_mode",
+        "not_global_search_posture",
+        "provider_not_configured",
+        "provider_unauthorized",
+        "egress_blocked",
+        "auth_required",
+        "provider_unavailable",
+        "empty_result_set",
+        "safety_screen_blocked",
+        "normalization_failed",
+        "adapter_error",
+    }
+
+
+def test_remote_recall_trace_event_tokens() -> None:
+    assert RemoteRecallTraceEvent.INVOKED.value == "remote_recall.invoked"
+    assert RemoteRecallTraceEvent.SKIPPED.value == "remote_recall.skipped"
+    assert RemoteRecallTraceEvent.BLOCKED.value == "remote_recall.blocked"
+    assert RemoteRecallTraceEvent.COMPLETED.value == "remote_recall.completed"
+    assert REMOTE_RECALL_TRACE_EVENTS == {
+        "remote_recall.invoked",
+        "remote_recall.skipped",
+        "remote_recall.blocked",
+        "remote_recall.completed",
     }
