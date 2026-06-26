@@ -185,7 +185,7 @@ describe("Persona Studio persistence", () => {
     expect(
       screen.getByDisplayValue("Saved profile description")
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     await user.click(screen.getByRole("button", { name: /identity/i }));
 
@@ -212,7 +212,7 @@ describe("Persona Studio persistence", () => {
       expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument()
     );
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /identity/i }));
@@ -225,7 +225,7 @@ describe("Persona Studio persistence", () => {
     await user.click(screen.getByRole("button", { name: /^reset$/i }));
 
     expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /identity/i }));
@@ -247,7 +247,7 @@ describe("Persona Studio persistence", () => {
         screen.getByDisplayValue("Code Assistant Working")
       ).toBeInTheDocument()
     );
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
 
     await user.click(screen.getByRole("button", { name: /save as new/i }));
@@ -261,18 +261,18 @@ describe("Persona Studio persistence", () => {
         screen.getByRole("heading", { name: /code assistant working copy/i })
       ).toBeInTheDocument()
     );
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
     expect(
       screen.getByRole("button", { name: /code assistant working copy/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /code assistant working(?! copy)/i })
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     await user.click(screen.getByRole("button", { name: /identity/i }));
 
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
+    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
     await user.click(screen.getByRole("button", { name: /code assistant working(?! copy)/i }));
 
     expect(

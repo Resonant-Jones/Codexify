@@ -268,7 +268,7 @@ describe("Persona Studio Page", () => {
 
     const tablist = screen.getByTestId("persona-studio-rail-tabs");
     expect(tablist).toHaveAttribute("role", "tablist");
-    expect(tablist).toHaveAttribute("aria-label", /persona studio companion rail/i);
+    expect(tablist).toHaveAttribute("aria-label", "Persona Studio companion rail");
 
     const tabs = within(tablist).getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
