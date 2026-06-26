@@ -44,7 +44,7 @@ export default function PersonaProfileSelector({
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1.5 rounded-[var(--tile-radius)] border px-3 py-2"
+      className="flex flex-wrap items-center gap-1 rounded-[var(--tile-radius)] border px-2 py-1.5"
       data-testid="persona-studio-profile-selector"
       style={{
         borderColor: "var(--panel-border)",
@@ -53,7 +53,7 @@ export default function PersonaProfileSelector({
     >
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger
-          className="inline-flex items-center gap-1.5 rounded-[var(--tile-radius)] border px-2.5 py-1 text-xs font-medium transition-colors hover:border-[var(--accent)]"
+          className="inline-flex items-center gap-1 rounded-[var(--tile-radius)] border px-2 py-0.5 text-xs font-medium transition-colors hover:border-[var(--accent)]"
           style={{
             background: "transparent",
             borderColor: "var(--panel-border)",
@@ -62,9 +62,9 @@ export default function PersonaProfileSelector({
           data-testid="persona-studio-profile-selector-trigger"
           title="Select Persona Studio profile"
         >
-          <span className="max-w-[180px] truncate">{profileName}</span>
+          <span className="max-w-[160px] truncate">{profileName}</span>
           <svg
-            className="h-3 w-3 shrink-0"
+            className="h-2.5 w-2.5 shrink-0"
             style={{ color: "var(--muted)" }}
             fill="none"
             stroke="currentColor"
@@ -110,7 +110,13 @@ export default function PersonaProfileSelector({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="h-5 w-px shrink-0" style={{ background: "var(--panel-border)" }} />
+      <span
+        className="mx-0.5 select-none text-xs"
+        style={{ color: "var(--muted)" }}
+        aria-hidden="true"
+      >
+        ·
+      </span>
 
       <Button
         type="button"
@@ -118,7 +124,7 @@ export default function PersonaProfileSelector({
         size="sm"
         onClick={onSave}
         disabled={!isDirty}
-        className="h-7 text-xs"
+        className="h-6 text-xs px-2"
         data-testid="persona-studio-action-save"
       >
         Save profile
@@ -129,7 +135,7 @@ export default function PersonaProfileSelector({
         size="sm"
         onClick={onSaveAsNew}
         disabled={!selectedProfile}
-        className="h-7 text-xs"
+        className="h-6 text-xs px-2"
         data-testid="persona-studio-action-save-as-new"
       >
         Save as new profile
@@ -140,26 +146,32 @@ export default function PersonaProfileSelector({
         size="sm"
         onClick={onReset}
         disabled={!isDirty}
-        className="h-7 text-xs"
+        className="h-6 text-xs px-2"
         data-testid="persona-studio-action-reset"
       >
         Reset profile changes
       </Button>
 
-      <div className="ml-auto">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onResetAll}
-          className="h-7 text-xs"
-          style={{ color: "var(--muted)" }}
-          data-testid="persona-studio-action-reset-all"
-          title="Reset all local Persona Studio data"
-        >
-          Reset local Studio data
-        </Button>
-      </div>
+      <span
+        className="mx-1 select-none text-xs"
+        style={{ color: "var(--muted)" }}
+        aria-hidden="true"
+      >
+        ·
+      </span>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onResetAll}
+        className="h-6 text-xs px-2"
+        style={{ color: "var(--muted)" }}
+        data-testid="persona-studio-action-reset-all"
+        title="Reset all local Persona Studio data"
+      >
+        Reset local Studio data
+      </Button>
     </div>
   );
 }
