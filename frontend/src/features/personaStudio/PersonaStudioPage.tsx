@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -10,6 +9,7 @@ import {
 } from "./personaStudioStore";
 import TruthMatrix from "./components/TruthMatrix";
 import PersonaStudioRail from "./PersonaStudioRail";
+import PersonaProfileSelector from "./PersonaProfileSelector";
 
 function TabButton({
   active,
@@ -836,6 +836,18 @@ export default function PersonaStudioPage() {
                     Configure reusable agent profiles.
                   </p>
                 </div>
+                <PersonaProfileSelector
+                  profiles={profiles}
+                  selectedProfileId={selectedProfileId}
+                  onSelectProfile={setSelectedProfileId}
+                  selectedProfile={selectedProfile}
+                  isDirty={isDirty}
+                  hasSavedVersion={hasSavedVersion}
+                  onSave={handleSave}
+                  onSaveAsNew={handleSaveAsNew}
+                  onReset={handleReset}
+                  onResetAll={resetAllLocalPersonaStudioData}
+                />
                 <div
                   className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
                   data-testid="persona-studio-tabs"
@@ -858,43 +870,6 @@ export default function PersonaStudioPage() {
 
               <div
                 className="rounded-[var(--tile-radius)] border px-4 py-4"
-                data-testid="persona-studio-active-profile-summary"
-                style={{
-                  background: "color-mix(in srgb, var(--panel-bg) 93%, transparent)",
-                  borderColor: "var(--panel-border)",
-                }}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0 space-y-1.5">
-                    <CardTitle className="text-lg leading-6">{selectedProfile?.name || "Editor"}</CardTitle>
-                    <p className="max-w-2xl text-sm leading-6" style={{ color: "var(--muted)" }}>
-                      {selectedProfile?.description || "Select a persona profile to edit its runtime identity and behavior."}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
-                      {selectedProfile?.isDefault ? "Default" : "Custom"}
-                    </Badge>
-                    <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
-                      Active
-                    </Badge>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-2.5">
-                  <Button type="button" onClick={handleSave} disabled={!isDirty}>
-                    Save
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleSaveAsNew} disabled={!currentConfig}>
-                    Save As New
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleReset} disabled={!isDirty}>
-                    Reset
-                  </Button>
-                </div>
-              </div>
-
-              <div
-                className="rounded-[var(--tile-radius)] border px-4 py-4"
                 role="region"
                 aria-label="Persona Studio editor"
                 data-testid="persona-studio-editor"
@@ -905,29 +880,13 @@ export default function PersonaStudioPage() {
                   borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
                 }}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
                     {activeTab}
                   </Badge>
                 </div>
-
-                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
+                <div className="mt-4">
                   {renderActiveTab()}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-2.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetAllLocalPersonaStudioData}
-                    className="whitespace-nowrap"
-                    aria-label="Reset All Local Persona Studio Data"
-                    title="Reset All Local Persona Studio Data"
-                  >
-                    Reset All Data
-                  </Button>
                 </div>
               </div>
             </div>
@@ -937,9 +896,6 @@ export default function PersonaStudioPage() {
               data-testid="persona-studio-rail-lane"
             >
               <PersonaStudioRail
-                profiles={profiles}
-                selectedProfileId={selectedProfileId}
-                onSelectProfile={setSelectedProfileId}
                 selectedProfile={selectedProfile}
                 config={currentConfig}
                 isDirty={isDirty}

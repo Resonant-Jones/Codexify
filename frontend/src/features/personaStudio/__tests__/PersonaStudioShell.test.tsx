@@ -134,9 +134,8 @@ describe("Persona Studio Shell Integration", () => {
       "data-state",
       "active"
     );
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+    // Profile selector is present
+    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
@@ -154,11 +153,11 @@ describe("Persona Studio Shell Integration", () => {
       "persona-studio-rail-panel-preview"
     );
 
-    const profilesTab = screen.getByRole("tab", { name: /^profiles$/i });
-    expect(profilesTab).toHaveAttribute("aria-selected", "false");
-
     const diagnosticsTab = screen.getByRole("tab", { name: /^diagnostics$/i });
     expect(diagnosticsTab).toHaveAttribute("aria-selected", "false");
+
+    // Profiles tab no longer exists on the rail
+    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
   });
 
   it("renders the editor tabs when Persona Studio is active", () => {
@@ -212,24 +211,33 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByText(/distinct from generation top k/i)).toBeInTheDocument();
   });
 
-  it("can switch between profile tabs", async () => {
+  it("can select a profile from the profile selector", async () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    // Profiles tab in the rail is hidden by default (Preview is default).
-    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
-    const codeAssistantCard = screen.getAllByText("Code Assistant")[0]?.closest("button");
-    if (codeAssistantCard) {
-      await user.click(codeAssistantCard);
-    }
-    expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+    // Open profile selector
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    await user.click(trigger);
+
+    // Select Code Assistant
+    const codeAssistantOption = screen.getByTestId("persona-studio-profile-option-profile-2");
+    await user.click(codeAssistantOption);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant/i);
   });
 
-  it("renders Save, Save As New, and Reset controls", () => {
+  it("renders profile actions in the selector dropdown", async () => {
+    const user = userEvent.setup();
     renderAppShell();
 
-    expect(screen.getByRole("button", { name: /save as new/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset$/i })).toBeInTheDocument();
+    // Open profile selector
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    // Profile actions are inside the dropdown
+    expect(screen.getByTestId("persona-studio-action-save")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toBeVisible();
   });
 
   it("renders a truthful matrix for current Persona Studio controls", async () => {

@@ -111,7 +111,7 @@ describe("Persona Studio two-pane layout", () => {
     );
   });
 
-  it("renders the right rail with Preview | Profiles | Diagnostics tabs and Preview as default", () => {
+  it("renders the right rail with Preview | Diagnostics tabs and Preview as default", () => {
     renderPage();
 
     const tablist = screen.getByTestId("persona-studio-rail-tabs");
@@ -119,26 +119,17 @@ describe("Persona Studio two-pane layout", () => {
 
     const railTabs = within(tablist).getAllByRole("tab");
     const tabNames = railTabs.map((tab) => tab.textContent?.trim());
-    expect(tabNames).toEqual(["Preview", "Profiles", "Diagnostics"]);
+    expect(tabNames).toEqual(["Preview", "Diagnostics"]);
     expect(railTabs[0]).toHaveAttribute("aria-selected", "true");
     expect(railTabs[1]).toHaveAttribute("aria-selected", "false");
-    expect(railTabs[2]).toHaveAttribute("aria-selected", "false");
   });
 
-  it("switches the rail between Preview, Profiles, and Diagnostics", async () => {
+  it("switches the rail between Preview and Diagnostics", async () => {
     const user = userEvent.setup();
     renderPage();
 
     // Preview is default
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
-
-    // Switch to Profiles
-    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
-    expect(screen.getByRole("tab", { name: /^profiles$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
 
     // Switch to Diagnostics
     await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
@@ -147,5 +138,13 @@ describe("Persona Studio two-pane layout", () => {
       "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
+
+    // Switch back to Preview
+    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 });
