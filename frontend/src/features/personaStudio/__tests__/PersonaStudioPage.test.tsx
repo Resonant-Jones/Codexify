@@ -352,18 +352,23 @@ describe("Persona Studio Page", () => {
     expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
   });
 
-  it("keeps the profile selector in the header, not inside module panels", () => {
+  it("places the profile selector after the editor, not inside module panels", () => {
     renderPage();
 
-    // Profile selector lives in the shell header
+    // Profile selector is not inside the shell header
     const header = screen.getByTestId("persona-studio-shell-header");
-    expect(within(header).getByTestId("persona-studio-profile-selector")).toBeVisible();
+    expect(within(header).queryByTestId("persona-studio-profile-selector")).not.toBeInTheDocument();
 
-    // No profile selector inside the editor
+    // Profile selector is not inside the editor
     expect(
       within(screen.getByTestId("persona-studio-editor")).queryByTestId(
         "persona-studio-profile-selector"
       )
     ).not.toBeInTheDocument();
+
+    // Profile selector follows the editor in DOM order
+    const editor = screen.getByTestId("persona-studio-editor");
+    const selector = screen.getByTestId("persona-studio-profile-selector");
+    expect(editor.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

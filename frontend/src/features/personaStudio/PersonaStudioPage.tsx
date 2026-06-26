@@ -836,18 +836,6 @@ export default function PersonaStudioPage() {
                     Configure reusable agent profiles.
                   </p>
                 </div>
-                <PersonaProfileSelector
-                  profiles={profiles}
-                  selectedProfileId={selectedProfileId}
-                  onSelectProfile={setSelectedProfileId}
-                  selectedProfile={selectedProfile}
-                  isDirty={isDirty}
-                  hasSavedVersion={hasSavedVersion}
-                  onSave={handleSave}
-                  onSaveAsNew={handleSaveAsNew}
-                  onReset={handleReset}
-                  onResetAll={resetAllLocalPersonaStudioData}
-                />
                 <div
                   className="glass-pill flex w-full items-stretch gap-1.5 overflow-x-auto px-1"
                   data-testid="persona-studio-tabs"
@@ -889,6 +877,19 @@ export default function PersonaStudioPage() {
                   {renderActiveTab()}
                 </div>
               </div>
+
+              <PersonaProfileSelector
+                profiles={profiles}
+                selectedProfileId={selectedProfileId}
+                onSelectProfile={setSelectedProfileId}
+                selectedProfile={selectedProfile}
+                isDirty={isDirty}
+                hasSavedVersion={hasSavedVersion}
+                onSave={handleSave}
+                onSaveAsNew={handleSaveAsNew}
+                onReset={handleReset}
+                onResetAll={resetAllLocalPersonaStudioData}
+              />
             </div>
 
             <div

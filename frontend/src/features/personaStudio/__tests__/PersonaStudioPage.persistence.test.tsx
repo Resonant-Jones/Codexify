@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -178,9 +178,8 @@ describe("Persona Studio persistence", () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
 
-    expect(
-      screen.getByRole("heading", { name: "Code Assistant Saved" })
-    ).toBeInTheDocument();
+    // Profile selector shows saved profile
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant saved/i);
     expect(screen.getByDisplayValue("Code Assistant Saved")).toBeInTheDocument();
     expect(
       screen.getByDisplayValue("Saved profile description")
@@ -203,7 +202,9 @@ describe("Persona Studio persistence", () => {
     expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
     expect(screen.getByText("Unsaved Draft")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    // Open profile selector and save
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await user.click(screen.getByTestId("persona-studio-action-save"));
 
     await waitFor(() =>
       expect(personaStudioApiMock.updatePersonaProfile).toHaveBeenCalled()
@@ -222,7 +223,9 @@ describe("Persona Studio persistence", () => {
 
     expect(screen.getByText("Unsaved Draft")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^reset$/i }));
+    // Open profile selector and reset
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await user.click(screen.getByTestId("persona-studio-action-reset"));
 
     expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
@@ -240,7 +243,10 @@ describe("Persona Studio persistence", () => {
     const nameInput = screen.getByPlaceholderText(/enter persona name/i);
     await user.clear(nameInput);
     await user.type(nameInput, "Code Assistant Working");
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // Open profile selector and save
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await user.click(screen.getByTestId("persona-studio-action-save"));
 
     await waitFor(() =>
       expect(
@@ -250,34 +256,34 @@ describe("Persona Studio persistence", () => {
     await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
 
-    await user.click(screen.getByRole("button", { name: /save as new/i }));
+    // Open profile selector and save as new
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await user.click(screen.getByTestId("persona-studio-action-save-as-new"));
 
     await waitFor(() =>
       expect(personaStudioApiMock.createPersonaProfile).toHaveBeenCalled()
     );
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: /code assistant working copy/i })
-      ).toBeInTheDocument()
-    );
-    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
-    expect(
-      screen.getByRole("button", { name: /code assistant working copy/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /code assistant working(?! copy)/i })
-    ).toBeInTheDocument();
+    // Profile selector now shows the copy
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant working copy/i);
+
+    // Open selector and verify both profiles are listed
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    const list = screen.getByTestId("persona-studio-profile-selector-list");
+    expect(within(list).getByText(/code assistant working copy/i)).toBeVisible();
+    expect(within(list).getByText(/code assistant working(?! copy)/i)).toBeVisible();
+
     await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     await user.click(screen.getByRole("button", { name: /identity/i }));
 
-    await user.click(screen.getByRole("tab", { name: /^profiles$/i }));
-    await user.click(screen.getByRole("button", { name: /code assistant working(?! copy)/i }));
+    // Select the original profile from the dropdown
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+    await user.click(screen.getByTestId("persona-studio-profile-option-profile-2"));
 
     expect(
-      screen.getByRole("heading", { name: "Code Assistant Working" })
-    ).toBeInTheDocument();
+      screen.getByTestId("persona-studio-profile-selector-trigger")
+    ).toHaveTextContent(/code assistant working/i);
     expect(screen.getByDisplayValue("Code Assistant Working")).toBeInTheDocument();
   });
 
