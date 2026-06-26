@@ -21,6 +21,12 @@ export interface PersonaProfileSelectorProps {
   onResetAll: () => void;
 }
 
+/**
+ * Compact ownership + action strip rendered directly beneath the active
+ * module editor. The selected-profile control is a small inline Button —
+ * it must remain visually secondary to the module editor and never grow
+ * into a square/tile shape.
+ */
 export default function PersonaProfileSelector({
   profiles,
   selectedProfileId,
@@ -44,41 +50,42 @@ export default function PersonaProfileSelector({
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1 rounded-[var(--tile-radius)] border px-2 py-1.5"
+      className="flex flex-wrap items-center gap-1"
       data-testid="persona-studio-profile-selector"
-      style={{
-        borderColor: "var(--panel-border)",
-        background: "color-mix(in srgb, var(--panel-bg) 93%, transparent)",
-      }}
     >
       <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger
-          className="inline-flex items-center gap-1 rounded-[var(--tile-radius)] border px-2 py-0.5 text-xs font-medium transition-colors hover:border-[var(--accent)]"
-          style={{
-            background: "transparent",
-            borderColor: "var(--panel-border)",
-            color: "var(--text)",
-          }}
-          data-testid="persona-studio-profile-selector-trigger"
-          title="Select Persona Studio profile"
-        >
-          <span className="max-w-[160px] truncate">{profileName}</span>
-          <svg
-            className="h-2.5 w-2.5 shrink-0"
-            style={{ color: "var(--muted)" }}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid="persona-studio-profile-selector-trigger"
+            title={`Profile: ${profileName} — click to switch`}
+            aria-label={`Profile: ${profileName}`}
+            className="h-6 gap-1 px-2 text-xs"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+            <span
+              data-testid="persona-studio-profile-selector-trigger-name"
+              className="max-w-[180px] truncate"
+            >
+              {profileName}
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-[10px] leading-none"
+              style={{ color: "var(--muted)" }}
+            >
+              ▾
+            </span>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           className="z-50 min-w-[240px] overflow-hidden rounded-[var(--card-radius)] border p-1"
           style={{
             background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
             borderColor: "var(--panel-border)",
-            boxShadow: "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
+            boxShadow:
+              "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
           }}
           data-testid="persona-studio-profile-selector-dropdown"
         >
@@ -101,7 +108,10 @@ export default function PersonaProfileSelector({
                 data-testid={`persona-studio-profile-option-${profile.id}`}
               >
                 <span className="flex-1 truncate">{profile.name}</span>
-                <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
+                <span
+                  className="shrink-0 text-xs"
+                  style={{ color: "var(--muted)" }}
+                >
                   {profile.isDefault ? "Default" : "Custom"}
                 </span>
               </DropdownMenuItem>

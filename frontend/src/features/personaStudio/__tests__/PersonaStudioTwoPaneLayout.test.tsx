@@ -147,4 +147,51 @@ describe("Persona Studio two-pane layout", () => {
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
+
+  it("renders the compact inline profile trigger inside the configuration lane with profile text", () => {
+    renderPage();
+
+    const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
+    const configurationLane = within(layout).getByTestId(
+      "persona-studio-configuration-lane"
+    );
+
+    const trigger = within(configurationLane).getByTestId(
+      "persona-studio-profile-selector-trigger"
+    );
+
+    // Profile name visible — text-first
+    expect(
+      within(configurationLane).getByTestId(
+        "persona-studio-profile-selector-trigger-name"
+      )
+    ).toHaveTextContent(/guardian default/i);
+
+    // No oversized icon
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    // Profile-level actions and Studio reset live in the same lane
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-save")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-save-as-new")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-reset")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-reset-all")
+    ).toBeInTheDocument();
+
+    // Reset local Studio data appears exactly once across the whole page
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+
+    // Reset All Data does not appear
+    expect(
+      screen.queryByRole("button", { name: /^reset all data$/i })
+    ).not.toBeInTheDocument();
+  });
 });

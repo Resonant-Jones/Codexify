@@ -371,4 +371,70 @@ describe("Persona Studio Page", () => {
     const selector = screen.getByTestId("persona-studio-profile-selector");
     expect(editor.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("renders the profile selector trigger as compact inline text with the current profile name", () => {
+    renderPage();
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+
+    // Visible profile name text — text-first, not icon-only
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(
+      screen.getByTestId("persona-studio-profile-selector-trigger-name")
+    ).toHaveTextContent(/guardian default/i);
+
+    // No oversized SVG chevron block inside the trigger
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    // Accessible label and title include "Profile:"
+    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
+    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
+
+    // The old tile/card test ids must not exist
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-tile")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-card")
+    ).not.toBeInTheDocument();
+
+    // The selected profile name must not be rendered as a separate card inside the editor
+    // (repeated profile cards inside module panels are not allowed)
+    const editor = screen.getByTestId("persona-studio-editor");
+    expect(
+      within(editor).queryByTestId("persona-studio-active-profile-summary")
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders profile-level actions and the Studio reset exactly once, and never 'Reset All Data'", () => {
+    renderPage();
+
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^reset local studio data$/i })
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+
+    expect(
+      screen.queryByRole("button", { name: /^reset all data$/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/reset all data/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a bounded scrollable profile list from the compact trigger", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    const list = screen.getByTestId("persona-studio-profile-selector-list");
+    expect(list).toBeInTheDocument();
+    expect(list.className).toMatch(/overflow-y-auto/);
+    expect(list.className).toMatch(/max-h-/);
+  });
 });
