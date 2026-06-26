@@ -15,7 +15,7 @@ When a report identifies something worth proposing, a separate proposal should b
 
 | Date | Report | Lens | Area | Status | Key Question | Follow-up |
 |---|---|---|---|---|---|---|
-| TBD | No reports filed yet | N/A | N/A | N/A | N/A | N/A |
+| 2026-06-26 | `2026-06-26-cartographer-repo-orientation-report.md` | Cartographer | Codexify repo top-level orientation | `draft` | What are the main repo regions Zac should understand first? | Choose next report lane after review |
 
 ## Status Legend
 
