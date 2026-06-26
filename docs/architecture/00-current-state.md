@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-24
+2026-06-25
 
 ## Interpretation rule
 This file is authoritative for:
@@ -23,6 +23,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - `main` added a Zac Mac Studio local bring-up path.
 - `main` imported OpenAI export conversations into chat history and added Task Prompt Archive.
 - `main` preserved the local-only beta posture and current-state override pattern.
+- `main` added a six-route Continuity operator surface (write, readback, diagnostics, state readback, commit readback, link readback) as a test-only, profile-quarantined, API-key-gated operator surface under the `continuity_operator` route key. It is live-proven and regression-pinned under the `test-continuity` profile only. It **remains quarantined** from the supported beta profile `v1-local-core-web-mcp`. It does not widen the supported beta release promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -38,6 +39,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - Graph writes remain default-off on the supported Compose path.
+- The Continuity operator surface (`continuity_operator`) lives under `test-continuity` profile with `CODEXIFY_ENABLE_CONTINUITY_OPERATOR_ROUTES=true` and `require_api_key`. It is test-only and quarantined from `v1-local-core-web-mcp`. It is not user-facing, not Project Pulse, not export/restore, not graph support, and not supported beta behavior.
 - Guardian work-order briefing exists on `main`, but it is operator support material, not a widened runtime promise.
 
 ## Not yet true / do not assume
@@ -60,6 +62,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - Do not infer desktop packaging readiness from architecture docs alone.
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 - Do not assume the Zac Mac Studio bring-up path is a wider deployment promise than the documented local path.
+- Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, command bus, or list/search behavior. It is test-only and profile-quarantined.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
