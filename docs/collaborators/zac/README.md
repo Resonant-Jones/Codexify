@@ -46,6 +46,7 @@ Resonant Jones wants Zac to work from curiosity and inspiration, not assigned ti
 | `report-only-agent-lenses.md` | Seven report-only lenses Zac can ask an agent to use for learning the codebase. |
 | `report-request-prompts.md` | Copy-paste prompts for each report-only lens plus a general prompt and follow-up proposal prompt. |
 | `report-output-templates.md` | Standardized report shapes for directory maps, UI observations, runtime boundaries, test coverage, and Continuity phases. |
+| `reports/` | Report archive and intake index. Where generated reports land. See `reports/README.md`. |
 
 ## Quick Start: Copy-Paste Prompt
 
@@ -68,6 +69,12 @@ If Zac wants an agent to explore, tell the agent:
 Zac can use report-only lenses while learning the repo. These lenses produce grounded reports — directory maps, UI observations, boundary summaries, test coverage maps — without any implementation or proposal pressure.
 
 Reports are useful even when they do not lead to code changes. They help Zac build a mental map of Codexify step by step. Proposals come later if something still feels worth changing after the report.
+
+## Report Archive
+
+Generated reports can be stored in `docs/collaborators/zac/reports/`. Use `reports/report-index.md` to track them. Follow `reports/report-filename-conventions.md` for naming.
+
+Reports in the archive are learning artifacts only. They are not tasks, not approvals, and not architecture authority. `docs/architecture/00-current-state.md` remains authoritative. See `reports/README.md` for the full archive protocol.
 
 ## Bottom Line
 
