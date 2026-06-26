@@ -20,6 +20,16 @@ When Zac wants to learn rather than propose, use these report-only files:
 - `docs/collaborators/zac/report-request-prompts.md` — copy-paste prompts for each lens plus a general report prompt.
 - `docs/collaborators/zac/report-output-templates.md` — standardized report shapes for each lens type.
 
+### Report Archive
+
+When a report is generated, save it under `docs/collaborators/zac/reports/`:
+
+- `docs/collaborators/zac/reports/README.md` — archive protocol, authority boundary, statuses.
+- `docs/collaborators/zac/reports/report-index.md` — intake index for tracking generated reports.
+- `docs/collaborators/zac/reports/report-filename-conventions.md` — naming conventions for report files.
+
+Reports are learning artifacts, not tasks or architecture authority.
+
 Reports produce understanding. Proposals produce intent. Both are valid, but they are separate agent modes.
 
 ## Current Continuity Milestone
