@@ -122,6 +122,19 @@ The three-stage readback contract (`continuity-operator-state-commit-link-readba
 
 No list/search, relationship traversal, or payload expansion semantics were added.
 
+## Regression Guardrail
+
+`tests/continuity/test_continuity_operator_six_route_surface.py` is the dedicated regression seam for the six-route operator surface. It protects against accidental surface drift:
+
+- **Route inventory**: all six routes are pinned by exact count and path patterns
+- **Shared surface key**: asserts `continuity_operator` is the single route surface key
+- **Profile quarantine**: asserts `v1-local-core-web-mcp` quarantines the surface; `test-continuity` exposes it
+- **No unsupported routes**: asserts no list-all-without-parameter, search, traverse, graph, pulse, export, or restore routes exist
+- **Auth boundary**: asserts `require_api_key` is used across all operator routes
+- **No ambient call sites**: asserts `ContinuityWriteActionService` appears only in approved files; no `continuity_operator` refs outside the route module
+
+This is a regression guardrail, not a live stack proof. It does not prove supported beta support, UI, Project Pulse, export/restore, list/search, relationship traversal, payload expansion, or live Docker behavior.
+
 ## Release Claim Boundary
 
 - Test-only proof is not supported beta support.
