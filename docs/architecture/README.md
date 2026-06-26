@@ -75,6 +75,8 @@ If you are working on continuity governance, working-set decay, or import-aware 
 
 If you are working on the continuity control plane itself, including scope, intensity, decay, import treatment, exclusions, inspection, and reset semantics, continue with [`ADR-016: Continuity Governance Surface Contract`](./adr/016-continuity-governance-surface-contract.md) after ADR-015. That ADR defines the user-governed surface that configures continuity behavior without collapsing it into persona ownership or deep identity consent.
 
+For a human-readable narrative companion to the reported (test-only, quarantined) Continuity operator phase, read [`Continuity Operator Phase Narrative Log`](./2026-06-25-continuity-operator-phase-narrative-log.md). It is explanatory only — a collaborator-facing build story, not a normative source of truth, and it does not supersede [`00-current-state.md`](./00-current-state.md), the governing ADRs, the operator contracts, the proof-chain docs, or the milestone handoff docs.
+
 If you are working on Pi SDK integration, external coding-agent harnesses, or Pi-like execution, start with [`Pi Invocation Boundary Contract`](./pi-invocation-boundary-contract.md) and then apply Guardian-mediated coding-agent execution doctrine (ADR-020 when present in this repo lineage). Treat provider/model integration (including Minimax) as a separate provider-lane concern.
 If you are working on graph-write replay safety or receipt semantics for the inspection-only graph lane, continue with [`ADR-017: Graph Write Idempotency and Receipt Semantics`](./adr/017-graph-write-idempotency-and-receipt-semantics.md) after ADR-011. That ADR defines deterministic graph-write identity and ephemeral receipt claims without introducing graph truth.
 
