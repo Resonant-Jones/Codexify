@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -549,6 +550,44 @@ def test_call_local_local_only_uses_resolved_model_for_execution(monkeypatch):
 
     assert result == "Local call reply"
     assert captured["json"]["model"] == "qwen3.5:0.8b"
+
+
+def test_call_local_uses_local_max_tokens_when_not_explicitly_provided(
+    monkeypatch,
+):
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, timeout)
+        return _MockRawResponse({"message": {"content": "Local call reply"}})
+
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+
+    settings = SimpleNamespace(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_CHAT_MODEL="qwen3.5:0.8b",
+        DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
+        LLM_MODEL="library2/ministral-3:8b",
+        LOCAL_API_KEY="local",
+        LOCAL_MAX_TOKENS=321,
+    )
+
+    result = call_local(
+        [{"role": "user", "content": "hello"}],
+        "library2/ministral-3:8b",
+        settings=settings,
+    )
+
+    assert result == "Local call reply"
+    assert captured["json"]["model"] == "qwen3.5:0.8b"
+    assert captured["json"]["max_tokens"] == 321
 
 
 def test_stream_local_local_only_uses_resolved_model_for_execution(

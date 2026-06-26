@@ -226,6 +226,14 @@ export default function FactCandidateReview({ userId }: Props) {
     setActionError(null);
     const sensitive = sensitiveIds.has(factId);
     const isBlocked = blockedIds.has(factId);
+    const requiresOverrideReason = isBlocked || opts?.overrideGuardrail === true;
+    const overrideReason = opts?.overrideNote?.trim();
+
+    if (requiresOverrideReason && !overrideReason) {
+      setActionError("Override reason is required for blocked candidates.");
+      return;
+    }
+
     try {
       await approveFactCandidate(factId, {
         reason: sensitive
@@ -233,12 +241,8 @@ export default function FactCandidateReview({ userId }: Props) {
           : "user approved from review panel",
         value: editedValue?.trim() || undefined,
         force_sensitive: sensitive || undefined,
-        override_guardrail:
-          (isBlocked || opts?.overrideGuardrail) ? true : undefined,
-        override_note:
-          (isBlocked || opts?.overrideGuardrail)
-            ? (opts?.overrideNote || "override confirmed from review panel")
-            : undefined,
+        override_guardrail: requiresOverrideReason ? true : undefined,
+        override_note: requiresOverrideReason ? overrideReason : undefined,
       });
       setCandidates((prev) => prev.filter((c) => c.id !== factId));
       setEditingId(null);
@@ -448,8 +452,13 @@ export default function FactCandidateReview({ userId }: Props) {
                     }}
                     onClick={() =>
                       handleApprove(fact.id, editValue, {
-                        overrideNote: overrideNote || undefined,
+                        overrideNote,
                       })
+                    }
+                    disabled={
+                      blockedIds.has(fact.id) &&
+                      editingId === fact.id &&
+                      overrideNote.trim().length === 0
                     }
                     aria-label="Save edited value and approve"
                   >

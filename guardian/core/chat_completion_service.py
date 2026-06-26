@@ -181,7 +181,15 @@ _GUARDIAN_MENTION_RE = re.compile(r"@guardian\b", re.IGNORECASE)
 
 
 def _clean_retrieval_query(raw: str | None) -> str:
-    """Normalize the retrieval query without mutating the conversation turn."""
+    """
+    Strip the leading `[username]: ` sender tag and any `@guardian` mention
+    from a user message before it is sent to the vector store as the
+    retrieval query. Returns a whitespace-collapsed string.
+
+    Empty / non-string input returns "" so callers can pass optional content
+    safely. Attachment/doc tiles are extracted earlier by
+    `render_content_for_inference` and survive the strip.
+    """
     if not isinstance(raw, str) or not raw.strip():
         return ""
     cleaned = _LEADING_USERNAME_TAG_RE.sub("", raw, count=1)
@@ -191,7 +199,14 @@ def _clean_retrieval_query(raw: str | None) -> str:
 
 
 def _extract_finish_reason(result: dict[str, Any] | None) -> str | None:
-    """Best-effort extraction of finish_reason from a completion result."""
+    """
+    Best-effort extraction of `finish_reason` from a completion result.
+
+    `call_local` / `call_groq` return only the assistant text string, so this
+    will usually be None. When the underlying provider response is preserved
+    on the result (e.g. some tool-decision paths or wrapped responses), the
+    OpenAI-style `choices[0].finish_reason` is surfaced here.
+    """
     if not isinstance(result, dict):
         return None
     raw = result.get("raw")
@@ -212,7 +227,11 @@ def _extract_finish_reason(result: dict[str, Any] | None) -> str | None:
 
 
 def _summarize_retrieval_bundle(bundle: Any) -> dict[str, Any]:
-    """Compact diagnostic summary for a retrieval bundle."""
+    """
+    Compact summary of a retrieval bundle for diagnostic logging. Counts the
+    number of hits per channel (semantic/memory/graph/personal-facts) so you
+    can see at a glance whether context actually made it into the prompt.
+    """
     if not isinstance(bundle, dict):
         return {"present": False}
     summary: dict[str, Any] = {"present": True}
@@ -239,7 +258,14 @@ def _log_completion_diagnostics(
     assistant_text: str,
     result: dict[str, Any],
 ) -> None:
-    """Emit one structured completion diagnostic line and never fail the turn."""
+    """
+    Emit a single structured log line per completion with what the model
+    actually returned. Used to diagnose "messages truncated in the UI":
+    if `assistant_text_length` is small and `finish_reason == "length"`,
+    the model hit its output cap (look at LOCAL_MAX_TOKENS / provider
+    default). If `finish_reason` is None, the providers didn't surface it
+    — that's normal for Codexify's current local/groq paths.
+    """
     try:
         assistant_length = len(assistant_text or "")
         finish_reason = _extract_finish_reason(result)
@@ -261,6 +287,7 @@ def _log_completion_diagnostics(
             },
         )
     except Exception:
+        # Diagnostics must never break the completion path.
         logger.exception("chat.completion.diagnostics_failed")
 
 
@@ -3710,6 +3737,9 @@ async def build_messages_for_llm(
 
     conversation_messages = [*history_messages, latest_turn]
     # Retrieval must follow the latest user turn, not earlier history.
+    # Strip the "[username]: " sender tag and any "@guardian" mention from the
+    # query so they don't dominate the embedding match against the KB. The
+    # user_id is still threaded through to the system prompt separately.
     retrieval_query = _clean_retrieval_query(
         render_content_for_inference(latest_turn.get("content"))
     )
