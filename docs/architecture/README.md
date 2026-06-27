@@ -55,7 +55,7 @@ If you are working on Pi SDK integration, Pi-like external coding-agent harnesse
 
 If you are working on a cross-surface Guardian intent spine for chat, voice, automation, CLI, or future plugin entrypoints, start with [`ADR-022: Guardian Intent Spine and Cross-Surface Control Plane`](./adr/022-guardian-intent-spine-and-cross-surface-control-plane.md). That ADR defines the canonical envelope and dispatch rules for "do this on my behalf" requests.
 
-If you are working on the pre-model turn-intake seam for intent typing, authority posture, retrieval scope, context policy, or actionability classification, start with [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md). It is docs-only and does not implement runtime behavior.
+If you are working on the pre-model turn-intake seam for intent typing, authority posture, retrieval scope, context policy, or actionability classification, start with [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md). For representative expected classifications before runtime implementation, also read [`Turn Intake Fixture Pack`](./turn-intake-fixture-pack.md). Both are docs-only and do not implement runtime behavior.
 
 If you are working on slash-command connector invocation, active connector semantics, Obsidian context commands, GitHub/Discord/Drive-style connector context, or MCP connector/tool invocation boundaries, start with [`ADR-024: Context Command and Active Connector Semantics`](./adr/024-context-command-active-connector-semantics.md). That ADR defines the turn-scoped connector doctrine without claiming any specific connector runtime is already implemented.
 
@@ -153,6 +153,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Build Proposal Artifact Contract](./build-proposal-artifact-contract.md): canonical review artifact between diagnosis and execution in the Guardian Build Loop. It does not approve, execute, or prove work, and it does not claim autonomous execution.
 - [Unity Audit Scaffold](../audits/unity/latest.md): repo-local executable coherence report scaffold over existing audit and architecture signals. It is not a governance oracle, runtime proof engine, or release signoff substitute.
 - [Turn Intake Compiler Contract](./turn-intake-compiler-contract.md): docs-only architecture contract for the pre-model turn posture seam for intent, authority, retrieval, context presentation, and actionability; it does not implement runtime behavior.
+- [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md): docs-only fixture pack companion to the Turn Intake Compiler Contract; it defines representative expected classifications before runtime implementation and does not implement classifier, routing, prompt, tool, or retrieval behavior.
 - [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, replay, and transcript-integrity semantics.
 - [Guardian Chat Portal](./guardian-chat-portal.md): browser shell guide for the Guardian chat surface, session rail, sidebar, and mobile portal overlay. It explains how the current portal is wired and how to operate it.
 - [Agent Tool Loop Contract](./agent-tool-loop-contract.md): implemented one-turn tool-augmented completion contract on the canonical command-bus lane.

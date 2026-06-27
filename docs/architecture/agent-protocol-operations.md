@@ -73,9 +73,12 @@ Read it before changing per-turn intent classification, retrieval or action rout
 
 Treat those changes as architecture-impacting work and stay in the architecture-impact workflow.
 
+Consult the Turn Intake Fixture Pack before changing turn classification, retrieval posture, context-packet construction, or action-gate semantics.
+
 Read more:
 
 - [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md)
+- [`Turn Intake Fixture Pack`](./turn-intake-fixture-pack.md)
 - [`Retrieval Router Decision Table`](./router-decision-table.md)
 - [`Agent Tool Loop Contract`](./agent-tool-loop-contract.md)
 - [`Chat Runtime Contract`](./chat-runtime-contract.md)

@@ -18,6 +18,8 @@ Source anchors / governing docs:
 
 This is a docs-only contract. It defines the pre-model turn-posture seam and does not claim a live implementation. If runtime adoption is pursued later, ADR follow-up may be required.
 
+Companion surface: [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md) provides representative expected classifications for this contract. It is docs-only and does not prove runtime implementation. Future classifier or routing tests should treat it as doctrine source material only after converting the expectations into executable fixtures.
+
 ## Purpose
 
 The Turn Intake Compiler is the governed seam that interprets a turn before the model sees it.
