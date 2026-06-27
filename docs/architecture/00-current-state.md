@@ -18,6 +18,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 ## What changed recently
 - `main` refreshed collaborator onboarding docs and linked them into the architecture KB front door.
 - `main` added a collab chat identity contract as docs-only guidance, not shipped runtime support.
+- `main` added a docs-only Turn Intake Compiler Contract as a governed pre-model intake seam, without claiming runtime support.
 - `main` surfaced personal-facts guardrails and Scout operator-surface docs in the KB.
 - `main` merged a Whoosh'd inventory source fix and launcher/model-environment cleanup.
 - `main` completed the six-route Continuity operator proof chain, but kept it quarantined behind `test-continuity`.
@@ -41,6 +42,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume the collab chat identity contract or personal-facts guardrails are release-proven runtime behavior from docs alone.
 - Do not assume Scout/iOS contract docs mean shipped Scout runtime support.
+- Do not assume the Turn Intake Compiler contract means a live runtime intake classifier, action router, retrieval-router integration, or model-prompt packet builder is implemented.
 - Do not assume command bus, delegation, federation, or graph-write surfaces are part of the present release promise.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.

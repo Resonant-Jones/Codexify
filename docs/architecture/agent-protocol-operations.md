@@ -68,6 +68,18 @@ Read more:
 - [`Chat Runtime Contract`](./chat-runtime-contract.md)
 - [`Critical Flows`](./flows.md)
 
+### When should an agent read the Turn Intake Compiler Contract?
+Read it before changing per-turn intent classification, retrieval or action routing decisions, context presented to the model, action gates that depend on user language, or model-assisted routing / tool invocation behavior.
+
+Treat those changes as architecture-impacting work and stay in the architecture-impact workflow.
+
+Read more:
+
+- [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md)
+- [`Retrieval Router Decision Table`](./router-decision-table.md)
+- [`Agent Tool Loop Contract`](./agent-tool-loop-contract.md)
+- [`Chat Runtime Contract`](./chat-runtime-contract.md)
+
 ### What must happen before changing queue, worker, or acceptance behavior?
 Route acceptance is not completion, task-event publication is not UI receipt, and queue or worker changes are high-blast-radius.
 
