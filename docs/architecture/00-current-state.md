@@ -24,6 +24,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - `main` imported OpenAI export conversations into chat history and added Task Prompt Archive.
 - `main` preserved the local-only beta posture and current-state override pattern.
 - `main` added a six-route Continuity operator surface (write, readback, diagnostics, state readback, commit readback, link readback) as a test-only, profile-quarantined, API-key-gated operator surface under the `continuity_operator` route key. It is live-proven and regression-pinned under the `test-continuity` profile only. It **remains quarantined** from the supported beta profile `v1-local-core-web-mcp`. It does not widen the supported beta release promise.
+- `main` added a thin, gated Remote Recall Search-as-RAG runtime seam under ADR-021 / Web Agent Spec v1. It implements the first provider adapter (Groq built-in web search) behind a provider-neutral boundary, a Web Evidence Intake Gate, canonical tokens, and a narrow completion-context integration that runs only on an explicit `global_search` posture. This is an implementation seam with unit-test proof only. It **remains default-off** (`REMOTE_RECALL_ENABLED=false`, `GROQ_WEB_SEARCH_ENABLED=false`) and does not widen the supported beta release promise; live Remote Recall release support still requires configured egress, credentials, and supported-path live proof.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -59,6 +60,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 - Do not assume the Zac Mac Studio bring-up path is a wider deployment promise than the documented local path.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, command bus, or list/search behavior. It is test-only and profile-quarantined.
+- Do not assume Remote Recall (web search / Search-as-RAG) is part of the supported beta release promise from the runtime seam or its unit tests. The seam exists and is default-off; live release support still requires configured egress, credentials, feature flags, and supported-path live proof.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.

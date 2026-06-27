@@ -112,11 +112,72 @@ describe("Persona Studio Page render safety", () => {
     expect(within(matrix).getByRole("rowheader", { name: /persona name/i })).toBeInTheDocument();
     expect(within(matrix).getByRole("rowheader", { name: /retrieval top k/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
 
-    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeVisible();
+    const diagnosticsPanel = screen.getByTestId("persona-studio-rail-diagnostics-panel");
+    expect(diagnosticsPanel).toBeVisible();
+    expect(diagnosticsPanel).toHaveAttribute("role", "tabpanel");
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();
+  });
+
+  it("renders a compact inline text profile trigger that matches the action-button height", () => {
+    render(<PersonaStudioPage />);
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
+
+    // Profile name text is visible — the trigger is text-first
+    expect(
+      screen.getByTestId("persona-studio-profile-selector-trigger-name")
+    ).toHaveTextContent(/guardian default/i);
+
+    // Accessible label and title for selecting profile
+    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
+    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
+
+    // No oversized SVG chevron — no icon-only trigger
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    // Trigger must not be a tile/card element
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-tile")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-card")
+    ).not.toBeInTheDocument();
+
+    // The selector tray lives beneath the editor in DOM order
+    const editor = screen.getByTestId("persona-studio-editor");
+    const selector = screen.getByTestId("persona-studio-profile-selector");
+    expect(editor.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Trigger height must not exceed the surrounding action button height — never a square tile
+    const triggerRect = trigger.getBoundingClientRect();
+    [save, saveAsNew, reset, resetAll].forEach((action) => {
+      const actionRect = action.getBoundingClientRect();
+      expect(triggerRect.height).toBeLessThanOrEqual(actionRect.height + 1);
+    });
+    expect(triggerRect.height).toBeLessThan(40);
+  });
+
+  it("renders the right rail with only Preview and Diagnostics tabs", () => {
+    render(<PersonaStudioPage />);
+
+    const tablist = screen.getByTestId("persona-studio-rail-tabs");
+    const railTabs = within(tablist).getAllByRole("tab");
+    expect(railTabs.map((tab) => tab.textContent?.trim())).toEqual([
+      "Preview",
+      "Diagnostics",
+    ]);
+
+    // Profiles tab must not exist on the rail anymore
+    expect(
+      within(tablist).queryByRole("tab", { name: /^profiles$/i })
+    ).not.toBeInTheDocument();
   });
 });

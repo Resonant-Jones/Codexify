@@ -676,6 +676,55 @@ class Settings(BaseSettings):
         default=200,
         description="Maximum concurrent websocket RPC connections allowed.",
     )
+    REMOTE_RECALL_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Master gate for the Remote Recall Search-as-RAG web-evidence lane. "
+            "When false (default), no external web search is invoked even when the "
+            "retrieval posture resolves to explicit global search. Remote Recall "
+            "remains off by default to preserve the local-only beta posture."
+        ),
+    )
+    REMOTE_RECALL_PROVIDER: str = Field(
+        default="groq",
+        description=(
+            "Provider-neutral Search-as-RAG adapter target. 'groq' is the first "
+            "implemented adapter. Only takes effect when REMOTE_RECALL_ENABLED=true."
+        ),
+    )
+    REMOTE_RECALL_MAX_RESULTS: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description=(
+            "Client-side cap on the number of Remote Recall evidence items "
+            "returned for synthesis after the intake gate."
+        ),
+    )
+    REMOTE_RECALL_TIMEOUT_SECONDS: float = Field(
+        default=20.0,
+        ge=1.0,
+        description=(
+            "Bounded timeout for a single Remote Recall provider adapter call."
+        ),
+    )
+    GROQ_WEB_SEARCH_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Feature flag for the Groq web-search adapter. Must be true in "
+            "addition to REMOTE_RECALL_ENABLED=true, ALLOW_CLOUD_PROVIDERS=true, "
+            "CODEXIFY_LOCAL_ONLY_MODE=false, a present GROQ_API_KEY, and an "
+            "egress-allowed 'groq' target before any Groq web search executes."
+        ),
+    )
+    GROQ_WEB_SEARCH_MODEL: str = Field(
+        default="groq/compound-mini",
+        description=(
+            "Groq Compound system model id used for built-in web search. "
+            "Official Groq web search is supported on the 'groq/compound' and "
+            "'groq/compound-mini' Compound systems."
+        ),
+    )
 
     def model_post_init(self, __context) -> None:
         legacy_openai_model = _normalize_model_setting(

@@ -5,16 +5,20 @@ including verification, connection establishment, and message routing.
 """
 
 import logging
+from importlib import import_module
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
 
-import jwt
 from fastapi import WebSocket
 
 from .manifest import NodeManifest, verify_manifest
 
 logger = logging.getLogger(__name__)
+
+
+def _jwt_module():
+    return import_module("jwt")
 
 
 @dataclass
@@ -189,6 +193,7 @@ class FederationManager:
             Token payload if valid, None otherwise
         """
         allowed_algorithms = list(algorithms or ["EdDSA", "HS256"])
+        jwt = _jwt_module()
         try:
             payload = jwt.decode(
                 token,
