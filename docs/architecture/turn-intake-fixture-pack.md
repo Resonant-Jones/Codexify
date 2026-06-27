@@ -19,6 +19,8 @@ Source anchors / governing docs:
 
 This fixture pack is the docs-only example and expectation surface for the Turn Intake Compiler Contract. It does not prove runtime implementation. Future classifier or routing tests should use it as doctrine source material only after translating these expectations into executable fixtures.
 
+Related proposal: [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md) evaluates which repeated fixture values may deserve future canonical-token promotion. It is proposal-only and does not implement tokens.
+
 ## Purpose
 
 The Turn Intake Fixture Pack makes the Turn Intake Compiler Contract tangible through representative turn examples.
@@ -1059,4 +1061,3 @@ That future work would convert these doctrine examples into executable fixtures.
 - Should deterministic rules or model-assisted classification own each fixture class?
 - Where should intake traces live when implemented?
 - How should runtime-triggered non-user turns be represented?
-

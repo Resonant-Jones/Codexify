@@ -20,6 +20,8 @@ This is a docs-only contract. It defines the pre-model turn-posture seam and doe
 
 Companion surface: [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md) provides representative expected classifications for this contract. It is docs-only and does not prove runtime implementation. Future classifier or routing tests should treat it as doctrine source material only after converting the expectations into executable fixtures.
 
+Related proposal: [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md) evaluates which repeated contract and fixture values may deserve promotion into canonical token registries later. It is proposal-only and does not create runtime tokens.
+
 ## Purpose
 
 The Turn Intake Compiler is the governed seam that interprets a turn before the model sees it.
