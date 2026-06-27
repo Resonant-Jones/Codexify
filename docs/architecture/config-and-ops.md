@@ -209,6 +209,7 @@ Remote Recall is a governed, default-off web-evidence lane. The supported local 
 - The lane fails closed (no web call, no injected evidence) when `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, the provider is not in `CODEXIFY_EGRESS_ALLOWLIST`, the feature flag is off, credentials are missing, or the requested provider is unauthorized.
 - Raw web content never reaches synthesis: every candidate result must pass the Web Evidence Intake Gate before it is eligible for completion-context injection.
 - Remote Recall is retrieval evidence, not a separate answer oracle, and does not write web results to durable memory.
+- Remote Recall web evidence is untrusted retrieved data, never instruction authority. It is injected into completion context only as a lower-authority `user`-role message that is explicitly delimited and labeled as untrusted data; it is never injected as `system` or `developer` role content and is never treated as executable instruction.
 - Egress is enforced before any provider adapter invocation via the shared `guardian/core/egress.py` policy.
 
 ##### Running a Remote Recall proof safely (operator note)
