@@ -211,6 +211,17 @@ Remote Recall is a governed, default-off web-evidence lane. The supported local 
 - Remote Recall is retrieval evidence, not a separate answer oracle, and does not write web results to durable memory.
 - Egress is enforced before any provider adapter invocation via the shared `guardian/core/egress.py` policy.
 
+##### Running a Remote Recall proof safely (operator note)
+
+A Remote Recall live proof is optional and must never widen the supported beta posture. Defaults stay local-only (`REMOTE_RECALL_ENABLED=false`, `GROQ_WEB_SEARCH_ENABLED=false`, `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`). To run a proof:
+
+1. Provide a real `GROQ_API_KEY` via environment or a proof-only override; never commit it to `.env` or the repo.
+2. Rebuild `backend` and `worker-chat` so they include the seam commit, then apply proof-run-only overrides: `REMOTE_RECALL_ENABLED=true`, `GROQ_WEB_SEARCH_ENABLED=true`, `ALLOW_CLOUD_PROVIDERS=true`, `CODEXIFY_LOCAL_ONLY_MODE=false`, and a `CODEXIFY_EGRESS_ALLOWLIST` that includes `groq`.
+3. Submit one explicit `global_search` completion, capture the task lifecycle to a terminal event, confirm the assistant message persisted, and read `trace["remote_recall"]` (provider, enabled status, source kinds, candidate/eligible/blocked counts, gate decisions, failure reason).
+4. After the run, restore the local-only defaults and restart on the supported profile.
+
+Current proof status is BLOCKED (no Groq credential available in the environment); see `remote-recall-live-proof.md`. A green health endpoint, route acceptance, or unit-test pass is not live proof.
+
 ### Frontend and desktop runtime
 
 | Variable | Current behavior | Anchors |
