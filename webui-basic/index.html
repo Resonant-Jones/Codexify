@@ -65,6 +65,8 @@ body {
 .doc-item .doc-status { font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
 .doc-status.ready { color: var(--green); background: rgba(76,175,80,0.12); }
 .doc-status.processing { color: var(--orange); background: rgba(255,152,0,0.12); }
+.doc-status.pending { color: var(--text-dim); background: rgba(119,119,119,0.12); }
+.doc-status.failed { color: var(--red); background: rgba(255,77,77,0.12); }
 .upload-zone {
   margin: 12px 16px; padding: 24px; border: 2px dashed var(--border);
   border-radius: var(--radius); text-align: center; color: var(--text-dim);
@@ -73,31 +75,18 @@ body {
 .upload-zone input { display: none; }
 .empty-panel { padding: 32px 16px; text-align: center; color: var(--text-dim); font-size: 13px; }
 
-.atlas-pane { flex: 1; display: none; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
-.atlas-pane.active { display: flex; }
-.atlas-toolbar {
+/* Embedding-map CSS removed; .toolbar (renamed from the embedding-map toolbar class) keeps the project picker styled */
+.toolbar {
   padding: 8px 16px; border-bottom: 1px solid var(--border);
   display: flex; gap: 10px; align-items: center; font-size: 12px;
   color: var(--text-dim); background: var(--surface);
 }
-.atlas-toolbar select, .atlas-toolbar button {
+.toolbar select, .toolbar button {
   background: var(--surface2); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 4px 8px; font-size: 12px;
 }
-.atlas-toolbar button { cursor: pointer; }
-.atlas-toolbar button:hover { border-color: var(--accent); }
-.atlas-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
-.atlas-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
-.atlas-tooltip {
-  position: absolute; pointer-events: none;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--text);
-  max-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  display: none; z-index: 10;
-}
-.atlas-tooltip .tt-meta { color: var(--text-dim); font-size: 11px; margin-bottom: 4px; }
-.atlas-tooltip .tt-text { white-space: pre-wrap; max-height: 140px; overflow: auto; line-height: 1.4; }
-.atlas-empty { padding: 32px; text-align: center; color: var(--text-dim); font-size: 13px; }
+.toolbar button { cursor: pointer; }
+.toolbar button:hover { border-color: var(--accent); }
 
 .chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .chat-header {
@@ -162,6 +151,60 @@ body {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* --- Toast notifications --- */
+.toast-region {
+  position: fixed; bottom: 16px; right: 16px; top: auto; left: auto;
+  z-index: 1000; display: flex; flex-direction: column; gap: 8px;
+  max-width: calc(100vw - 32px); pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-left-width: 4px;
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  min-width: 240px; max-width: 340px;
+  font-size: 13px; line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  pointer-events: auto; cursor: pointer;
+  animation: toast-in 220ms ease-out;
+}
+.toast.info    { border-left-color: var(--accent); }
+.toast.success { border-left-color: var(--green); }
+.toast.warning { border-left-color: var(--orange); }
+.toast.error   { border-left-color: var(--red); }
+.toast-leaving { animation: toast-out 180ms ease-in forwards; }
+.toast-icon { font-weight: 700; font-size: 14px; flex-shrink: 0; width: 16px; text-align: center; }
+.toast.info .toast-icon    { color: var(--accent); }
+.toast.success .toast-icon { color: var(--green); }
+.toast.warning .toast-icon { color: var(--orange); }
+.toast.error .toast-icon   { color: var(--red); }
+.toast-msg { flex: 1; min-width: 0; word-wrap: break-word; }
+.toast-action {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--accent-dim); border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; font-weight: 500;
+  cursor: pointer; flex-shrink: 0;
+}
+.toast-action:hover { background: var(--accent-soft); }
+.toast-close {
+  background: transparent; color: var(--text-dim);
+  border: 0; padding: 0 4px; font-size: 18px; line-height: 1;
+  cursor: pointer; flex-shrink: 0;
+}
+.toast-close:hover { color: var(--text); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(8px); }
+}
+@media (max-width: 480px) {
+  .toast-region { left: 16px; right: 16px; bottom: 12px; }
+  .toast { min-width: 0; max-width: none; }
+}
 </style>
 </head>
 <body>
@@ -170,13 +213,11 @@ body {
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h1>Codexify</h1>
-      <select id="projectPicker" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px;max-width:120px;"></select>
       <button class="btn btn-sm" id="btnNew">+ New</button>
     </div>
     <div class="sidebar-tabs">
       <button class="sidebar-tab active" data-tab="threads" id="tabThreads">Threads</button>
       <button class="sidebar-tab" data-tab="docs" id="tabDocs">Docs</button>
-      <button class="sidebar-tab" data-tab="atlas" id="tabAtlas">Atlas</button>
     </div>
     <div class="sidebar-panel">
       <div class="thread-list active" id="threadList"><div class="empty-panel">Loading...</div></div>
@@ -195,6 +236,11 @@ body {
       <div class="thread-title" id="chatTitle">Codexify</div>
       <div class="user-badge" id="userBadge"></div>
     </div>
+    <div class="toolbar" id="projectToolbar">
+      <select id="projectPicker"></select>
+      <span id="projectThreadCount">&mdash;</span>
+    </div>
+    <div class="doc-viewer" id="docViewer" style="display:none; flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:16px 20px; font-size:14px; line-height:1.6; white-space:pre-wrap; color:var(--text);"></div>
     <div class="messages" id="messages">
       <div class="no-thread">Select or create a thread to start</div>
     </div>
@@ -210,19 +256,9 @@ body {
       <span id="statusText">Connecting...</span>
     </div>
   </main>
-  <main class="atlas-pane" id="atlasPane">
-    <div class="atlas-toolbar">
-      <select id="atlasNamespace"><option value="">All namespaces</option></select>
-      <span id="atlasCount">—</span>
-      <button id="atlasRefresh">Refresh</button>
-      <span style="margin-left:auto;color:var(--text-faint);font-size:11px;">Drag a chunk for details · Esc to close</span>
-    </div>
-    <div class="atlas-canvas-wrap" id="atlasWrap">
-      <canvas id="atlasCanvas"></canvas>
-      <div class="atlas-tooltip" id="atlasTooltip"></div>
-    </div>
-  </main>
 </div>
+
+<div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="false"></div>
 
 <script>
 (function() {
@@ -235,14 +271,10 @@ body {
   var waitingForAssistant = false;
   var activeTab = 'threads';
   var currentProjectId = null;
-  // Atlas state
-  var atlasLoaded = false;
-  var atlasLoading = false;
-  var atlasChunks = [];
-  var atlasProjection = [];
-  var atlasHover = -1;
-  var atlasPin = -1;
-  var atlasActiveNamespace = '';
+  var currentThreadProjectId = null;
+  var currentDocId = null;
+  var projectMap = {};
+  var lastUploadFile = null;
 
   // --- Prompt for API key & name ---
   while (!apiKey) {
@@ -273,6 +305,84 @@ body {
       osc.start(); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
       osc.stop(ctx.currentTime + 0.3);
     } catch(e) {}
+  }
+
+  // --- Notifications ---
+  function notify(message, type, opts) {
+    type = type || 'info';
+    opts = opts || {};
+    var region = document.getElementById('toastRegion');
+    if (!region) return function() {};
+    var t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    var icon = ({success:'✓', warning:'!', error:'✕', info:'•'})[type] || '•';
+    t.innerHTML =
+      '<span class="toast-icon">' + icon + '</span>' +
+      '<span class="toast-msg"></span>' +
+      '<button class="toast-close" aria-label="Dismiss">×</button>';
+    t.querySelector('.toast-msg').textContent = String(message);
+    if (opts.action) {
+      var btn = document.createElement('button');
+      btn.className = 'toast-action';
+      btn.textContent = opts.action.label;
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        try { opts.action.onClick(); } catch(_e) {}
+        dismiss();
+      };
+      t.insertBefore(btn, t.querySelector('.toast-close'));
+    }
+    region.appendChild(t);
+    // Cap visible stack at 5 — drop oldest first.
+    while (region.children.length > 5) region.removeChild(region.firstChild);
+    var dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      t.classList.add('toast-leaving');
+      setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 200);
+    }
+    t.querySelector('.toast-close').onclick = function(e) { e.stopPropagation(); dismiss(); };
+    t.onclick = function(e) { if (e.target === t) dismiss(); };
+    var duration = opts.duration != null ? opts.duration : (type === 'error' ? 6000 : 4000);
+    if (duration > 0) setTimeout(dismiss, duration);
+    return dismiss;
+  }
+
+  // --- System notifications (iOS lock-screen / Notification Center) ---
+  function sysNotify(title, body, opts) {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      opts = opts || {};
+      var n = new Notification(String(title || 'Codexify'), {
+        body: String(body || '').slice(0, 200),
+        tag: opts.tag || undefined,
+      });
+      n.onclick = function() { try { window.focus(); } catch (_e) {} try { n.close(); } catch (_e) {} };
+      if (opts.timeout) setTimeout(function() { try { n.close(); } catch (_e) {} }, opts.timeout);
+    } catch (_e) {}
+  }
+
+  function requestNotifyPermission() {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'default') return;
+      Notification.requestPermission();
+    } catch (_e) {}
+  }
+
+  // Extract sender name + body from a message. Returns null for assistant messages.
+  function messageSender(m) {
+    if (!m) return null;
+    if (m.role === 'assistant') return null;
+    var content = String(m.content || '');
+    var match = content.match(/^\[([^\]]{1,30})\]:\s*/);
+    if (match) {
+      return { name: match[1], body: content.slice(match[0].length) };
+    }
+    return { name: 'User', body: content };
   }
 
   // --- Render ---
@@ -309,9 +419,22 @@ body {
         var msgs = data.messages || [];
         var newLastId = msgs.length ? msgs[msgs.length - 1].id : null;
         if (newLastId !== lastMessageId) {
+          var prevLastId = lastMessageId;
           lastMessageId = newLastId;
           ping();
           renderMessages(msgs);
+          // Banner notification for messages from other users (skip assistant + skip self).
+          var lastMsg = msgs[msgs.length - 1];
+          if (lastMsg && prevLastId !== null && lastMsg.id !== prevLastId) {
+            var senderInfo = messageSender(lastMsg);
+            if (senderInfo && senderInfo.name && senderInfo.name !== userName) {
+              sysNotify(
+                'New message from ' + senderInfo.name,
+                senderInfo.body.slice(0, 120),
+                { tag: 'codexify:msg:' + lastMsg.id }
+              );
+            }
+          }
           if (waitingForAssistant && msgs.length && msgs[msgs.length - 1].role === 'assistant') {
             waitingForAssistant = false;
             document.getElementById('typing').style.display = 'none';
@@ -334,7 +457,15 @@ body {
     api(url).then(function(data) {
       var threads = data.threads || data;
       var list = document.getElementById('threadList');
+      document.getElementById('projectThreadCount').textContent = threads.length + ' threads';
       if (!threads.length) { list.innerHTML = '<div class="empty-panel">No threads yet. Tap + New.</div>'; return; }
+      var threadIds = threads.map(function(t) { return t.id; });
+      if (currentThreadId !== null && threadIds.indexOf(currentThreadId) === -1) {
+        currentThreadId = null; stopPoll();
+        document.getElementById('messages').innerHTML = '<div class="no-thread">Select or create a thread to start</div>';
+        document.getElementById('composer').style.display = 'none';
+        document.getElementById('chatTitle').textContent = 'Codexify';
+      }
       list.innerHTML = threads.map(function(t) {
         var ago = timeAgo(new Date(t.updated_at || t.created_at));
         var active = (currentThreadId === t.id) ? ' active' : '';
@@ -398,25 +529,129 @@ body {
 
   // --- Docs ---
   function loadDocs() {
-    api('/api/media/documents').then(function(data) {
-      var docs = data.documents || [];
-      var el = document.getElementById('docItems');
-      if (!docs.length) { el.innerHTML = '<div class="empty-panel">No documents yet</div>'; return; }
-      el.innerHTML = docs.map(function(d) {
-        var size = d.filesize < 1048576 ? (d.filesize/1024).toFixed(1)+' KB' : (d.filesize/1048576).toFixed(1)+' MB';
-        var st = d.embedding_status || 'unknown';
-        var cls = (st==='completed'||st==='ready') ? 'ready' : st==='processing' ? 'processing' : '';
-        var label = st==='completed' ? 'Indexed' : st;
-        return '<div class="doc-item"><div class="doc-icon">\u{1F4C4}</div><div class="doc-info"><div class="doc-name">' +
-          esc(d.filename) + '</div><div class="doc-meta">' + size + '</div></div><div class="doc-status ' + cls + '">' +
-          esc(label) + '</div><button class="del-btn" data-deldoc="' + d.id + '">&times;</button></div>';
-      }).join('');
-    }).catch(function() {});
+    var docsUrl = '/api/media/documents?limit=100';
+    if (currentProjectId !== null) docsUrl += '&project_id=' + currentProjectId;
+    // Fetch the canonical document list (with embedding_status). Chunk counts
+    // are not available without the embedding-map endpoint; the UI shows
+    // "0 chunks" for each document. Listing, status, and per-project
+    // filtering are preserved. Documents without embeddings yet still appear,
+    // marked "Pending" / "Indexing" via embedding_status.
+    api(docsUrl, 'GET').then(function(docsResp) {
+      var rawDocs = (docsResp && docsResp.documents) || [];
+      renderDocList(buildDocList(rawDocs, {}));
+    }).catch(function(err) {
+      console.error('loadDocs failed', err);
+      document.getElementById('docItems').innerHTML =
+        '<div class="empty-panel">Failed to load documents: ' +
+        esc(err && err.message || err) + '</div>';
+    });
+  }
+
+  function buildDocList(rawDocs, chunkCounts) {
+    return rawDocs.map(function(d) {
+      var ns = d.project_id != null ? 'project:' + d.project_id : '?';
+      return {
+        id: d.id,
+        title: d.filename || d.id,
+        status: d.embedding_status || 'pending',
+        chunks: chunkCounts[d.id] || 0,
+        namespace: ns,
+        error: d.embedding_error || null,
+      };
+    });
+  }
+
+  function statusLabel(s) {
+    if (s === 'ready') return { label: 'Indexed', cls: 'ready' };
+    if (s === 'processing') return { label: 'Indexing', cls: 'processing' };
+    if (s === 'pending') return { label: 'Pending', cls: 'pending' };
+    if (s === 'failed' || s === 'error') return { label: 'Failed', cls: 'failed' };
+    return { label: s || 'Unknown', cls: 'pending' };
+  }
+  var docIndex = {};
+  function renderDocList(docs) {
+    // docs is an array of {id, title, status, chunks, namespace, error}
+    var byId = {};
+    docs.forEach(function(d) { byId[d.id] = d; });
+    docIndex = byId;
+    if (currentDocId && !byId[currentDocId]) {
+      currentDocId = null;
+      document.getElementById('docViewer').dataset.active = '';
+      document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+      document.getElementById('chatTitle').textContent = 'Documents';
+    }
+    var sorted = docs.slice().sort(function(a, b) {
+      // Show indexing/pending first, then by chunk count desc
+      var aActive = (a.status === 'pending' || a.status === 'processing') ? 0 : 1;
+      var bActive = (b.status === 'pending' || b.status === 'processing') ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return b.chunks - a.chunks;
+    });
+    var el = document.getElementById('docItems');
+    if (!sorted.length) { el.innerHTML = '<div class="empty-panel">No documents</div>'; return; }
+    el.innerHTML = sorted.map(function(d) {
+      var ns = namespaceFriendlyName(d.namespace);
+      var s = statusLabel(d.status);
+      var tip = s.cls === 'failed' && d.error ? ' title="' + esc(d.error) + '"' : '';
+      var chunkLabel = d.chunks + ' chunk' + (d.chunks === 1 ? '' : 's');
+      return '<div class="doc-item" data-docid="' + esc(d.id) + '" style="cursor:pointer;"><div class="doc-icon">\u{1F4C4}</div><div class="doc-info"><div class="doc-name">' +
+        esc(d.title) + '</div><div class="doc-meta">' + chunkLabel + ' · ' + esc(ns) + '</div></div>' +
+        '<div class="doc-status ' + s.cls + '"' + tip + '>' + s.label + '</div>' +
+        '<button class="del-btn" data-deldoc="' + esc(d.id) + '" title="Delete document and ' + d.chunks + ' chunks">&times;</button></div>';
+    }).join('');
+  }
+
+  function selectDoc(docId) {
+    currentDocId = docId;
+    var viewer = document.getElementById('docViewer');
+    var msgs = document.getElementById('messages');
+    var composer = document.getElementById('composer');
+    var typing = document.getElementById('typing');
+    var info = docIndex[docId];
+    viewer.dataset.active = '1';
+    viewer.style.display = 'block';
+    msgs.style.display = 'none';
+    composer.style.display = 'none';
+    typing.style.display = 'none';
+    document.getElementById('chatTitle').textContent = info ? info.title : docId;
+    // Document preview is disabled in this build — the embedding-map endpoint
+    // that served chunk text has been removed, so we render a placeholder
+    // instead of making a network request. Use the Documents tab to list files.
+    viewer.innerHTML = '<div class="empty-panel">Document preview is disabled in this build. The document "'
+      + esc(info ? info.title : docId)
+      + '" is listed in the Documents tab; its chunk text cannot be read without the embedding-map endpoint.</div>';
   }
 
   function uploadFile(file) {
+    lastUploadFile = file;
     var form = new FormData(); form.append('file', file);
-    fetch('/api/media/upload/document', { method: 'POST', headers: { 'x-api-key': apiKey }, body: form }).then(function() { loadDocs(); }).catch(function() {});
+    if (currentProjectId !== null) form.append('project_id', currentProjectId);
+    fetch('/api/media/upload/document', { method: 'POST', headers: { 'x-api-key': apiKey }, body: form })
+      .then(function(r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status + ' ' + r.statusText); }
+        return r.json().catch(function() { return null; });
+      })
+      .then(function() {
+        loadDocs();
+        pollDocStatus();
+        notify('Uploaded ' + (file && file.name || 'document'), 'success');
+      })
+      .catch(function(err) {
+        notify('Upload failed: ' + (err && err.message || err), 'error', {
+          action: { label: 'Retry', onClick: function() { if (lastUploadFile) uploadFile(lastUploadFile); } }
+        });
+      });
+  }
+
+  // After an upload, poll the doc list briefly so the user can watch the
+  // status pill transition Pending -> Indexing -> Indexed.
+  function pollDocStatus() {
+    var attempts = 0;
+    var timer = setInterval(function() {
+      attempts++;
+      if (attempts > 12) { clearInterval(timer); return; }
+      loadDocs();
+    }, 1500);
   }
 
   // --- Health ---
@@ -451,6 +686,12 @@ body {
     var n = prompt('Change display name:', userName);
     if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); this.textContent = userName; }
   };
+  document.getElementById('projectPicker').onchange = function() {
+    var v = this.value;
+    currentProjectId = v ? +v : null;
+    loadThreads();
+    if (activeTab === 'docs') loadDocs();
+  };
   document.getElementById('btnNew').onclick = function() {
     var body = { title: 'New chat' };
     if (currentProjectId !== null) body.project_id = currentProjectId;
@@ -461,22 +702,27 @@ body {
   };
   document.getElementById('tabThreads').onclick = function() {
     activeTab = 'threads';
-    document.getElementById('tabThreads').classList.add('active'); document.getElementById('tabDocs').classList.remove('active'); document.getElementById('tabAtlas').classList.remove('active');
+    document.getElementById('tabThreads').classList.add('active'); document.getElementById('tabDocs').classList.remove('active');
     document.getElementById('threadList').classList.add('active'); document.getElementById('docList').classList.remove('active');
-    document.getElementById('chatPane').style.display = 'flex'; document.getElementById('atlasPane').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex';
+    document.getElementById('docViewer').style.display = 'none';
+    document.getElementById('docViewer').dataset.active = '';
+    document.getElementById('messages').style.display = 'flex';
+    if (currentThreadId) document.getElementById('composer').style.display = 'flex';
   };
   document.getElementById('tabDocs').onclick = function() {
     activeTab = 'docs';
-    document.getElementById('tabDocs').classList.add('active'); document.getElementById('tabThreads').classList.remove('active'); document.getElementById('tabAtlas').classList.remove('active');
+    document.getElementById('tabDocs').classList.add('active'); document.getElementById('tabThreads').classList.remove('active');
     document.getElementById('docList').classList.add('active'); document.getElementById('threadList').classList.remove('active');
-    document.getElementById('chatPane').style.display = 'flex'; document.getElementById('atlasPane').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex';
+    document.getElementById('messages').style.display = 'none';
+    document.getElementById('composer').style.display = 'none';
+    document.getElementById('docViewer').style.display = 'block';
+    if (!document.getElementById('docViewer').dataset.active) {
+      document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+      document.getElementById('chatTitle').textContent = 'Documents';
+    }
     loadDocs();
-  };
-  document.getElementById('tabAtlas').onclick = function() {
-    activeTab = 'atlas';
-    document.getElementById('tabAtlas').classList.add('active'); document.getElementById('tabThreads').classList.remove('active'); document.getElementById('tabDocs').classList.remove('active');
-    document.getElementById('chatPane').style.display = 'none'; document.getElementById('atlasPane').classList.add('active');
-    loadAtlas();
   };
   document.getElementById('threadList').onclick = function(e) {
     var item = e.target.closest('.thread-item');
@@ -503,9 +749,31 @@ body {
     if (item) selectThread(+item.dataset.id);
   };
   document.getElementById('docItems').onclick = function(e) {
-    if (e.target.dataset.deldoc) {
-      if (confirm('Delete document?')) { api('/api/media/documents/' + e.target.dataset.deldoc, 'DELETE').then(function() { loadDocs(); }); }
+    if (e.target.dataset && e.target.dataset.deldoc) {
+      e.stopPropagation();
+      var did = e.target.dataset.deldoc;
+      var info = docIndex[did];
+      var label = info ? info.title : did;
+      var chunkCount = info ? info.chunks : '?';
+      if (confirm('Delete "' + label + '" and its ' + chunkCount + ' chunks from the index?')) {
+        api('/api/media/documents/' + did, 'DELETE').then(function(resp) {
+          if (resp && resp.warning) {
+            notify('Deleted from list: ' + resp.warning, 'warning');
+          }
+          if (currentDocId === did) {
+            currentDocId = null;
+            document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+            document.getElementById('chatTitle').textContent = 'Documents';
+          }
+          loadDocs();
+        }).catch(function(err) {
+          notify('Delete failed: ' + (err && err.message || err), 'error');
+        });
+      }
+      return;
     }
+    var item = e.target.closest('.doc-item');
+    if (item && item.dataset.docid) selectDoc(item.dataset.docid);
   };
   document.getElementById('uploadZone').onclick = function() { document.getElementById('uploadInput').click(); };
   document.getElementById('uploadInput').onchange = function() { Array.from(this.files).forEach(uploadFile); };
@@ -520,312 +788,29 @@ body {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  // --- Atlas ---
-  // Colour palette used to colour-code chunks by namespace. Rotates through
-  // the design tokens (--accent, --green, --orange, --red) plus a few
-  // hand-picked extras so adjacent namespaces stay distinguishable.
-  var ATLAS_PALETTE = [
-    '#6c8cff', '#4caf50', '#ff9800', '#ff4d4d',
-    '#b39ddb', '#26c6da', '#ffd54f', '#ec407a',
-  ];
-
-  function atlasColourForNamespace(ns) {
-    if (!ns) return ATLAS_PALETTE[0];
-    var h = 0;
-    for (var i = 0; i < ns.length; i++) h = ((h << 5) - h + ns.charCodeAt(i)) | 0;
-    return ATLAS_PALETTE[Math.abs(h) % ATLAS_PALETTE.length];
+  // --- Embedding-map section (removed; namespace helper retained) ---
+  // namespaceFriendlyName is the only function from this section that the
+  // doc list still needs; it converts a `project:N` namespace into the
+  // human-readable project name from /api/projects.
+  function namespaceFriendlyName(ns) {
+    var m = ns.match(/^project:(\d+)$/);
+    if (m && projectMap[m[1]]) return projectMap[m[1]];
+    return ns;
   }
 
-  function loadAtlas() {
-    if (atlasLoading) return;
-    atlasLoading = true;
-    document.getElementById('atlasCount').textContent = 'Loading…';
-    var atlasUrl = '/api/atlas/chunks?limit=2000&include_embeddings=true';
-    if (currentProjectId !== null) atlasUrl += '&project_id=' + currentProjectId;
-    api(atlasUrl, 'GET')
-      .then(function(resp) {
-        atlasLoaded = true;
-        atlasLoading = false;
-        atlasChunks = (resp && resp.items) || [];
-        atlasProjection = pcaProject(atlasChunks, 2);
-        populateAtlasNamespaceFilter();
-        document.getElementById('atlasCount').textContent =
-          atlasChunks.length + ' / ' + (resp && resp.total || 0) + ' chunks (' + (resp && resp.backend || '?') + ')';
-        renderAtlas();
-      })
-      .catch(function(err) {
-        atlasLoading = false;
-        document.getElementById('atlasCount').textContent = 'Error: ' + (err && err.message || err);
-      });
-  }
-
-  function populateAtlasNamespaceFilter() {
-    var select = document.getElementById('atlasNamespace');
-    var seen = {};
-    atlasChunks.forEach(function(c) {
-      var ns = (c.metadata && c.metadata.namespace) || '';
-      if (ns) seen[ns] = true;
-    });
-    var current = atlasActiveNamespace;
-    select.innerHTML = '<option value="">All namespaces</option>';
-    Object.keys(seen).sort().forEach(function(ns) {
-      var opt = document.createElement('option');
-      opt.value = ns; opt.textContent = ns;
-      if (ns === current) opt.selected = true;
-      select.appendChild(opt);
-    });
-  }
-
-  // Power-iteration PCA on the embedding matrix.
-  // - Centres the data, builds the covariance matrix, then finds the top
-  //   `dims` eigenvectors via repeated multiplication. No deps.
-  // - Skips degenerate cases (< 3 vectors or zero variance) by returning
-  //   the raw 2 leading axes so the canvas still draws something useful.
-  function pcaProject(chunks, dims) {
-    dims = dims || 2;
-    var pts = chunks
-      .map(function(c) { return c.embedding; })
-      .filter(function(e) { return e && e.length; });
-    if (!pts.length) return [];
-    var D = pts[0].length;
-    var N = Math.min(pts.length, dims);
-    var out = chunks.map(function() { return new Array(dims).fill(0); });
-    if (pts.length < 3) {
-      // Fallback: use the first two dimensions verbatim
-      for (var i = 0; i < chunks.length; i++) {
-        if (!chunks[i].embedding || !chunks[i].embedding.length) continue;
-        out[i][0] = chunks[i].embedding[0] || 0;
-        out[i][1] = chunks[i].embedding[1] || 0;
-      }
-      return out;
-    }
-    // Mean-centre
-    var mean = new Array(D).fill(0);
-    for (var ii = 0; ii < pts.length; ii++) {
-      for (var j = 0; j < D; j++) mean[j] += pts[ii][j];
-    }
-    for (var jj = 0; jj < D; jj++) mean[jj] /= pts.length;
-    var centred = pts.map(function(p) {
-      return p.map(function(v, k) { return v - mean[k]; });
-    });
-    // Top-N eigenvectors via power iteration on the covariance matrix
-    var vectors = [];
-    var deflated = centred.slice();
-    for (var d = 0; d < N; d++) {
-      var v = new Array(D);
-      for (var s = 0; s < D; s++) v[s] = Math.sin((s + 1) * (d + 1) * 0.7) * 0.5;
-      // Iterate
-      for (var iter = 0; iter < 60; iter++) {
-        var Av = new Array(D).fill(0);
-        for (var r = 0; r < deflated.length; r++) {
-          var row = deflated[r];
-          for (var c2 = 0; c2 < D; c2++) Av[c2] += row[c2] * v[c2] / deflated.length;
-        }
-        // Orthogonalise against previously found vectors
-        for (var p2 = 0; p2 < vectors.length; p2++) {
-          var dot = 0;
-          for (var q2 = 0; q2 < D; q2++) dot += Av[q2] * vectors[p2][q2];
-          for (var q3 = 0; q3 < D; q3++) Av[q3] -= dot * vectors[p2][q3];
-        }
-        var norm = 0;
-        for (var n2 = 0; n2 < D; n2++) norm += Av[n2] * Av[n2];
-        norm = Math.sqrt(norm) || 1;
-        v = Av.map(function(x) { return x / norm; });
-      }
-      vectors.push(v);
-      // Deflate: remove this component's contribution from the data
-      deflated = deflated.map(function(row) {
-        var proj = 0;
-        for (var t = 0; t < D; t++) proj += row[t] * v[t];
-        return row.map(function(x, k) { return x - proj * v[k]; });
-      });
-    }
-    // Project chunks onto the eigenvectors
-    var projIdx = 0;
-    for (var ci = 0; ci < chunks.length; ci++) {
-      if (!chunks[ci].embedding || !chunks[ci].embedding.length) continue;
-      var emb = chunks[ci].embedding;
-      for (var dd = 0; dd < N && dd < dims; dd++) {
-        var dot2 = 0;
-        for (var kk = 0; kk < D; kk++) dot2 += (emb[kk] - mean[kk]) * vectors[dd][kk];
-        out[ci][dd] = dot2;
-      }
-    }
-    return out;
-  }
-
-  function atlasFilteredIndices() {
-    if (!atlasActiveNamespace) {
-      return atlasChunks.map(function(_, i) { return i; });
-    }
-    var out = [];
-    atlasChunks.forEach(function(c, i) {
-      var ns = (c.metadata && c.metadata.namespace) || '';
-      if (ns === atlasActiveNamespace) out.push(i);
-    });
-    return out;
-  }
-
-  function renderAtlas() {
-    var canvas = document.getElementById('atlasCanvas');
-    var wrap = document.getElementById('atlasWrap');
-    if (!canvas || !wrap) return;
-    // Size canvas to its container
-    var w = wrap.clientWidth, h = wrap.clientHeight;
-    var dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-    var ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    var indices = atlasFilteredIndices();
-    if (!indices.length) {
-      ctx.fillStyle = '#777';
-      ctx.font = '13px -apple-system, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(atlasLoaded ? 'No chunks in this namespace' : 'Atlas not loaded', w / 2, h / 2);
-      return;
-    }
-    // Compute bounds across the projected points
-    var xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
-    indices.forEach(function(i) {
-      var p = atlasProjection[i];
-      if (!p) return;
-      if (p[0] < xmin) xmin = p[0];
-      if (p[0] > xmax) xmax = p[0];
-      if (p[1] < ymin) ymin = p[1];
-      if (p[1] > ymax) ymax = p[1];
-    });
-    var xpad = (xmax - xmin) * 0.08 || 1;
-    var ypad = (ymax - ymin) * 0.08 || 1;
-    xmin -= xpad; xmax += xpad; ymin -= ypad; ymax += ypad;
-    var margin = 24;
-    function project(p) {
-      var x = margin + ((p[0] - xmin) / (xmax - xmin)) * (w - 2 * margin);
-      var y = margin + ((p[1] - ymin) / (ymax - ymin)) * (h - 2 * margin);
-      return { x: x, y: y };
-    }
-    // Draw points
-    var radius = Math.max(2, Math.min(5, 240 / Math.max(indices.length, 50)));
-    var positions = new Array(indices.length);
-    for (var i = 0; i < indices.length; i++) {
-      var idx = indices[i];
-      var p = atlasProjection[idx];
-      if (!p) continue;
-      var pt = project(p);
-      positions[i] = { x: pt.x, y: pt.y, idx: idx };
-      var c = atlasChunks[idx];
-      var ns = (c.metadata && c.metadata.namespace) || '';
-      ctx.fillStyle = atlasColourForNamespace(ns);
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, (idx === atlasPin || idx === atlasHover) ? radius + 2 : radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Stash for hit-testing
-    canvas._atlasPositions = positions;
-    canvas._atlasIndices = indices;
-  }
-
-  function atlasShowTooltip(idx, screenX, screenY, locked) {
-    var tip = document.getElementById('atlasTooltip');
-    var c = atlasChunks[idx];
-    if (!c) { tip.style.display = 'none'; return; }
-    var meta = c.metadata || {};
-    var metaLine = (meta.namespace || '?') + ' · ' + (meta.source || '?');
-    if (meta.role) metaLine += ' · ' + meta.role;
-    if (meta.thread_id) metaLine += ' · thread:' + meta.thread_id;
-    var preview = c.preview || c.text || '';
-    tip.innerHTML = '<div class="tt-meta">' + esc(metaLine) + '</div>' +
-                   '<div class="tt-text">' + esc(preview || '(no preview)') + '</div>';
-    tip.style.display = 'block';
-    var wrap = document.getElementById('atlasWrap').getBoundingClientRect();
-    var left = screenX - wrap.left + 12;
-    var top = screenY - wrap.top + 12;
-    if (left + 320 > wrap.width) left = screenX - wrap.left - 320 - 12;
-    if (top + 160 > wrap.height) top = screenY - wrap.top - 160 - 12;
-    tip.style.left = Math.max(4, left) + 'px';
-    tip.style.top = Math.max(4, top) + 'px';
-    tip._locked = !!locked;
-  }
-
-  function atlasHideTooltip() {
-    if (document.getElementById('atlasTooltip')._locked) return;
-    document.getElementById('atlasTooltip').style.display = 'none';
-  }
-
-  // Wire Atlas DOM events
-  var atlasCanvasEl = document.getElementById('atlasCanvas');
-  atlasCanvasEl.onmousemove = function(e) {
-    var positions = atlasCanvasEl._atlasPositions || [];
-    var found = -1;
-    var bestD2 = 64; // 8px radius squared
-    for (var i = 0; i < positions.length; i++) {
-      var dx = positions[i].x - (e.offsetX);
-      var dy = positions[i].y - (e.offsetY);
-      var d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) { bestD2 = d2; found = positions[i].idx; }
-    }
-    if (found !== atlasHover) {
-      atlasHover = found;
-      renderAtlas();
-    }
-    if (found >= 0) atlasShowTooltip(found, e.clientX, e.clientY, false);
-    else atlasHideTooltip();
-  };
-  atlasCanvasEl.onmouseleave = function() {
-    atlasHover = -1;
-    renderAtlas();
-    atlasHideTooltip();
-  };
-  atlasCanvasEl.onclick = function(e) {
-    var positions = atlasCanvasEl._atlasPositions || [];
-    var found = -1;
-    var bestD2 = 64;
-    for (var i = 0; i < positions.length; i++) {
-      var dx = positions[i].x - (e.offsetX);
-      var dy = positions[i].y - (e.offsetY);
-      var d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) { bestD2 = d2; found = positions[i].idx; }
-    }
-    if (found >= 0) {
-      atlasPin = found;
-      atlasHover = found;
-      renderAtlas();
-      atlasShowTooltip(found, e.clientX, e.clientY, true);
-    } else {
-      atlasPin = -1;
-      atlasHideTooltip();
-      renderAtlas();
-    }
-  };
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && atlasPin >= 0) {
-      atlasPin = -1;
-      atlasHideTooltip();
-      renderAtlas();
-    }
-  });
-  document.getElementById('atlasNamespace').onchange = function(e) {
-    atlasActiveNamespace = e.target.value;
-    renderAtlas();
-  };
-  document.getElementById('atlasRefresh').onclick = function() {
-    atlasLoaded = false; atlasChunks = []; atlasProjection = [];
-    loadAtlas();
-  };
-  var atlasResizeTimer = null;
-  window.addEventListener('resize', function() {
-    if (atlasResizeTimer) clearTimeout(atlasResizeTimer);
-    atlasResizeTimer = setTimeout(renderAtlas, 150);
-  });
-
-  // --- Projects ---
+    // --- Projects ---
   function loadProjects() {
     api('/api/projects').then(function(data) {
       var projects = Array.isArray(data) ? data : (data.projects || []);
+      projectMap = {};
+      projects.forEach(function(p) { projectMap[p.id] = p.name; });
       var picker = document.getElementById('projectPicker');
-      picker.innerHTML = '<option value="">All Projects</option>';
+      picker.innerHTML = '';
+      // If no project is currently selected, default to the first one so the
+      // picker always reflects an active project context.
+      if (currentProjectId === null && projects.length) {
+        currentProjectId = +projects[0].id;
+      }
       projects.forEach(function(p) {
         var opt = document.createElement('option');
         opt.value = p.id;
@@ -835,18 +820,28 @@ body {
       });
     }).catch(function() {});
   }
-  document.getElementById('projectPicker').onchange = function() {
-    var v = this.value;
-    currentProjectId = v ? +v : null;
-    loadThreads();
-    if (activeTab === 'atlas') { atlasLoaded = false; atlasChunks = []; atlasProjection = []; loadAtlas(); }
-  };
 
   // --- Boot ---
   checkHealth();
   loadProjects();
   loadThreads();
   setInterval(checkHealth, 15000);
+  // Ask for system-notification permission once, after the page settles.
+  setTimeout(function() {
+    requestNotifyPermission();
+    // One-shot diagnostic so we can see what's blocking notifications on this device.
+    var apiOk = 'Notification' in window;
+    var perm = apiOk ? Notification.permission : 'unavailable';
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    var isStandalone = (window.navigator.standalone === true) ||
+                       window.matchMedia('(display-mode: standalone)').matches;
+    var secure = window.isSecureContext;
+    var parts = ['Notif API: ' + (apiOk ? 'yes' : 'NO'),
+                 'perm: ' + perm,
+                 'secure: ' + (secure ? 'yes' : 'NO')];
+    if (isIOS) parts.push(isStandalone ? 'iOS app: yes' : 'iOS app: NO');
+    notify(parts.join(' · '), apiOk && perm === 'granted' ? 'success' : 'info', { duration: 10000 });
+  }, 3000);
   console.log('Codexify UI loaded, user=' + userName);
 })();
 </script>

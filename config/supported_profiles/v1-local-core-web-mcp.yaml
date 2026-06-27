@@ -35,7 +35,6 @@ route_posture:
     - migration
     - embeddings
     - obsidian
-    - atlas
   internal_only:
     - coding_work_orders
     - command_bus
