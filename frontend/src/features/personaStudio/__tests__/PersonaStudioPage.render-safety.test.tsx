@@ -180,4 +180,36 @@ describe("Persona Studio Page render safety", () => {
       within(tablist).queryByRole("tab", { name: /^profiles$/i })
     ).not.toBeInTheDocument();
   });
+
+  it("applies the Persona Studio action material markers to the tray and preview controls", () => {
+    render(<PersonaStudioPage />);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
+      "secondary"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
+  });
 });

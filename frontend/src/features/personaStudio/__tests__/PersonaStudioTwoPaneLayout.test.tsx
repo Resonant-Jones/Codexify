@@ -194,4 +194,36 @@ describe("Persona Studio two-pane layout", () => {
       screen.queryByRole("button", { name: /^reset all data$/i })
     ).not.toBeInTheDocument();
   });
+
+  it("applies the Persona Studio action material tiers to tray and preview controls", () => {
+    renderPage();
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
+      "secondary"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
+  });
 });

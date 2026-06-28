@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { personaStudioActionChip } from "./PersonaProfileSelector";
 import type { PersonaProfileDraft } from "./personaStudioStore";
 
 /**
@@ -599,13 +600,12 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 Test prompt
               </div>
               <Button
+                {...personaStudioActionChip("secondary", "shrink-0")}
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={clearPreviewSession}
                 disabled={!hasTurns && !previewPrompt.trim()}
-                className="shrink-0"
-                style={{ borderColor: "var(--panel-border)" }}
               >
                 Clear preview session
               </Button>
@@ -633,7 +633,12 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 }}
               />
               <div className="flex justify-end">
-                <Button type="submit" disabled={!previewPrompt.trim() || isResponding}>
+                <Button
+                  {...personaStudioActionChip("primary")}
+                  type="submit"
+                  variant="ghost"
+                  disabled={!previewPrompt.trim() || isResponding}
+                >
                   Send
                 </Button>
               </div>
