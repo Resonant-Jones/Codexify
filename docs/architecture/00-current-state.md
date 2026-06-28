@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-27
+2026-06-28
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify remains in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work is concentrated on operator-surface documentation, profile-supported runtime clarification, and quarantined continuity proof, not on widening the supported beta surface.
+Codexify remains in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work is concentrated on operator-surface documentation, turn-intake doctrine, and quarantined continuity proof, not on widening the supported beta surface.
 
 ## What changed recently
+- `main` added a docs-only Turn Intake Compiler Contract, Fixture Pack, and Token Domain Proposal.
+- `main` added a Guardian operator index to route operator questions to the right docs and checks.
 - `main` refreshed collaborator onboarding docs and linked them into the architecture KB front door.
 - `main` added a collab chat identity contract as docs-only guidance, not shipped runtime support.
-- `main` added a docs-only Turn Intake Compiler Contract as a governed pre-model intake seam, without claiming runtime support.
 - `main` surfaced personal-facts guardrails and Scout operator-surface docs in the KB.
-- `main` added a docs-only Turn Intake Fixture Pack and Turn Intake Token Domain Proposal as turn-intake doctrine, without claiming executable tests or runtime tokens.
 - `main` merged a Whoosh'd inventory source fix and launcher/model-environment cleanup.
 - `main` completed the six-route Continuity operator proof chain, but kept it quarantined behind `test-continuity`.
 - `main` tightened continuity docs to state the phase is complete but not beta-supported.
@@ -29,9 +29,11 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Local Docker Compose remains the supported install path.
 - The supported posture remains local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
 - `AI_BACKEND=local` is legacy compatibility only.
+- `LLM_PROVIDER=local` is the supported provider posture on `main`; cloud provider lanes remain out of the release promise.
 - `LOCAL_RUNTIME_PRESET` still selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` under the local provider boundary.
 - Whoosh'd remains the supported Apple Silicon local runtime preset.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
+- The current `main` tip includes docs-first operator routing for current-state interpretation and release readiness.
 - OpenAI export import and Task Prompt Archive are present on `main`.
 - Live model availability is still proven only by inventory from `/v1/models` or `/api/tags`.
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
@@ -62,6 +64,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Federation remains high-blast-radius and trust-policy sensitive.
 - Graph-write enablement stays outside the default release promise.
 - OpenAI import coverage and embedding deferral still need ongoing regression proof.
+- The new turn-intake docs are guidance only; the runtime classifier/intake pipeline is still not release-proven.
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
