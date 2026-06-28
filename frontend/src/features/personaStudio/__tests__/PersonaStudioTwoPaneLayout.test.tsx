@@ -111,31 +111,24 @@ describe("Persona Studio two-pane layout", () => {
     );
   });
 
-  it("renders the right rail with Preview | Profiles | Diagnostics tabs and Preview as default", () => {
+  it("renders the right rail with Preview | Diagnostics tabs and Preview as default", () => {
     renderPage();
 
-    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole(
-      "button"
-    );
+    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole("button");
     const tabNames = railTabs.map((tab) => tab.textContent?.trim());
-    expect(tabNames).toEqual(["Preview", "Profiles", "Diagnostics"]);
+    expect(tabNames).toEqual(["Preview", "Diagnostics"]);
     expect(railTabs[0]).toHaveAttribute("data-state", "active");
+    expect(railTabs[0]).toHaveAttribute("aria-pressed", "true");
+    expect(railTabs[1]).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
   });
 
-  it("switches the rail between Preview, Profiles, and Diagnostics", async () => {
+  it("switches the rail between Preview and Diagnostics", async () => {
     const user = userEvent.setup();
     renderPage();
 
     // Preview is default
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
-
-    // Switch to Profiles
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
-    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
 
     // Switch to Diagnostics
     await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
@@ -144,5 +137,13 @@ describe("Persona Studio two-pane layout", () => {
       "active"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
+
+    // Switch back to Preview
+    await user.click(screen.getByRole("button", { name: /^preview$/i }));
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+    expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 });

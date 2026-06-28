@@ -56,9 +56,39 @@ const { mockPersonaStudioState } = vi.hoisted(() => {
     },
   };
 
+  const codeAssistantProfile = {
+    ...minimalProfile,
+    id: "profile-2",
+    name: "Code Assistant",
+    description: "Code-focused draft persona",
+    config: {
+      ...minimalProfile.config,
+      identity: {
+        ...minimalProfile.config.identity,
+        name: "Code Assistant",
+        description: "Code-focused draft persona",
+      },
+    },
+  };
+
+  const planningProfile = {
+    ...minimalProfile,
+    id: "profile-3",
+    name: "Planning Assistant",
+    description: "Planning-focused draft persona",
+    config: {
+      ...minimalProfile.config,
+      identity: {
+        ...minimalProfile.config.identity,
+        name: "Planning Assistant",
+        description: "Planning-focused draft persona",
+      },
+    },
+  };
+
   return {
     mockPersonaStudioState: {
-      profiles: [minimalProfile],
+      profiles: [minimalProfile, codeAssistantProfile, planningProfile],
       selectedProfileId: minimalProfile.id,
       activeTab: "Truth Matrix",
       selectedProfile: minimalProfile,
@@ -118,5 +148,42 @@ describe("Persona Studio Page render safety", () => {
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();
+  });
+
+  it("keeps the selector tray text-first and chip-tiered without decorative SVGs", async () => {
+    const user = userEvent.setup();
+    render(<PersonaStudioPage />);
+
+    const selector = screen.getByTestId("persona-studio-profile-selector");
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+
+    expect(selector).toBeVisible();
+    expect(selector.querySelectorAll("svg")).toHaveLength(0);
+    expect(selector.querySelectorAll("p, small")).toHaveLength(0);
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "primary"
+    );
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "secondary"
+    );
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "reset"
+    );
+    expect(
+      screen.getByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
+
+    await user.click(trigger);
+    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
   });
 });

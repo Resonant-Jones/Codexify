@@ -223,21 +223,17 @@ describe("Persona Studio Page", () => {
     expect(sessionSetItemSpy).not.toHaveBeenCalled();
   });
 
-  it("switches the rail between Profiles and Diagnostics tabs", async () => {
+  it("switches the rail between Preview and Diagnostics tabs", async () => {
     const user = userEvent.setup();
     renderPage();
 
     // Default Preview tab — diagnostics not visible
-    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
-
-    // Switch to Profiles
-    await user.click(screen.getByRole("button", { name: /^profiles$/i }));
-    expect(screen.getByRole("button", { name: /^profiles$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
     );
-    expect(screen.getByTestId("persona-studio-rail-profiles-panel")).toBeVisible();
     expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
 
     // Switch to Diagnostics
     await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
@@ -246,9 +242,6 @@ describe("Persona Studio Page", () => {
       "active"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
-    expect(screen.getByText("Save Status")).toBeVisible();
-    expect(screen.getByText("Effective Config")).toBeVisible();
-    expect(screen.getByText("Debug Log")).toBeVisible();
 
     // Switch back to Preview
     await user.click(screen.getByRole("button", { name: /^preview$/i }));
@@ -259,6 +252,48 @@ describe("Persona Studio Page", () => {
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 
+  it("renders the selector tray beneath the editor with chip tiers and no helper text", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const selector = screen.getByTestId("persona-studio-profile-selector");
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+
+    expect(selector).toBeVisible();
+    expect(selector.querySelectorAll("svg")).toHaveLength(0);
+    expect(selector.querySelectorAll("p, small")).toHaveLength(0);
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    await user.click(trigger);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
+
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "primary"
+    );
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "secondary"
+    );
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "reset"
+    );
+    expect(
+      screen.getByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^reset all data$/i })).not.toBeInTheDocument();
+  });
+
   it("renders the section tabs in the header area", () => {
     renderPage();
 
@@ -267,14 +302,15 @@ describe("Persona Studio Page", () => {
     expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
   });
 
-  it("keeps the active profile presentation only in the main editor", () => {
+  it("keeps the profile selector beneath the editor and removes the old summary card", () => {
     renderPage();
 
-    expect(screen.getAllByTestId("persona-studio-active-profile-summary")).toHaveLength(1);
+    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("persona-studio-rail-lane")).queryByTestId(
+      within(screen.getByTestId("persona-studio-configuration-lane")).queryByTestId(
         "persona-studio-active-profile-summary"
       )
     ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
   });
 });
