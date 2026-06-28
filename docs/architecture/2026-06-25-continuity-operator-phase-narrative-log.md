@@ -2,7 +2,9 @@
 
 ## Status
 
-Phase complete — test-only, quarantined, documented. The six-route Continuity operator surface exists, is live-proven, regression-pinned, and held behind explicit gates. It is not supported beta behavior and does not widen the Codexify release promise.
+Phase complete — test-only, profile-quarantined, documented. The six-route Continuity operator surface exists, is live-proven, regression-pinned, and held behind explicit gates. It is not supported beta behavior and does not widen the Codexify release promise.
+
+**Grounded on:** branch `main`, HEAD `ba263da49`. All evidence was verified on this branch on 2026-06-26. The Continuity operator implementation and proof chain are present on both local `main` and `origin/main`. A re-grounding pass (`docs/architecture/2026-06-26-continuity-operator-evidence-reconciliation.md`) confirmed that all previously-listed files exist on `main` and that no evidence was missing. No stale detached-HEAD conclusions remain in this document.
 
 ## Audience
 
@@ -248,6 +250,10 @@ Each of these must be its own architecture-impact task with a separate contract.
 
 ## Evidence Boundary
 
+**Inspected worktree:** `/Volumes/Dev_SSD/Codexify-main` on branch `main` at commit `ba263da49`.
+
+**Re-grounding pass:** A subsequent re-grounding verification (`docs/architecture/2026-06-26-continuity-operator-evidence-reconciliation.md`) confirmed that the Continuity operator implementation, proof chain, and all listed files are present on both local `main` and `origin/main`. The regression guardrail (`tests/continuity/test_continuity_operator_six_route_surface.py`) passed 16/16 on the `main` worktree. No stale detached-HEAD conclusions exist in this document.
+
 All files listed in the task requirements were present and inspected:
 
 - `docs/architecture/00-current-state.md` — read, confirms test-only quarantined surface on lines 42, 65
@@ -260,11 +266,11 @@ All files listed in the task requirements were present and inspected:
 - `docs/architecture/2026-06-25-continuity-operator-six-route-milestone-handoff.md` — read, confirms HANDOFF COMPLETE
 - `docs/architecture/2026-06-25-continuity-operator-six-route-hardening-regression-rerun.md` — read, confirms PASS, 16/16 regression tests, full suite green
 - `docs/architecture/2026-06-25-continuity-operator-documentation-alignment-audit.md` — read, confirms PASS, all truth surfaces aligned
-- `tests/continuity/test_continuity_operator_six_route_surface.py` — read, confirms 16 regression guardrail tests
+- `tests/continuity/test_continuity_operator_six_route_surface.py` — read and **re-run: 16/16 passed** on branch `main`
 - `docs/architecture/README.md` — read, confirms existing Continuity documentation list
 - `docs/architecture/continuity-operator-phase-explainer.md` — read, confirms existing general explainer that this narrative log complements
 
-No files were missing. No evidence was invented. All claims in this narrative log are grounded in the inspected proof documents above.
+No files were missing. No evidence was invented. All claims in this narrative log are grounded in the inspected proof documents above and re-verified on `main`.
 
 ## Safe Next Moves
 
