@@ -1,22 +1,170 @@
-Codexify is property of Resonant Constructs LLC.
+Codexify Source Available License (CSAL) v1.0
 
-Copyright (c) 2025 Codexify Core Team. All rights reserved.
+Copyright (c) 2025 Resonant Constructs LLC.
 
-This software and associated components are proprietary and confidential.
-Unauthorized copying, modification, redistribution, or sale of this software,
-in whole or in part, is strictly prohibited without express written permission
-from the Codexify Core Team.
+All rights reserved except as expressly granted in this license.
 
-Commercial use is permitted only under an active, explicit license agreement
-with Codexify. For licensing inquiries, please contact: legal@resonantconstructs.ai
+This software and its associated documentation, designs, names, branding, imagery,
+marketing materials, product concepts, and related components are owned by
+Resonant Constructs LLC unless otherwise noted.
 
-The names "Codexify", "Pulse Foresight", "Pulse Secretary", "Looking Glass Search", "GuardianOS", "PulseOS", "WorkSpace" "SocialPod", "Codexify" and "Codexify Cloud" are trademarks
-of the Codexify Core Team and may not be used to endorse or promote derivative
-works without prior written permission.
+This license grants limited rights to use the software. It does not transfer
+ownership of Codexify or any associated intellectual property.
 
-This software may include plugins or modules developed by third parties. Such
-plugins may be distributed under their own open source or proprietary licenses,
-but official inclusion in the Codexify Cloud distribution channel requires
-approval by the Codexify Core Team and adherence to the Plugin Distribution Policy.
+1. Personal, Educational, Research, and Noncommercial Use
 
-NO WARRANTY IS PROVIDED, EXPRESS OR IMPLIED. USE AT YOUR OWN RISK.
+Individuals may use, study, modify, and build upon Codexify for personal,
+educational, research, hobby, portfolio, and other noncommercial purposes at no
+cost.
+
+Noncommercial use means use that is not primarily intended for commercial
+advantage, monetary compensation, business operations, paid services, customer
+work, resale, sublicensing, or competitive commercial deployment.
+
+2. Commercial Use Requires a License
+
+Commercial use of Codexify requires an active, written commercial license issued
+by Resonant Constructs LLC.
+
+Commercial use includes, but is not limited to:
+
+- selling, licensing, or monetizing products or services built with Codexify;
+- hosting Codexify or derivative functionality as a paid or commercial service;
+- integrating Codexify into commercial software, SaaS products, client work, or
+  business operations;
+- using Codexify to provide consulting, automation, development, AI tooling, or
+  platform services to customers;
+- white-labeling, reselling, or repackaging Codexify or derivative works;
+- using Codexify in a product, service, or platform that directly competes with
+  Codexify, Codexify Cloud, or other official Resonant Constructs LLC offerings.
+
+For commercial licensing inquiries, contact:
+legal@resonantconstructs.ai
+
+3. Attribution and License Preservation
+
+Any redistribution, fork, derivative work, plugin package, published deployment,
+or public project that includes, depends on, or is substantially derived from
+Codexify must:
+
+- retain this license and all copyright notices;
+- include a copy of this license alongside any other applicable license terms;
+- clearly identify Codexify as a dependency, source project, or originating
+  project in documentation, notices, an about page, package metadata, or another
+  reasonably visible location;
+- include a link to the official Codexify repository when practical.
+
+Suggested attribution:
+
+Built with Codexify, a source-available project by Resonant Constructs LLC.
+Official repository: https://github.com/Resonant-Jones/Codexify
+
+4. Trademarks, Branding, and Product Identity
+
+This license does not grant permission to use the names, marks, logos, artwork,
+visual identity, marketing copy, product imagery, trade dress, likeness, or
+branding of Resonant Constructs LLC or Codexify except as necessary for truthful
+attribution.
+
+Protected names and product identities include, but are not limited to:
+
+- Codexify
+- Codexify Cloud
+- Pulse Foresight
+- Pulse Secretary
+- Looking Glass Search
+- GuardianOS
+- PulseOS
+- WorkSpace
+- SocialPod
+
+Derivative works, forks, plugins, integrations, and public deployments must not
+imply sponsorship, endorsement, partnership, official status, or affiliation with
+Resonant Constructs LLC without prior written permission.
+
+Forks and derivative works must clearly identify themselves as unofficial unless
+they have been expressly approved in writing by Resonant Constructs LLC.
+
+5. No Direct Competitive Use of Codexify Identity
+
+You may not use Codexify source code, documentation, designs, imagery, branding,
+marketing materials, likeness, or product identity to create, market, distribute,
+or operate a directly competing product or service that is likely to confuse
+users about its origin, affiliation, endorsement, or relationship to Codexify or
+Resonant Constructs LLC.
+
+This restriction does not prohibit independent projects from building different
+software in the same general field, provided they do not misuse Codexify identity,
+branding, protected materials, or source-available code in violation of this
+license.
+
+6. Third-Party Plugins and Modules
+
+Codexify may support plugins, modules, integrations, or extensions created by
+third parties.
+
+Third-party plugins and modules remain the property of their respective authors
+unless otherwise agreed in writing. Plugin authors may choose their own license
+terms for their original work, provided those terms do not override or remove the
+requirements of this license for Codexify itself.
+
+Official inclusion in Codexify Cloud or other Resonant Constructs LLC
+distribution channels may require separate review, approval, certification, or
+agreement.
+
+7. Contributions
+
+By submitting a contribution, pull request, patch, issue attachment, code sample,
+documentation change, design asset, or other proposed modification to Codexify,
+you grant Resonant Constructs LLC a perpetual, worldwide, royalty-free,
+irrevocable license to use, reproduce, modify, sublicense, distribute, and
+relicense that contribution as part of Codexify and related offerings.
+
+You represent that you have the right to submit the contribution and that your
+contribution does not knowingly infringe the rights of any third party.
+
+8. No AI Training Grant
+
+This license does not grant permission to use Codexify source code,
+documentation, designs, marketing materials, or other repository contents to
+train, fine-tune, evaluate, benchmark, or otherwise develop machine learning
+models, foundation models, language models, or code-generation systems without
+prior written permission from Resonant Constructs LLC.
+
+9. Reservation of Rights
+
+All rights not expressly granted by this license are reserved by Resonant
+Constructs LLC.
+
+Nothing in this license grants any rights to patents, trademarks, service marks,
+logos, trade dress, confidential information, or other intellectual property
+except as expressly stated.
+
+10. Termination
+
+Any violation of this license automatically terminates the rights granted to you
+under this license.
+
+Upon termination, you must stop using, distributing, hosting, sublicensing, or
+commercially exploiting Codexify and any derivative works based on Codexify,
+unless Resonant Constructs LLC provides written permission otherwise.
+
+11. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, NON-INFRINGEMENT, SECURITY, RELIABILITY, OR AVAILABILITY.
+
+USE OF THE SOFTWARE IS AT YOUR OWN RISK.
+
+12. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, RESONANT CONSTRUCTS LLC AND ITS
+CONTRIBUTORS SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, LOSSES, COSTS, OR OTHER
+LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE, THIS LICENSE, OR USE OF
+CODEXIFY, WHETHER IN CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY, OR OTHERWISE.
+
+13. Contact
+
+For licensing, commercial use, partnership, or permission requests, contact:
+legal@resonantconstructs.ai
