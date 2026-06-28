@@ -31,25 +31,52 @@ and the assistant used the evidence to synthesize a grounded answer. No
 evidence was blocked. The trace carries complete gate decisions, evidence
 hashes, and provenance URLs.
 
+Rerun verification (this session, 2026-06-28): a fresh live re-execution could
+not be performed because the real Groq credential was cleaned up immediately
+after the original PASS run (standard post-proof security cleanup) and is no
+longer present in the environment — shell env, `.env`, `.env.local`, and other
+private env files all report `GROQ_API_KEY` empty/absent. The local stack is
+also in a post-run degraded state (`backend`, `db`, `neo4j` exited with code
+137; only `redis` and `worker-chat` remain up), consistent with post-proof
+teardown. The original PASS evidence was therefore re-verified for internal
+consistency against the live seam code rather than re-executed: all five
+recorded `(content_hash -> evidence_id)` pairs reproduce exactly via the gate's
+deterministic `uuid.uuid5(uuid.NAMESPACE_URL, content_hash)` computation, and
+the recorded `Remote Recall` trace shape matches the implemented
+`RemoteRecallOutcome.as_trace()` contract. The PASS status of the original run
+is preserved on the strength of that run; this session did not produce a new
+live completion and invented none.
+
 ## 4. Date/time and branch context
 
 - First proof attempt (BLOCKED): 2026-06-26 (local); health captures at
   2026-06-27T03:26 UTC.
 - Second proof attempt (PASS): 2026-06-28 (local); completion accepted at
   2026-06-28T05:58 UTC.
-- Branch: `feature/remote-retrieval` (tracking `origin/feature/remote-retrieval`).
-- HEAD: `0735f7ad9` ("Keep Remote Recall evidence out of system authority").
-- Commits `7f3f5158e` and `ba1dec8b4` present in history.
+- Rerun verification (consistency re-check, no new live completion):
+  2026-06-28 (local).
+- Branch: `feature/remote-retrieval` (tracking `origin/feature/remote-retrieval`,
+  ahead 3).
+- HEAD at rerun verification: `81ba5d50c` ("Record Remote Recall live proof PASS
+  result"); this verification task commits on top of it.
+- Commits `7f3f5158e` (seam), `ba1dec8b4` (BLOCKED record), and `0735f7ad9`
+  (authority boundary) present in history.
 
 ## 5. Commit context
 
-- HEAD: `0735f7ad9b9b092bacec5f01f1e0fd13012d0cc0`
+- HEAD at rerun verification: `81ba5d50c0869edcc54dcdc7f7b5176d4787e84f` ("Record
+  Remote Recall live proof PASS result").
+- Original PASS run HEAD: `0735f7ad9b9b092bacec5f01f1e0fd13012d0cc0`.
 - Target seam commit `7f3f5158e` ("Add gated Remote Recall search-as-RAG
-  seam") is present in history (3 commits behind HEAD).
+  seam") is present in history.
 - Previous BLOCKED proof commit `ba1dec8b4` ("Document Remote Recall live proof
-  status") is present in history (2 commits behind HEAD).
+  status") is present in history.
+- Authority-boundary commit `0735f7ad9` ("Keep Remote Recall evidence out of
+  system authority") is present in history; it is the code HEAD under which the
+  PASS run executed, and it confirms `user`-role (not `system`) evidence
+  injection.
 - Backend and `worker-chat` were rebuilt with the seam code from the worktree
-  at commit `0735f7ad9`.
+  at commit `0735f7ad9` for the original PASS run.
 
 ## 6. Runtime path
 
@@ -285,8 +312,10 @@ eligible-for-synthesis path with real web data.
   search".
 - `is_global_search_posture()` correctly gates Remote Recall to explicit global
   search only; ordinary local/conversation turns are not affected.
-- The completion pipeline injects gate-eligible web evidence as system-context
-  messages before the final provider call, and the assistant synthesizes a
+- The completion pipeline injects gate-eligible web evidence as lower-authority
+  `user`-role context messages (delimited and labeled as untrusted retrieved
+  data; never `system`/`developer` instruction authority — see commit
+  `0735f7ad9`) before the final provider call, and the assistant synthesizes a
   grounded answer from the evidence.
 - The `trace["remote_recall"]` field carries complete evidence counts, gate
   decisions, content hashes, and provenance URLs.
@@ -400,4 +429,39 @@ rm config/supported_profiles/proof-run.yaml
 rm .env.proof
 # .env restored to: ALLOW_CLOUD_PROVIDERS=false, CODEXIFY_LOCAL_ONLY_MODE=true
 docker compose up -d --build backend worker-chat  # back to safe defaults
+```
+
+### Rerun verification (2026-06-28, this session)
+
+A fresh live re-execution was not possible (credential cleaned up; stack
+degraded). Commands run for redacted blocker confirmation and consistency
+re-verification only:
+
+```
+# Context
+git status --short --branch   # feature/remote-retrieval, ahead 3
+git rev-parse HEAD            # 81ba5d50c
+git log --oneline -n 30       # 7f3f5158e, ba1dec8b4, 0735f7ad9 present
+
+# Credential availability (redacted) — all report empty/absent
+python - <<'PY'
+import os; print("set" if os.getenv("GROQ_API_KEY") else "missing")
+PY   # -> missing
+# .env / .env.local / .env.private / .local.env: GROQ_API_KEY empty or absent
+
+# Stack state (degraded, post-proof teardown)
+docker compose ps -a   # backend/db/neo4j Exited(137); redis Up; worker-chat Up
+
+# Internal consistency re-verification (objective; no credential needed)
+python - <<'PY'
+import uuid
+pairs = [
+ ("295995057548a4bf1f49db184dae2b710b30966bdf279813902bc34eb8259c74","we_915b566e6038527eb32451239fbc2a94"),
+ ("4c119b6e286891e2d886fdc87597412d4d8142820c6b596f079a9d60555939c5","we_a6e69390a342540eb06197a2e7897836"),
+ ("6110141234d7c8d3f818dee862315a0baf9d2b3fcaf5b22cec3fea16b003a174","we_1b17b98d96235daa9e97039d7ac3d215"),
+ ("cade3dd9a957d92d962d2153785fdfd06606f830f3fb432262c679540d4a353b","we_492703caf95b5047b6af968ac377c3a1"),
+ ("bfefc245b6a2807e28c774e57ba7ebadc2f4a415f49c9b5e1406e165c2ecd8ee","we_d5f041a1ee54541eaf64d9d49ecba777"),
+]
+print(all(("we_"+uuid.uuid5(uuid.NAMESPACE_URL, ch).hex)==eid for ch,eid in pairs))
+PY   # -> True (all five reproduce exactly)
 ```
