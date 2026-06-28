@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-27
+2026-06-28
 
 ## Interpretation rule
 This file is authoritative for:
@@ -24,7 +24,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - `main` imported OpenAI export conversations into chat history and added Task Prompt Archive.
 - `main` preserved the local-only beta posture and current-state override pattern.
 - `main` added a six-route Continuity operator surface (write, readback, diagnostics, state readback, commit readback, link readback) as a test-only, profile-quarantined, API-key-gated operator surface under the `continuity_operator` route key. It is live-proven and regression-pinned under the `test-continuity` profile only. It **remains quarantined** from the supported beta profile `v1-local-core-web-mcp`. It does not widen the supported beta release promise.
-- `main` added a thin, gated Remote Recall Search-as-RAG runtime seam under ADR-021 / Web Agent Spec v1. It implements the first provider adapter (Groq built-in web search) behind a provider-neutral boundary, a Web Evidence Intake Gate, canonical tokens, and a narrow completion-context integration that runs only on an explicit `global_search` posture. The seam injects web evidence only as lower-authority untrusted `user`-role context data, never as `system`/`developer` instruction authority. This is an implementation seam with unit-test proof only. It **remains default-off** (`REMOTE_RECALL_ENABLED=false`, `GROQ_WEB_SEARCH_ENABLED=false`) and does not widen the supported beta release promise; live Remote Recall release support still requires configured egress, credentials, and supported-path live proof. A first live supported-path proof attempt was **BLOCKED** because no real Groq credential is available in the environment; see `remote-recall-live-proof.md`. The supported local stack is otherwise healthy on the local-only posture.
+- `main` added a thin, gated Remote Recall Search-as-RAG runtime seam under ADR-021 / Web Agent Spec v1. It implements the first provider adapter (Groq built-in web search) behind a provider-neutral boundary, a Web Evidence Intake Gate, canonical tokens, and a narrow completion-context integration that runs only on an explicit `global_search` posture. The seam injects web evidence only as lower-authority untrusted `user`-role context data, never as `system`/`developer` instruction authority. It **remains default-off** (`REMOTE_RECALL_ENABLED=false`, `GROQ_WEB_SEARCH_ENABLED=false`) and does not widen the supported beta release promise. One live supported-path proof (PASS) exists on `feature/remote-retrieval` with intentionally enabled Groq/egress/posture overrides and a real Groq credential; see `remote-recall-live-proof.md`. This live proof does not make Remote Recall beta-supported or widen the local-only beta promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -64,7 +64,7 @@ Codexify is in local-first beta hardening on `main`. The supported path is still
 - Do not infer a wider release promise from docs-only exports, scaffolds, or audit artifacts.
 - Do not assume the Zac Mac Studio bring-up path is a wider deployment promise than the documented local path.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, command bus, or list/search behavior. It is test-only and profile-quarantined.
-- Do not assume Remote Recall (web search / Search-as-RAG) is part of the supported beta release promise from the runtime seam or its unit tests. The seam exists and is default-off; live release support still requires configured egress, credentials, feature flags, and supported-path live proof. The first live proof attempt is BLOCKED on credentials (see `remote-recall-live-proof.md`); no live supported-path PASS has been recorded.
+- Do not assume Remote Recall (web search / Search-as-RAG) is part of the supported beta release promise. The seam is default-off, implementation-only, and requires intentional egress/credential/posture overrides to execute. One live supported-path proof (PASS) exists on `feature/remote-retrieval` with Groq credentials and intentionally relaxed posture; this is a proof artifact only and does not make Remote Recall beta-supported, default-on, or part of the `v1-local-core-web-mcp` supported beta contract. See `remote-recall-live-proof.md`.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
