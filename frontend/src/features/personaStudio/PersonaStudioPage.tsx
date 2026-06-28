@@ -868,14 +868,17 @@ export default function PersonaStudioPage() {
                   borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
                 }}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1" />
                   <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
                     {activeTab}
                   </Badge>
                 </div>
-                <div className="mt-4">
+
+                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
                   {renderActiveTab()}
                 </div>
+
               </div>
 
               <PersonaProfileSelector

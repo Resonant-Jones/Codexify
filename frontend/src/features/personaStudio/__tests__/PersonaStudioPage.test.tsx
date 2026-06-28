@@ -64,16 +64,16 @@ describe("Persona Studio Page", () => {
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
     expect(within(header).getByText("Draft Preview")).toBeVisible();
-    expect(within(header).getByText(/test before saving/i)).toBeVisible();
+    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /temporary preview\. not saved to chat history/i
+      /draft sandbox · local until saved · not chat history/i
     );
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /temporary preview\. not saved to chat history/i
+      /draft sandbox · local until saved · not chat history/i
     );
     expect(
-      screen.getByPlaceholderText(/send a temporary test prompt/i)
+      screen.getByPlaceholderText(/send a prompt to test this draft/i)
     ).toBeVisible();
   });
 
@@ -81,13 +81,12 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
     await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^preview transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
@@ -114,8 +113,7 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
     await user.type(
       screen.getByRole("textbox", { name: /persona preview prompt/i }),
@@ -154,8 +152,7 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^planning$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
@@ -168,8 +165,7 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Research");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^research$/i }));
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
     );
@@ -185,8 +181,7 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -206,7 +201,7 @@ describe("Persona Studio Page", () => {
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(
-      within(transcript).getByText(/no preview turns yet\./i)
+      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
     ).toBeVisible();
   });
 
@@ -215,8 +210,7 @@ describe("Persona Studio Page", () => {
     const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
+    await user.click(screen.getByRole("button", { name: /^coding$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -234,114 +228,70 @@ describe("Persona Studio Page", () => {
     renderPage();
 
     // Default Preview tab — diagnostics not visible
-    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
-      "aria-selected",
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "aria-pressed",
       "true"
     );
+    expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
+      "data-state",
+      "active"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
-    expect(screen.getByText("Save Status")).toBeVisible();
-    expect(screen.getByText("Effective Config")).toBeVisible();
-    expect(screen.getByText("Debug Log")).toBeVisible();
 
     // Switch back to Preview
-    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
-    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
+    await user.click(screen.getByRole("button", { name: /^preview$/i }));
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "data-state",
+      "active"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
 
-  it("renders the rail tabs in the order Preview | Diagnostics with proper tab semantics", () => {
-    renderPage();
-
-    const tablist = screen.getByTestId("persona-studio-rail-tabs");
-    expect(tablist).toHaveAttribute("role", "tablist");
-    expect(tablist).toHaveAttribute("aria-label", "Persona Studio companion rail");
-
-    const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
-      "Preview",
-      "Diagnostics",
-    ]);
-
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(tabs[1]).toHaveAttribute("aria-selected", "false");
-
-    expect(tabs[0]).toHaveAttribute(
-      "aria-controls",
-      "persona-studio-rail-panel-preview"
-    );
-    expect(tabs[1]).toHaveAttribute(
-      "aria-controls",
-      "persona-studio-rail-panel-diagnostics"
-    );
-
-    const previewPanel = screen.getByTestId("persona-studio-rail-preview-panel");
-    expect(previewPanel).toHaveAttribute("role", "tabpanel");
-    expect(previewPanel).toHaveAttribute(
-      "aria-labelledby",
-      "persona-studio-rail-tab-preview"
-    );
-  });
-
-  it("does not render the obsolete Support Surfaces or Utility Pane labels", () => {
-    renderPage();
-
-    expect(screen.queryByText(/^support surfaces$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^utility pane$/i)).not.toBeInTheDocument();
-
-    // Removed doctrine strings from content density pass
-    expect(screen.queryByText(/draft sandbox/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/preview turns stay in this mounted studio session only/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/local-only draft input for bounded tests/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^preview transcript$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^session cache$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^preview composer$/i)).not.toBeInTheDocument();
-
-    // Removed repeated profile card
-    expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
-
-    // Removed scenario chips
-    expect(screen.queryByText(/try a scenario/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^coding$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^research$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^planning$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^casual help$/i })).not.toBeInTheDocument();
-
-    // New compressed copy is present
-    expect(screen.getByText(/temporary preview\. not saved to chat history/i)).toBeVisible();
-    expect(screen.getByText(/test before saving/i)).toBeVisible();
-    expect(screen.getByText(/^transcript$/i)).toBeVisible();
-    expect(screen.getByPlaceholderText(/send a temporary test prompt/i)).toBeVisible();
-  });
-
-  it("selects a profile from the profile selector dropdown", async () => {
+  it("renders the selector tray beneath the editor with chip tiers and no helper text", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Open the profile selector
+    const selector = screen.getByTestId("persona-studio-profile-selector");
     const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+
+    expect(selector).toBeVisible();
+    expect(selector.querySelectorAll("svg")).toHaveLength(0);
+    expect(selector.querySelectorAll("p, small")).toHaveLength(0);
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
+    expect(trigger.querySelector("svg")).toBeNull();
+
     await user.click(trigger);
 
-    // Dropdown should be visible with profile options
-    const dropdown = screen.getByTestId("persona-studio-profile-selector-dropdown");
-    expect(dropdown).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
 
-    // Select Code Assistant
-    const codeAssistantOption = screen.getByTestId("persona-studio-profile-option-profile-2");
-    await user.click(codeAssistantOption);
-
-    // Profile selector trigger should now show the selected profile
-    expect(trigger).toHaveTextContent(/code assistant/i);
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "primary"
+    );
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "secondary"
+    );
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
+      "data-persona-studio-action-tier",
+      "reset"
+    );
+    expect(
+      screen.getByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^reset all data$/i })).not.toBeInTheDocument();
   });
 
   it("renders the section tabs in the header area", () => {
@@ -352,89 +302,15 @@ describe("Persona Studio Page", () => {
     expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
   });
 
-  it("places the profile selector after the editor, not inside module panels", () => {
+  it("keeps the profile selector beneath the editor and removes the old summary card", () => {
     renderPage();
 
-    // Profile selector is not inside the shell header
-    const header = screen.getByTestId("persona-studio-shell-header");
-    expect(within(header).queryByTestId("persona-studio-profile-selector")).not.toBeInTheDocument();
-
-    // Profile selector is not inside the editor
+    expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("persona-studio-editor")).queryByTestId(
-        "persona-studio-profile-selector"
+      within(screen.getByTestId("persona-studio-configuration-lane")).queryByTestId(
+        "persona-studio-active-profile-summary"
       )
     ).not.toBeInTheDocument();
-
-    // Profile selector follows the editor in DOM order
-    const editor = screen.getByTestId("persona-studio-editor");
-    const selector = screen.getByTestId("persona-studio-profile-selector");
-    expect(editor.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("renders the profile selector trigger as compact inline text with the current profile name", () => {
-    renderPage();
-
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-
-    // Visible profile name text — text-first, not icon-only
-    expect(trigger).toHaveTextContent(/guardian default/i);
-    expect(
-      screen.getByTestId("persona-studio-profile-selector-trigger-name")
-    ).toHaveTextContent(/guardian default/i);
-
-    // No oversized SVG chevron block inside the trigger
-    expect(trigger.querySelector("svg")).toBeNull();
-
-    // Accessible label and title include "Profile:"
-    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
-    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
-
-    // The old tile/card test ids must not exist
-    expect(
-      screen.queryByTestId("persona-studio-profile-selector-tile")
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("persona-studio-profile-selector-card")
-    ).not.toBeInTheDocument();
-
-    // The selected profile name must not be rendered as a separate card inside the editor
-    // (repeated profile cards inside module panels are not allowed)
-    const editor = screen.getByTestId("persona-studio-editor");
-    expect(
-      within(editor).queryByTestId("persona-studio-active-profile-summary")
-    ).not.toBeInTheDocument();
-  });
-
-  it("renders profile-level actions and the Studio reset exactly once, and never 'Reset All Data'", () => {
-    renderPage();
-
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^reset local studio data$/i })
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getAllByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveLength(1);
-
-    expect(
-      screen.queryByRole("button", { name: /^reset all data$/i })
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/reset all data/i)).not.toBeInTheDocument();
-  });
-
-  it("opens a bounded scrollable profile list from the compact trigger", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
-
-    const list = screen.getByTestId("persona-studio-profile-selector-list");
-    expect(list).toBeInTheDocument();
-    expect(list.className).toMatch(/overflow-y-auto/);
-    expect(list.className).toMatch(/max-h-/);
+    expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
   });
 });
