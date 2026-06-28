@@ -112,6 +112,7 @@ from guardian.queue.turn_lock import (
     turn_lock_is_stale,
 )
 from guardian.routes.health import _classify_chat_worker_heartbeat
+from guardian.integrations import luna_n8n
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 
@@ -170,6 +171,51 @@ def _request_account_id(
         return user_id
 
     return get_single_user_id()
+
+
+def _authenticated_display_name(
+    request_user_scope: RequestUserScope,
+) -> Optional[str]:
+    """Best-effort read-only lookup of the authenticated user's display_name.
+
+    Returns the trimmed ``display_name`` from the account's ``UserProfile``
+    row when available. Returns ``None`` when the profile database is
+    unavailable, the user has no profile, or the display_name is unset.
+    Never raises — all exceptions are caught and logged at debug level so
+    that the chat route can fall back to ``LUNA_OPERATOR_NAME`` or "User"
+    without surfacing a 5xx.
+    """
+    owner_id = str(getattr(request_user_scope, "user_id", "") or "").strip()
+    if not owner_id:
+        return None
+    try:
+        from sqlalchemy import select
+
+        from guardian.core.db import load_guardian_db_from_env
+        from guardian.db.models import UserProfile
+
+        db = load_guardian_db_from_env()
+        if db is None:
+            return None
+        with db.get_session() as session:
+            profile = session.scalar(
+                select(UserProfile).where(UserProfile.user_id == owner_id)
+            )
+        if profile is None:
+            return None
+        value = getattr(profile, "display_name", None)
+        if not value:
+            return None
+        text = str(value).strip()
+        return text or None
+    except Exception as exc:
+        logger.debug(
+            "[luna] authenticated display_name lookup failed owner=%s: %s",
+            owner_id,
+            exc,
+            exc_info=True,
+        )
+        return None
 
 
 def _resolve_thread_owner_hint(
@@ -3045,6 +3091,139 @@ async def chat_complete(
         if isinstance(latest_turn, dict)
         else None
     )
+
+    # --- @luna mention routing via n8n ---
+    latest_turn_text = luna_n8n.extract_latest_text(latest_turn)
+    if luna_n8n.is_luna_mention(latest_turn_text):
+        user_message = luna_n8n.strip_luna_mention(latest_turn_text)
+        if user_message is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "luna_empty_command",
+                    "message": "Empty @luna command",
+                },
+            )
+
+        # Build a transcript-shaped copy of the visible context with only the
+        # latest user message's leading mention stripped.
+        luna_messages: List[Dict[str, str]] = []
+        replaced = False
+        for entry in reversed(context):
+            entry_dict = dict(entry)
+            if (
+                not replaced
+                and entry_dict.get("role") == "user"
+                and entry_dict.get("content") == latest_turn_text
+            ):
+                entry_dict["content"] = user_message
+                replaced = True
+            luna_messages.append(entry_dict)
+        luna_messages.reverse()
+
+        try:
+            auth_display_name = _authenticated_display_name(request_user_scope)
+            user_display_name = luna_n8n.resolve_user_display_name(
+                auth_display_name
+            )
+            transcript = luna_n8n.format_transcript(
+                luna_messages,
+                user_display_name=user_display_name,
+            )
+            luna_project_id = (
+                _coerce_positive_int(thread_exists.get("project_id"))
+                if isinstance(thread_exists, dict)
+                else None
+            )
+            payload = luna_n8n.build_payload(
+                transcript,
+                session_id=f"codexify-thread-{thread_id}",
+                thread_id=thread_id,
+                project_id=luna_project_id,
+            )
+            reply = await luna_n8n.call_luna_n8n(payload)
+        except luna_n8n.LunaConfigError as exc:
+            logger.warning(
+                "[luna] missing configuration thread_id=%s: %s",
+                thread_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "luna_unavailable",
+                    "reason": "luna_n8n_not_configured",
+                },
+            ) from exc
+        except luna_n8n.LunaTimeoutError:
+            logger.warning("[luna] n8n timeout thread_id=%s", thread_id)
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "error": "luna_upstream_timeout",
+                    "reason": "luna_n8n_timeout",
+                },
+            )
+        except luna_n8n.LunaUpstreamError as exc:
+            logger.warning(
+                "[luna] upstream failure thread_id=%s: %s",
+                thread_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "luna_upstream_failure",
+                    "reason": "luna_n8n_failed",
+                },
+            ) from exc
+
+        # Persist the Luna reply as an assistant message via the existing
+        # helper. The message.created event flows through normally. The
+        # identity metadata (source + display_name) is the minimal contract
+        # the webui-basic uses to render this reply as Luna instead of
+        # Guardian.
+        luna_message_metadata = {
+            "source": "luna_n8n",
+            "display_name": "Luna",
+        }
+        _persist_message_to_thread(
+            thread_id=thread_id,
+            role="assistant",
+            content=reply,
+            owner=_request_account_id(request_user_scope),
+            message_metadata=luna_message_metadata,
+        )
+
+        return {
+            "ok": True,
+            "provider": "luna",
+            "model": "luna-n8n",
+            "reply": reply,
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "request_id": request_id,
+            "task_id": str(uuid.uuid4()),
+            "source_mode": "luna",
+            "depth_mode": "normal",
+            "requested_depth_mode": "normal",
+            "effective_depth_mode": "normal",
+            "depth_downgrade_reason": None,
+            "messages_url": f"/api/chat/{thread_id}/messages",
+            "trace_url": f"/api/chat/debug/rag-trace/{thread_id}/latest",
+            "identity": {
+                "source": "luna_n8n",
+                "display_name": "Luna",
+            },
+            "execution": {
+                "attempted_provider": "luna",
+                "attempted_model": "luna-n8n",
+                "final_provider": "luna",
+                "final_model": "luna-n8n",
+                "fallback_triggered": False,
+            },
+        }
+    # --- end @luna interception ---
 
     requested_source_mode = normalize_source_mode(
         body.source_mode

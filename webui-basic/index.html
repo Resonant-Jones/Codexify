@@ -394,8 +394,11 @@ body {
     el.innerHTML = msgs.map(function(m) {
       if (m.role === 'assistant') {
         var content = m.content || '';
-        var isLuna = /^\[luna\]/i.test(content);
-        if (isLuna) { content = content.replace(/^\[luna\]\s*/i, ''); }
+        // Luna replies are identified by the message metadata written by
+        // the chat route (source=luna_n8n, display_name=Luna). The
+        // previous text-prefix heuristic is no longer authoritative.
+        var meta = m.metadata || {};
+        var isLuna = meta.source === 'luna_n8n' || meta.display_name === 'Luna';
         var aClass = isLuna ? 'message assistant luna' : 'message assistant';
         var aName = isLuna ? 'Luna' : 'Guardian';
         return '<div class="' + aClass + '"><div class="msg-name">' + aName + '</div>' + esc(content) + '</div>';
