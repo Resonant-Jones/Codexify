@@ -548,6 +548,7 @@ from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
 from guardian.routes.user_profile import router as user_profile_router
 from guardian.routes.voice import router as voice_router
+from guardian.routes.worktrees import router as worktrees_router
 from guardian.voice.config import get_voice_runtime_config
 from guardian.voice.runtime import SUPPORTED_INPUT_MIME
 from guardian.voice.service import validate_voice_runtime_dependencies
@@ -1284,6 +1285,11 @@ _include_router(
     include_fn=lambda: app.include_router(continuity_operator.router),
     default_enabled=False,
     core_surface=False,
+)
+_include_router(
+    label="worktrees",
+    flag_name="CODEXIFY_ENABLE_WORKTREE_ROUTES",
+    include_fn=lambda: app.include_router(worktrees_router),
 )
 
 logger.info(
