@@ -31,6 +31,7 @@ describe("Persona Studio two-pane layout", () => {
     expect(configurationLane).toBeVisible();
     expect(railLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(configurationLane).getByTestId("persona-studio-profile-selector")).toBeVisible();
     expect(within(railLane).getByTestId("persona-studio-rail")).toBeVisible();
   });
 
@@ -114,23 +115,22 @@ describe("Persona Studio two-pane layout", () => {
   it("renders the right rail with Preview | Diagnostics tabs and Preview as default", () => {
     renderPage();
 
-    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole("button");
+    const tablist = screen.getByTestId("persona-studio-rail-tabs");
+    expect(tablist).toHaveAttribute("role", "tablist");
+
+    const railTabs = within(tablist).getAllByRole("tab");
     const tabNames = railTabs.map((tab) => tab.textContent?.trim());
     expect(tabNames).toEqual(["Preview", "Diagnostics"]);
-    expect(railTabs[0]).toHaveAttribute("data-state", "active");
-    expect(railTabs[0]).toHaveAttribute("aria-pressed", "true");
-    expect(railTabs[1]).toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
+    expect(railTabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(railTabs[1]).toHaveAttribute("aria-selected", "false");
   });
 
   it("switches the rail between Preview and Diagnostics", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Preview is default
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
 
-    // Switch to Diagnostics
     await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
     expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
       "aria-selected",
@@ -138,12 +138,84 @@ describe("Persona Studio two-pane layout", () => {
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
-    // Switch back to Preview
-    await user.click(screen.getByRole("button", { name: /^preview$/i }));
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
+  });
+
+  it("renders the compact inline profile trigger inside the configuration lane with profile text", () => {
+    renderPage();
+
+    const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
+    const configurationLane = within(layout).getByTestId(
+      "persona-studio-configuration-lane"
+    );
+
+    const trigger = within(configurationLane).getByTestId(
+      "persona-studio-profile-selector-trigger"
+    );
+
+    expect(
+      within(configurationLane).getByTestId(
+        "persona-studio-profile-selector-trigger-name"
+      )
+    ).toHaveTextContent(/guardian default/i);
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-save")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-save-as-new")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-reset")
+    ).toBeInTheDocument();
+    expect(
+      within(configurationLane).getByTestId("persona-studio-action-reset-all")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getAllByRole("button", { name: /^reset local studio data$/i })
+    ).toHaveLength(1);
+
+    expect(
+      screen.queryByRole("button", { name: /^reset all data$/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("applies the Persona Studio action material tiers to tray and preview controls", () => {
+    renderPage();
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
+      "secondary"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
   });
 });

@@ -121,6 +121,7 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
     expect(screen.getByTestId("persona-preview-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-guide-lane")).toBeInTheDocument();
   });
 
   it("renders Persona Studio hierarchy directly from the route", () => {
@@ -130,17 +131,12 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByText(/configure reusable agent profiles\./i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /persona studio editor/i })).toBeInTheDocument();
     expect(screen.getByTestId("persona-studio-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-guide-lane")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /identity/i })).toHaveAttribute(
       "data-state",
       "active"
     );
     expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(
-      /guardian default/i
-    );
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save as new profile/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /reset profile changes/i })).toBeInTheDocument();
     expect(screen.queryByTestId("composer-shell")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation-lane")).not.toBeInTheDocument();
     expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
@@ -157,15 +153,11 @@ describe("Persona Studio Shell Integration", () => {
       "aria-controls",
       "persona-studio-rail-panel-preview"
     );
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    );
-    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
+
+    const diagnosticsTab = screen.getByRole("tab", { name: /^diagnostics$/i });
+    expect(diagnosticsTab).toHaveAttribute("aria-selected", "false");
+
+    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
   });
 
   it("renders the editor tabs when Persona Studio is active", () => {
@@ -219,49 +211,127 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.getByText(/distinct from generation top k/i)).toBeInTheDocument();
   });
 
-  it("can open and switch the profile selector", async () => {
+  it("can select a profile from the profile selector", async () => {
     const user = userEvent.setup();
     renderAppShell();
 
     const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-    expect(trigger).toHaveTextContent(/guardian default/i);
-    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
-    expect(trigger.querySelector("svg")).toBeNull();
-
     await user.click(trigger);
-    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
 
-    await user.click(screen.getByTestId("persona-studio-profile-option-profile-2"));
-    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(
-      /code assistant/i
-    );
+    const codeAssistantOption = screen.getByTestId("persona-studio-profile-option-profile-2");
+    await user.click(codeAssistantOption);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveTextContent(/code assistant/i);
   });
 
-  it("renders the micro-aqua action tiers with a single reset chip", () => {
+  it("renders the profile selector as a compact inline text trigger (no square tile)", () => {
     renderAppShell();
 
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "primary"
-    );
-    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "secondary"
-    );
-    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "reset"
-    );
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+
+    expect(trigger).toHaveTextContent(/guardian default/i);
+    expect(
+      screen.getByTestId("persona-studio-profile-selector-trigger-name")
+    ).toHaveTextContent(/guardian default/i);
+
+    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
+    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
+    expect(trigger.querySelector("svg")).toBeNull();
+
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-tile")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-card")
+    ).not.toBeInTheDocument();
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    expect(triggerRect.height).toBeLessThanOrEqual(saveRect.height + 1);
+    expect(triggerRect.height).toBeLessThan(40);
+  });
+
+  it("renders profile actions in the selector dropdown", async () => {
+    const user = userEvent.setup();
+    renderAppShell();
+
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    expect(screen.getByTestId("persona-studio-action-save")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset")).toBeVisible();
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toBeVisible();
+  });
+
+  it("renders profile-level actions and the Studio reset exactly once, and not the old 'Reset All Data'", () => {
+    renderAppShell();
+
+    expect(screen.getByRole("button", { name: /^save profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
+    ).toBeInTheDocument();
+
     expect(
       screen.getAllByRole("button", { name: /^reset local studio data$/i })
     ).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: /^reset all data$/i })).not.toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("button", { name: /^reset all data$/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/reset all data/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a bounded scrollable profile list when the compact selector is clicked", async () => {
+    const user = userEvent.setup();
+    renderAppShell();
+
+    await user.click(screen.getByTestId("persona-studio-profile-selector-trigger"));
+
+    const list = screen.getByTestId("persona-studio-profile-selector-list");
+    expect(list).toBeInTheDocument();
+    expect(list.className).toMatch(/overflow-y-auto/);
+    expect(list.className).toMatch(/max-h-/);
+
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-1")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-2")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("persona-studio-profile-option-profile-3")
+    ).toBeInTheDocument();
+  });
+
+  it("applies Persona Studio action material markers under the shell", () => {
+    renderAppShell();
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
+    const send = screen.getByRole("button", { name: /^send$/i });
+    const clear = screen.getByRole("button", { name: /clear preview session/i });
+
+    expect(trigger).toHaveClass("ps-action-chip");
+    expect(trigger).toHaveAttribute("data-ps-material", "selector");
+
+    expect(save).toHaveAttribute("data-ps-material", "primary");
+    expect(send).toHaveAttribute("data-ps-material", "primary");
+
+    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
+    expect(clear).toHaveAttribute("data-ps-material", "secondary");
+
+    expect(reset).toHaveAttribute("data-ps-material", "reset");
+    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
+
+    [trigger, save, saveAsNew, reset, resetAll, send, clear].forEach((chip) => {
+      expect(chip.querySelector("svg")).toBeNull();
+    });
   });
 
   it("applies Persona Studio action material markers under the shell", () => {
@@ -297,7 +367,7 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("button", { name: /truth matrix/i }));
+    await user.click(screen.getByRole("tab", { name: /truth matrix/i }));
 
     const matrix = screen.getByRole("table", { name: /persona studio truth matrix/i });
 

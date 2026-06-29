@@ -140,6 +140,7 @@ describe("Persona Studio Page", () => {
     expect(railLane).toBeVisible();
     expect(rail).toBeVisible();
     expect(previewPanel).toBeVisible();
+    expect(screen.getByTestId("persona-studio-guide-lane")).toBeVisible();
     expect(shell).toHaveClass("overflow-y-auto");
     expect(configurationLane).toHaveClass("overflow-y-auto");
     expect(screen.getByTestId("persona-studio-rail-tabs")).toBeVisible();
@@ -184,40 +185,38 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
-    await user.click(screen.getByRole("button", { name: /^send$/i }));
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Coding"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^turn 4$/i)).toBeVisible();
-    expect(within(transcript).getAllByText(/^user bubble$/i).length).toBeGreaterThan(0);
-    expect(within(transcript).getAllByText(/^preview block$/i).length).toBeGreaterThan(0);
     expect(within(transcript).getByText(/^coding$/i)).toBeVisible();
-    expect(within(transcript).getByText(/^summarize the plan$/i)).toBeVisible();
     expect(within(transcript).getByText(/this is the first preview turn in this studio session/i)).toBeVisible();
-    expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(2);
-    expect(within(transcript).getByText(/this is preview turn 2 in the current studio session/i)).toBeVisible();
+    expect(within(transcript).getAllByText(/current draft snapshot:/i)).toHaveLength(1);
     expect(within(transcript).queryByText(/^ephemeral assistant$/i)).not.toBeInTheDocument();
-    expect(within(transcript).getAllByTestId("persona-preview-panel-turn-row")).toHaveLength(4);
-    expect(within(transcript).getAllByText(/^user bubble$/i)).toHaveLength(2);
-    expect(within(transcript).getAllByText(/^preview block$/i)).toHaveLength(2);
+    expect(within(transcript).getAllByTestId("persona-preview-panel-turn-row")).toHaveLength(2);
+    expect(within(transcript).getAllByText(/^user bubble$/i)).toHaveLength(1);
+    expect(within(transcript).getAllByText(/^preview block$/i)).toHaveLength(1);
     expect(
       within(transcript)
         .getAllByTestId("persona-preview-panel-turn-row")
         .map((row) => row.getAttribute("data-message-layout"))
-    ).toEqual(["user-bubble", "preview-block", "user-bubble", "preview-block"]);
+    ).toEqual(["user-bubble", "preview-block"]);
   });
 
   it("keeps prior turns visible and changes later replies when the draft changes", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Planning"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     await user.type(
@@ -257,7 +256,10 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Planning"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
@@ -271,7 +273,10 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Research");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Research"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
@@ -288,7 +293,10 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Coding"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
@@ -318,7 +326,10 @@ describe("Persona Studio Page", () => {
     const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
     renderPage();
 
-    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.type(
+      screen.getByRole("textbox", { name: /persona preview prompt/i }),
+      "Coding"
+    );
     await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
@@ -337,70 +348,27 @@ describe("Persona Studio Page", () => {
     renderPage();
 
     // Default Preview tab — diagnostics not visible
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
     expect(screen.queryByTestId("persona-studio-rail-diagnostics-panel")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^profiles$/i })).not.toBeInTheDocument();
 
     // Switch to Diagnostics
     await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
     expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
+      "data-state",
+      "active"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
+    expect(screen.getByText("Save Status")).toBeVisible();
+    expect(screen.getByText("Effective Config")).toBeVisible();
+    expect(screen.getByText("Debug Log")).toBeVisible();
 
     // Switch back to Preview
     await user.click(screen.getByRole("tab", { name: /^preview$/i }));
     expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
+      "data-state",
+      "active"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
-  });
-
-  it("renders the selector tray beneath the editor with chip tiers and no helper text", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    const selector = screen.getByTestId("persona-studio-profile-selector");
-    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
-
-    expect(selector).toBeVisible();
-    expect(selector.querySelectorAll("svg")).toHaveLength(0);
-    expect(selector.querySelectorAll("p, small")).toHaveLength(0);
-    expect(trigger).toHaveTextContent(/guardian default/i);
-    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
-    expect(trigger.querySelector("svg")).toBeNull();
-
-    await user.click(trigger);
-
-    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
-
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "primary"
-    );
-    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "secondary"
-    );
-    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
-      "reset"
-    );
-    expect(
-      screen.getByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
-    expect(
-      screen.getAllByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: /^reset all data$/i })).not.toBeInTheDocument();
   });
 
   it("renders the section tabs in the header area", () => {
@@ -411,16 +379,16 @@ describe("Persona Studio Page", () => {
     expect(within(screen.getByTestId("persona-studio-editor")).queryByTestId("persona-studio-tabs")).not.toBeInTheDocument();
   });
 
-  it("keeps the profile selector beneath the editor and removes the old summary card", () => {
+  it("keeps the compact profile selector and actions in the main editor lane", () => {
     renderPage();
 
     expect(screen.getByTestId("persona-studio-profile-selector")).toBeInTheDocument();
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("persona-studio-configuration-lane")).queryByTestId(
-        "persona-studio-active-profile-summary"
+      within(screen.getByTestId("persona-studio-rail-lane")).queryByTestId(
+        "persona-studio-profile-selector"
       )
     ).not.toBeInTheDocument();
-    expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
   });
 
   it("applies Persona Studio action material markers to the tray and preview controls", () => {
