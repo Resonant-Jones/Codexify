@@ -8,6 +8,7 @@ import {
   usePersonaStudioLocalDraftState,
 } from "./personaStudioStore";
 import PersonaVoicePanel from "./components/PersonaVoicePanel";
+import StudioGuidePanel from "./components/StudioGuidePanel";
 import TruthMatrix from "./components/TruthMatrix";
 import PersonaStudioRail from "./PersonaStudioRail";
 import PersonaProfileSelector from "./PersonaProfileSelector";
@@ -697,7 +698,7 @@ export default function PersonaStudioPage() {
           }}
         >
           <div
-            className="persona-studio-two-lane-layout grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch"
+            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch lg:grid-cols-[minmax(0,var(--persona-studio-editor-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))]"
             data-testid="persona-studio-editor-two-lane-layout"
           >
             <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
@@ -777,6 +778,13 @@ export default function PersonaStudioPage() {
                 isDirty={isDirty}
                 hasSavedVersion={hasSavedVersion}
               />
+            </div>
+
+            <div
+              className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-full"
+              data-testid="persona-studio-guide-lane"
+            >
+              <StudioGuidePanel config={currentConfig} />
             </div>
           </div>
         </section>
