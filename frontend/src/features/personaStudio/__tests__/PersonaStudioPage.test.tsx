@@ -2,17 +2,120 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import { OptionalSurfaceError } from "@/lib/api";
 
 import PersonaStudioPage from "../PersonaStudioPage";
 import { personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
+
+const voiceApiMock = vi.hoisted(() => ({
+  fetchPersonaVoiceProviders: vi.fn(),
+  fetchPersonaVoiceProviderVoices: vi.fn(),
+  previewPersonaVoice: vi.fn(),
+}));
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
 );
 
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    fetchPersonaVoiceProviders: voiceApiMock.fetchPersonaVoiceProviders,
+    fetchPersonaVoiceProviderVoices: voiceApiMock.fetchPersonaVoiceProviderVoices,
+    previewPersonaVoice: voiceApiMock.previewPersonaVoice,
+  };
+});
+
 beforeEach(() => {
   window.localStorage.clear();
   resetPersonaStudioApiMock();
+  voiceApiMock.fetchPersonaVoiceProviders.mockReset();
+  voiceApiMock.fetchPersonaVoiceProviderVoices.mockReset();
+  voiceApiMock.previewPersonaVoice.mockReset();
+  voiceApiMock.fetchPersonaVoiceProviders.mockResolvedValue([
+    {
+      providerId: "elevenlabs",
+      label: "ElevenLabs",
+      classification: "cloud",
+      state: "degraded",
+      statusDetail:
+        "Provider registered, but disabled under the current local-only beta posture.",
+      capabilities: {
+        presetVoices: true,
+        cloning: true,
+        promptDefinedVoice: true,
+        preview: false,
+      },
+    },
+    {
+      providerId: "local_openai_compatible",
+      label: "Local OpenAI-Compatible",
+      classification: "local",
+      state: "available",
+      statusDetail:
+        "Provider is available for Persona Studio voice selection.",
+      capabilities: {
+        presetVoices: true,
+        cloning: false,
+        promptDefinedVoice: false,
+        preview: true,
+      },
+    },
+  ]);
+  voiceApiMock.fetchPersonaVoiceProviderVoices.mockImplementation(
+    async (providerId: string) => {
+      if (providerId === "local_openai_compatible") {
+        return {
+          providerId,
+          state: "available",
+          statusDetail:
+            "Provider is available for Persona Studio voice selection.",
+          voices: [
+            {
+              voiceId: "alloy",
+              label: "alloy",
+              kind: "preset",
+              previewSupported: true,
+              bindingSupported: true,
+              summary: "Balanced local preset.",
+            },
+            {
+              voiceId: "ember",
+              label: "ember",
+              kind: "preset",
+              previewSupported: true,
+              bindingSupported: true,
+              summary: "Warmer local preset.",
+            },
+          ],
+        };
+      }
+      return {
+        providerId,
+        state: "degraded",
+        statusDetail:
+          "Provider is outside the supported local-only posture, so Persona Studio exposes no bindable voices here.",
+        voices: [],
+      };
+    }
+  );
+  voiceApiMock.previewPersonaVoice.mockResolvedValue({
+    providerId: "local_openai_compatible",
+    voiceId: "alloy",
+    state: "available",
+    preview: {
+      contentType: "audio/wav",
+      playbackUrl: "data:audio/wav;base64,UklGRg==",
+      expiresInSeconds: 0,
+      durationMs: null,
+    },
+    appliedRuntimeOptions: {},
+    ephemeral: true,
+    persistsPersonaState: false,
+    linksMessageHistory: false,
+    statusDetail: "Preview generated for immediate playback only.",
+  });
 });
 
 function renderPage() {
@@ -64,16 +167,16 @@ describe("Persona Studio Page", () => {
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
     expect(within(header).getByText("Draft Preview")).toBeVisible();
-    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByText(/test before saving/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
     expect(
-      screen.getByPlaceholderText(/send a prompt to test this draft/i)
+      screen.getByPlaceholderText(/send a temporary test prompt/i)
     ).toBeVisible();
   });
 
@@ -81,12 +184,13 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^preview transcript$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
@@ -113,7 +217,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     await user.type(
       screen.getByRole("textbox", { name: /persona preview prompt/i }),
@@ -152,7 +257,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
@@ -165,7 +271,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^research$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Research");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
     );
@@ -181,7 +288,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -201,7 +309,7 @@ describe("Persona Studio Page", () => {
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(
-      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
+      within(transcript).getByText(/no preview turns yet\./i)
     ).toBeVisible();
   });
 
@@ -210,7 +318,8 @@ describe("Persona Studio Page", () => {
     const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -236,18 +345,18 @@ describe("Persona Studio Page", () => {
     expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
     // Switch back to Preview
-    await user.click(screen.getByRole("button", { name: /^preview$/i }));
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });
@@ -312,5 +421,167 @@ describe("Persona Studio Page", () => {
       )
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
+  });
+
+  it("applies Persona Studio action material markers to the tray and preview controls", () => {
+    renderPage();
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
+    const send = screen.getByRole("button", { name: /^send$/i });
+    const clear = screen.getByRole("button", { name: /clear preview session/i });
+
+    // Utility / selector chip
+    expect(trigger).toHaveClass("ps-action-chip");
+    expect(trigger).toHaveAttribute("data-ps-material", "selector");
+
+    // Primary action chips (Save profile, Send)
+    expect(save).toHaveClass("ps-action-chip");
+    expect(save).toHaveAttribute("data-ps-material", "primary");
+    expect(send).toHaveClass("ps-action-chip");
+    expect(send).toHaveAttribute("data-ps-material", "primary");
+
+    // Secondary action chips (Save as new profile, Clear preview session)
+    expect(saveAsNew).toHaveClass("ps-action-chip");
+    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
+    expect(clear).toHaveClass("ps-action-chip");
+    expect(clear).toHaveAttribute("data-ps-material", "secondary");
+
+    // Reset / danger chips (Reset profile changes, Reset local Studio data)
+    expect(reset).toHaveClass("ps-action-chip");
+    expect(reset).toHaveAttribute("data-ps-material", "reset");
+    expect(resetAll).toHaveClass("ps-action-chip");
+    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
+  });
+
+  it("keeps the profile/action tray text-first, compact, and free of added decorative SVGs or helper text", () => {
+    renderPage();
+
+    const tray = screen.getByTestId("persona-studio-profile-selector");
+
+    // Every Persona Studio action chip in the tray stays text-first: no
+    // decorative SVG icon introduced by this material pass.
+    const chips = tray.querySelectorAll("[data-ps-material]");
+    expect(chips.length).toBeGreaterThan(0);
+    chips.forEach((chip) => {
+      expect(chip.querySelector("svg")).toBeNull();
+      // No subtitle/helper paragraphs introduced inside or directly under a chip
+      expect(chip.querySelector("p, .helper-text, .subtitle")).toBeNull();
+    });
+
+    // The tray stays a single compact row (no microcopy block rendered beneath)
+    expect(tray.tagName).toBe("DIV");
+    expect(tray.className).toMatch(/flex/);
+    expect(tray.querySelector("h1, h2, h3, p")).toBeNull();
+  });
+
+  it("renders stable voice panel sections", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const panel = await screen.findByTestId("persona-voice-panel");
+    expect(panel).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-provider")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-preset")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-runtime-style")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-preview")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-binding")).toBeVisible();
+  });
+
+  it("updates selectable preset voices when the provider changes", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const providerSelect = await screen.findByLabelText(/voice provider/i);
+    await user.selectOptions(providerSelect, "local_openai_compatible");
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/selectable preset voice/i)
+      ).toHaveValue("alloy")
+    );
+
+    const presetSelect = screen.getByLabelText(/selectable preset voice/i);
+    expect(within(presetSelect).getByRole("option", { name: "alloy" })).toBeVisible();
+    expect(within(presetSelect).getByRole("option", { name: "ember" })).toBeVisible();
+  });
+
+  it("shows the provider CTA and keeps deep provider controls out of Persona Studio", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const panel = await screen.findByTestId("persona-voice-panel");
+    expect(
+      within(panel).getByRole("button", { name: /manage in provider view/i })
+    ).toBeVisible();
+    expect(within(panel).queryByText(/reference audio/i)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/clone voice/i)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/generate voice/i)).not.toBeInTheDocument();
+  });
+
+  it("renders degraded and empty states truthfully", async () => {
+    const user = userEvent.setup();
+    voiceApiMock.fetchPersonaVoiceProviders.mockRejectedValueOnce(
+      new OptionalSurfaceError(
+        "not_found",
+        404,
+        "Optional surface absent",
+        null
+      )
+    );
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    expect(
+      await screen.findByText(/voice discovery is unavailable in this runtime/i)
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /persona studio could not find the backend voice discovery surface in this environment/i
+      )
+    ).toBeVisible();
+  });
+
+  it("renders bounded preview controls and calls the preview route", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+    await user.selectOptions(
+      await screen.findByLabelText(/voice provider/i),
+      "local_openai_compatible"
+    );
+
+    const previewButton = await screen.findByRole("button", {
+      name: /preview voice/i,
+    });
+    const sampleText = screen.getByLabelText(/sample text/i);
+
+    await user.clear(sampleText);
+    await user.type(sampleText, "Test the bounded preview.");
+    await user.click(previewButton);
+
+    await waitFor(() =>
+      expect(voiceApiMock.previewPersonaVoice).toHaveBeenCalledWith({
+        provider: "local_openai_compatible",
+        voice_id: "alloy",
+        sample_text: "Test the bounded preview.",
+        speed: 1,
+      })
+    );
+
+    expect(await screen.findByTestId("persona-voice-preview-audio")).toBeVisible();
+    expect(screen.queryByText(/threaded chat/i)).not.toBeInTheDocument();
   });
 });
