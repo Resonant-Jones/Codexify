@@ -35,7 +35,13 @@ from guardian.queue.turn_lock import (
     release_turn_lock,
     turn_lock_key,
 )
-from guardian.tts.tts_manager import TTSManager
+from guardian.tts.tts_manager import (
+    PROVIDER_STATE_AVAILABLE,
+    PROVIDER_STATE_DEGRADED,
+    PROVIDER_STATE_UNAVAILABLE,
+    TTSManager,
+)
+from guardian.tts.tts_service import ProviderNotFoundError
 from guardian.voice.audio_assets import (
     compute_text_hash,
     find_cached_asset,
@@ -59,6 +65,11 @@ router = APIRouter(prefix="/api/voice", tags=["Voice"])
 _storage = create_storage_from_env()
 
 _DEDUPE_KEY_PREFIX = "codexify:voice:turn:dedupe"
+_PROVIDER_STATES = (
+    PROVIDER_STATE_AVAILABLE,
+    PROVIDER_STATE_DEGRADED,
+    PROVIDER_STATE_UNAVAILABLE,
+)
 
 
 class SpeakRequest(BaseModel):
@@ -227,6 +238,53 @@ def _list_tts_voices(provider: str | None) -> list[str]:
         seen.add(value)
         normalized.append(value)
     return normalized
+
+
+def _voice_provider_manager() -> TTSManager:
+    return TTSManager()
+
+
+def _voice_provider_detail_or_404(provider_id: str) -> dict[str, Any]:
+    try:
+        return _voice_provider_manager().describe_provider(provider_id)
+    except ProviderNotFoundError:
+        raise HTTPException(status_code=404, detail="provider_not_found")
+
+
+@router.get("/providers")
+def list_voice_providers(
+    api_key: str = Depends(require_api_key),
+):
+    manager = _voice_provider_manager()
+    providers = manager.describe_provider_registry()
+    return {"providers": providers}
+
+
+@router.get("/providers/{provider_id}")
+def voice_provider_capability(
+    provider_id: str,
+    api_key: str = Depends(require_api_key),
+):
+    payload = _voice_provider_detail_or_404(provider_id)
+    if payload["state"] not in _PROVIDER_STATES:
+        logger.warning(
+            "[voice.providers] unexpected provider state for provider=%s state=%s",
+            provider_id,
+            payload["state"],
+        )
+    return payload
+
+
+@router.get("/providers/{provider_id}/voices")
+def voice_provider_selectable_voices(
+    provider_id: str,
+    api_key: str = Depends(require_api_key),
+):
+    manager = _voice_provider_manager()
+    try:
+        return manager.list_selectable_voice_records(provider_id)
+    except ProviderNotFoundError:
+        raise HTTPException(status_code=404, detail="provider_not_found")
 
 
 def _load_message(message_id: int) -> ChatMessage | None:
