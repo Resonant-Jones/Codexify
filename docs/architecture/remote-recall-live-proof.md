@@ -22,14 +22,17 @@ Chat Runtime Contract, Config and Ops.
 
 ## 3. Proof status
 
-**PASS** — the Remote Recall Search-as-RAG seam successfully executed one
-explicit `global_search` completion on the supported local Docker Compose path
-with intentionally enabled Groq web search, cloud egress, and proof-run-only
-config posture. The seam returned 5 synthesis-eligible web evidence items
-through the Web Evidence Intake Gate, all 5 passed prompt-injection screening,
-and the assistant used the evidence to synthesize a grounded answer. No
-evidence was blocked. The trace carries complete gate decisions, evidence
-hashes, and provenance URLs.
+**PASS (feature-branch scoped)** — recorded on `feature/remote-retrieval` only.
+The Remote Recall Search-as-RAG seam successfully executed one explicit
+`global_search` completion on the supported local Docker Compose path with
+intentionally enabled Groq web search, cloud egress, and proof-run-only config
+posture. The seam returned 5 synthesis-eligible web evidence items through the
+Web Evidence Intake Gate, all 5 passed prompt-injection screening, and the
+assistant used the evidence to synthesize a grounded answer. No evidence was
+blocked. The trace carries complete gate decisions, evidence hashes, and
+provenance URLs. This PASS is **not** a `main` proof: the seam is not on `main`
+and is not beta-supported; a mainline proof requires merge to `main` and a rerun
+there.
 
 Rerun verification (this session, 2026-06-28): a fresh live re-execution could
 not be performed because the real Groq credential was cleaned up immediately
@@ -331,6 +334,11 @@ eligible-for-synthesis path with real web data.
 - It does not prove Remote Recall is shipped, beta-supported, or part of the
   supported local-only release promise. Remote Recall remains default-off and
   is not part of the `v1-local-core-web-mcp` supported beta contract.
+- It does not prove mainline support. This PASS was recorded on
+  `feature/remote-retrieval` only; the seam is not on `main`, and a mainline
+  proof requires the seam to be merged to `main` and rerun there under the
+  same intentionally relaxed proof-run posture. Feature-branch proof must not
+  be treated as `main` proof.
 - It does not prove cloud-provider beta support. Groq was used as a search
   provider only, not as a chat completion provider.
 - It does not prove browser automation, URL read, arbitrary URL fetch, or any
