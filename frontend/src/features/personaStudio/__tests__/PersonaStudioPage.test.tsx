@@ -493,6 +493,55 @@ describe("Persona Studio Page", () => {
     expect(within(panel).getByTestId("persona-voice-panel-binding")).toBeVisible();
   });
 
+  it("renders the bounded Studio Guide sidecar", () => {
+    renderPage();
+
+    const guide = screen.getByTestId("persona-studio-guide-panel");
+    expect(guide).toBeVisible();
+    expect(within(guide).getByText(/studio guide/i)).toBeVisible();
+    expect(within(guide).getByText(/deterministic draft linting/i)).toBeVisible();
+    expect(within(guide).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(guide).queryByText(/chat history/i)).not.toBeInTheDocument();
+    expect(within(guide).queryByText(/composer/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces draft-aware guidance cards from unsaved prompt edits", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^identity$/i }));
+    await user.clear(screen.getByPlaceholderText(/enter persona name/i));
+    await user.type(screen.getByPlaceholderText(/enter persona name/i), "Code Assistant");
+    await user.clear(screen.getByPlaceholderText(/describe this persona/i));
+    await user.type(
+      screen.getByPlaceholderText(/describe this persona/i),
+      "Specialized for code review and programming tasks"
+    );
+
+    await user.click(screen.getByRole("button", { name: /^prompt$/i }));
+    const prompt = screen.getByPlaceholderText(
+      /enter the system prompt that defines this persona's behavior/i
+    );
+    const styleNotes = screen.getByPlaceholderText(/notes about tone, manner, and communication style/i);
+    const directives = screen.getByPlaceholderText(/operational directives and constraints/i);
+
+    await user.clear(prompt);
+    await user.type(prompt, "Be helpful.");
+    await user.clear(styleNotes);
+    await user.type(styleNotes, "Be warm but cold. Be concise yet verbose.");
+    await user.clear(directives);
+
+    const guide = screen.getByTestId("persona-studio-guide-panel");
+    const cards = within(guide).getAllByTestId("persona-studio-guide-card");
+
+    expect(cards).toHaveLength(5);
+    expect(within(guide).getByText(/role clarity/i)).toBeVisible();
+    expect(within(guide).getByText(/system prompt is too vague/i)).toBeVisible();
+    expect(within(guide).getByText(/contradictory tone instructions/i)).toBeVisible();
+    expect(within(guide).getByText(/missing constraints/i)).toBeVisible();
+    expect(within(guide).getByText(/identity and wording mismatch/i)).toBeVisible();
+  });
+
   it("updates selectable preset voices when the provider changes", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -583,5 +632,15 @@ describe("Persona Studio Page", () => {
 
     expect(await screen.findByTestId("persona-voice-preview-audio")).toBeVisible();
     expect(screen.queryByText(/threaded chat/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the Studio Guide draft-aware without exposing a chat composer or history", () => {
+    renderPage();
+
+    const guide = screen.getByTestId("persona-studio-guide-panel");
+    expect(within(guide).queryByText(/threaded chat/i)).not.toBeInTheDocument();
+    expect(within(guide).queryByRole("button", { name: /send/i })).not.toBeInTheDocument();
+    expect(within(guide).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(guide).getByText(/deterministic draft linting/i)).toBeVisible();
   });
 });
