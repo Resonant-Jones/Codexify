@@ -36,8 +36,6 @@ PROVIDER_STATE_UNAVAILABLE = "unavailable"
 
 VOICE_KIND_PRESET = "preset"
 
-PREVIEW_OUTPUT_FORMAT_WAV = "wav"
-
 _PROVIDER_SPECS: dict[str, dict[str, Any]] = {
     "local": {
         "label": "Local Mock",
@@ -46,7 +44,7 @@ _PROVIDER_SPECS: dict[str, dict[str, Any]] = {
             "presetVoices": True,
             "cloning": False,
             "promptDefinedVoice": False,
-            "preview": True,
+            "preview": False,
         },
     },
     "qwen3_tts": {
@@ -56,7 +54,7 @@ _PROVIDER_SPECS: dict[str, dict[str, Any]] = {
             "presetVoices": True,
             "cloning": False,
             "promptDefinedVoice": False,
-            "preview": True,
+            "preview": False,
         },
     },
     "local_openai_compatible": {
@@ -66,7 +64,7 @@ _PROVIDER_SPECS: dict[str, dict[str, Any]] = {
             "presetVoices": True,
             "cloning": False,
             "promptDefinedVoice": False,
-            "preview": True,
+            "preview": False,
         },
     },
     "elevenlabs": {
@@ -236,6 +234,10 @@ class TTSManager:
                         base_url=provider_config.get("base_url"),
                         api_key=provider_config.get("api_key"),
                         model=provider_config.get("model"),
+                    )
+                elif name == "google":
+                    provider = provider_class(
+                        credentials_path=provider_config.get("credentials_path")
                     )
                 else:
                     provider = provider_class()
@@ -434,34 +436,6 @@ class TTSManager:
             "state": state,
             "statusDetail": status_detail,
             "voices": voice_rows,
-        }
-
-    def preview_contract(
-        self, provider_name: str
-    ) -> dict[str, Any]:
-        provider_info = self.describe_provider(provider_name)
-        selectable = self.list_selectable_voice_records(provider_name)
-        capabilities = dict(provider_info["capabilities"])
-        if not capabilities["preview"]:
-            degraded_detail = "Provider exposes selectable voices but does not support preview."
-            if selectable["state"] == PROVIDER_STATE_UNAVAILABLE:
-                degraded_detail = selectable["statusDetail"]
-            elif selectable["state"] == PROVIDER_STATE_DEGRADED:
-                degraded_detail = selectable["statusDetail"]
-            return {
-                "providerId": provider_name,
-                "voiceState": selectable["state"],
-                "statusDetail": degraded_detail,
-                "capabilities": capabilities,
-                "voices": selectable["voices"],
-            }
-
-        return {
-            "providerId": provider_name,
-            "voiceState": selectable["state"],
-            "statusDetail": selectable["statusDetail"],
-            "capabilities": capabilities,
-            "voices": selectable["voices"],
         }
 
     def register_provider(self, name: str, provider: TTSProvider) -> None:
