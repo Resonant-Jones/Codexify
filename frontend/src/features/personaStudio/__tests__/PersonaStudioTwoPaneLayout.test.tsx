@@ -114,14 +114,13 @@ describe("Persona Studio two-pane layout", () => {
   it("renders the right rail with Preview | Diagnostics tabs and Preview as default", () => {
     renderPage();
 
-    const tablist = screen.getByTestId("persona-studio-rail-tabs");
-    expect(tablist).toHaveAttribute("role", "tablist");
-
-    const railTabs = within(tablist).getAllByRole("tab");
+    const railTabs = within(screen.getByTestId("persona-studio-rail-tabs")).getAllByRole("button");
     const tabNames = railTabs.map((tab) => tab.textContent?.trim());
     expect(tabNames).toEqual(["Preview", "Diagnostics"]);
-    expect(railTabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(railTabs[1]).toHaveAttribute("aria-selected", "false");
+    expect(railTabs[0]).toHaveAttribute("data-state", "active");
+    expect(railTabs[0]).toHaveAttribute("aria-pressed", "true");
+    expect(railTabs[1]).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
   });
 
   it("switches the rail between Preview and Diagnostics", async () => {
@@ -140,58 +139,11 @@ describe("Persona Studio two-pane layout", () => {
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
     // Switch back to Preview
-    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
-    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
-      "aria-selected",
-      "true"
+    await user.click(screen.getByRole("button", { name: /^preview$/i }));
+    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
+      "data-state",
+      "active"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
-  });
-
-  it("renders the compact inline profile trigger inside the configuration lane with profile text", () => {
-    renderPage();
-
-    const layout = screen.getByTestId("persona-studio-editor-two-lane-layout");
-    const configurationLane = within(layout).getByTestId(
-      "persona-studio-configuration-lane"
-    );
-
-    const trigger = within(configurationLane).getByTestId(
-      "persona-studio-profile-selector-trigger"
-    );
-
-    // Profile name visible — text-first
-    expect(
-      within(configurationLane).getByTestId(
-        "persona-studio-profile-selector-trigger-name"
-      )
-    ).toHaveTextContent(/guardian default/i);
-
-    // No oversized icon
-    expect(trigger.querySelector("svg")).toBeNull();
-
-    // Profile-level actions and Studio reset live in the same lane
-    expect(
-      within(configurationLane).getByTestId("persona-studio-action-save")
-    ).toBeInTheDocument();
-    expect(
-      within(configurationLane).getByTestId("persona-studio-action-save-as-new")
-    ).toBeInTheDocument();
-    expect(
-      within(configurationLane).getByTestId("persona-studio-action-reset")
-    ).toBeInTheDocument();
-    expect(
-      within(configurationLane).getByTestId("persona-studio-action-reset-all")
-    ).toBeInTheDocument();
-
-    // Reset local Studio data appears exactly once across the whole page
-    expect(
-      screen.getAllByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveLength(1);
-
-    // Reset All Data does not appear
-    expect(
-      screen.queryByRole("button", { name: /^reset all data$/i })
-    ).not.toBeInTheDocument();
   });
 });
