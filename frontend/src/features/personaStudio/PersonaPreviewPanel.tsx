@@ -605,6 +605,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 Test prompt
               </div>
               <Button
+                {...personaStudioActionChip("secondary", "shrink-0")}
                 type="button"
                 variant="ghost"
                 size="sm"

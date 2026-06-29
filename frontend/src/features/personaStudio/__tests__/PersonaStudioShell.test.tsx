@@ -264,6 +264,35 @@ describe("Persona Studio Shell Integration", () => {
     expect(screen.queryByRole("button", { name: /^reset all data$/i })).not.toBeInTheDocument();
   });
 
+  it("applies Persona Studio action material markers under the shell", () => {
+    renderAppShell();
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
+    const send = screen.getByRole("button", { name: /^send$/i });
+    const clear = screen.getByRole("button", { name: /clear preview session/i });
+
+    expect(trigger).toHaveClass("ps-action-chip");
+    expect(trigger).toHaveAttribute("data-ps-material", "selector");
+
+    expect(save).toHaveAttribute("data-ps-material", "primary");
+    expect(send).toHaveAttribute("data-ps-material", "primary");
+
+    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
+    expect(clear).toHaveAttribute("data-ps-material", "secondary");
+
+    expect(reset).toHaveAttribute("data-ps-material", "reset");
+    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
+
+    // No decorative SVGs introduced onto any action chip via the shell path
+    [trigger, save, saveAsNew, reset, resetAll, send, clear].forEach((chip) => {
+      expect(chip.querySelector("svg")).toBeNull();
+    });
+  });
+
   it("renders a truthful matrix for current Persona Studio controls", async () => {
     const user = userEvent.setup();
     renderAppShell();

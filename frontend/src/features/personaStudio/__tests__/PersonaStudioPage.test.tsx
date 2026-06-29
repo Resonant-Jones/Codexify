@@ -319,4 +319,59 @@ describe("Persona Studio Page", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-active-profile-summary")).not.toBeInTheDocument();
   });
+
+  it("applies Persona Studio action material markers to the tray and preview controls", () => {
+    renderPage();
+
+    const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
+    const send = screen.getByRole("button", { name: /^send$/i });
+    const clear = screen.getByRole("button", { name: /clear preview session/i });
+
+    // Utility / selector chip
+    expect(trigger).toHaveClass("ps-action-chip");
+    expect(trigger).toHaveAttribute("data-ps-material", "selector");
+
+    // Primary action chips (Save profile, Send)
+    expect(save).toHaveClass("ps-action-chip");
+    expect(save).toHaveAttribute("data-ps-material", "primary");
+    expect(send).toHaveClass("ps-action-chip");
+    expect(send).toHaveAttribute("data-ps-material", "primary");
+
+    // Secondary action chips (Save as new profile, Clear preview session)
+    expect(saveAsNew).toHaveClass("ps-action-chip");
+    expect(saveAsNew).toHaveAttribute("data-ps-material", "secondary");
+    expect(clear).toHaveClass("ps-action-chip");
+    expect(clear).toHaveAttribute("data-ps-material", "secondary");
+
+    // Reset / danger chips (Reset profile changes, Reset local Studio data)
+    expect(reset).toHaveClass("ps-action-chip");
+    expect(reset).toHaveAttribute("data-ps-material", "reset");
+    expect(resetAll).toHaveClass("ps-action-chip");
+    expect(resetAll).toHaveAttribute("data-ps-material", "reset");
+  });
+
+  it("keeps the profile/action tray text-first, compact, and free of added decorative SVGs or helper text", () => {
+    renderPage();
+
+    const tray = screen.getByTestId("persona-studio-profile-selector");
+
+    // Every Persona Studio action chip in the tray stays text-first: no
+    // decorative SVG icon introduced by this material pass.
+    const chips = tray.querySelectorAll("[data-ps-material]");
+    expect(chips.length).toBeGreaterThan(0);
+    chips.forEach((chip) => {
+      expect(chip.querySelector("svg")).toBeNull();
+      // No subtitle/helper paragraphs introduced inside or directly under a chip
+      expect(chip.querySelector("p, .helper-text, .subtitle")).toBeNull();
+    });
+
+    // The tray stays a single compact row (no microcopy block rendered beneath)
+    expect(tray.tagName).toBe("DIV");
+    expect(tray.className).toMatch(/flex/);
+    expect(tray.querySelector("h1, h2, h3, p")).toBeNull();
+  });
 });
