@@ -8,6 +8,11 @@ Principle: `Explore freely, but keep shared truth protected.`
 
 `docs/architecture/00-current-state.md` remains the release-truth authority.
 
+## Collaborator Lanes
+
+- [Zac Collaborator RAG Source](./zac/README.md) - inspiration-led exploration and proposal-before-change workflow.
+- [Paul Collaborator Study Lane](./paul/README.md) - architecture-study lane with a clear first path, report-first prompts, and a BIOME/CORAL memory lens.
+
 ## Start Here
 
 Read in this order:
@@ -30,6 +35,7 @@ Read in this order:
 - Clear working norms
 - A practical inventory of existing repo resources
 - A shared map for worktrees, branches, and task packets
+- Per-collaborator study lanes with their own first path and prompts
 
 ## What This Folder Is Not For
 
