@@ -3,7 +3,7 @@
 Purpose: Make the Turn Intake Compiler contract exercisable through representative examples before runtime implementation.
 Classification: architecture fixture pack
 Implementation status: docs-only fixture pack; no live runtime classifier, tests, prompt wiring, or routing behavior implemented by this document
-Last updated: 2026-06-27
+Last updated: 2026-06-29
 Source anchors / governing docs:
 - docs/architecture/turn-intake-compiler-contract.md
 - docs/architecture/README.md
@@ -20,6 +20,8 @@ Source anchors / governing docs:
 This fixture pack is the docs-only example and expectation surface for the Turn Intake Compiler Contract. It does not prove runtime implementation. Future classifier or routing tests should use it as doctrine source material only after translating these expectations into executable fixtures.
 
 Related proposal: [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md) evaluates which repeated fixture values may deserve future canonical-token promotion. It is proposal-only and does not implement tokens.
+
+Machine-readable projection: [fixtures/turn-intake-fixtures.v1.json](./fixtures/turn-intake-fixtures.v1.json) mirrors this pack for docs/proof-only consumption. The markdown remains the human-readable doctrine source, and the JSON is not consumed by a runtime classifier or test harness yet.
 
 ## Purpose
 

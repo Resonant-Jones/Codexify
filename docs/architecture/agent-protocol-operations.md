@@ -77,11 +77,14 @@ Consult the Turn Intake Fixture Pack before changing turn classification, retrie
 
 Consult the Turn Intake Token Domain Proposal before changing repeated turn-intake vocabulary, canonical token promotion decisions, or registry placement guidance.
 
+Consult the Turn Intake Machine-Readable Fixture Projection before converting turn-intake doctrine into executable classifier tests or runtime contracts. It is docs/proof-only, not runtime proof.
+
 Read more:
 
 - [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md)
 - [`Turn Intake Fixture Pack`](./turn-intake-fixture-pack.md)
 - [`Turn Intake Token Domain Proposal`](./turn-intake-token-domain-proposal.md)
+- [`Turn Intake Machine-Readable Fixture Projection`](./fixtures/turn-intake-fixtures.v1.json)
 - [`Retrieval Router Decision Table`](./router-decision-table.md)
 - [`Agent Tool Loop Contract`](./agent-tool-loop-contract.md)
 - [`Chat Runtime Contract`](./chat-runtime-contract.md)

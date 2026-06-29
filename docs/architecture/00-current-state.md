@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-06-28
+2026-06-29
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,7 +16,7 @@ This file is authoritative for:
 Codexify remains in local-first beta hardening on `main`. The supported path is still the local Docker Compose stack with local-only provider posture. Recent merged work is concentrated on operator-surface documentation, turn-intake doctrine, and quarantined continuity proof, not on widening the supported beta surface.
 
 ## What changed recently
-- `main` added a docs-only Turn Intake Compiler Contract, Fixture Pack, and Token Domain Proposal.
+- `main` added a docs-only Turn Intake Compiler Contract, Fixture Pack, Token Domain Proposal, and machine-readable fixture projection.
 - `main` added a Guardian operator index to route operator questions to the right docs and checks.
 - `main` refreshed collaborator onboarding docs and linked them into the architecture KB front door.
 - `main` added a collab chat identity contract as docs-only guidance, not shipped runtime support.
@@ -48,6 +48,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Do not assume the Turn Intake Compiler contract means a live runtime intake classifier, action router, retrieval-router integration, or model-prompt packet builder is implemented.
 - Do not assume the Turn Intake Fixture Pack means executable tests exist.
 - Do not assume the Turn Intake Token Domain Proposal means turn-intake runtime tokens, registries, or classifier behavior exist.
+- Do not assume the Turn Intake machine-readable fixture projection means a runtime classifier, executable test harness, token registry, prompt packet builder, retrieval-router integration, or action-gate integration exists.
 - Do not assume command bus, delegation, federation, or graph-write surfaces are part of the present release promise.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
@@ -64,7 +65,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Federation remains high-blast-radius and trust-policy sensitive.
 - Graph-write enablement stays outside the default release promise.
 - OpenAI import coverage and embedding deferral still need ongoing regression proof.
-- The new turn-intake docs are guidance only; the runtime classifier/intake pipeline is still not release-proven.
+- The new turn-intake docs are guidance only; the runtime classifier/intake pipeline and machine-readable projection are still not release-proven.
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
