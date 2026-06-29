@@ -39,7 +39,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import exc as sa_exc
 
@@ -1687,6 +1688,26 @@ def health_retrieval(
             "error": search_error,
         },
     }
+
+
+# =========================
+# Basic Web UI (webui-basic)
+# =========================
+
+_WEBUI_BASIC_DIR = Path(__file__).resolve().parent.parent / "webui-basic"
+if _WEBUI_BASIC_DIR.is_dir():
+    @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
+    def webui_basic_index():
+        return (_WEBUI_BASIC_DIR / "index.html").read_text()
+
+    app.mount(
+        "/ui/static",
+        StaticFiles(directory=str(_WEBUI_BASIC_DIR)),
+        name="webui-basic",
+    )
+    logger.info("[webui-basic] Serving from %s at /ui", _WEBUI_BASIC_DIR)
+else:
+    logger.info("[webui-basic] %s not found, skipping UI mount", _WEBUI_BASIC_DIR)
 
 
 # =========================

@@ -767,6 +767,30 @@ def resolve_context_assembly_policy(
     )
 
 
+def is_global_search_posture(
+    policy: ContextAssemblyPolicy | None,
+) -> bool:
+    """Return True only when the resolved posture is explicit global search.
+
+    Remote Recall Search-as-RAG may execute only behind a policy-approved
+    ``global_search`` route. This helper consumes the existing typed retrieval
+    posture so callers do not re-derive literal scope/escalation checks inline.
+    Local, conversation, workspace, and ordinary broad-retrieval intents remain
+    out of scope and return False.
+    """
+
+    if policy is None:
+        return False
+    plan = getattr(policy, "plan", None)
+    if plan is None:
+        return False
+    default_scope = getattr(plan, "default_scope", None)
+    escalation_order = getattr(plan, "escalation_order", ()) or ()
+    if default_scope != ScopeMode.GLOBAL:
+        return False
+    return EscalationStep.GLOBAL_SEARCH in escalation_order
+
+
 __all__ = [
     "ESCALATION_STEPS",
     "GRAPH_ALLOWANCES",
@@ -807,6 +831,7 @@ __all__ = [
     "ScopeMode",
     "TimeMode",
     "classify_query_intent",
+    "is_global_search_posture",
     "is_supported_retrieval_override_mode",
     "is_supported_source_mode",
     "is_supported_widen_reason",

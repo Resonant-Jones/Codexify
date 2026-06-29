@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -182,7 +182,7 @@ describe("Persona Studio persistence", () => {
     expect(
       screen.getByDisplayValue("Saved profile description")
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     await user.click(screen.getByRole("button", { name: /identity/i }));
 
@@ -209,7 +209,7 @@ describe("Persona Studio persistence", () => {
       expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument()
     );
 
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /identity/i }));
@@ -222,7 +222,7 @@ describe("Persona Studio persistence", () => {
     await user.click(screen.getByRole("button", { name: /^reset profile changes$/i }));
 
     expect(screen.getByDisplayValue("Code Assistant Draft")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
     expect(screen.queryByText("Unsaved Draft")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /identity/i }));
@@ -244,7 +244,7 @@ describe("Persona Studio persistence", () => {
         screen.getByDisplayValue("Code Assistant Working")
       ).toBeInTheDocument()
     );
-    await user.click(screen.getByRole("button", { name: /diagnostics/i }));
+    await user.click(screen.getByRole("tab", { name: /diagnostics/i }));
     await screen.findByText("Saved Locally");
 
     await user.click(screen.getByRole("button", { name: /save as new profile/i }));

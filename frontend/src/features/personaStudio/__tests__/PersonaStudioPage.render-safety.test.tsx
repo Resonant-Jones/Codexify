@@ -142,9 +142,11 @@ describe("Persona Studio Page render safety", () => {
     expect(within(matrix).getByRole("rowheader", { name: /persona name/i })).toBeInTheDocument();
     expect(within(matrix).getByRole("rowheader", { name: /retrieval top k/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
 
-    expect(screen.getByRole("complementary", { name: /persona studio diagnostics/i })).toBeVisible();
+    const diagnosticsPanel = screen.getByTestId("persona-studio-rail-diagnostics-panel");
+    expect(diagnosticsPanel).toBeVisible();
+    expect(diagnosticsPanel).toHaveAttribute("role", "tabpanel");
     expect(screen.getByText("Save Status")).toBeVisible();
     expect(screen.getByText("Effective Config")).toBeVisible();
     expect(screen.getByText("Debug Log")).toBeVisible();

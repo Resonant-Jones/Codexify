@@ -3045,6 +3045,7 @@ async def chat_complete(
         if isinstance(latest_turn, dict)
         else None
     )
+
     requested_source_mode = normalize_source_mode(
         body.source_mode
     ) or _source_mode_from_message_metadata(latest_turn)

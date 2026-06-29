@@ -50,38 +50,34 @@ export default function DiagnosticsPanel({
   const saveStatusTone = isDirty ? "warning" : hasSavedVersion ? "saved" : "seed";
 
   return (
-    <div className="flex h-full flex-col space-y-4">
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold">Diagnostics</h3>
+    <div className="flex h-full flex-col gap-3 overflow-y-auto">
+      <h3 className="text-sm font-semibold">Diagnostics</h3>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: "var(--muted)" }}>Save Status</span>
-            <Badge
-              variant="outline"
-              className="text-xs"
-              style={{
-                borderColor:
-                  saveStatusTone === "saved"
-                    ? "rgba(34, 197, 94, 0.35)"
-                    : saveStatusTone === "warning"
-                      ? "rgba(234, 179, 8, 0.35)"
-                      : "var(--panel-border)",
-                background:
-                  saveStatusTone === "saved"
-                    ? "rgba(34, 197, 94, 0.12)"
-                    : saveStatusTone === "warning"
-                      ? "rgba(234, 179, 8, 0.12)"
-                      : "transparent",
-              }}
-            >
-              {saveStatusLabel}
-            </Badge>
-          </div>
-        </div>
+      <div className="flex items-center justify-between text-xs">
+        <span style={{ color: "var(--muted)" }}>Save Status</span>
+        <Badge
+          variant="outline"
+          className="text-xs"
+          style={{
+            borderColor:
+              saveStatusTone === "saved"
+                ? "rgba(34, 197, 94, 0.35)"
+                : saveStatusTone === "warning"
+                  ? "rgba(234, 179, 8, 0.35)"
+                  : "var(--panel-border)",
+            background:
+              saveStatusTone === "saved"
+                ? "rgba(34, 197, 94, 0.12)"
+                : saveStatusTone === "warning"
+                  ? "rgba(234, 179, 8, 0.12)"
+                  : "transparent",
+          }}
+        >
+          {saveStatusLabel}
+        </Badge>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2">
+      <div className="space-y-1">
         <h4 className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
           Effective Config
         </h4>
@@ -102,7 +98,7 @@ export default function DiagnosticsPanel({
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1">
         <h4 className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
           Debug Log
         </h4>

@@ -64,16 +64,16 @@ describe("Persona Studio Page", () => {
     expect(transcript).toBeVisible();
     expect(composer).toBeVisible();
     expect(within(header).getByText("Draft Preview")).toBeVisible();
-    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByText(/test before saving/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
     expect(within(composer).getByRole("button", { name: /clear preview session/i })).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
     expect(
-      screen.getByPlaceholderText(/send a prompt to test this draft/i)
+      screen.getByPlaceholderText(/send a temporary test prompt/i)
     ).toBeVisible();
   });
 
@@ -81,12 +81,13 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Summarize the plan");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
-    expect(within(transcript).getByText(/^preview transcript$/i)).toBeVisible();
+    expect(within(transcript).getByText(/^transcript$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 1$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 2$/i)).toBeVisible();
     expect(within(transcript).getByText(/^turn 3$/i)).toBeVisible();
@@ -113,7 +114,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     await user.type(
       screen.getByRole("textbox", { name: /persona preview prompt/i }),
@@ -152,7 +154,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^planning$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Planning");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(within(transcript).getByText(/current draft snapshot:/i)).toBeVisible();
@@ -165,7 +168,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^research$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Research");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
       /current draft/i
     );
@@ -181,7 +185,8 @@ describe("Persona Studio Page", () => {
     const user = userEvent.setup();
     const firstRender = renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -201,7 +206,7 @@ describe("Persona Studio Page", () => {
 
     const transcript = screen.getByTestId("persona-preview-panel-transcript");
     expect(
-      within(transcript).getByText(/no preview turns yet\. send a temporary prompt to test this draft\./i)
+      within(transcript).getByText(/no preview turns yet\./i)
     ).toBeVisible();
   });
 
@@ -210,7 +215,8 @@ describe("Persona Studio Page", () => {
     const sessionSetItemSpy = vi.spyOn(window.sessionStorage, "setItem");
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: /^coding$/i }));
+    await user.type(screen.getByRole("textbox", { name: /persona preview prompt/i }), "Coding");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() =>
       expect(screen.getByTestId("persona-preview-panel-transcript")).toHaveTextContent(
         /current draft snapshot:/i
@@ -236,18 +242,18 @@ describe("Persona Studio Page", () => {
     expect(screen.queryByRole("button", { name: /^profiles$/i })).not.toBeInTheDocument();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
     // Switch back to Preview
-    await user.click(screen.getByRole("button", { name: /^preview$/i }));
-    expect(screen.getByRole("button", { name: /^preview$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^preview$/i }));
+    expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
   });

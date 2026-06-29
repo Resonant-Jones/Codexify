@@ -18,6 +18,7 @@ private let ScoutThreadRenamedNotification = Notification.Name("ScoutThreadRenam
 
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @State private var navigationPath = NavigationPath()
     @State private var threads: [ScoutChatThreadSummary]?
     @State private var message: String?
     @State private var keychainError: String?
@@ -287,6 +288,10 @@ private struct ThreadMessagesView: View {
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var displayedTitle: String?
+    @State private var showRename = false
+    @State private var renameTitle = ""
+    @State private var renameError: String?
+    @State private var isRenaming = false
     @State private var messages: [ScoutChatMessageSummary]?
     @State private var statusMessage: String?
     @State private var keychainError: String?

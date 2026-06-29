@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest a new capability or workflow improvement.
+title: "feat: "
+labels:
+  - enhancement
+  - intake
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for new capability requests. If something feels confusing but already exists, use UX friction instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow gap
+      description: What are you trying to accomplish?
+      placeholder: "I want to toggle multi-tab chat off when I only need one working thread."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: "Add a user setting for multi-tab chat: enabled/disabled."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: "Disable the + button when an empty tab already exists, instead of adding a global setting."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - High - unlocks core workflow
+        - Medium - useful soon
+        - Low - nice to have
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra context
+      description: Add screenshots, examples from other tools, or rough acceptance criteria.
+    validations:
+      required: false

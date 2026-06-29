@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Codexify</title>
+<style>
+:root {
+  --bg: #0a0a0a; --surface: #111; --surface2: #1a1a1a; --surface3: #222;
+  --border: #2a2a2a; --text: #e4e4e4; --text-dim: #777; --text-faint: #555;
+  --accent: #6c8cff; --accent-dim: #3a4d8c; --accent-soft: rgba(108,140,255,0.12);
+  --green: #4caf50; --orange: #ff9800; --red: #ff4d4d;
+  --user-bg: #162240; --other-bg: #1a2a1a; --assistant-bg: #141414; --luna-bg: #1a1428;
+  --radius: 12px; --radius-sm: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  background: var(--bg); color: var(--text); height: 100dvh; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.app { display: flex; height: 100dvh; width: 100%; }
+
+.sidebar {
+  width: 300px; min-width: 300px; background: var(--surface);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  transition: transform 0.25s ease;
+}
+.sidebar-header {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.sidebar-header h1 { font-size: 15px; font-weight: 600; flex: 1; }
+.sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.sidebar-tab {
+  flex: 1; padding: 10px 0; text-align: center; font-size: 12px; font-weight: 500;
+  color: var(--text-dim); background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.sidebar-panel { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.thread-list, .doc-list { display: none; flex-direction: column; }
+.thread-list.active, .doc-list.active { display: flex; }
+.thread-item {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+.thread-item:active, .thread-item.active { background: var(--surface2); }
+.thread-item .thread-info { flex: 1; min-width: 0; }
+.thread-item .title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-item .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.del-btn {
+  background: none; border: none; color: var(--text-faint); font-size: 14px;
+  cursor: pointer; padding: 4px 6px; border-radius: 4px; flex-shrink: 0;
+}
+.doc-item { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.doc-item .doc-icon { font-size: 18px; flex-shrink: 0; }
+.doc-item .doc-info { flex: 1; min-width: 0; }
+.doc-item .doc-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-item .doc-meta { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.doc-item .doc-status { font-size: 10px; font-weight: 600; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+.doc-status.ready { color: var(--green); background: rgba(76,175,80,0.12); }
+.doc-status.processing { color: var(--orange); background: rgba(255,152,0,0.12); }
+.doc-status.pending { color: var(--text-dim); background: rgba(119,119,119,0.12); }
+.doc-status.failed { color: var(--red); background: rgba(255,77,77,0.12); }
+.upload-zone {
+  margin: 12px 16px; padding: 24px; border: 2px dashed var(--border);
+  border-radius: var(--radius); text-align: center; color: var(--text-dim);
+  font-size: 13px; cursor: pointer;
+}
+.upload-zone input { display: none; }
+.empty-panel { padding: 32px 16px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+/* Embedding-map CSS removed; .toolbar (renamed from the embedding-map toolbar class) keeps the project picker styled */
+.toolbar {
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 10px; align-items: center; font-size: 12px;
+  color: var(--text-dim); background: var(--surface);
+}
+.toolbar select, .toolbar button {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px;
+}
+.toolbar button { cursor: pointer; }
+.toolbar button:hover { border-color: var(--accent); }
+
+.chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; background: var(--surface); min-height: 46px;
+}
+.chat-header .thread-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.user-badge { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 3px 8px; border-radius: 10px; cursor: pointer; }
+.menu-btn { display: none; background: none; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 4px; }
+
+.messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.message { max-width: 82%; padding: 8px 12px; border-radius: var(--radius); font-size: 14px; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
+.message.user-self { align-self: flex-end; background: var(--user-bg); border-bottom-right-radius: 4px; }
+.message.user-other { align-self: flex-start; background: var(--other-bg); border-bottom-left-radius: 4px; }
+.message.assistant { align-self: flex-start; background: var(--assistant-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; max-width: 90%; }
+.message .msg-name { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.message.user-self .msg-name { color: var(--accent); }
+.message.user-other .msg-name { color: #6dbb6d; }
+.message.assistant .msg-name { color: var(--text-dim); }
+.message.luna { background: var(--luna-bg); border-color: #2d1f4e; }
+.message.luna .msg-name { color: #b39ddb; }
+
+.typing-indicator { align-self: flex-start; padding: 8px 12px; background: var(--assistant-bg); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; color: var(--text-dim); display: none; }
+.typing-indicator.visible { display: block; }
+
+.no-thread { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 13px; text-align: center; padding: 32px; }
+
+.composer { padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text); padding: 10px 14px;
+  font-size: 15px; font-family: inherit; line-height: 1.4;
+  resize: none; outline: none; max-height: 120px; min-height: 42px;
+}
+.composer textarea::placeholder { color: var(--text-faint); }
+.composer textarea:focus { border-color: var(--accent-dim); }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none; color: #fff;
+  font-size: 16px; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0;
+}
+.icon-btn:disabled { opacity: 0.25; }
+.send-btn { background: var(--accent); }
+.attach-btn { background: var(--surface3); color: var(--text-dim); font-size: 18px; }
+.attach-btn input { display: none; }
+
+.status-bar { padding: 5px 16px; background: var(--surface); border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.status-dot.offline { background: var(--red); }
+.status-dot.pending { background: var(--orange); }
+
+.btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; }
+.overlay.open { display: block; }
+
+@media (max-width: 700px) {
+  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); width: 280px; min-width: 0; }
+  .sidebar.open { transform: translateX(0); }
+  .menu-btn { display: block; }
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* --- Toast notifications --- */
+.toast-region {
+  position: fixed; bottom: 16px; right: 16px; top: auto; left: auto;
+  z-index: 1000; display: flex; flex-direction: column; gap: 8px;
+  max-width: calc(100vw - 32px); pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-left-width: 4px;
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  min-width: 240px; max-width: 340px;
+  font-size: 13px; line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  pointer-events: auto; cursor: pointer;
+  animation: toast-in 220ms ease-out;
+}
+.toast.info    { border-left-color: var(--accent); }
+.toast.success { border-left-color: var(--green); }
+.toast.warning { border-left-color: var(--orange); }
+.toast.error   { border-left-color: var(--red); }
+.toast-leaving { animation: toast-out 180ms ease-in forwards; }
+.toast-icon { font-weight: 700; font-size: 14px; flex-shrink: 0; width: 16px; text-align: center; }
+.toast.info .toast-icon    { color: var(--accent); }
+.toast.success .toast-icon { color: var(--green); }
+.toast.warning .toast-icon { color: var(--orange); }
+.toast.error .toast-icon   { color: var(--red); }
+.toast-msg { flex: 1; min-width: 0; word-wrap: break-word; }
+.toast-action {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--accent-dim); border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; font-weight: 500;
+  cursor: pointer; flex-shrink: 0;
+}
+.toast-action:hover { background: var(--accent-soft); }
+.toast-close {
+  background: transparent; color: var(--text-dim);
+  border: 0; padding: 0 4px; font-size: 18px; line-height: 1;
+  cursor: pointer; flex-shrink: 0;
+}
+.toast-close:hover { color: var(--text); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(8px); }
+}
+@media (max-width: 480px) {
+  .toast-region { left: 16px; right: 16px; bottom: 12px; }
+  .toast { min-width: 0; max-width: none; }
+}
+</style>
+</head>
+<body>
+<div class="app" style="display:none" id="appRoot">
+  <div class="overlay" id="overlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1>Codexify</h1>
+      <button class="btn btn-sm" id="btnNew">+ New</button>
+    </div>
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="threads" id="tabThreads">Threads</button>
+      <button class="sidebar-tab" data-tab="docs" id="tabDocs">Docs</button>
+    </div>
+    <div class="sidebar-panel">
+      <div class="thread-list active" id="threadList"><div class="empty-panel">Loading...</div></div>
+      <div class="doc-list" id="docList">
+        <div class="upload-zone" id="uploadZone">
+          Drop files here or tap to upload
+          <input type="file" id="uploadInput" multiple accept=".md,.txt,.pdf,.csv,.json,.html,.doc,.docx">
+        </div>
+        <div id="docItems"></div>
+      </div>
+    </div>
+  </aside>
+  <main class="chat-pane" id="chatPane">
+    <div class="chat-header">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="thread-title" id="chatTitle">Codexify</div>
+      <div class="user-badge" id="userBadge"></div>
+    </div>
+    <div class="toolbar" id="projectToolbar">
+      <select id="projectPicker"></select>
+      <span id="projectThreadCount">&mdash;</span>
+    </div>
+    <div class="doc-viewer" id="docViewer" style="display:none; flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:16px 20px; font-size:14px; line-height:1.6; white-space:pre-wrap; color:var(--text);"></div>
+    <div class="messages" id="messages">
+      <div class="no-thread">Select or create a thread to start</div>
+    </div>
+    <div class="typing-indicator" id="typing"><span>Thinking...</span></div>
+    <div class="composer" id="composer" style="display:none;">
+      <button class="icon-btn attach-btn" id="attachBtn">+</button>
+      <input type="file" id="attachInput" multiple accept=".md,.txt,.pdf,.csv,.json,.html,.doc,.docx" style="display:none">
+      <textarea id="input" placeholder="Message... (@Guardian to invoke AI)" rows="1"></textarea>
+      <button class="icon-btn send-btn" id="sendBtn" disabled>&#9654;</button>
+    </div>
+    <div class="status-bar">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </main>
+</div>
+
+<div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="false"></div>
+
+<script>
+(function() {
+  // --- State ---
+  var apiKey = localStorage.getItem('codexify_apikey') || '';
+  var userName = localStorage.getItem('codexify_username') || '';
+  var currentThreadId = null;
+  var lastMessageId = null;
+  var pollTimer = null;
+  var waitingForAssistant = false;
+  var activeTab = 'threads';
+  var currentProjectId = null;
+  var currentThreadProjectId = null;
+  var currentDocId = null;
+  var projectMap = {};
+  var lastUploadFile = null;
+
+  // --- Prompt for API key & name ---
+  while (!apiKey) {
+    var k = prompt('Enter Guardian API key:');
+    if (k && k.trim()) { apiKey = k.trim(); localStorage.setItem('codexify_apikey', apiKey); }
+  }
+  while (!userName) {
+    var n = prompt('Enter your display name:');
+    if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); }
+  }
+  document.getElementById('appRoot').style.display = 'flex';
+  document.getElementById('userBadge').textContent = userName;
+
+  // --- API ---
+  function api(path, method, body) {
+    var opts = { method: method || 'GET', headers: { 'x-api-key': apiKey } };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(path, opts).then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+  }
+
+  // --- Sound ---
+  function ping() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var osc = ctx.createOscillator(); var g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.frequency.value = 880; osc.type = 'sine'; g.gain.value = 1.0;
+      osc.start(); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+  }
+
+  // --- Notifications ---
+  function notify(message, type, opts) {
+    type = type || 'info';
+    opts = opts || {};
+    var region = document.getElementById('toastRegion');
+    if (!region) return function() {};
+    var t = document.createElement('div');
+    t.className = 'toast ' + type;
+    t.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    var icon = ({success:'✓', warning:'!', error:'✕', info:'•'})[type] || '•';
+    t.innerHTML =
+      '<span class="toast-icon">' + icon + '</span>' +
+      '<span class="toast-msg"></span>' +
+      '<button class="toast-close" aria-label="Dismiss">×</button>';
+    t.querySelector('.toast-msg').textContent = String(message);
+    if (opts.action) {
+      var btn = document.createElement('button');
+      btn.className = 'toast-action';
+      btn.textContent = opts.action.label;
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        try { opts.action.onClick(); } catch(_e) {}
+        dismiss();
+      };
+      t.insertBefore(btn, t.querySelector('.toast-close'));
+    }
+    region.appendChild(t);
+    // Cap visible stack at 5 — drop oldest first.
+    while (region.children.length > 5) region.removeChild(region.firstChild);
+    var dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      t.classList.add('toast-leaving');
+      setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 200);
+    }
+    t.querySelector('.toast-close').onclick = function(e) { e.stopPropagation(); dismiss(); };
+    t.onclick = function(e) { if (e.target === t) dismiss(); };
+    var duration = opts.duration != null ? opts.duration : (type === 'error' ? 6000 : 4000);
+    if (duration > 0) setTimeout(dismiss, duration);
+    return dismiss;
+  }
+
+  // --- System notifications (iOS lock-screen / Notification Center) ---
+  function sysNotify(title, body, opts) {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      opts = opts || {};
+      var n = new Notification(String(title || 'Codexify'), {
+        body: String(body || '').slice(0, 200),
+        tag: opts.tag || undefined,
+      });
+      n.onclick = function() { try { window.focus(); } catch (_e) {} try { n.close(); } catch (_e) {} };
+      if (opts.timeout) setTimeout(function() { try { n.close(); } catch (_e) {} }, opts.timeout);
+    } catch (_e) {}
+  }
+
+  function requestNotifyPermission() {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'default') return;
+      Notification.requestPermission();
+    } catch (_e) {}
+  }
+
+  // Extract sender name + body from a message. Returns null for assistant messages.
+  function messageSender(m) {
+    if (!m) return null;
+    if (m.role === 'assistant') return null;
+    var content = String(m.content || '');
+    var match = content.match(/^\[([^\]]{1,30})\]:\s*/);
+    if (match) {
+      return { name: match[1], body: content.slice(match[0].length) };
+    }
+    return { name: 'User', body: content };
+  }
+
+  // --- Render ---
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderMessages(msgs) {
+    var el = document.getElementById('messages');
+    if (!msgs || !msgs.length) { el.innerHTML = '<div class="no-thread">No messages yet</div>'; return; }
+    el.innerHTML = msgs.map(function(m) {
+      if (m.role === 'assistant') {
+        var content = m.content || '';
+        var isLuna = /^\[luna\]/i.test(content);
+        if (isLuna) { content = content.replace(/^\[luna\]\s*/i, ''); }
+        var aClass = isLuna ? 'message assistant luna' : 'message assistant';
+        var aName = isLuna ? 'Luna' : 'Guardian';
+        return '<div class="' + aClass + '"><div class="msg-name">' + aName + '</div>' + esc(content) + '</div>';
+      }
+      var content = m.content || '';
+      var name = 'User';
+      var match = content.match(/^\[([^\]]{1,30})\]:\s*/);
+      if (match) { name = match[1]; content = content.slice(match[0].length); }
+      var cls = (name === userName) ? 'user-self' : 'user-other';
+      return '<div class="message ' + cls + '"><div class="msg-name">' + esc(name) + '</div>' + esc(content) + '</div>';
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // --- Poll (the ONE loop) ---
+  function startPoll() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function() {
+      if (!currentThreadId) return;
+      api('/api/chat/' + currentThreadId + '/messages').then(function(data) {
+        var msgs = data.messages || [];
+        var newLastId = msgs.length ? msgs[msgs.length - 1].id : null;
+        if (newLastId !== lastMessageId) {
+          var prevLastId = lastMessageId;
+          lastMessageId = newLastId;
+          ping();
+          renderMessages(msgs);
+          // Banner notification for messages from other users (skip assistant + skip self).
+          var lastMsg = msgs[msgs.length - 1];
+          if (lastMsg && prevLastId !== null && lastMsg.id !== prevLastId) {
+            var senderInfo = messageSender(lastMsg);
+            if (senderInfo && senderInfo.name && senderInfo.name !== userName) {
+              sysNotify(
+                'New message from ' + senderInfo.name,
+                senderInfo.body.slice(0, 120),
+                { tag: 'codexify:msg:' + lastMsg.id }
+              );
+            }
+          }
+          if (waitingForAssistant && msgs.length && msgs[msgs.length - 1].role === 'assistant') {
+            waitingForAssistant = false;
+            document.getElementById('typing').style.display = 'none';
+            loadThreads();
+          }
+        }
+      }).catch(function() {});
+    }, 500);
+  }
+
+  function stopPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    lastMessageId = null;
+  }
+
+  // --- Threads ---
+  function loadThreads() {
+    var url = '/api/chat/threads?limit=50&offset=0';
+    if (currentProjectId !== null) url += '&project_id=' + currentProjectId;
+    api(url).then(function(data) {
+      var threads = data.threads || data;
+      var list = document.getElementById('threadList');
+      document.getElementById('projectThreadCount').textContent = threads.length + ' threads';
+      if (!threads.length) { list.innerHTML = '<div class="empty-panel">No threads yet. Tap + New.</div>'; return; }
+      var threadIds = threads.map(function(t) { return t.id; });
+      if (currentThreadId !== null && threadIds.indexOf(currentThreadId) === -1) {
+        currentThreadId = null; stopPoll();
+        document.getElementById('messages').innerHTML = '<div class="no-thread">Select or create a thread to start</div>';
+        document.getElementById('composer').style.display = 'none';
+        document.getElementById('chatTitle').textContent = 'Codexify';
+      }
+      list.innerHTML = threads.map(function(t) {
+        var ago = timeAgo(new Date(t.updated_at || t.created_at));
+        var active = (currentThreadId === t.id) ? ' active' : '';
+        return '<div class="thread-item' + active + '" data-id="' + t.id + '">' +
+          '<div class="thread-info"><div class="title">' + esc(t.title || 'Untitled') + '</div><div class="meta">' + ago + '</div></div>' +
+          '<button class="del-btn" data-rename="' + t.id + '" title="Rename">&#9998;</button>' +
+          '<button class="del-btn" data-delete="' + t.id + '" title="Delete">&times;</button></div>';
+      }).join('');
+    }).catch(function() {});
+  }
+
+  function selectThread(id) {
+    stopPoll();
+    currentThreadId = id;
+    api('/api/chat/' + id + '/messages').then(function(data) {
+      var msgs = data.messages || [];
+      lastMessageId = msgs.length ? msgs[msgs.length - 1].id : null;
+      renderMessages(msgs);
+      document.getElementById('chatTitle').textContent = 'Thread ' + id;
+      document.getElementById('composer').style.display = 'flex';
+      document.querySelectorAll('.thread-item').forEach(function(e) { e.classList.toggle('active', +e.dataset.id === id); });
+      var el = document.querySelector('.thread-item[data-id="' + id + '"] .title');
+      if (el) document.getElementById('chatTitle').textContent = el.textContent;
+      closeSidebar();
+      startPoll();
+    }).catch(function() {});
+  }
+
+  // --- Send ---
+  function sendMessage() {
+    var input = document.getElementById('input');
+    var text = input.value.trim();
+    if (!text || !currentThreadId) return;
+    input.value = ''; input.style.height = 'auto';
+    document.getElementById('sendBtn').disabled = true;
+
+    var tagged = '[' + userName + ']: ' + text;
+    var invokeGuardian = /@guardian/i.test(text) || /@luna/i.test(text);
+
+    api('/api/chat/' + currentThreadId + '/messages', 'POST', { role: 'user', content: tagged }).then(function() {
+      return api('/api/chat/' + currentThreadId + '/messages');
+    }).then(function(data) {
+      var msgs = data.messages || [];
+      lastMessageId = msgs.length ? msgs[msgs.length - 1].id : null;
+      renderMessages(msgs);
+
+      if (invokeGuardian) {
+        document.getElementById('typing').style.display = 'block';
+        waitingForAssistant = true;
+        api('/api/chat/' + currentThreadId + '/complete', 'POST', {}).catch(function() {
+          waitingForAssistant = false;
+          document.getElementById('typing').style.display = 'none';
+        });
+      }
+    }).catch(function(e) {
+      console.error('send failed', e);
+    }).finally(function() {
+      document.getElementById('sendBtn').disabled = false;
+    });
+  }
+
+  // --- Docs ---
+  function loadDocs() {
+    var docsUrl = '/api/media/documents?limit=100';
+    if (currentProjectId !== null) docsUrl += '&project_id=' + currentProjectId;
+    // Fetch the canonical document list (with embedding_status). Chunk counts
+    // are not available without the embedding-map endpoint; the UI shows
+    // "0 chunks" for each document. Listing, status, and per-project
+    // filtering are preserved. Documents without embeddings yet still appear,
+    // marked "Pending" / "Indexing" via embedding_status.
+    api(docsUrl, 'GET').then(function(docsResp) {
+      var rawDocs = (docsResp && docsResp.documents) || [];
+      renderDocList(buildDocList(rawDocs, {}));
+    }).catch(function(err) {
+      console.error('loadDocs failed', err);
+      document.getElementById('docItems').innerHTML =
+        '<div class="empty-panel">Failed to load documents: ' +
+        esc(err && err.message || err) + '</div>';
+    });
+  }
+
+  function buildDocList(rawDocs, chunkCounts) {
+    return rawDocs.map(function(d) {
+      var ns = d.project_id != null ? 'project:' + d.project_id : '?';
+      return {
+        id: d.id,
+        title: d.filename || d.id,
+        status: d.embedding_status || 'pending',
+        chunks: chunkCounts[d.id] || 0,
+        namespace: ns,
+        error: d.embedding_error || null,
+      };
+    });
+  }
+
+  function statusLabel(s) {
+    if (s === 'ready') return { label: 'Indexed', cls: 'ready' };
+    if (s === 'processing') return { label: 'Indexing', cls: 'processing' };
+    if (s === 'pending') return { label: 'Pending', cls: 'pending' };
+    if (s === 'failed' || s === 'error') return { label: 'Failed', cls: 'failed' };
+    return { label: s || 'Unknown', cls: 'pending' };
+  }
+  var docIndex = {};
+  function renderDocList(docs) {
+    // docs is an array of {id, title, status, chunks, namespace, error}
+    var byId = {};
+    docs.forEach(function(d) { byId[d.id] = d; });
+    docIndex = byId;
+    if (currentDocId && !byId[currentDocId]) {
+      currentDocId = null;
+      document.getElementById('docViewer').dataset.active = '';
+      document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+      document.getElementById('chatTitle').textContent = 'Documents';
+    }
+    var sorted = docs.slice().sort(function(a, b) {
+      // Show indexing/pending first, then by chunk count desc
+      var aActive = (a.status === 'pending' || a.status === 'processing') ? 0 : 1;
+      var bActive = (b.status === 'pending' || b.status === 'processing') ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return b.chunks - a.chunks;
+    });
+    var el = document.getElementById('docItems');
+    if (!sorted.length) { el.innerHTML = '<div class="empty-panel">No documents</div>'; return; }
+    el.innerHTML = sorted.map(function(d) {
+      var ns = namespaceFriendlyName(d.namespace);
+      var s = statusLabel(d.status);
+      var tip = s.cls === 'failed' && d.error ? ' title="' + esc(d.error) + '"' : '';
+      var chunkLabel = d.chunks + ' chunk' + (d.chunks === 1 ? '' : 's');
+      return '<div class="doc-item" data-docid="' + esc(d.id) + '" style="cursor:pointer;"><div class="doc-icon">\u{1F4C4}</div><div class="doc-info"><div class="doc-name">' +
+        esc(d.title) + '</div><div class="doc-meta">' + chunkLabel + ' · ' + esc(ns) + '</div></div>' +
+        '<div class="doc-status ' + s.cls + '"' + tip + '>' + s.label + '</div>' +
+        '<button class="del-btn" data-deldoc="' + esc(d.id) + '" title="Delete document and ' + d.chunks + ' chunks">&times;</button></div>';
+    }).join('');
+  }
+
+  function selectDoc(docId) {
+    currentDocId = docId;
+    var viewer = document.getElementById('docViewer');
+    var msgs = document.getElementById('messages');
+    var composer = document.getElementById('composer');
+    var typing = document.getElementById('typing');
+    var info = docIndex[docId];
+    viewer.dataset.active = '1';
+    viewer.style.display = 'block';
+    msgs.style.display = 'none';
+    composer.style.display = 'none';
+    typing.style.display = 'none';
+    document.getElementById('chatTitle').textContent = info ? info.title : docId;
+    // Document preview is disabled in this build — the embedding-map endpoint
+    // that served chunk text has been removed, so we render a placeholder
+    // instead of making a network request. Use the Documents tab to list files.
+    viewer.innerHTML = '<div class="empty-panel">Document preview is disabled in this build. The document "'
+      + esc(info ? info.title : docId)
+      + '" is listed in the Documents tab; its chunk text cannot be read without the embedding-map endpoint.</div>';
+  }
+
+  function uploadFile(file) {
+    lastUploadFile = file;
+    var form = new FormData(); form.append('file', file);
+    if (currentProjectId !== null) form.append('project_id', currentProjectId);
+    fetch('/api/media/upload/document', { method: 'POST', headers: { 'x-api-key': apiKey }, body: form })
+      .then(function(r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status + ' ' + r.statusText); }
+        return r.json().catch(function() { return null; });
+      })
+      .then(function() {
+        loadDocs();
+        pollDocStatus();
+        notify('Uploaded ' + (file && file.name || 'document'), 'success');
+      })
+      .catch(function(err) {
+        notify('Upload failed: ' + (err && err.message || err), 'error', {
+          action: { label: 'Retry', onClick: function() { if (lastUploadFile) uploadFile(lastUploadFile); } }
+        });
+      });
+  }
+
+  // After an upload, poll the doc list briefly so the user can watch the
+  // status pill transition Pending -> Indexing -> Indexed.
+  function pollDocStatus() {
+    var attempts = 0;
+    var timer = setInterval(function() {
+      attempts++;
+      if (attempts > 12) { clearInterval(timer); return; }
+      loadDocs();
+    }, 1500);
+  }
+
+  // --- Health ---
+  function checkHealth() {
+    api('/health/chat').then(function(h) {
+      document.getElementById('statusDot').className = h.ok ? 'status-dot' : 'status-dot pending';
+      document.getElementById('statusText').textContent = h.ok ? ((h.model||'').split('/').pop()||'local') + ' • ready' : 'Degraded';
+    }).catch(function() {
+      document.getElementById('statusDot').className = 'status-dot offline';
+      document.getElementById('statusText').textContent = 'Offline';
+    });
+  }
+
+  function timeAgo(d) {
+    var s = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60)+'m ago';
+    if (s < 86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+  }
+
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('open');
+  }
+
+  // --- Events (all delegated) ---
+  document.getElementById('overlay').onclick = function() { closeSidebar(); };
+  document.getElementById('menuBtn').onclick = function() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('open');
+  };
+  document.getElementById('userBadge').onclick = function() {
+    var n = prompt('Change display name:', userName);
+    if (n && n.trim()) { userName = n.trim(); localStorage.setItem('codexify_username', userName); this.textContent = userName; }
+  };
+  document.getElementById('projectPicker').onchange = function() {
+    var v = this.value;
+    currentProjectId = v ? +v : null;
+    loadThreads();
+    if (activeTab === 'docs') loadDocs();
+  };
+  document.getElementById('btnNew').onclick = function() {
+    var body = { title: 'New chat' };
+    if (currentProjectId !== null) body.project_id = currentProjectId;
+    api('/api/chat/threads', 'POST', body).then(function(d) {
+      var id = d.id || (d.thread && d.thread.id);
+      loadThreads(); if (id) selectThread(id);
+    }).catch(function(){});
+  };
+  document.getElementById('tabThreads').onclick = function() {
+    activeTab = 'threads';
+    document.getElementById('tabThreads').classList.add('active'); document.getElementById('tabDocs').classList.remove('active');
+    document.getElementById('threadList').classList.add('active'); document.getElementById('docList').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex';
+    document.getElementById('docViewer').style.display = 'none';
+    document.getElementById('docViewer').dataset.active = '';
+    document.getElementById('messages').style.display = 'flex';
+    if (currentThreadId) document.getElementById('composer').style.display = 'flex';
+  };
+  document.getElementById('tabDocs').onclick = function() {
+    activeTab = 'docs';
+    document.getElementById('tabDocs').classList.add('active'); document.getElementById('tabThreads').classList.remove('active');
+    document.getElementById('docList').classList.add('active'); document.getElementById('threadList').classList.remove('active');
+    document.getElementById('chatPane').style.display = 'flex';
+    document.getElementById('messages').style.display = 'none';
+    document.getElementById('composer').style.display = 'none';
+    document.getElementById('docViewer').style.display = 'block';
+    if (!document.getElementById('docViewer').dataset.active) {
+      document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+      document.getElementById('chatTitle').textContent = 'Documents';
+    }
+    loadDocs();
+  };
+  document.getElementById('threadList').onclick = function(e) {
+    var item = e.target.closest('.thread-item');
+    if (e.target.dataset.rename) {
+      e.stopPropagation();
+      var id = +e.target.dataset.rename;
+      var el = e.target.closest('.thread-item').querySelector('.title');
+      var cur = el ? el.textContent : '';
+      var name = prompt('Rename thread:', cur);
+      if (name && name.trim()) { api('/api/chat/threads/' + id, 'PATCH', { title: name.trim() }).then(function() { loadThreads(); if (currentThreadId === id) document.getElementById('chatTitle').textContent = name.trim(); }); }
+      return;
+    }
+    if (e.target.dataset.delete) {
+      e.stopPropagation();
+      if (confirm('Delete thread?')) {
+        var id = +e.target.dataset.delete;
+        api('/api/chat/threads/' + id, 'DELETE').then(function() {
+          if (currentThreadId === id) { currentThreadId = null; stopPoll(); document.getElementById('messages').innerHTML = '<div class="no-thread">Select a thread</div>'; document.getElementById('composer').style.display = 'none'; }
+          loadThreads();
+        });
+      }
+      return;
+    }
+    if (item) selectThread(+item.dataset.id);
+  };
+  document.getElementById('docItems').onclick = function(e) {
+    if (e.target.dataset && e.target.dataset.deldoc) {
+      e.stopPropagation();
+      var did = e.target.dataset.deldoc;
+      var info = docIndex[did];
+      var label = info ? info.title : did;
+      var chunkCount = info ? info.chunks : '?';
+      if (confirm('Delete "' + label + '" and its ' + chunkCount + ' chunks from the index?')) {
+        api('/api/media/documents/' + did, 'DELETE').then(function(resp) {
+          if (resp && resp.warning) {
+            notify('Deleted from list: ' + resp.warning, 'warning');
+          }
+          if (currentDocId === did) {
+            currentDocId = null;
+            document.getElementById('docViewer').innerHTML = '<div class="no-thread">Select a document to view</div>';
+            document.getElementById('chatTitle').textContent = 'Documents';
+          }
+          loadDocs();
+        }).catch(function(err) {
+          notify('Delete failed: ' + (err && err.message || err), 'error');
+        });
+      }
+      return;
+    }
+    var item = e.target.closest('.doc-item');
+    if (item && item.dataset.docid) selectDoc(item.dataset.docid);
+  };
+  document.getElementById('uploadZone').onclick = function() { document.getElementById('uploadInput').click(); };
+  document.getElementById('uploadInput').onchange = function() { Array.from(this.files).forEach(uploadFile); };
+  document.getElementById('attachBtn').onclick = function() { document.getElementById('attachInput').click(); };
+  document.getElementById('attachInput').onchange = function() { Array.from(this.files).forEach(uploadFile); };
+  document.getElementById('sendBtn').onclick = sendMessage;
+  document.getElementById('input').oninput = function() {
+    this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    document.getElementById('sendBtn').disabled = !this.value.trim();
+  };
+  document.getElementById('input').onkeydown = function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  // --- Embedding-map section (removed; namespace helper retained) ---
+  // namespaceFriendlyName is the only function from this section that the
+  // doc list still needs; it converts a `project:N` namespace into the
+  // human-readable project name from /api/projects.
+  function namespaceFriendlyName(ns) {
+    var m = ns.match(/^project:(\d+)$/);
+    if (m && projectMap[m[1]]) return projectMap[m[1]];
+    return ns;
+  }
+
+    // --- Projects ---
+  function loadProjects() {
+    api('/api/projects').then(function(data) {
+      var projects = Array.isArray(data) ? data : (data.projects || []);
+      projectMap = {};
+      projects.forEach(function(p) { projectMap[p.id] = p.name; });
+      var picker = document.getElementById('projectPicker');
+      picker.innerHTML = '';
+      // If no project is currently selected, default to the first one so the
+      // picker always reflects an active project context.
+      if (currentProjectId === null && projects.length) {
+        currentProjectId = +projects[0].id;
+      }
+      projects.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if (currentProjectId !== null && +p.id === +currentProjectId) opt.selected = true;
+        picker.appendChild(opt);
+      });
+    }).catch(function() {});
+  }
+
+  // --- Boot ---
+  checkHealth();
+  loadProjects();
+  loadThreads();
+  setInterval(checkHealth, 15000);
+  // Ask for system-notification permission once, after the page settles.
+  setTimeout(function() {
+    requestNotifyPermission();
+    // One-shot diagnostic so we can see what's blocking notifications on this device.
+    var apiOk = 'Notification' in window;
+    var perm = apiOk ? Notification.permission : 'unavailable';
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    var isStandalone = (window.navigator.standalone === true) ||
+                       window.matchMedia('(display-mode: standalone)').matches;
+    var secure = window.isSecureContext;
+    var parts = ['Notif API: ' + (apiOk ? 'yes' : 'NO'),
+                 'perm: ' + perm,
+                 'secure: ' + (secure ? 'yes' : 'NO')];
+    if (isIOS) parts.push(isStandalone ? 'iOS app: yes' : 'iOS app: NO');
+    notify(parts.join(' · '), apiOk && perm === 'granted' ? 'success' : 'info', { duration: 10000 });
+  }, 3000);
+  console.log('Codexify UI loaded, user=' + userName);
+})();
+</script>
+</body>
+</html>

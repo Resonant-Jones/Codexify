@@ -24,13 +24,6 @@ import type { PersonaProfileDraft } from "./personaStudioStore";
  * memory or identity. The composer is local-only; turns clear on remount.
  */
 
-const PREVIEW_SCENARIO_CHIPS = [
-  "Coding",
-  "Research",
-  "Planning",
-  "Casual Help",
-] as const;
-
 type PreviewDraftSnapshot = {
   signature: string;
   personaName: string;
@@ -167,7 +160,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
   const [isResponding, setIsResponding] = React.useState(false);
   const messageIdRef = React.useRef(0);
   const sessionVersionRef = React.useRef(0);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   const currentDraftSnapshot = React.useMemo(
     () => buildPreviewDraftSnapshot(profile),
@@ -194,7 +187,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
     setPreviewTurns([]);
     setPreviewPrompt("");
     setIsResponding(false);
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
   }, []);
 
   const sendPreviewPrompt = React.useCallback(
@@ -238,7 +231,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
       messageIdRef.current += 1;
       setPreviewTurns((previous) => [...previous, assistantMessage]);
       setIsResponding(false);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
     },
     [previewTurns, isResponding, profile]
   );
@@ -264,43 +257,29 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
         boxShadow: "0 10px 30px color-mix(in srgb, var(--bg) 62%, transparent)",
       }}
     >
-      <CardHeader className="space-y-4 pb-4" data-testid="persona-preview-panel-header">
+      <CardHeader className="space-y-2 pb-3" data-testid="persona-preview-panel-header">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-2">
-            <CardTitle className="text-base font-semibold">
+          <div className="space-y-1.5">
+            <CardTitle className="text-lg font-semibold">
               Draft Preview
             </CardTitle>
-            <p className="text-sm leading-6" style={{ color: "var(--muted)" }}>
-              Test this profile before saving changes.
+            <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
+              Test before saving.
             </p>
             <p
               className="text-xs leading-5"
               data-testid="persona-preview-panel-safety-row"
               style={{ color: "var(--muted)" }}
             >
-              Draft sandbox · Local until saved · Not chat history
+              Temporary preview. Not saved to chat history.
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {PREVIEW_SCENARIO_CHIPS.map((prompt) => (
-            <Button
-              key={prompt}
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void sendPreviewPrompt(prompt)}
-              disabled={isResponding}
-            >
-              {prompt}
-            </Button>
-          ))}
-        </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 pt-0">
-        <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+        <div className="flex min-h-0 w-full flex-1 flex-col gap-3">
           <section
-            className="flex min-h-0 flex-1 flex-col rounded-[var(--card-radius)] border px-4 py-4"
+            className="flex min-h-0 flex-1 flex-col rounded-[var(--card-radius)] border px-4 py-3"
             data-testid="persona-preview-panel-transcript"
             aria-live="polite"
             aria-busy={isResponding}
@@ -310,26 +289,14 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
             }}
           >
             <div
-              className="flex flex-wrap items-center justify-between gap-2 border-b pb-3"
+              className="flex flex-wrap items-center justify-between gap-2 border-b pb-2"
               style={{ borderColor: "var(--panel-border)" }}
             >
-              <div className="space-y-1">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
-                  Preview transcript
-                </div>
-                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                  Preview turns stay in this mounted Studio session only.
-                </p>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
+                Transcript
               </div>
-              <Badge
-                variant="outline"
-                className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                Session cache
-              </Badge>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pt-3 pr-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pt-2 pr-1">
               {hasTurns ? (
                 <div className="space-y-3">
                   {isResponding ? (
@@ -613,34 +580,29 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 </div>
               ) : (
                 <div
-                  className="rounded-[var(--tile-radius)] border px-4 py-4"
+                  className="rounded-[var(--tile-radius)] border px-3 py-3"
                   style={{
                     borderColor: "var(--panel-border)",
                     background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)",
                   }}
                 >
                   <p className="text-sm" style={{ color: "var(--muted)" }}>
-                    No preview turns yet. Send a temporary prompt to test this draft.
+                    No preview turns yet.
                   </p>
                 </div>
               )}
             </div>
           </section>
           <section
-            className="mt-auto space-y-3 border-t pt-4"
+            className="mt-auto space-y-2 border-t pt-3"
             data-testid="persona-preview-panel-composer"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div
-                  className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-                  style={{ color: "var(--muted)" }}
-                >
-                  Preview composer
-                </div>
-                <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
-                  Local-only draft input for bounded tests and structured-output checks.
-                </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div
+                className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                style={{ color: "var(--muted)" }}
+              >
+                Test prompt
               </div>
               <Button
                 type="button"
@@ -660,15 +622,21 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 earlier replies remain as historical preview turns.
               </p>
             ) : null}
-            <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
-              <Input
-                ref={inputRef}
+            <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
+              <Textarea
+                ref={textareaRef}
                 value={previewPrompt}
                 onChange={(event) => setPreviewPrompt(event.target.value)}
-                placeholder="Send a prompt to test this draft"
+                placeholder="Send a temporary test prompt"
                 aria-label="Persona preview prompt"
-                className="min-w-0 flex-1"
+                className="min-h-[80px] w-full resize-y"
                 disabled={isResponding}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendPreviewPrompt(previewPrompt);
+                  }
+                }}
               />
               <Button
                 type="submit"

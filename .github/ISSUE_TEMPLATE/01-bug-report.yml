@@ -1,0 +1,79 @@
+name: Bug report
+description: Report something that is broken, inconsistent, or failing.
+title: "bug: "
+labels:
+  - bug
+  - intake
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Small observations are useful; precise reproduction steps are gold.
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the behavior you observed.
+      placeholder: "When I clicked the + chat tab, it created multiple empty conversations."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: "I expected one new empty tab, or for the + button to be disabled until I typed something."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest sequence of actions that reliably triggers it.
+      placeholder: |
+        1. Open Codexify
+        2. Open project/chat
+        3. Click + twice
+        4. Notice duplicate empty threads
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include exact text, errors, screenshots, or logs if available.
+      placeholder: "Two tabs appeared with the same name and I could not tell which one was active."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - S0 - Blocks core use
+        - S1 - Major workflow break
+        - S2 - Confusing but usable
+        - S3 - Polish / papercut
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser/app, branch, OS, and local ports if relevant.
+      placeholder: "Chrome on macOS, cleanup-webui-atlas, frontend 5173, backend 8888"
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Anything else that may help.
+    validations:
+      required: false

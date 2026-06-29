@@ -41,9 +41,9 @@ describe("Persona Studio two-pane layout", () => {
     const header = within(previewPanel).getByTestId("persona-preview-panel-header");
 
     expect(within(header).getByRole("heading", { name: "Draft Preview" })).toBeVisible();
-    expect(within(header).getByText(/test this profile before saving changes/i)).toBeVisible();
+    expect(within(header).getByText(/test before saving/i)).toBeVisible();
     expect(within(header).getByTestId("persona-preview-panel-safety-row")).toHaveTextContent(
-      /draft sandbox · local until saved · not chat history/i
+      /temporary preview\. not saved to chat history/i
     );
   });
 
@@ -131,10 +131,10 @@ describe("Persona Studio two-pane layout", () => {
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
 
     // Switch to Diagnostics
-    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
-    expect(screen.getByRole("button", { name: /^diagnostics$/i })).toHaveAttribute(
-      "data-state",
-      "active"
+    await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
+    expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
