@@ -7,6 +7,7 @@ import {
   type PersonaConfig,
   usePersonaStudioLocalDraftState,
 } from "./personaStudioStore";
+import PersonaVoicePanel from "./components/PersonaVoicePanel";
 import TruthMatrix from "./components/TruthMatrix";
 import PersonaStudioRail from "./PersonaStudioRail";
 import PersonaProfileSelector from "./PersonaProfileSelector";
@@ -215,133 +216,6 @@ function ModelEditor({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function VoiceEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="relative inline-flex items-center cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.voice.enabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                voice: { ...config.voice, enabled: e.target.checked },
-              })
-            }
-            className="sr-only peer"
-          />
-          <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-        </label>
-        <span className="text-sm font-medium">Voice Enabled</span>
-      </div>
-
-      {config.voice.enabled && (
-        <>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Provider</label>
-              <select
-                className="w-full h-9 px-3 rounded-md border text-sm"
-                style={{
-                  background: "transparent",
-                  borderColor: "var(--panel-border)",
-                  color: "var(--text)",
-                }}
-                value={config.voice.provider}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, provider: e.target.value },
-                  })
-                }
-              >
-                <option value="elevenlabs">ElevenLabs</option>
-                <option value="aws">AWS Polly</option>
-                <option value="google">Google TTS</option>
-                <option value="azure">Azure Speech</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Voice Preset / Voice ID</label>
-              <Input
-                value={config.voice.voicePreset}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, voicePreset: e.target.value },
-                  })
-                }
-                placeholder="e.g., rachel"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Speed</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2"
-                  step="0.1"
-                  value={config.voice.speed}
-                  onChange={(e) =>
-                    onChange({
-                      ...config,
-                      voice: { ...config.voice, speed: parseFloat(e.target.value) },
-                    })
-                  }
-                  className="flex-1"
-                />
-                <span className="text-sm w-12 text-right">{config.voice.speed}x</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Wake Word</label>
-              <Input
-                value={config.voice.wakeWord}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, wakeWord: e.target.value },
-                  })
-                }
-                placeholder="e.g., Hey Guardian"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.voice.interruptible}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, interruptible: e.target.checked },
-                  })
-                }
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-            </label>
-            <span className="text-sm font-medium">Interruptible</span>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -796,7 +670,7 @@ export default function PersonaStudioPage() {
       case "Model":
         return <ModelEditor config={currentConfig} onChange={onChange} />;
       case "Voice":
-        return <VoiceEditor config={currentConfig} onChange={onChange} />;
+        return <PersonaVoicePanel config={currentConfig} onChange={onChange} />;
       case "Prompt":
         return <PromptEditor config={currentConfig} onChange={onChange} />;
       case "Tools":

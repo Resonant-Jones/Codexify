@@ -2,17 +2,120 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import { OptionalSurfaceError } from "@/lib/api";
 
 import PersonaStudioPage from "../PersonaStudioPage";
 import { personaStudioApiMock, resetPersonaStudioApiMock } from "./personaStudioApiMock";
+
+const voiceApiMock = vi.hoisted(() => ({
+  fetchPersonaVoiceProviders: vi.fn(),
+  fetchPersonaVoiceProviderVoices: vi.fn(),
+  previewPersonaVoice: vi.fn(),
+}));
 
 vi.mock("@/features/personaStudio/personaStudioApi", async () =>
   (await import("./personaStudioApiMock")).personaStudioApiMock
 );
 
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    fetchPersonaVoiceProviders: voiceApiMock.fetchPersonaVoiceProviders,
+    fetchPersonaVoiceProviderVoices: voiceApiMock.fetchPersonaVoiceProviderVoices,
+    previewPersonaVoice: voiceApiMock.previewPersonaVoice,
+  };
+});
+
 beforeEach(() => {
   window.localStorage.clear();
   resetPersonaStudioApiMock();
+  voiceApiMock.fetchPersonaVoiceProviders.mockReset();
+  voiceApiMock.fetchPersonaVoiceProviderVoices.mockReset();
+  voiceApiMock.previewPersonaVoice.mockReset();
+  voiceApiMock.fetchPersonaVoiceProviders.mockResolvedValue([
+    {
+      providerId: "elevenlabs",
+      label: "ElevenLabs",
+      classification: "cloud",
+      state: "degraded",
+      statusDetail:
+        "Provider registered, but disabled under the current local-only beta posture.",
+      capabilities: {
+        presetVoices: true,
+        cloning: true,
+        promptDefinedVoice: true,
+        preview: false,
+      },
+    },
+    {
+      providerId: "local_openai_compatible",
+      label: "Local OpenAI-Compatible",
+      classification: "local",
+      state: "available",
+      statusDetail:
+        "Provider is available for Persona Studio voice selection.",
+      capabilities: {
+        presetVoices: true,
+        cloning: false,
+        promptDefinedVoice: false,
+        preview: true,
+      },
+    },
+  ]);
+  voiceApiMock.fetchPersonaVoiceProviderVoices.mockImplementation(
+    async (providerId: string) => {
+      if (providerId === "local_openai_compatible") {
+        return {
+          providerId,
+          state: "available",
+          statusDetail:
+            "Provider is available for Persona Studio voice selection.",
+          voices: [
+            {
+              voiceId: "alloy",
+              label: "alloy",
+              kind: "preset",
+              previewSupported: true,
+              bindingSupported: true,
+              summary: "Balanced local preset.",
+            },
+            {
+              voiceId: "ember",
+              label: "ember",
+              kind: "preset",
+              previewSupported: true,
+              bindingSupported: true,
+              summary: "Warmer local preset.",
+            },
+          ],
+        };
+      }
+      return {
+        providerId,
+        state: "degraded",
+        statusDetail:
+          "Provider is outside the supported local-only posture, so Persona Studio exposes no bindable voices here.",
+        voices: [],
+      };
+    }
+  );
+  voiceApiMock.previewPersonaVoice.mockResolvedValue({
+    providerId: "local_openai_compatible",
+    voiceId: "alloy",
+    state: "available",
+    preview: {
+      contentType: "audio/wav",
+      playbackUrl: "data:audio/wav;base64,UklGRg==",
+      expiresInSeconds: 0,
+      durationMs: null,
+    },
+    appliedRuntimeOptions: {},
+    ephemeral: true,
+    persistsPersonaState: false,
+    linksMessageHistory: false,
+    statusDetail: "Preview generated for immediate playback only.",
+  });
 });
 
 function renderPage() {
@@ -373,5 +476,112 @@ describe("Persona Studio Page", () => {
     expect(tray.tagName).toBe("DIV");
     expect(tray.className).toMatch(/flex/);
     expect(tray.querySelector("h1, h2, h3, p")).toBeNull();
+  });
+
+  it("renders stable voice panel sections", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const panel = await screen.findByTestId("persona-voice-panel");
+    expect(panel).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-provider")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-preset")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-runtime-style")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-preview")).toBeVisible();
+    expect(within(panel).getByTestId("persona-voice-panel-binding")).toBeVisible();
+  });
+
+  it("updates selectable preset voices when the provider changes", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const providerSelect = await screen.findByLabelText(/voice provider/i);
+    await user.selectOptions(providerSelect, "local_openai_compatible");
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/selectable preset voice/i)
+      ).toHaveValue("alloy")
+    );
+
+    const presetSelect = screen.getByLabelText(/selectable preset voice/i);
+    expect(within(presetSelect).getByRole("option", { name: "alloy" })).toBeVisible();
+    expect(within(presetSelect).getByRole("option", { name: "ember" })).toBeVisible();
+  });
+
+  it("shows the provider CTA and keeps deep provider controls out of Persona Studio", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    const panel = await screen.findByTestId("persona-voice-panel");
+    expect(
+      within(panel).getByRole("button", { name: /manage in provider view/i })
+    ).toBeVisible();
+    expect(within(panel).queryByText(/reference audio/i)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/clone voice/i)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/generate voice/i)).not.toBeInTheDocument();
+  });
+
+  it("renders degraded and empty states truthfully", async () => {
+    const user = userEvent.setup();
+    voiceApiMock.fetchPersonaVoiceProviders.mockRejectedValueOnce(
+      new OptionalSurfaceError(
+        "not_found",
+        404,
+        "Optional surface absent",
+        null
+      )
+    );
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+
+    expect(
+      await screen.findByText(/voice discovery is unavailable in this runtime/i)
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /persona studio could not find the backend voice discovery surface in this environment/i
+      )
+    ).toBeVisible();
+  });
+
+  it("renders bounded preview controls and calls the preview route", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: /^voice$/i }));
+    await user.selectOptions(
+      await screen.findByLabelText(/voice provider/i),
+      "local_openai_compatible"
+    );
+
+    const previewButton = await screen.findByRole("button", {
+      name: /preview voice/i,
+    });
+    const sampleText = screen.getByLabelText(/sample text/i);
+
+    await user.clear(sampleText);
+    await user.type(sampleText, "Test the bounded preview.");
+    await user.click(previewButton);
+
+    await waitFor(() =>
+      expect(voiceApiMock.previewPersonaVoice).toHaveBeenCalledWith({
+        provider: "local_openai_compatible",
+        voice_id: "alloy",
+        sample_text: "Test the bounded preview.",
+        speed: 1,
+      })
+    );
+
+    expect(await screen.findByTestId("persona-voice-preview-audio")).toBeVisible();
+    expect(screen.queryByText(/threaded chat/i)).not.toBeInTheDocument();
   });
 });
