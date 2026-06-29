@@ -36,6 +36,7 @@ from guardian.queue.turn_lock import (
     turn_lock_key,
 )
 from guardian.tts.tts_manager import (
+    PREVIEW_OUTPUT_FORMAT_WAV,
     PROVIDER_STATE_AVAILABLE,
     PROVIDER_STATE_DEGRADED,
     PROVIDER_STATE_UNAVAILABLE,
@@ -84,6 +85,16 @@ class SpeakResponse(BaseModel):
     audio_asset: dict[str, Any]
     cached: bool
     text_hash: str
+
+
+class VoicePreviewRequest(BaseModel):
+    provider: str
+    voice_id: str | None = None
+    preset_id: str | None = None
+    sample_text: str
+    output_format: str | None = None
+    speed: float | None = None
+    style: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -251,6 +262,27 @@ def _voice_provider_detail_or_404(provider_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="provider_not_found")
 
 
+def _voice_preview_selection_or_400(
+    request: VoicePreviewRequest,
+) -> tuple[str, str]:
+    provider_id = str(request.provider or "").strip().lower()
+    voice_id = str(request.voice_id or request.preset_id or "").strip()
+    sample_text = str(request.sample_text or "").strip()
+
+    if not provider_id:
+        raise HTTPException(status_code=400, detail="provider_required")
+    if not voice_id:
+        raise HTTPException(status_code=400, detail="voice_selection_required")
+    if not sample_text:
+        raise HTTPException(status_code=400, detail="sample_text_required")
+    return provider_id, voice_id
+
+
+def _preview_playback_url(audio_bytes: bytes, content_type: str) -> str:
+    encoded = base64.b64encode(audio_bytes).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
 @router.get("/providers")
 def list_voice_providers(
     api_key: str = Depends(require_api_key),
@@ -285,6 +317,85 @@ def voice_provider_selectable_voices(
         return manager.list_selectable_voice_records(provider_id)
     except ProviderNotFoundError:
         raise HTTPException(status_code=404, detail="provider_not_found")
+
+
+@router.post("/preview")
+def preview_voice(
+    request: VoicePreviewRequest,
+    api_key: str = Depends(require_api_key),
+):
+    provider_id, voice_id = _voice_preview_selection_or_400(request)
+    manager = _voice_provider_manager()
+
+    try:
+        preview_contract = manager.preview_contract(provider_id)
+    except ProviderNotFoundError:
+        raise HTTPException(status_code=404, detail="provider_not_found")
+
+    if not preview_contract["capabilities"]["preview"]:
+        return {
+            "providerId": provider_id,
+            "voiceId": voice_id,
+            "state": preview_contract["voiceState"],
+            "preview": None,
+            "appliedRuntimeOptions": {},
+            "ephemeral": True,
+            "persistsPersonaState": False,
+            "linksMessageHistory": False,
+            "statusDetail": preview_contract["statusDetail"],
+        }
+
+    if preview_contract["voiceState"] != PROVIDER_STATE_AVAILABLE:
+        return {
+            "providerId": provider_id,
+            "voiceId": voice_id,
+            "state": preview_contract["voiceState"],
+            "preview": None,
+            "appliedRuntimeOptions": {},
+            "ephemeral": True,
+            "persistsPersonaState": False,
+            "linksMessageHistory": False,
+            "statusDetail": preview_contract["statusDetail"],
+        }
+
+    selectable_voice_ids = {
+        str(voice.get("voiceId") or "").strip()
+        for voice in preview_contract["voices"]
+    }
+    if voice_id not in selectable_voice_ids:
+        raise HTTPException(status_code=400, detail="voice_not_found")
+
+    try:
+        audio_bytes, output_format = synthesize(
+            str(request.sample_text or "").strip(),
+            provider=provider_id,
+            voice=voice_id,
+            output_format=request.output_format
+            or PREVIEW_OUTPUT_FORMAT_WAV,
+        )
+    except VoiceValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"tts_failed:{exc}")
+
+    content_type = _content_type_for_format(output_format)
+    applied_runtime_options: dict[str, Any] = {}
+    return {
+        "providerId": provider_id,
+        "voiceId": voice_id,
+        "state": PROVIDER_STATE_AVAILABLE,
+        "preview": {
+            "contentType": content_type,
+            "playbackUrl": _preview_playback_url(audio_bytes, content_type),
+            "expiresInSeconds": 0,
+            "durationMs": None,
+        },
+        "appliedRuntimeOptions": applied_runtime_options,
+        "ephemeral": True,
+        "persistsPersonaState": False,
+        "linksMessageHistory": False,
+        "statusDetail": "Preview generated for immediate playback only.",
+    }
 
 
 def _load_message(message_id: int) -> ChatMessage | None:
