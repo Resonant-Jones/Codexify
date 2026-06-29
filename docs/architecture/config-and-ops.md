@@ -222,7 +222,7 @@ A Remote Recall live proof is optional and must never widen the supported beta p
 4. Submit one explicit `global_search` completion, capture the task lifecycle to a terminal event, confirm the assistant message persisted, and read `trace["remote_recall"]` (provider, enabled status, source kinds, candidate/eligible/blocked counts, gate decisions, failure reason).
 5. After the run, restore the local-only defaults, delete any proof-only profile YAML, and restart on the supported profile.
 
-Current proof status is PASS (one live supported-path run with Groq credential, 5 eligible evidence items, 0 blocked, all passing intake gate); see `remote-recall-live-proof.md`. A green health endpoint, route acceptance, or unit-test pass is not live proof.
+Current proof status is PASS (one live supported-path run with Groq credential, 5 eligible evidence items, 0 blocked, all passing intake gate), recorded on `feature/remote-retrieval` only; see `remote-recall-live-proof.md`. The seam is not on `main`, is not part of the `v1-local-core-web-mcp` supported profile, and is not beta-supported; a mainline proof requires merge to `main` and a rerun there. A green health endpoint, route acceptance, or unit-test pass is not live proof.
 
 ### Frontend and desktop runtime
 
