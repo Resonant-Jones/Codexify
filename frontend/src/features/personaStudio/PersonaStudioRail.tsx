@@ -90,15 +90,7 @@ export default function PersonaStudioRail({
 
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === "Preview" ? (
-          <section
-            id={panelId("preview")}
-            role="tabpanel"
-            aria-labelledby={tabId("preview")}
-            data-testid="persona-studio-rail-preview-panel"
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <PersonaPreviewPanel profile={selectedProfile} />
-          </section>
+          <PersonaPreviewPanel profile={selectedProfile} />
         ) : (
           <section
             id={panelId("diagnostics")}

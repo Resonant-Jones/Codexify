@@ -876,6 +876,7 @@ export default function PersonaStudioPage() {
                 <div className="mt-4">
                   {renderActiveTab()}
                 </div>
+
               </div>
 
               <PersonaProfileSelector
