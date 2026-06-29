@@ -1,5 +1,6 @@
 import { RotateCcw, Save, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   createTtsProfile,
   deleteTtsProfile,
@@ -93,6 +94,20 @@ export default function TtsConsoleWindow({
   }, [loadConsole, open]);
 
   useEffect(() => {
+    if (!open || typeof window === "undefined") return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  useEffect(() => {
     if (!selectedProfile) {
       setDraft(null);
       setSavedDraft(null);
@@ -105,7 +120,7 @@ export default function TtsConsoleWindow({
     setError(null);
   }, [selectedProfile]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
   const replaceProfile = (profile: TtsVoiceProfile) => {
     setProfiles((current) =>
@@ -249,7 +264,14 @@ export default function TtsConsoleWindow({
     setMessage("Reverted");
   };
 
-  return (
+  const portalTarget =
+    document.getElementById("cfy-portal-root") ??
+    document.getElementById("app") ??
+    document.getElementById("root") ??
+    document.body ??
+    document.documentElement;
+
+  return createPortal(
     <div className="tts-console-overlay" role="presentation">
       <div
         className="tts-console-window"
@@ -257,6 +279,8 @@ export default function TtsConsoleWindow({
         aria-modal="true"
         aria-label="TTS Console"
         data-testid="tts-console-window"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
       >
         <header className="tts-console-header">
           <div>
@@ -332,7 +356,8 @@ export default function TtsConsoleWindow({
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    portalTarget
   );
 }
 
