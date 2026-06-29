@@ -8,125 +8,176 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { PersonaProfileDraft } from "./personaStudioStore";
 
-/**
- * Persona Studio-local action material.
- *
- * This is a deliberately small, Persona Studio-only "micro-Aqua" pressed-glass
- * chip treatment. It is intentionally quieter than the navigation pill material
- * (`.glass-pill` / `.pill-tab[data-state="active"]`): nav pills stay the
- * strongest luminous/glass moment, while these action controls become compact
- * pressed-glass chips that hint at the same optical material through rim,
- * depth, gentle sheen, and tactile state.
- *
- * Boundary contract:
- * - Local to Persona Studio only. Does not modify the shared Button component,
- *   global styles, AppShell, or any navigation material.
- * - Token-only: every value derives from existing Codexify UI tokens
- *   (`var(--...)`) via `color-mix`. No inline hex, arbitrary Tailwind colors,
- *   hardcoded rgba, arbitrary radii, arbitrary shadows, or new CSS variables.
- *   The inset depth/sheen shadows reuse the same token-derived `color-mix`
- *   pattern already present in Persona Studio files.
- * - States (hover/active/focus-visible/disabled) are token-compliant and keep
- *   focus visible via an `outline` that does not collide with the chip's
- *   box-shadow depth.
- */
-export type PersonaStudioActionMaterialTier =
-  | "selector"
-  | "primary"
-  | "secondary"
-  | "reset";
+export type PersonaStudioActionTone = "utility" | "primary" | "secondary" | "reset";
 
-const PERSONA_STUDIO_ACTION_CHIP_CSS = `
-.ps-action-chip{
-  border-radius:var(--radius-micro);
-  border:1px solid color-mix(in oklab, var(--panel-border) 85%, transparent);
-  background:var(--chip-bg);
+type PersonaStudioActionMaterialOptions = {
+  open?: boolean;
+};
+
+const PERSONA_STUDIO_ACTION_CHIP_STYLES = `
+.persona-studio-action-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 28px;
+  padding: 0.34rem 0.75rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 94%, transparent),
+      color-mix(in oklab, var(--chip-bg) 90%, transparent)
+    );
+  color: var(--text);
   box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--panel-bezel) 55%, transparent),
-    inset 0 -1px 1px color-mix(in oklab, var(--bg) 38%, transparent);
-  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .1s ease;
-}
-.ps-action-chip:hover{
-  background:color-mix(in oklab, var(--surface-hover) 60%, var(--chip-bg));
-  border-color:var(--panel-border);
-}
-.ps-action-chip:active{
-  transform:translateY(1px);
-  box-shadow:inset 0 1px 2px color-mix(in oklab, var(--bg) 52%, transparent);
-}
-.ps-action-chip:focus-visible{
-  outline:2px solid var(--accent-weak);
-  outline-offset:1px;
-}
-.ps-action-chip:disabled{
-  box-shadow:inset 0 1px 0 color-mix(in oklab, var(--panel-bezel) 24%, transparent);
+    inset 0 1px 0 color-mix(in oklab, var(--text) 12%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 74%, transparent),
+    0 1px 2px color-mix(in oklab, var(--panel-bg) 16%, transparent);
+  transition:
+    transform 140ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
 }
 
-/* Tier 1 — Utility / selector chip: compact inline pill, text-first. */
-.ps-action-chip[data-ps-material="selector"]{
-  background:color-mix(in oklab, var(--chip-bg) 80%, var(--panel-bg));
-}
-.ps-action-chip[data-ps-material="selector"]:hover{
-  background:color-mix(in oklab, var(--surface-hover) 55%, var(--chip-bg));
-}
-
-/* Tier 2 — Primary action chip: restrained accent presence, quieter than nav pills. */
-.ps-action-chip[data-ps-material="primary"]{
-  border-color:color-mix(in oklab, var(--accent-weak) 42%, var(--panel-border));
-  background:color-mix(in oklab, var(--accent-weak) 20%, var(--chip-bg));
-}
-.ps-action-chip[data-ps-material="primary"]:hover{
-  background:color-mix(in oklab, var(--accent-weak) 34%, var(--chip-bg));
-  border-color:color-mix(in oklab, var(--accent-weak) 60%, var(--panel-border));
-}
-.ps-action-chip[data-ps-material="primary"]:disabled{
-  background:color-mix(in oklab, var(--panel-bg) 30%, var(--chip-bg));
-  border-color:color-mix(in oklab, var(--panel-border) 70%, transparent);
+.persona-studio-action-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--panel-border) 72%, var(--accent-weak));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 92%, transparent),
+      color-mix(in oklab, var(--chip-bg) 88%, transparent)
+    );
 }
 
-/* Tier 3 — Secondary action chip: polished but quieter than primary. */
-.ps-action-chip[data-ps-material="secondary"]{
-  background:color-mix(in oklab, var(--panel-bg) 30%, var(--chip-bg));
+.persona-studio-action-chip:active:not(:disabled) {
+  transform: translateY(1px);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 90%, transparent),
+      color-mix(in oklab, var(--chip-bg) 86%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--text) 10%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 82%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--panel-border) 54%, transparent);
 }
 
-/* Tier 4 — Reset / danger chip: quiet and muted, never alarm red.
-   No warm/reset token exists in the allowed canon, so this stays token-muted;
-   richer reset material needs a future token task. */
-.ps-action-chip[data-ps-material="reset"]{
-  border-color:color-mix(in oklab, var(--panel-border) 95%, transparent);
-  background:color-mix(in oklab, var(--chip-bg) 70%, transparent);
-  color:var(--muted);
+.persona-studio-action-chip:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-strong) 72%, transparent);
+  outline-offset: 2px;
 }
-.ps-action-chip[data-ps-material="reset"]:hover{
-  background:color-mix(in oklab, var(--surface-hover) 50%, var(--chip-bg));
-  border-color:var(--panel-border);
+
+.persona-studio-action-chip:disabled {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  border-color: color-mix(in oklab, var(--panel-border) 78%, var(--chip-border) 22%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 96%, transparent),
+      color-mix(in oklab, var(--chip-bg) 94%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--text-subtle) 8%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 82%, transparent),
+    0 1px 1px color-mix(in oklab, var(--panel-bg) 10%, transparent);
+}
+
+.persona-studio-action-chip--utility {
+  border-color: color-mix(in oklab, var(--chip-border) 80%, var(--panel-border) 20%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 92%, var(--chip-bg) 8%),
+      color-mix(in oklab, var(--chip-bg) 90%, var(--panel-bg) 10%)
+    );
+}
+
+.persona-studio-action-chip--utility[data-persona-studio-action-open="true"] {
+  border-color: color-mix(in oklab, var(--accent-strong) 26%, var(--panel-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 88%, var(--accent-weak) 12%),
+      color-mix(in oklab, var(--chip-bg) 88%, var(--panel-bg) 12%)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--text) 16%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 70%, transparent),
+    0 2px 4px color-mix(in oklab, var(--accent-strong) 10%, transparent);
+}
+
+.persona-studio-action-chip--primary {
+  border-color: color-mix(in oklab, var(--accent-strong) 26%, var(--panel-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 88%, var(--accent-weak) 12%),
+      color-mix(in oklab, var(--chip-bg) 86%, var(--accent-strong) 14%)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--text) 16%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--accent-strong) 12%, transparent),
+    0 2px 6px color-mix(in oklab, var(--accent-strong) 12%, transparent);
+}
+
+.persona-studio-action-chip--secondary {
+  border-color: color-mix(in oklab, var(--panel-border) 82%, var(--chip-border) 18%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 93%, var(--chip-bg) 7%),
+      color-mix(in oklab, var(--chip-bg) 91%, var(--panel-bg) 9%)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--text) 12%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 76%, transparent),
+    0 1px 3px color-mix(in oklab, var(--panel-bg) 12%, transparent);
+}
+
+.persona-studio-action-chip--reset {
+  color: color-mix(in oklab, var(--text) 84%, var(--danger-text) 16%);
+  border-color: color-mix(in oklab, var(--danger-border) 38%, var(--panel-border) 62%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--panel-bg) 94%, var(--danger-surface) 6%),
+      color-mix(in oklab, var(--chip-bg) 92%, var(--danger-surface) 8%)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--danger-text) 10%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--panel-bg) 80%, transparent),
+    0 1px 3px color-mix(in oklab, var(--panel-bg) 12%, transparent);
+}
+
+.persona-studio-action-chip--reset:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--danger-border) 50%, var(--panel-border) 50%);
+}
+
+.persona-studio-action-chip__chevron {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 `;
 
-/**
- * Returns the Persona Studio-local action chip material attributes for a given
- * tier. The caller keeps its own sizing/utility className and interactive props;
- * this only contributes the material marker class (`ps-action-chip`), the
- * `data-ps-material` tier used by the scoped styles above and by tests, and an
- * explicit tier label.
- */
-export function personaStudioActionChip(
-  tier: PersonaStudioActionMaterialTier,
-  className?: string
-): {
-  className: string;
-  "data-ps-material": PersonaStudioActionMaterialTier;
-  "data-ps-action-tier": PersonaStudioActionMaterialTier;
-} {
-  return {
-    className: ["ps-action-chip", className].filter(Boolean).join(" "),
-    "data-ps-material": tier,
-    "data-ps-action-tier": tier,
-  };
-}
-
-function PersonaStudioActionChipStyles() {
-  return <style data-ps-action-chip-styles>{PERSONA_STUDIO_ACTION_CHIP_CSS}</style>;
+export function getPersonaStudioActionChipClassName(
+  tone: PersonaStudioActionTone,
+  options: PersonaStudioActionMaterialOptions = {}
+) {
+  const classes = ["persona-studio-action-chip", `persona-studio-action-chip--${tone}`];
+  if (options.open) {
+    classes.push("persona-studio-action-chip--open");
+  }
+  return classes.join(" ");
 }
 
 export interface PersonaProfileSelectorProps {
@@ -144,9 +195,8 @@ export interface PersonaProfileSelectorProps {
 
 /**
  * Compact ownership + action strip rendered directly beneath the active
- * module editor. The selected-profile control is a small inline Button —
- * it must remain visually secondary to the module editor and never grow
- * into a square/tile shape.
+ * module editor. The selected-profile control stays text-first, compact, and
+ * quieter than the nav pills.
  */
 export default function PersonaProfileSelector({
   profiles,
@@ -160,6 +210,7 @@ export default function PersonaProfileSelector({
   onReset,
   onResetAll,
 }: PersonaProfileSelectorProps) {
+  void hasSavedVersion;
   const [open, setOpen] = React.useState(false);
 
   const handleSelectProfile = (profileId: string) => {
@@ -170,149 +221,146 @@ export default function PersonaProfileSelector({
   const profileName = selectedProfile?.name ?? "No profile selected";
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-1"
-      data-testid="persona-studio-profile-selector"
-    >
-      <PersonaStudioActionChipStyles />
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            data-testid="persona-studio-profile-selector-trigger"
-            title={`Profile: ${profileName} — click to switch`}
-            aria-label={`Profile: ${profileName}`}
-            className="ps-action-chip h-6 gap-1 px-2 text-xs"
-            data-ps-material="selector"
-            data-ps-action-tier="selector"
-          >
-            <span
-              data-testid="persona-studio-profile-selector-trigger-name"
-              className="max-w-[180px] truncate"
+    <>
+      <style>{PERSONA_STUDIO_ACTION_CHIP_STYLES}</style>
+      <div
+        className="flex flex-wrap items-center gap-1"
+        data-testid="persona-studio-profile-selector"
+      >
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="persona-studio-profile-selector-trigger"
+              data-persona-studio-action-tier="utility"
+              data-persona-studio-action-open={open ? "true" : "false"}
+              title={`Profile: ${profileName} — click to switch`}
+              aria-label={`Profile: ${profileName}`}
+              className={`${getPersonaStudioActionChipClassName("utility", { open })} h-6 px-2 text-xs`}
             >
-              {profileName}
-            </span>
-            <span
-              aria-hidden="true"
-              className="text-[10px] leading-none"
-              style={{ color: "var(--muted)" }}
-            >
-              ▾
-            </span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          className="z-50 min-w-[240px] overflow-hidden rounded-[var(--card-radius)] border p-1"
-          style={{
-            background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
-            borderColor: "var(--panel-border)",
-            boxShadow:
-              "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
-          }}
-          data-testid="persona-studio-profile-selector-dropdown"
-        >
-          <div
-            className="max-h-[220px] overflow-y-auto"
-            data-testid="persona-studio-profile-selector-list"
-          >
-            {profiles.map((profile) => (
-              <DropdownMenuItem
-                key={profile.id}
-                onClick={() => handleSelectProfile(profile.id)}
-                className="flex items-center gap-2 rounded-[var(--tile-radius)] px-3 py-2 text-sm cursor-pointer"
-                style={{
-                  background:
-                    profile.id === selectedProfileId
-                      ? "color-mix(in srgb, var(--accent) 10%, transparent)"
-                      : "transparent",
-                  color: "var(--text)",
-                }}
-                data-testid={`persona-studio-profile-option-${profile.id}`}
+              <span
+                data-testid="persona-studio-profile-selector-trigger-name"
+                className="max-w-[180px] truncate"
               >
-                <span className="flex-1 truncate">{profile.name}</span>
-                <span
-                  className="shrink-0 text-xs"
-                  style={{ color: "var(--muted)" }}
+                {profileName}
+              </span>
+              <span
+                aria-hidden="true"
+                className="persona-studio-action-chip__chevron"
+              >
+                ▾
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="z-50 min-w-[240px] overflow-hidden rounded-[var(--card-radius)] border p-1"
+            style={{
+              background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+              borderColor: "var(--panel-border)",
+              boxShadow:
+                "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
+            }}
+            data-testid="persona-studio-profile-selector-dropdown"
+          >
+            <div
+              className="max-h-[220px] overflow-y-auto"
+              data-testid="persona-studio-profile-selector-list"
+            >
+              {profiles.map((profile) => (
+                <DropdownMenuItem
+                  key={profile.id}
+                  onClick={() => handleSelectProfile(profile.id)}
+                  className="flex items-center gap-2 rounded-[var(--tile-radius)] px-3 py-2 text-sm cursor-pointer"
+                  style={{
+                    background:
+                      profile.id === selectedProfileId
+                        ? "color-mix(in srgb, var(--accent) 10%, transparent)"
+                        : "transparent",
+                    color: "var(--text)",
+                  }}
+                  data-testid={`persona-studio-profile-option-${profile.id}`}
                 >
-                  {profile.isDefault ? "Default" : "Custom"}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  <span className="flex-1 truncate">{profile.name}</span>
+                  <span
+                    className="shrink-0 text-xs"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    {profile.isDefault ? "Default" : "Custom"}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-      <span
-        className="mx-0.5 select-none text-xs"
-        style={{ color: "var(--muted)" }}
-        aria-hidden="true"
-      >
-        ·
-      </span>
+        <span
+          className="mx-0.5 select-none text-xs"
+          style={{ color: "var(--muted)" }}
+          aria-hidden="true"
+        >
+          ·
+        </span>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onSave}
-        disabled={!isDirty}
-        className="ps-action-chip h-6 text-xs px-2"
-        data-testid="persona-studio-action-save"
-        data-ps-material="primary"
-        data-ps-action-tier="primary"
-      >
-        Save profile
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onSaveAsNew}
-        disabled={!selectedProfile}
-        className="ps-action-chip h-6 text-xs px-2"
-        data-testid="persona-studio-action-save-as-new"
-        data-ps-material="secondary"
-        data-ps-action-tier="secondary"
-      >
-        Save as new profile
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onReset}
-        disabled={!isDirty}
-        className="ps-action-chip h-6 text-xs px-2"
-        data-testid="persona-studio-action-reset"
-        data-ps-material="reset"
-        data-ps-action-tier="reset"
-      >
-        Reset profile changes
-      </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onSave}
+          disabled={!isDirty}
+          data-persona-studio-action-tier="primary"
+          className={`${getPersonaStudioActionChipClassName("primary")} h-6 px-3 text-xs`}
+          data-testid="persona-studio-action-save"
+        >
+          Save profile
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onSaveAsNew}
+          disabled={!selectedProfile}
+          data-persona-studio-action-tier="secondary"
+          className={`${getPersonaStudioActionChipClassName("secondary")} h-6 px-3 text-xs`}
+          data-testid="persona-studio-action-save-as-new"
+        >
+          Save as new profile
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          disabled={!isDirty}
+          data-persona-studio-action-tier="reset"
+          className={`${getPersonaStudioActionChipClassName("reset")} h-6 px-3 text-xs`}
+          data-testid="persona-studio-action-reset"
+        >
+          Reset profile changes
+        </Button>
 
-      <span
-        className="mx-1 select-none text-xs"
-        style={{ color: "var(--muted)" }}
-        aria-hidden="true"
-      >
-        ·
-      </span>
+        <span
+          className="mx-1 select-none text-xs"
+          style={{ color: "var(--muted)" }}
+          aria-hidden="true"
+        >
+          ·
+        </span>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onResetAll}
-        className="ps-action-chip h-6 text-xs px-2"
-        title="Reset all local Persona Studio data"
-        data-testid="persona-studio-action-reset-all"
-        data-ps-material="reset"
-        data-ps-action-tier="reset"
-      >
-        Reset local Studio data
-      </Button>
-    </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onResetAll}
+          className={`${getPersonaStudioActionChipClassName("reset")} h-6 px-3 text-xs`}
+          data-persona-studio-action-tier="reset"
+          data-testid="persona-studio-action-reset-all"
+          title="Reset all local Persona Studio data"
+        >
+          Reset local Studio data
+        </Button>
+      </div>
+    </>
   );
 }

@@ -2,8 +2,11 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { personaStudioActionChip } from "./PersonaProfileSelector";
+import { Input } from "@/components/ui/input";
+import {
+  getPersonaStudioActionChipClassName,
+  type PersonaStudioActionTone,
+} from "./PersonaProfileSelector";
 import type { PersonaProfileDraft } from "./personaStudioStore";
 
 /**
@@ -239,6 +242,8 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
   };
 
   const hasTurns = previewTurns.length > 0;
+  const clearPreviewActionTier: PersonaStudioActionTone = "secondary";
+  const sendPreviewActionTier: PersonaStudioActionTone = "primary";
 
   return (
     <Card
@@ -606,6 +611,8 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 size="sm"
                 onClick={clearPreviewSession}
                 disabled={!hasTurns && !previewPrompt.trim()}
+                className={`${getPersonaStudioActionChipClassName(clearPreviewActionTier)} shrink-0`}
+                data-persona-studio-action-tier={clearPreviewActionTier}
               >
                 Clear preview session
               </Button>
@@ -632,16 +639,14 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                   }
                 }}
               />
-              <div className="flex justify-end">
-                <Button
-                  {...personaStudioActionChip("primary")}
-                  type="submit"
-                  variant="ghost"
-                  disabled={!previewPrompt.trim() || isResponding}
-                >
-                  Send
-                </Button>
-              </div>
+              <Button
+                type="submit"
+                disabled={!previewPrompt.trim() || isResponding}
+                className={`${getPersonaStudioActionChipClassName(sendPreviewActionTier)} shrink-0`}
+                data-persona-studio-action-tier={sendPreviewActionTier}
+              >
+                Send
+              </Button>
             </form>
           </section>
         </div>

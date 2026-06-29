@@ -505,7 +505,7 @@ def _retrieval_proof_state(
 from backend import llm_overrides
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import admin, agent, agent_orchestration, atlas
+from guardian.routes import admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
@@ -1062,12 +1062,6 @@ _include_router(
     label="embeddings",
     flag_name="CODEXIFY_ENABLE_EMBEDDINGS_ROUTES",
     include_fn=lambda: app.include_router(embeddings.router),
-    core_surface=True,
-)
-_include_router(
-    label="atlas",
-    flag_name="CODEXIFY_ENABLE_ATLAS_ROUTES",
-    include_fn=lambda: app.include_router(atlas.router),
     core_surface=True,
 )
 _include_router(

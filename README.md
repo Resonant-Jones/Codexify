@@ -1,3 +1,4 @@
+<img width="1983" height="793" alt="Codexify-GH-Banner" src="https://github.com/user-attachments/assets/deff1db0-28f7-4a01-8b1a-fce3249cb350" />
 # Codexify
 
 Codexify is a local-first chat + knowledge workspace built around a FastAPI backend (Guardian) and a React UI. It provides thread-based chat, memory silos, document autosave and sharing, media uploads, vector search, and optional workers for background tasks. Docker Compose is the primary, supported way to run the full stack.
@@ -36,6 +37,8 @@ If you want to **run Codexify locally** with the least friction:
   * API docs: [http://localhost:8888/docs](http://localhost:8888/docs)
 
 For Zac's Mac Studio / Whoosh'd beta bring-up, use the narrow operator path in [`docs/Ops/ZAC_MAC_STUDIO_LOCAL_BRINGUP.md`](docs/Ops/ZAC_MAC_STUDIO_LOCAL_BRINGUP.md). It stays on the supported Docker Compose path and does not imply Pattern/Instance sync or federation support.
+
+Trusted collaborators should start at [`docs/Collaborators/README.md`](docs/Collaborators/README.md) for the collaboration protocol, dev-kit inventory, worktree guide, and task-spec workflow.
 
 If you want to **contribute code**, start with:
 
