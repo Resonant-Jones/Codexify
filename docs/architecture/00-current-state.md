@@ -22,6 +22,15 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `main` adopted the Codexify source-available license and refreshed the README banner.
 - `main` merged the weekly current-state override refresh from the prior audit.
 - `main` kept the six-route Continuity operator proof chain quarantined behind `test-continuity`.
+- `main` added a docs-only Turn Intake Compiler Contract, Fixture Pack, Token Domain Proposal, and machine-readable fixture projection.
+- `main` added a Guardian operator index to route operator questions to the right docs and checks.
+- `main` refreshed collaborator onboarding docs and linked them into the architecture KB front door.
+- `main` added a collab chat identity contract as docs-only guidance, not shipped runtime support.
+- `main` added docs-only chat transport visibility and adaptive stream recovery semantics alongside the chat runtime contract.
+- `main` surfaced personal-facts guardrails and Scout operator-surface docs in the KB.
+- `main` merged a Whoosh'd inventory source fix and launcher/model-environment cleanup.
+- `main` completed the six-route Continuity operator proof chain, but kept it quarantined behind `test-continuity`.
+- `main` tightened continuity docs to state the phase is complete but not beta-supported.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -40,6 +49,13 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume docs-only contracts mean shipped runtime support.
 - Do not assume the Turn Intake fixture projection means a live classifier, router, or prompt builder exists.
+- Do not assume the collab chat identity contract or personal-facts guardrails are release-proven runtime behavior from docs alone.
+- Do not assume chat transport visibility or adaptive stream recovery semantics are already emitted as live runtime behavior from docs alone.
+- Do not assume Scout/iOS contract docs mean shipped Scout runtime support.
+- Do not assume the Turn Intake Compiler contract means a live runtime intake classifier, action router, retrieval-router integration, or model-prompt packet builder is implemented.
+- Do not assume the Turn Intake Fixture Pack means executable tests exist.
+- Do not assume the Turn Intake Token Domain Proposal means turn-intake runtime tokens, registries, or classifier behavior exist.
+- Do not assume the Turn Intake machine-readable fixture projection means a runtime classifier, executable test harness, token registry, prompt packet builder, retrieval-router integration, or action-gate integration exists.
 - Do not assume command bus, delegation, federation, or graph-write surfaces are part of the present release promise.
 - Do not assume Thread Lenses exist as a shipped runtime organization surface; any Thread Lens language is docs-only and must not be read as project-membership mutation or supported beta behavior.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.

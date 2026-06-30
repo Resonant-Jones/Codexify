@@ -93,11 +93,13 @@ Debug trace note:
 - The debug route must not expose raw image or document content, hidden prompts, chain-of-thought, or secrets.
 
 Conceptual state split:
-- The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
+- The runtime docs now recognize a distinction between provider runtime state, request execution state, and transport visibility state.
 - Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
 - Request execution state answers what a specific completion attempt is doing after acceptance.
-- Lifecycle visibility state answers what the UI or operator can currently observe from task events, persisted assistant rows, and related breadcrumbs.
-- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider state vocabulary used by frontend/shared-runtime interpretation.
+- Transport visibility state answers whether the frontend can still observe the stream for that attempt, including connected, suspected_stalled, recovering, recovered, and failed cases.
+- The transport layer can lose visible progress while the backend keeps running, which is why a later visible assistant turn may belong to an earlier accepted request rather than a new backend failure.
+- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider/transport vocabulary used by frontend/shared-runtime interpretation.
+- `docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md` defines the third-plane decision and keeps recovery observation-safe rather than replay-driven.
 - This flow remains descriptive of the current queue-backed path. It should not be read as proof that every contract state is already emitted literally by the backend on `main`.
 
 Concrete anchors:
