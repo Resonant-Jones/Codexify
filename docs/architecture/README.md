@@ -61,6 +61,8 @@ If you are working on slash-command connector invocation, active connector seman
 
 If you are working on Flow Builder, delegation/specification workflows, tacit-knowledge extraction, or workflow authoring semantics, start with [`ADR-006: Flow Builder Elicitation Lane`](./adr/006-flow-builder-elicitation-lane.md) first. That ADR defines the upstream `interview -> extract -> normalize -> validate -> compile -> execute` lane and the boundary between elicitation and runnable execution.
 
+If you are working on provider capability shape, routing compatibility, or provider/runtime feature visibility, start with [`Provider Capability Contract`](./provider-capability-contract.md). That note defines declarative provider capability records and the effective-capability layer used by workflow routing.
+
 If you are working on step-level provider selection, model chains, or cloud escalation policy for workflow execution, start with [`Model Chain Workflows and Cloud Escalation Policy`](./model-chain-workflows-and-cloud-escalation-policy.md). That note defines step-local routing and policy-controlled cloud escalation without claiming runtime support.
 
 If you are working on Guardian-thread binding, FlowDraft identity, Builder view semantics, or run receipts, start with [`ADR-014: Flow Builder Thread, Draft, and Receipts Contract`](./adr/014-flow-builder-thread-draft-and-receipts-contract.md) after ADR-006. That ADR defines the canonical relationship between conversation state, authored flow state, alternate Builder views, and run evidence.
@@ -123,6 +125,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [VariableChip and TypedStepOutput Contract](./variable-chip-typed-output-contract.md): future variable wiring and typed output contract only; planning surface, not runtime truth.
 - [Flow Builder ValidationIssue Taxonomy](./flow-builder-validation-issue-taxonomy.md): future validation taxonomy only; planning surface, not runtime truth.
 - [Flow Builder SemanticStep Contract](./flow-builder-semantic-step-contract.md): future semantic AI-step contract only; planning surface, not runtime truth.
+- [Provider Capability Contract](./provider-capability-contract.md): future declarative provider/runtime capability contract only; planning surface, not runtime truth.
 - [Model Chain Workflows and Cloud Escalation Policy](./model-chain-workflows-and-cloud-escalation-policy.md): future step-local provider routing and policy-controlled cloud escalation contract only; planning surface, not runtime truth.
 - [Flow Builder ConditionalContainer Contract](./flow-builder-conditional-container-contract.md): future conditional control-flow contract only; planning surface, not runtime truth.
 - [Flow Builder RunReceipt Persistence Model](./flow-builder-runreceipt-persistence-model.md): future receipt persistence model only; planning surface, not runtime truth.

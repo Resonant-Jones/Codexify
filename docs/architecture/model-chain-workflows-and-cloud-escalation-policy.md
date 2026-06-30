@@ -13,6 +13,7 @@ It is contract planning only. It does not implement workflow execution, provider
 - `docs/architecture/flows.md`
 - `docs/architecture/providers.md`
 - `docs/architecture/router-decision-table.md`
+- `docs/architecture/provider-capability-contract.md`
 - `docs/architecture/flow-builder-semantic-step-contract.md`
 - `docs/architecture/flow-builder-validation-issue-taxonomy.md`
 - `docs/architecture/flow-builder-testrun-activation-contract.md`
@@ -141,7 +142,7 @@ Proposed step-level fields:
 | `preferred_provider` | The provider class or provider family the step wants to use. |
 | `preferred_model` | The model id or model alias the step wants to use. |
 | `allowed_providers` | The providers the step may use if the preferred provider is unavailable. |
-| `required_capabilities` | Capabilities the selected provider must prove, such as structured output, tool use, context window size, or retrieval support. |
+| `required_capabilities` | Capabilities the selected provider must prove, such as structured output, tool use, context window size, or retrieval support. Capability definitions live in [`Provider Capability Contract`](./provider-capability-contract.md). |
 | `cloud_escalation_policy` | The policy mode governing cloud use for the step. |
 | `approval_required` | Whether cloud use requires explicit approval for this step. |
 | `fallback_behavior` | What happens if the preferred provider or model is unavailable. |
@@ -284,6 +285,8 @@ Suggested future name:
 
 - `provider-capability-checks-contract.md`
 
+This follow-up should consume [`Provider Capability Contract`](./provider-capability-contract.md) as the capability vocabulary and record shape.
+
 ## Non-Goals
 
 - No workflow execution implementation
@@ -295,4 +298,3 @@ Suggested future name:
 - No provider capability registry implementation
 - No silent escalation behavior
 - No release-surface expansion
-
