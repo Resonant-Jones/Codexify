@@ -7,11 +7,11 @@ tags:
 * operator-surface
 * provider-capabilities
   aliases:
-* ADR-039
+* ADR-040
 * Network Profile Topology Resolution Contract
 ---
 
-# ADR-039: Network Profile Topology Resolution Contract
+# ADR-040: Network Profile Topology Resolution Contract
 
 ## Status
 
@@ -245,4 +245,4 @@ If accepted, this ADR should be linked from:
 - `docs/architecture/runtime-protocol-token-contract.md`
 - `docs/architecture/canonical-token-philosophy.md`
 - `docs/architecture/tech-debt-and-risks.md`
-- `docs/architecture/adr/038-operator-user-access-boundary.md`
+- `docs/architecture/adr/039-operator-user-access-boundary.md`
