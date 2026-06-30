@@ -41,6 +41,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume docs-only contracts mean shipped runtime support.
 - Do not assume the Turn Intake fixture projection means a live classifier, router, or prompt builder exists.
 - Do not assume command bus, delegation, federation, or graph-write surfaces are part of the present release promise.
+- Do not assume Thread Lenses exist as a shipped runtime organization surface; any Thread Lens language is docs-only and must not be read as project-membership mutation or supported beta behavior.
+- Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.

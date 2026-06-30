@@ -32,6 +32,7 @@ const ADDITIONAL_ALLOWED_HOSTS = (
 const DEV_ALLOWED_HOSTS = Array.from(
   new Set([
     'axisnode',
+    'vaultnode',
     ...ADDITIONAL_ALLOWED_HOSTS,
   ])
 );
@@ -102,7 +103,7 @@ export default defineConfig({
 
   server: {
     port: Number(process.env.VITE_DEV_SERVER_PORT ?? 5173),
-    host: true,
+    host: '0.0.0.0',
     allowedHosts: DEV_ALLOWED_HOSTS,
     strictPort: false,
     proxy: {

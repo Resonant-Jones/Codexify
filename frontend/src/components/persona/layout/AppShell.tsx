@@ -1967,6 +1967,7 @@ export default function AppShell({
     /* === DIMENSION CONSTRAINTS === */
     "--min-h": shellViewportProfile.contentMinHeight,    // Viewport vertical floor
     "--card-height": shellViewportProfile.viewportClass === "desktop" ? "clamp(480px, 70vh, 800px)" : "auto", // Centralized card height
+    "--shell-overlay-z": "2000",                         // Top floating surfaces (modals, consoles, popovers)
 
     /* === COLORS & SURFACE === */
     "--panel-bg": panelBg,

@@ -1,15 +1,24 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type PersonaConfig,
+  type ToolsSettings,
   usePersonaStudioLocalDraftState,
 } from "./personaStudioStore";
+import PersonaVoicePanel from "./components/PersonaVoicePanel";
+import StudioGuidePanel from "./components/StudioGuidePanel";
 import TruthMatrix from "./components/TruthMatrix";
+import { PersonaStudioActionChipStyles } from "./PersonaPreviewPanel";
 import PersonaStudioRail from "./PersonaStudioRail";
-import PersonaProfileSelector from "./PersonaProfileSelector";
 
 function TabButton({
   active,
@@ -215,133 +224,6 @@ function ModelEditor({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function VoiceEditor({
-  config,
-  onChange,
-}: {
-  config: PersonaConfig;
-  onChange: (config: PersonaConfig) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="relative inline-flex items-center cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.voice.enabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                voice: { ...config.voice, enabled: e.target.checked },
-              })
-            }
-            className="sr-only peer"
-          />
-          <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-        </label>
-        <span className="text-sm font-medium">Voice Enabled</span>
-      </div>
-
-      {config.voice.enabled && (
-        <>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Provider</label>
-              <select
-                className="w-full h-9 px-3 rounded-md border text-sm"
-                style={{
-                  background: "transparent",
-                  borderColor: "var(--panel-border)",
-                  color: "var(--text)",
-                }}
-                value={config.voice.provider}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, provider: e.target.value },
-                  })
-                }
-              >
-                <option value="elevenlabs">ElevenLabs</option>
-                <option value="aws">AWS Polly</option>
-                <option value="google">Google TTS</option>
-                <option value="azure">Azure Speech</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Voice Preset / Voice ID</label>
-              <Input
-                value={config.voice.voicePreset}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, voicePreset: e.target.value },
-                  })
-                }
-                placeholder="e.g., rachel"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Speed</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2"
-                  step="0.1"
-                  value={config.voice.speed}
-                  onChange={(e) =>
-                    onChange({
-                      ...config,
-                      voice: { ...config.voice, speed: parseFloat(e.target.value) },
-                    })
-                  }
-                  className="flex-1"
-                />
-                <span className="text-sm w-12 text-right">{config.voice.speed}x</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Wake Word</label>
-              <Input
-                value={config.voice.wakeWord}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, wakeWord: e.target.value },
-                  })
-                }
-                placeholder="e.g., Hey Guardian"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.voice.interruptible}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    voice: { ...config.voice, interruptible: e.target.checked },
-                  })
-                }
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-[var(--panel-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent)]"></div>
-            </label>
-            <span className="text-sm font-medium">Interruptible</span>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -724,6 +606,199 @@ function RetrievalEditor({
   );
 }
 
+export interface PersonaProfileSelectorProps {
+  profiles: Array<{
+    id: string;
+    name: string;
+    description: string;
+    isDefault?: boolean;
+  }>;
+  selectedProfileId: string;
+  onSelectProfile: (profileId: string) => void;
+  selectedProfile: {
+    id: string;
+    name: string;
+    description: string;
+    isDefault?: boolean;
+  } | null;
+  isDirty: boolean;
+  hasSavedVersion: boolean;
+  onSave: () => void;
+  onSaveAsNew: () => void;
+  onReset: () => void;
+  onResetAll: () => void;
+}
+
+function PersonaProfileSelector({
+  profiles,
+  selectedProfileId,
+  onSelectProfile,
+  selectedProfile,
+  isDirty,
+  hasSavedVersion,
+  onSave,
+  onSaveAsNew,
+  onReset,
+  onResetAll,
+}: PersonaProfileSelectorProps) {
+  const [open, setOpen] = React.useState(false);
+  void hasSavedVersion;
+
+  const handleSelectProfile = (profileId: string) => {
+    onSelectProfile(profileId);
+    setOpen(false);
+  };
+
+  const profileName = selectedProfile?.name ?? "No profile selected";
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1"
+      data-testid="persona-studio-profile-selector"
+    >
+      <PersonaStudioActionChipStyles />
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid="persona-studio-profile-selector-trigger"
+            title={`Profile: ${profileName} — click to switch`}
+            aria-label={`Profile: ${profileName}`}
+            className="ps-action-chip h-6 gap-1 px-2 text-xs"
+            data-ps-material="selector"
+            data-ps-action-tier="selector"
+          >
+            <span
+              data-testid="persona-studio-profile-selector-trigger-name"
+              className="max-w-[180px] truncate"
+            >
+              {profileName}
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-[10px] leading-none"
+              style={{ color: "var(--muted)" }}
+            >
+              ▾
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          className="z-50 min-w-[240px] overflow-hidden rounded-[var(--card-radius)] border p-1"
+          style={{
+            background: "color-mix(in srgb, var(--panel-bg) 98%, transparent)",
+            borderColor: "var(--panel-border)",
+            boxShadow:
+              "0 12px 40px color-mix(in srgb, var(--bg) 55%, transparent)",
+          }}
+          data-testid="persona-studio-profile-selector-dropdown"
+        >
+          <div
+            className="max-h-[220px] overflow-y-auto"
+            data-testid="persona-studio-profile-selector-list"
+          >
+            {profiles.map((profile) => (
+              <DropdownMenuItem
+                key={profile.id}
+                onClick={() => handleSelectProfile(profile.id)}
+                className="flex items-center gap-2 rounded-[var(--tile-radius)] px-3 py-2 text-sm cursor-pointer"
+                style={{
+                  background:
+                    profile.id === selectedProfileId
+                      ? "color-mix(in srgb, var(--accent) 10%, transparent)"
+                      : "transparent",
+                  color: "var(--text)",
+                }}
+                data-testid={`persona-studio-profile-option-${profile.id}`}
+              >
+                <span className="flex-1 truncate">{profile.name}</span>
+                <span
+                  className="shrink-0 text-xs"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {profile.isDefault ? "Default" : "Custom"}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <span
+        className="mx-0.5 select-none text-xs"
+        style={{ color: "var(--muted)" }}
+        aria-hidden="true"
+      >
+        ·
+      </span>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onSave}
+        disabled={!isDirty}
+        className="ps-action-chip h-6 px-2 text-xs"
+        data-testid="persona-studio-action-save"
+        data-ps-material="primary"
+        data-ps-action-tier="primary"
+      >
+        Save profile
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onSaveAsNew}
+        disabled={!selectedProfile}
+        className="ps-action-chip h-6 px-2 text-xs"
+        data-testid="persona-studio-action-save-as-new"
+        data-ps-material="secondary"
+        data-ps-action-tier="secondary"
+      >
+        Save as new profile
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onReset}
+        disabled={!isDirty}
+        className="ps-action-chip h-6 px-2 text-xs"
+        data-testid="persona-studio-action-reset"
+        data-ps-material="reset"
+        data-ps-action-tier="reset"
+      >
+        Reset profile changes
+      </Button>
+
+      <span
+        className="mx-1 select-none text-xs"
+        style={{ color: "var(--muted)" }}
+        aria-hidden="true"
+      >
+        ·
+      </span>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onResetAll}
+        className="ps-action-chip h-6 px-2 text-xs"
+        title="Reset all local Persona Studio data"
+        data-testid="persona-studio-action-reset-all"
+        data-ps-material="reset"
+        data-ps-action-tier="reset"
+      >
+        Reset local Studio data
+      </Button>
+    </div>
+  );
+}
+
 export default function PersonaStudioPage() {
   const {
     profiles,
@@ -796,7 +871,7 @@ export default function PersonaStudioPage() {
       case "Model":
         return <ModelEditor config={currentConfig} onChange={onChange} />;
       case "Voice":
-        return <VoiceEditor config={currentConfig} onChange={onChange} />;
+        return <PersonaVoicePanel config={currentConfig} onChange={onChange} />;
       case "Prompt":
         return <PromptEditor config={currentConfig} onChange={onChange} />;
       case "Tools":
@@ -823,7 +898,7 @@ export default function PersonaStudioPage() {
           }}
         >
           <div
-            className="persona-studio-two-lane-layout grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch"
+            className="grid min-h-0 flex-1 gap-[var(--shell-gap)] lg:items-stretch lg:grid-cols-[minmax(0,var(--persona-studio-editor-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))_minmax(var(--persona-studio-preview-min),var(--persona-studio-preview-flex))]"
             data-testid="persona-studio-editor-two-lane-layout"
           >
             <div className="flex min-h-0 min-w-0 flex-col gap-[var(--shell-gap)] overflow-y-auto pr-1" data-testid="persona-studio-configuration-lane">
@@ -868,12 +943,14 @@ export default function PersonaStudioPage() {
                   borderColor: "color-mix(in oklab, var(--accent-strong) 18%, var(--panel-border))",
                 }}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1" />
                   <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
                     {activeTab}
                   </Badge>
                 </div>
-                <div className="mt-4">
+
+                <div className="mt-4 rounded-[var(--tile-radius)] border px-3 py-3" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}>
                   {renderActiveTab()}
                 </div>
 
@@ -903,6 +980,13 @@ export default function PersonaStudioPage() {
                 isDirty={isDirty}
                 hasSavedVersion={hasSavedVersion}
               />
+            </div>
+
+            <div
+              className="flex min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-full"
+              data-testid="persona-studio-guide-lane"
+            >
+              <StudioGuidePanel config={currentConfig} />
             </div>
           </div>
         </section>

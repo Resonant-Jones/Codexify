@@ -56,39 +56,9 @@ const { mockPersonaStudioState } = vi.hoisted(() => {
     },
   };
 
-  const codeAssistantProfile = {
-    ...minimalProfile,
-    id: "profile-2",
-    name: "Code Assistant",
-    description: "Code-focused draft persona",
-    config: {
-      ...minimalProfile.config,
-      identity: {
-        ...minimalProfile.config.identity,
-        name: "Code Assistant",
-        description: "Code-focused draft persona",
-      },
-    },
-  };
-
-  const planningProfile = {
-    ...minimalProfile,
-    id: "profile-3",
-    name: "Planning Assistant",
-    description: "Planning-focused draft persona",
-    config: {
-      ...minimalProfile.config,
-      identity: {
-        ...minimalProfile.config.identity,
-        name: "Planning Assistant",
-        description: "Planning-focused draft persona",
-      },
-    },
-  };
-
   return {
     mockPersonaStudioState: {
-      profiles: [minimalProfile, codeAssistantProfile, planningProfile],
+      profiles: [minimalProfile],
       selectedProfileId: minimalProfile.id,
       activeTab: "Truth Matrix",
       selectedProfile: minimalProfile,
@@ -116,7 +86,7 @@ beforeEach(() => {
 });
 
 describe("Persona Studio Page render safety", () => {
-  it("mounts the edited shell, rail, truth matrix, and preview panel together", async () => {
+  it("mounts the edited shell, rail, truth matrix, guide lane, and preview panel together", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
 
@@ -129,7 +99,9 @@ describe("Persona Studio Page render safety", () => {
     expect(configurationLane).toBeVisible();
     expect(railLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(configurationLane).getByTestId("persona-studio-profile-selector")).toBeVisible();
     expect(rail).toBeVisible();
+    expect(screen.getByTestId("persona-studio-guide-lane")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-transcript")).toBeVisible();
     expect(screen.getByTestId("persona-preview-panel-composer")).toBeVisible();
@@ -152,40 +124,116 @@ describe("Persona Studio Page render safety", () => {
     expect(screen.getByText("Debug Log")).toBeVisible();
   });
 
-  it("keeps the selector tray text-first and chip-tiered without decorative SVGs", async () => {
-    const user = userEvent.setup();
+  it("renders a compact inline text profile trigger that matches the action-button height", () => {
     render(<PersonaStudioPage />);
 
-    const selector = screen.getByTestId("persona-studio-profile-selector");
     const trigger = screen.getByTestId("persona-studio-profile-selector-trigger");
+    const save = screen.getByTestId("persona-studio-action-save");
+    const saveAsNew = screen.getByTestId("persona-studio-action-save-as-new");
+    const reset = screen.getByTestId("persona-studio-action-reset");
+    const resetAll = screen.getByTestId("persona-studio-action-reset-all");
 
-    expect(selector).toBeVisible();
-    expect(selector.querySelectorAll("svg")).toHaveLength(0);
-    expect(selector.querySelectorAll("p, small")).toHaveLength(0);
-    expect(trigger).toHaveTextContent(/guardian default/i);
-    expect(trigger).toHaveAttribute("data-persona-studio-action-tier", "utility");
+    expect(
+      screen.getByTestId("persona-studio-profile-selector-trigger-name")
+    ).toHaveTextContent(/guardian default/i);
+    expect(trigger).toHaveAttribute("aria-label", expect.stringMatching(/profile:/i));
+    expect(trigger).toHaveAttribute("title", expect.stringMatching(/profile:/i));
     expect(trigger.querySelector("svg")).toBeNull();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-tile")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("persona-studio-profile-selector-card")
+    ).not.toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: /^save profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
+    const editor = screen.getByTestId("persona-studio-editor");
+    const selector = screen.getByTestId("persona-studio-profile-selector");
+    expect(editor.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const triggerRect = trigger.getBoundingClientRect();
+    [save, saveAsNew, reset, resetAll].forEach((action) => {
+      const actionRect = action.getBoundingClientRect();
+      expect(triggerRect.height).toBeLessThanOrEqual(actionRect.height + 1);
+    });
+    expect(triggerRect.height).toBeLessThan(40);
+  });
+
+  it("renders the right rail with only Preview and Diagnostics tabs", () => {
+    render(<PersonaStudioPage />);
+
+    const tablist = screen.getByTestId("persona-studio-rail-tabs");
+    const railTabs = within(tablist).getAllByRole("tab");
+    expect(railTabs.map((tab) => tab.textContent?.trim())).toEqual([
+      "Preview",
+      "Diagnostics",
+    ]);
+
+    expect(
+      within(tablist).queryByRole("tab", { name: /^profiles$/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("applies the Persona Studio action material markers to the tray and preview controls", () => {
+    render(<PersonaStudioPage />);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
       "primary"
     );
-    expect(screen.getByRole("button", { name: /^save as new profile$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
       "secondary"
     );
-    expect(screen.getByRole("button", { name: /^reset profile changes$/i })).toHaveAttribute(
-      "data-persona-studio-action-tier",
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
       "reset"
     );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
     expect(
-      screen.getByRole("button", { name: /^reset local studio data$/i })
-    ).toHaveAttribute("data-persona-studio-action-tier", "reset");
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
+  });
 
-    await user.click(trigger);
-    expect(screen.getByTestId("persona-studio-profile-selector-dropdown")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-1")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-2")).toBeVisible();
-    expect(screen.getByTestId("persona-studio-profile-option-profile-3")).toBeVisible();
+  it("applies the Persona Studio action material markers to the tray and preview controls", () => {
+    render(<PersonaStudioPage />);
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
+      "secondary"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
   });
 });

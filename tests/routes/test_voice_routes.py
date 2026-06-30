@@ -205,6 +205,215 @@ def test_voice_capabilities_marks_local_provider_misconfigured(
     assert payload["providers_configured"]["stt"] is None
 
 
+def test_voice_provider_registry_response_shape(test_client, monkeypatch):
+    class _DummyTTSManager:
+        def describe_provider_registry(self):
+            return [
+                {
+                    "providerId": "qwen3_tts",
+                    "label": "Qwen3-TTS",
+                    "classification": "local",
+                    "state": "available",
+                    "statusDetail": "Local runtime reachable and preset voices are available.",
+                    "capabilities": {
+                        "presetVoices": True,
+                        "cloning": False,
+                        "promptDefinedVoice": False,
+                        "preview": False,
+                    },
+                },
+                {
+                    "providerId": "elevenlabs",
+                    "label": "ElevenLabs",
+                    "classification": "cloud",
+                    "state": "degraded",
+                    "statusDetail": "Provider registered, but disabled under the current local-only beta posture.",
+                    "capabilities": {
+                        "presetVoices": True,
+                        "cloning": True,
+                        "promptDefinedVoice": True,
+                        "preview": False,
+                    },
+                },
+            ]
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.TTSManager", lambda: _DummyTTSManager()
+    )
+
+    response = test_client.get("/api/voice/providers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [row["providerId"] for row in payload["providers"]] == [
+        "qwen3_tts",
+        "elevenlabs",
+    ]
+    assert payload["providers"][0]["classification"] == "local"
+    assert payload["providers"][1]["classification"] == "cloud"
+    assert payload["providers"][1]["state"] == "degraded"
+
+
+def test_voice_provider_capability_response_shape(test_client, monkeypatch):
+    class _DummyTTSManager:
+        def describe_provider(self, provider_name):
+            assert provider_name == "qwen3_tts"
+            return {
+                "providerId": "qwen3_tts",
+                "label": "Qwen3-TTS",
+                "classification": "local",
+                "state": "available",
+                "statusDetail": "Provider is available for Persona Studio voice selection.",
+                "capabilities": {
+                    "presetVoices": True,
+                    "cloning": False,
+                    "promptDefinedVoice": False,
+                    "preview": False,
+                },
+            }
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.TTSManager", lambda: _DummyTTSManager()
+    )
+
+    response = test_client.get("/api/voice/providers/qwen3_tts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["providerId"] == "qwen3_tts"
+    assert payload["label"] == "Qwen3-TTS"
+    assert payload["classification"] == "local"
+    assert payload["state"] == "available"
+    assert payload["capabilities"]["presetVoices"] is True
+    assert payload["capabilities"]["preview"] is False
+
+
+def test_voice_provider_selectable_voices_shape(test_client, monkeypatch):
+    class _DummyTTSManager:
+        def list_selectable_voice_records(self, provider_name):
+            assert provider_name == "qwen3_tts"
+            return {
+                "providerId": "qwen3_tts",
+                "state": "available",
+                "statusDetail": "Provider is available for Persona Studio voice selection.",
+                "voices": [
+                    {
+                        "voiceId": "default",
+                        "label": "default",
+                        "kind": "preset",
+                        "previewSupported": False,
+                        "bindingSupported": True,
+                        "summary": None,
+                    },
+                    {
+                        "voiceId": "narrator",
+                        "label": "narrator",
+                        "kind": "preset",
+                        "previewSupported": False,
+                        "bindingSupported": True,
+                        "summary": None,
+                    },
+                ],
+            }
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.TTSManager", lambda: _DummyTTSManager()
+    )
+
+    response = test_client.get("/api/voice/providers/qwen3_tts/voices")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["providerId"] == "qwen3_tts"
+    assert payload["state"] == "available"
+    assert [voice["voiceId"] for voice in payload["voices"]] == [
+        "default",
+        "narrator",
+    ]
+    assert all(voice["kind"] == "preset" for voice in payload["voices"])
+
+
+def test_voice_provider_routes_fail_soft_for_degraded_provider(
+    test_client, monkeypatch
+):
+    class _DummyTTSManager:
+        def describe_provider_registry(self):
+            return [
+                {
+                    "providerId": "elevenlabs",
+                    "label": "ElevenLabs",
+                    "classification": "cloud",
+                    "state": "degraded",
+                    "statusDetail": "Provider credentials are missing.",
+                    "capabilities": {
+                        "presetVoices": True,
+                        "cloning": True,
+                        "promptDefinedVoice": True,
+                        "preview": False,
+                    },
+                }
+            ]
+
+        def describe_provider(self, provider_name):
+            assert provider_name == "elevenlabs"
+            return self.describe_provider_registry()[0]
+
+        def list_selectable_voice_records(self, provider_name):
+            assert provider_name == "elevenlabs"
+            return {
+                "providerId": "elevenlabs",
+                "state": "degraded",
+                "statusDetail": "Provider credentials are missing.",
+                "voices": [],
+            }
+
+    monkeypatch.setattr(
+        "guardian.routes.voice.TTSManager", lambda: _DummyTTSManager()
+    )
+
+    registry = test_client.get("/api/voice/providers")
+    capability = test_client.get("/api/voice/providers/elevenlabs")
+    voices = test_client.get("/api/voice/providers/elevenlabs/voices")
+
+    assert registry.status_code == 200
+    assert capability.status_code == 200
+    assert voices.status_code == 200
+    assert registry.json()["providers"][0]["state"] == "degraded"
+    assert capability.json()["classification"] == "cloud"
+    assert voices.json()["voices"] == []
+
+
+def test_tts_manager_reports_local_and_cloud_provider_states(monkeypatch):
+    from guardian.tts.tts_manager import TTSManager
+
+    monkeypatch.setenv("ALLOW_CLOUD_PROVIDERS", "false")
+    monkeypatch.setenv("CODEXIFY_LOCAL_TTS_VOICES", "alloy,ember,alloy")
+    monkeypatch.setenv("CODEXIFY_LOCAL_VOICE_BASE_URL", "http://localhost:11434")
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_TTS_URL", raising=False)
+    monkeypatch.setenv("CODEXIFY_ENABLE_COQUI", "0")
+
+    manager = TTSManager()
+    registry = {
+        provider["providerId"]: provider
+        for provider in manager.describe_provider_registry()
+    }
+    selectable = manager.list_selectable_voice_records(
+        "local_openai_compatible"
+    )
+
+    assert registry["local_openai_compatible"]["classification"] == "local"
+    assert registry["local_openai_compatible"]["state"] == "available"
+    assert registry["elevenlabs"]["classification"] == "cloud"
+    assert registry["elevenlabs"]["state"] == "degraded"
+    assert [voice["voiceId"] for voice in selectable["voices"]] == [
+        "alloy",
+        "ember",
+    ]
+
+
 def test_voice_turn_worker_missing_fails_before_lock(test_client, monkeypatch):
     monkeypatch.setattr(
         "guardian.routes.voice.get_voice_runtime_config",
