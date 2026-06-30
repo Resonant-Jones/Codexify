@@ -20,6 +20,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - `main` added a Guardian operator index to route operator questions to the right docs and checks.
 - `main` refreshed collaborator onboarding docs and linked them into the architecture KB front door.
 - `main` added a collab chat identity contract as docs-only guidance, not shipped runtime support.
+- `main` added docs-only chat transport visibility and adaptive stream recovery semantics alongside the chat runtime contract.
 - `main` surfaced personal-facts guardrails and Scout operator-surface docs in the KB.
 - `main` merged a Whoosh'd inventory source fix and launcher/model-environment cleanup.
 - `main` completed the six-route Continuity operator proof chain, but kept it quarantined behind `test-continuity`.
@@ -44,6 +45,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume the collab chat identity contract or personal-facts guardrails are release-proven runtime behavior from docs alone.
+- Do not assume chat transport visibility or adaptive stream recovery semantics are already emitted as live runtime behavior from docs alone.
 - Do not assume Scout/iOS contract docs mean shipped Scout runtime support.
 - Do not assume the Turn Intake Compiler contract means a live runtime intake classifier, action router, retrieval-router integration, or model-prompt packet builder is implemented.
 - Do not assume the Turn Intake Fixture Pack means executable tests exist.
