@@ -50,6 +50,7 @@ Codexify remains in local-first beta hardening on `main`. The supported path is 
 - Do not assume the Turn Intake Token Domain Proposal means turn-intake runtime tokens, registries, or classifier behavior exist.
 - Do not assume the Turn Intake machine-readable fixture projection means a runtime classifier, executable test harness, token registry, prompt packet builder, retrieval-router integration, or action-gate integration exists.
 - Do not assume command bus, delegation, federation, or graph-write surfaces are part of the present release promise.
+- Do not assume Thread Lenses exist as a shipped runtime organization surface; any Thread Lens language is docs-only and must not be read as project-membership mutation or supported beta behavior.
 - Do not assume the Guardian delegation loop contract means the end-to-end delegation loop is shipped.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
