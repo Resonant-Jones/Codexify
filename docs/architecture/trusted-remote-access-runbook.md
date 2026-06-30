@@ -4,7 +4,7 @@
 > Status: operator-facing proof gate
 > Scope: docs/proof only
 
-Last updated: 2026-06-23
+Last updated: 2026-06-30
 
 ## Purpose
 
@@ -61,3 +61,19 @@ If a future packet reaches `go`, the narrow allowed claim is:
 - Tailnet/private-LAN does not replace application-layer auth.
 - Browser storage is a risk surface, not a trust boundary.
 - No raw passwords, session tokens, cookies, API keys, or secrets may be committed.
+
+## Local Overlay (`config/trusted-remote.env`)
+
+The trusted-remote overlay is **local-only and must never be committed**. It may carry local/dev session or JWT signing secrets.
+
+- `config/trusted-remote.env` is gitignored and is removed from Git tracking.
+- `config/trusted-remote.env.example` is the canonical source for the required variable names only. It contains placeholders, never real secrets.
+- To create a local overlay, copy the example and fill in local values:
+
+  ```bash
+  cp config/trusted-remote.env.example config/trusted-remote.env
+  # then edit config/trusted-remote.env with local-only values
+  ```
+
+- Secrets should be regenerated per environment. Treat any previously committed overlay values as expired local/dev material.
+- The guardrail in `scripts/preflight.sh` fails if `config/trusted-remote.env` is ever tracked or staged again.
