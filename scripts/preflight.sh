@@ -107,6 +107,24 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
     fail "working tree dirty"
     log "$dirty"
   fi
+
+  # Local trusted-remote overlay must never be tracked or staged. It may carry
+  # local/dev session or JWT signing secrets.
+  overlay="config/trusted-remote.env"
+  overlay_ok=1
+  if git ls-files --error-unmatch "$overlay" >/dev/null 2>&1; then
+    fail "$overlay is tracked but must remain local-only"
+    log "  Remediation: git rm --cached $overlay"
+    overlay_ok=0
+  fi
+  if git diff --cached --name-only -- "$overlay" | grep -q .; then
+    fail "$overlay is staged but must remain local-only"
+    log "  Remediation: git restore --staged $overlay"
+    overlay_ok=0
+  fi
+  if [ "$overlay_ok" -eq 1 ]; then
+    ok "$overlay not tracked or staged (local-only)"
+  fi
 else
   warn "not in a git repo; skipping clean-tree check"
 fi

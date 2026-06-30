@@ -1,9 +1,10 @@
 # Chat Runtime Contract
 
-Purpose: Define the normative frontend/shared-runtime contract for provider runtime state, request execution state, message-versus-attempt identity, UI presentation, replay handling, and request-state transitions.
+Purpose: Define the normative frontend/shared-runtime contract for provider runtime state, request execution state, transport visibility state, message-versus-attempt identity, UI presentation, replay handling, and request-state transitions.
 Last updated: 2026-03-29
 Source anchors:
 - docs/architecture/chat-runtime-gap-analysis.md
+- docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
 - frontend/src/
 - guardian/routes/chat.py
@@ -32,6 +33,25 @@ export const ProviderRuntimeState = {
 export type ProviderRuntimeState =
   (typeof ProviderRuntimeState)[keyof typeof ProviderRuntimeState];
 ```
+
+## Canonical Transport Visibility States
+
+```ts
+export const ChatTransportVisibilityState = {
+  CONNECTED: "connected",
+  SUSPECTED_STALLED: "suspected_stalled",
+  RECOVERING: "recovering",
+  RECOVERED: "recovered",
+  FAILED: "failed",
+} as const;
+
+export type ChatTransportVisibilityState =
+  (typeof ChatTransportVisibilityState)[keyof typeof ChatTransportVisibilityState];
+```
+
+Transport visibility state describes whether the frontend can still observe the stream for a specific completion attempt. It is distinct from provider runtime state and request execution state.
+
+A visible stream can become suspected stalled or recoverable even when the provider is still healthy and the request is still running. A later reconnect may surface the terminal event after the original visible stream path broke. That is a transport-observation problem, not automatically a provider or request failure.
 
 ## Canonical Request States
 
@@ -228,6 +248,12 @@ export function canTransitionRequestState(
    Only use `offline` for transport-unreachable or repeated hard reachability failure.
 1. Never mark a user turn `answered` until a specific attempt reaches `completed`.
    That preserves transcript integrity.
+1. Never conflate transport stall with request failure.
+   A stalled, recovering, or recovered visible stream does not by itself prove that the provider is offline or that the request failed.
+1. Never let recovery mint a duplicate turn.
+   Recovery may re-establish observation of the original attempt, but it must not create a second assistant message for the same message/request pair.
+1. Keep timing policy out of the contract.
+   Model/profile-specific TTFT windows, stall thresholds, and reconnect heuristics are future implementation concerns and belong in separate follow-up specs.
 
 ## What To Implement First
 
@@ -239,3 +265,13 @@ For beta shipping, implement this contract in three cuts:
    Introduce `messageId` versus `requestId` in frontend state, preserve unresolved attempts as `timed_out` or `orphaned`, and mark replay explicitly.
 1. Cut 3: backend event enrichment.
    Emit enough task metadata to distinguish accepted, running, warming, first-token pending, completed, failed, and cancelled states while staying aligned with the canonical runtime token policy.
+
+## Follow-up Implementation Specs
+
+These are intentionally separate tasks. They are not implemented by this contract.
+
+1. First-token expectation windows and model/profile-specific TTFT tuning.
+2. Stream stall detection and heartbeat or keepalive policy.
+3. Reconnect or resubscribe behavior for transport visibility recovery.
+4. Duplicate suppression for late terminal events and recovered streams.
+5. User-visible reconnecting or response-delayed banner policy.
