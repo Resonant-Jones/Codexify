@@ -106,6 +106,8 @@ frontend/store/
 models/
 
 # Local runtime / secrets (DO NOT COMMIT)
+# Local trusted-remote overlay; may carry local/dev session or JWT secrets.
+config/trusted-remote.env
 /data/credentials.json
 /data/token.pickle
 /data/trust_registry.json
