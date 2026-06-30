@@ -114,6 +114,9 @@ UI
      - progress-event publish failure logs a warning-level visibility degradation
      - terminal-event publish failure logs an error-level visibility degradation
    - Execution continues either way; task-event publication is not a hard stop.
+   - Transport visibility loss is a separate concern from both progress visibility and terminal visibility.
+   - A stalled visible stream can still belong to a healthy provider and a running request, and a recovered stream may surface the original terminal result without implying a replay.
+   - Recovery must preserve transcript integrity and avoid duplicate assistant messages.
 
 9. Assistant persistence is the worker’s authoritative success boundary.
    - On success, the worker persists the assistant message to Postgres, writes metadata such as attempted/final provider data, and publishes `task.completed`.
@@ -139,6 +142,7 @@ UI
 - This current queue-backed pipeline already distinguishes acceptance, execution, and terminal visibility as separate truths.
 - In this file, acceptance means lock acquisition plus enqueue, execution means the worker has started the completion attempt, and terminal visibility means a terminal task event and/or durable assistant persistence evidence is observable.
 - `docs/architecture/chat-runtime-contract.md` adds the frontend/shared-runtime contract for ambiguity this file does not resolve on its own, including slow local-model warmup, first-token wait ambiguity, orphaned or replayed attempts, and stable message identity versus per-attempt request identity.
+- `docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md` adds the transport-visibility plane and keeps recovery separate from replay.
 - That contract is normative for shared-runtime/frontend interpretation. This file remains a description of the currently scanned backend path, not a claim that every contract state is already emitted literally today.
 
 ## What Redis Is Doing In This Path

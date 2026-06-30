@@ -69,6 +69,7 @@ Use this note as the local map for all ADRs.
 29. [[031-continuity-phase-a-storage-migration-gate|ADR-031 Continuity Phase A Storage Migration Gate]] — migration gate for Phase A continuity storage; gates Alembic/SQLAlchemy work behind explicit proof requirements (clean-start, existing-instance upgrade, downgrade, graph-off baseline, token constraint alignment, provenance preservation, and runtime write gate). Accepts four-phase-A-table boundary; defers Phase B normalization. Docs-only; does not implement migrations, models, or runtime writes.
 30. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
 31. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
+32. [[038-Chat-Transport-Visibility-and-Adaptive-Stream-Recovery-Contract|ADR-038 Chat Transport Visibility and Adaptive Stream Recovery Contract]] — docs-only third-plane contract for stalled-stream interpretation, observation-only recovery, and transcript-safe boundaries.
 
 ---
 
