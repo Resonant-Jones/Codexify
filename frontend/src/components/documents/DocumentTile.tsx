@@ -2,6 +2,7 @@ import * as React from "react";
 import clsx from "clsx";
 import { BookOpen, FileText } from "lucide-react";
 import TileShell from "@/components/surface/TileShell";
+import { DocumentEmbeddingStatusBadge } from "@/components/documents/documentEmbeddingStatus";
 import {
   deleteAsset,
   downloadAsset,
@@ -88,66 +89,6 @@ function splitDocumentLabel(name: string, providedExt?: string) {
   };
 }
 
-const STATUS_STYLES: Record<
-  string,
-  { label: string; background: string; color: string; border: string }
-> = {
-  pending: {
-    label: "Pending",
-    background: "#e2e8f0",
-    color: "#1f2937",
-    border: "rgba(15, 23, 42, 0.15)",
-  },
-  processing: {
-    label: "Processing",
-    background: "#fde047",
-    color: "#713f12",
-    border: "rgba(113, 63, 18, 0.25)",
-  },
-  ready: {
-    label: "Ready",
-    background: "#bbf7d0",
-    color: "#14532d",
-    border: "rgba(20, 83, 45, 0.2)",
-  },
-  failed: {
-    label: "Failed",
-    background: "#fecaca",
-    color: "#7f1d1d",
-    border: "rgba(127, 29, 29, 0.25)",
-  },
-};
-
-function resolveStatusLabel(raw?: string) {
-  if (!raw) return null;
-  const key = raw.trim().toLowerCase();
-  if (!key) return null;
-  const config = STATUS_STYLES[key];
-  if (config) return config;
-  const label = key.charAt(0).toUpperCase() + key.slice(1);
-  return {
-    label,
-    background: "#e5e7eb",
-    color: "#111827",
-    border: "rgba(15, 23, 42, 0.15)",
-  };
-}
-
-function resolveErrorHint(raw?: string) {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const lower = trimmed.toLowerCase();
-  if (lower.includes("parsed_text_missing")) return "No text";
-  if (lower.includes("no_chunks")) return "No chunks";
-  if (lower.includes("timeout")) return "Timeout";
-  if (lower.includes("redis") || lower.includes("queue")) return "Queue error";
-  const cleaned = trimmed.replace(/[_-]+/g, " ").trim();
-  if (!cleaned) return null;
-  if (cleaned.length > 18) return `${cleaned.slice(0, 18).trimEnd()}...`;
-  return cleaned;
-}
-
 function readExtColors(): Record<string, string> {
   const defaults: ExtColors = {
     pdf: "#ef4444",
@@ -188,12 +129,6 @@ export default function DocumentTile({
   const bannerColor = extColors[ext] || "#6B7280"; // fallback gray
   const onColor = contrastRatio(bannerColor, "#ffffff") >= 4.5 ? "#ffffff" : "#111827";
   const Icon = ext === "codex" ? BookOpen : FileText;
-  const status = resolveStatusLabel(file?.embeddingStatus);
-  const statusKey = file?.embeddingStatus?.trim().toLowerCase();
-  const errorHint = statusKey === "failed" ? resolveErrorHint(file?.embeddingError) : null;
-  const statusLabel = status
-    ? `${status.label}${errorHint ? ` - ${errorHint}` : ""}`
-    : null;
   const [isDeleted, setIsDeleted] = React.useState(false);
   const downloadUrl = React.useMemo(
     () =>
@@ -289,25 +224,18 @@ export default function DocumentTile({
         />
       )}
       <div className="relative flex min-h-0 flex-1 flex-col px-3 pt-3 pb-2">
-        {status && (
+        {file?.embeddingStatus ? (
           <div
             className="codexifyDocumentTileStatusWrap flex min-h-0 justify-center pb-2"
             data-slot="document-tile-status-wrap"
           >
-            <span
-              className="codexifyDocumentTileStatus inline-flex max-w-full items-center justify-center truncate rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm"
-              data-slot="document-tile-status"
-              title={statusLabel ?? undefined}
-              style={{
-                background: status.background,
-                color: status.color,
-                borderColor: status.border,
-              }}
-            >
-              {statusLabel}
-            </span>
+            <DocumentEmbeddingStatusBadge
+              status={file?.embeddingStatus}
+              embeddingError={file?.embeddingError}
+              className="codexifyDocumentTileStatus"
+            />
           </div>
-        )}
+        ) : null}
         <div
           className="codexifyDocumentTileBody flex min-h-0 flex-1 items-center justify-center"
           data-slot="document-tile-body"
