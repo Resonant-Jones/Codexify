@@ -35,6 +35,9 @@ inline literals.
   `task.created`, `task.completed`, `task.failed`,
   `task.cancelled`, `task.event`
 
+- Chat lifecycle event types:
+  `chat.orphaned_turn_recovered`, `thread.created`
+
 - Error codes:
   `QUEUE_ENQUEUE_FAILED`, `CHAT_COMPLETE_ENQUEUE_FAILED`,
   `TASK_EVENT_PUBLISH_FAILED`, `CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED`,

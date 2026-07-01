@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
-import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED } from "@/contracts/runtimeTokens";
+import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED, CHAT_THREAD_CREATED } from "@/contracts/runtimeTokens";
 import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
 import {
   Composer,
@@ -1005,6 +1005,7 @@ export function GuardianChat({
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const orphanedThreadRef = useRef<Set<number>>(new Set());
+  const recentLocalThreadCreationsRef = useRef<Map<number, number>>(new Map());
   const lastCompletionThreadRef = useRef<number | null>(null);
   const lastCompletionDepthRef = useRef<Record<number, DepthMode>>({});
   const traceEndpointRef = useRef<Record<number, string>>({});
@@ -2835,6 +2836,36 @@ export function GuardianChat({
     };
   }, [subscribe]);
 
+  // Live thread-created event → refresh thread list for cross-client visibility.
+  const LOCAL_CREATION_WINDOW_MS = 3000;
+  useEffect(() => {
+    const offCreated = subscribe(CHAT_THREAD_CREATED, (event) => {
+      const payload = flattenChatEventPayload(event.data ?? event.payload ?? {});
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+
+      // Dedupe: skip if *this* tab just created the thread (local echo).
+      const createdAt = recentLocalThreadCreationsRef.current.get(tid);
+      if (createdAt != null && Date.now() - createdAt < LOCAL_CREATION_WINDOW_MS) {
+        return;
+      }
+
+      // Clean up stale entries from the local-creation map.
+      const now = Date.now();
+      for (const [key, ts] of recentLocalThreadCreationsRef.current.entries()) {
+        if (now - ts > LOCAL_CREATION_WINDOW_MS) {
+          recentLocalThreadCreationsRef.current.delete(key);
+        }
+      }
+
+      emitThreadsRefresh("create", { id: tid, remote: true });
+    });
+
+    return () => {
+      offCreated();
+    };
+  }, [subscribe]);
+
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = flattenChatEventPayload(event.data);
@@ -3001,6 +3032,7 @@ export function GuardianChat({
     options?: { tabId?: TabId | null }
   ) => {
     const nextTitle = (title && title.trim().length > 0) ? title.trim() : NEW_THREAD_TITLE;
+    recentLocalThreadCreationsRef.current.set(threadId, Date.now());
     const targetTabId = options?.tabId ?? null;
     const shouldPromoteVisibleThread =
       targetTabId == null || targetTabId === activeSessionTabIdRef.current;
