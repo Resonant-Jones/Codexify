@@ -149,7 +149,10 @@ if git rev-parse --show-toplevel >/dev/null 2>&1; then
         eq = index($0, "=")
         if (!eq) next
         val = substr($0, eq + 1)
-        gsub(/[[:space:]]+$/, "", val)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+        if ((val ~ /^".*"$/) || (val ~ /^'"'"'.*'"'"'$/)) {
+          val = substr(val, 2, length(val) - 2)
+        }
         if (val == "") next
         low = tolower(val)
         if (low ~ /replace|example|invalid|localhost|127\.0\.0\.1|changeme|placeholder|local-dev|your-|todo|xxxxx/) next
