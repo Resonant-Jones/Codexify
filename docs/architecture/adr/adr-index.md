@@ -70,9 +70,19 @@ Use this note as the local map for all ADRs.
 30. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
 31. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
 32. [[038-Chat-Transport-Visibility-and-Adaptive-Stream-Recovery-Contract|ADR-038 Chat Transport Visibility and Adaptive Stream Recovery Contract]] — docs-only third-plane contract for stalled-stream interpretation, observation-only recovery, and transcript-safe boundaries.
-33. [[039-capability-oriented-mesh-architecture|ADR-039 Capability-Oriented Mesh Architecture]] — foundational mesh principle for exposing capabilities rather than machines; separates trust from tailnet/subnet membership, keeps customer access at governed edge boundaries, and treats Tailscale, Headscale, LAN, HTTPS, queues, and future mechanisms as transport implementations beneath capability authorization.
+33. [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]] — docs-only proposed boundary separating infrastructure operator authority from product user experience without implementing roles, hosted access, or release-support changes.
+34. [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]] — docs-only proposed topology profile contract for explicit operator-controlled access profiles without implementing settings, routing, provider, Vite, or hosted-support changes.
 
 ---
+
+## ADR Graph
+
+- [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]]
+  - Governs future role language for operator/user topology, self-operator and host-operator access postures, and authority-safe Settings/onboarding work.
+  - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[../system-overview|System Overview]], [[../config-and-ops|Config and Ops]], [[../modules-and-ownership|Modules and Ownership]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../persona-studio-spec|Persona Studio Spec]], and [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]].
+- [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]]
+  - Governs future explicit Network Profile topology records, active profile resolution, operator-visible switching doctrine, and provider-capability-aware profile health surfaces.
+  - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[../config-and-ops|Config and Ops]], [[../system-overview|System Overview]], [[../modules-and-ownership|Modules and Ownership]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../tech-debt-and-risks|Tech Debt and Risks]], and [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]].
 
 ## Relationship to the main architecture docs
 
