@@ -2926,19 +2926,32 @@ def chat_list_messages(
     thread_id: int,
     limit: int = 50,
     offset: int = 0,
+    before_message_id: Optional[int] = None,
     include_fact_evidence: bool = False,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
-    """List messages for a chat thread."""
+    """List messages for a chat thread.
+
+    Supports both offset-based and cursor-based pagination:
+
+    - ``offset=0`` returns the *latest* page (last ``limit`` messages).
+    - ``before_message_id=<id>`` returns messages with id < ``<id>``
+      ascending, for loading older pages without offset drift.
+    - ``has_more`` in the response indicates whether additional older
+      messages exist beyond the returned window.
+    """
     _require_thread_account_scope(thread_id, request_user_scope)
     exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
-    items = chatlog_db.list_messages(
-        thread_id,
+    list_kwargs: dict[str, Any] = dict(
+        thread_id=thread_id,
         limit=limit,
         offset=offset,
         exclude_kinds=exclude_kinds,
     )
+    if before_message_id is not None:
+        list_kwargs["before_message_id"] = before_message_id
+    items = chatlog_db.list_messages(**list_kwargs)
     normalized_items: list[dict[str, Any]] = []
     missing_meta_ids: list[int] = []
     for raw_item in items:
@@ -2990,7 +3003,13 @@ def chat_list_messages(
 
     normalized_items = _attach_message_audio_metadata(normalized_items)
     total = chatlog_db.count_messages(thread_id)
-    return {"ok": True, "total": total, "messages": normalized_items}
+    has_more = len(normalized_items) >= limit
+    return {
+        "ok": True,
+        "total": total,
+        "has_more": has_more,
+        "messages": normalized_items,
+    }
 
 
 @router.post("/{thread_id}/complete")
@@ -5537,6 +5556,7 @@ def api_chat_list_messages(
     thread_id: int,
     limit: int = 50,
     offset: int = 0,
+    before_message_id: int | None = None,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -5545,6 +5565,7 @@ def api_chat_list_messages(
         thread_id,
         limit,
         offset,
+        before_message_id=before_message_id,
         include_fact_evidence=False,
         api_key=api_key,
         request_user_scope=request_user_scope,
