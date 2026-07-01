@@ -43,6 +43,9 @@ export default function GuardianThreadApprovalRail({
     if (!hasLoaded || loading) return null;
     return null;
   }
+  if (!intervention) {
+    return null;
+  }
 
   const railClassName = [
     "rounded-xl border px-3 py-3",
