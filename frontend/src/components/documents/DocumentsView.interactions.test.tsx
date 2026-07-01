@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -49,6 +56,7 @@ const DOCUMENT = {
   ext: "pdf",
   type: "file" as const,
   src_url: "/media/documents/doc-1.pdf",
+  embeddingStatus: "processing",
 };
 
 function setViewportWidth(width: number) {
@@ -236,6 +244,11 @@ describe("DocumentsView interactions", () => {
 
     expect(
       screen.getByTestId("documents-mobile-row-button-doc-1")
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("documents-mobile-row-doc-1")).getByText(
+        "Processing"
+      )
     ).toBeInTheDocument();
 
     fireEvent.click(
