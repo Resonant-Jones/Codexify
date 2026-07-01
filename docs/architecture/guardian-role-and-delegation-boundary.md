@@ -1,108 +1,53 @@
 # Guardian Role and Delegation Boundary
 
-Purpose: Define the boundary between Guardian as a backend directory, Guardian as a governing role, Guardian as a composite operational entity, and Guardian-operative delegated harnesses so the name stays precise as delegation and retrieval surfaces grow.
-
-Last updated: 2026-06-30
-
-Classification: docs-only architecture contract. It defines naming, authority, and delegation semantics only. It does not implement runtime behavior, docs ingestion, codebase indexing, provider execution, command execution, worker orchestration, or transcript persistence.
-
-Source anchors:
-- docs/architecture/00-current-state.md
-- docs/architecture/README.md
-- docs/architecture/pi-invocation-boundary-contract.md
-- docs/architecture/agent-tool-loop-contract.md
-- docs/architecture/self-extending-agent-plugin-system.md
-- docs/architecture/modules-and-ownership.md
-- docs/architecture/system-overview.md
-- docs/architecture/config-and-ops.md
-- docs/architecture/data-and-storage.md
-
 ## 1. Purpose
 
-Guardian needs a precise boundary because the same name is used for multiple related surfaces:
+The Guardian name needs a precise architecture boundary because Codexify uses it across several related surfaces: a backend/runtime namespace, a governing AI/operator role, and the composite operational entity formed when runtime systems cooperate under one authority boundary. This contract separates those meanings so future docs ingestion, codebase reasoning, and Pi/Codex/Claude-style delegation can be discussed without widening current release support or blurring authority.
 
-- a concrete backend directory and runtime namespace
-- a governing operator role
-- a composite operational entity that coordinates multiple subsystems under one authority boundary
-
-Without that boundary, later docs can blur directory ownership, role ownership, and delegated execution ownership into one implied sovereignty claim.
+This is a docs-only architecture contract. It does not implement runtime behavior, docs ingestion, codebase indexing, Pi/Codex/Claude execution, command execution, worker orchestration, sandboxing, SDK integration, transcript persistence, or release support.
 
 ## 2. Problem Statement
 
-The word "Guardian" can currently point to several different things:
+"Guardian" can ambiguously mean a code namespace, an AI role, a runtime system, or a delegated harness acting on a task. That ambiguity is risky because directory membership, model behavior, runtime cooperation, and external-harness activity each carry different authority and proof requirements.
 
-- a code namespace in the backend tree
-- the role that interprets policy and decides how work should proceed
-- the operational system that combines backend modules, retrieval, workers, storage, and approved harnesses
-- a delegated harness acting under Guardian-issued scope
-
-That ambiguity matters before docs ingestion, codebase reasoning, and Pi/Codex/Claude delegation expand because each surface has different authority and proof expectations.
-
-If the layers are not separated, a delegated harness can be mistaken for Guardian itself, and a directory can be mistaken for the full role or the full composite.
+The ambiguity matters before Codexify expands docs ingestion, codebase reasoning, and Pi/Codex/Claude delegation. A delegated harness may act under Guardian direction, but it must not silently become Guardian identity, bypass policy, redefine runtime tokens, own transcripts, mutate release posture, or treat request acceptance as completion.
 
 ## 3. Canonical Guardian Layers
 
-The canonical layers are:
+Codexify uses four canonical Guardian layers:
 
-- Guardian Directory
-- Guardian Role
-- Guardian Composite
-- Guardian-operative delegated harness
+1. **Guardian Directory**: the concrete backend/runtime namespace and code ownership surface.
+2. **Guardian Role**: the governing operator role responsible for policy-aware interpretation and delegation decisions.
+3. **Guardian Composite**: the operational entity formed when approved Codexify runtime components cooperate under the Guardian authority boundary.
+4. **Guardian-operative delegated harness**: an external or internal harness acting only inside a Guardian-issued envelope with bounded scope, permissions, lineage, and return expectations.
 
-Read them in that order.
+These layers are related, but none of the lower-level surfaces automatically inherits the full authority of another layer.
 
 ## 4. Guardian Directory
 
-Guardian Directory is the concrete backend/runtime namespace and code ownership surface.
+Guardian Directory means the concrete backend/runtime namespace and code ownership surface where Guardian-owned application responsibilities live. Examples include `guardian/routes`, `guardian/core`, `guardian/context`, `guardian/workers`, `guardian/command_bus`, `guardian/db`, and related runtime modules.
 
-It includes modules such as:
-
-- `guardian/routes`
-- `guardian/core`
-- `guardian/context`
-- `guardian/workers`
-- `guardian/command_bus`
-- `guardian/db`
-- related runtime modules under the Guardian tree
-
-Directory membership alone does not define the full Guardian role.
-
-A directory can host implementation seams without carrying authority to interpret policy, approve delegation, or own transcript lineage.
+Directory membership is implementation ownership, not role sovereignty. A module under the Guardian namespace may participate in Guardian behavior, but directory placement alone does not define the full Guardian Role, prove release readiness, or authorize delegation semantics.
 
 ## 5. Guardian Role
 
-Guardian Role is the governing operator role responsible for:
+Guardian Role means the governing operator role responsible for orientation, policy, retrieval posture, task framing, delegation decisions, and operator-facing interpretation. The role is the authority boundary for deciding what a task means, what evidence is required, what permissions apply, and how results should be explained back to the operator.
 
-- orientation
-- policy
-- retrieval posture
-- task framing
-- delegation decisions
-- operator-facing interpretation
-
-The role may be occupied by different models or providers without changing the role contract.
-
-The role is the authority boundary, not the directory and not any single harness implementation.
+The Guardian Role may be occupied by different models or providers without changing the role contract. Provider substitution does not change Guardian's policy obligations, lineage obligations, release-truth constraints, or operator-facing explanation duties.
 
 ## 6. Guardian Composite
 
-Guardian Composite is the operational entity formed when the Guardian backend namespace, active model, indexed docs, retrieval stack, context broker, workers, command bus, storage, and approved harnesses cooperate under the Guardian authority boundary.
+Guardian Composite means the operational entity formed when the Guardian backend namespace, active model, indexed docs, retrieval stack, context broker, workers, command bus, storage, and approved harnesses cooperate under the Guardian authority boundary.
 
-This is an operational and entity concept similar to a legal or agentic entity.
-
-It is not a claim of consciousness, sentience, or supernatural status.
-
-The composite may span multiple components, but the composite remains governed by the Guardian Role rather than dissolving into whichever component is active at the moment.
+The composite is an operational/entity concept similar to a legal or agentic entity. It describes coordinated authority and responsibility across components; it is not a claim of consciousness, sentience, personhood, supernatural status, or unbounded agency.
 
 ## 7. Delegated Harness Semantics
 
-Pi, Codex, Claude, or another harness is Guardian-operative when it acts only inside a Guardian-issued envelope with bounded scope, permissions, lineage, and return expectations.
+Pi, Codex, Claude, or another harness is Guardian-operative only when it acts inside a Guardian-issued envelope with bounded scope, permissions, lineage, and return expectations. The envelope must identify what the harness may inspect or change, what proof it must return, and how its result flows back to Guardian-owned validation and operator-facing explanation.
 
-In that mode, the harness may function as Guardian's operative hand.
+A harness may act as Guardian's operative hand, but it does not inherit Guardian sovereignty. Acting under Guardian scope means the harness is subordinate to Guardian policy, provenance, transcript lineage, command authority, and receipt requirements.
 
-It does not inherit Guardian sovereignty.
-
-A Guardian-operative harness is still a delegated component, not the authority source.
+Guardian is the governing role. Pi, Codex, Claude, workers, tools, and retrieval systems may become Guardian-operative components only when acting under Guardian-scoped authority, with preserved lineage, bounded permissions, and operator-visible receipts.
 
 ## 8. Sovereignty Boundary
 
@@ -110,80 +55,48 @@ Guardian retains:
 
 - policy decision authority
 - permission scope
-- source-thread and source-message lineage
+- source-thread/source-message lineage
 - transcript ownership
 - result validation
 - operator-facing explanation
-- receipt and proof expectations
+- receipt/proof expectations
 
-Delegated harnesses must not directly redefine:
-
-- identity
-- runtime tokens
-- export/restore lineage
-- queue semantics
-- acceptance semantics
-- release posture
-
-Any harness output that changes one of those surfaces must still be mediated by Guardian authority and visible receipts.
+Delegated harnesses must not directly redefine identity, runtime tokens, export/restore lineage, queue semantics, acceptance semantics, or release posture. They must return bounded artifacts, receipts, and evidence for Guardian-owned validation rather than treating their own execution as user-visible completion.
 
 ## 9. Documentation Ingestion Requirement
 
-Guardian must ingest or retrieve architecture and operator docs before it can reliably govern Codexify work.
+Guardian must ingest or retrieve architecture and operator docs before it can reliably govern Codexify work. The first critical docs class includes `00-current-state.md`, `README.md`, `guardian-operator-index.md`, `config-and-ops.md`, `flows.md`, `modules-and-ownership.md`, and related architecture contracts.
 
-The first critical docs class is:
-
-- `00-current-state.md`
-- `README.md`
-- `guardian-operator-index.md`
-- `config-and-ops.md`
-- `flows.md`
-- `modules-and-ownership.md`
-- related architecture contracts
-
-This is an orientation and retrieval requirement, not a coding-agent execution requirement.
+Docs ingestion is an orientation/retrieval requirement, not a coding-agent execution requirement. It helps Guardian frame tasks, cite current truth, and avoid stale release claims; it does not itself implement autonomous execution, delegation, command routing, or runtime proof.
 
 ## 10. Codebase Reasoning Requirement
 
-Guardian only needs codebase reasoning when it is:
+Guardian needs codebase reasoning when locating implementation seams, estimating blast radius, or preparing delegation packets. Codebase reasoning may help identify likely files, relevant tests, ownership boundaries, and validation surfaces.
 
-- locating implementation seams
-- estimating blast radius
-- preparing delegation packets
-
-Full write and execute authority belongs to a separate governed harness lane.
-
-That lane may be under Guardian direction, but it is still a distinct execution boundary.
+Full write or execute authority belongs to a separate governed harness lane. Reasoning about the codebase does not imply direct mutation authority, release support, command execution, or a shipped autonomous coding-agent loop.
 
 ## 11. Non-Goals
 
-This contract does not:
+This contract does not provide:
 
-- implement runtime behavior
-- implement docs ingestion
-- implement Pi/Codex/Claude integration
-- implement command execution
-- implement an autonomous coding-agent loop
-- widen the release promise
-- claim consciousness, sentience, or supernatural entity status
+- runtime implementation
+- docs ingestion implementation
+- Pi/Codex/Claude integration
+- command execution
+- worker orchestration
+- sandboxing
+- SDK integration
+- transcript persistence
+- autonomous coding-agent loop
+- release promise expansion
+- claims of consciousness, sentience, personhood, or supernatural entity status
 
 ## 12. Proof Surfaces
 
-Documentation proof:
-
-- this contract exists and is linked from `README.md`
-
-Future docs-ingestion proof:
-
-- Guardian can retrieve and cite current-state and operator docs during chat
-
-Future delegation proof:
-
-- a harness returns a bounded artifact or receipt under Guardian scope
-
-Future codebase reasoning proof:
-
-- Guardian can identify likely code seams without write authority
+- Documentation proof: this contract exists and is linked from the architecture README.
+- Future docs-ingestion proof: Guardian can retrieve and cite current-state/operator docs during chat.
+- Future delegation proof: a harness returns a bounded artifact/receipt under Guardian scope.
+- Future codebase reasoning proof: Guardian can identify likely code seams without write authority.
 
 ## 13. Required Language
 
