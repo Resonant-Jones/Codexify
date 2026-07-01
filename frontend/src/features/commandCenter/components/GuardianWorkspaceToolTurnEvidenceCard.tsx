@@ -70,7 +70,7 @@ export default function GuardianWorkspaceToolTurnEvidenceCard() {
         setData(resp.data as unknown as ToolTurnFields);
         setFetching(false);
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (cancelled) return;
         setFetchError("Tool-turn evidence is unavailable from the current workspace source.");
         setFetching(false);

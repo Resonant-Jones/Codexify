@@ -18,6 +18,7 @@ from guardian.queue.document_embed_queue import (
     QUEUE_NAME,
     dequeue_document_embed,
 )
+from guardian.protocol_tokens import EmbeddingLifecycleStatus
 from guardian.services.document_chunking import chunk_document_text
 from guardian.vector.store import VectorStore
 
@@ -141,7 +142,7 @@ def process_document_embed_task(
     if not doc:
         logger.warning("[document-embed] doc not found doc_id=%s", doc_id)
         return False
-    if doc.get("embedding_status") == "ready":
+    if doc.get("embedding_status") == EmbeddingLifecycleStatus.READY.value:
         logger.info("[document-embed] already ready doc_id=%s", doc_id)
         return True
 
@@ -151,7 +152,7 @@ def process_document_embed_task(
         _update_status(
             db,
             doc_id,
-            status="failed",
+            status=EmbeddingLifecycleStatus.FAILED.value,
             error="parsed_text_missing",
             started_at=None,
             completed_at=completed_at,
@@ -163,13 +164,13 @@ def process_document_embed_task(
     _update_status(
         db,
         doc_id,
-        status="processing",
+        status=EmbeddingLifecycleStatus.PROCESSING.value,
         error=None,
         started_at=started_at,
         completed_at=None,
     )
 
-    status = "failed"
+    status = EmbeddingLifecycleStatus.FAILED.value
     error: str | None = None
     try:
         if embedder_factory is None:
@@ -184,7 +185,7 @@ def process_document_embed_task(
 
         chunk_metas = _build_chunk_metadata(doc, chunks)
         _write_document_chunks(vector_writer, chunk_texts, chunk_metas)
-        status = "ready"
+        status = EmbeddingLifecycleStatus.READY.value
         error = None
         logger.info(
             "[document-embed] embedded doc_id=%s chunks=%s",
@@ -208,7 +209,7 @@ def process_document_embed_task(
             started_at=started_at,
             completed_at=completed_at,
         )
-    return status == "ready"
+    return status == EmbeddingLifecycleStatus.READY.value
 
 
 def run_forever() -> None:

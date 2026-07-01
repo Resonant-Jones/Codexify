@@ -2,6 +2,7 @@ import { BookOpen, ChevronRight, FileText } from "lucide-react";
 import React, { useMemo } from "react";
 
 import DocumentTile from "@/components/documents/DocumentTile";
+import { DocumentEmbeddingStatusBadge } from "@/components/documents/documentEmbeddingStatus";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useShellViewportProfile } from "@/components/persona/layout/shellBreakpointContract";
 import TileShell from "@/components/surface/TileShell";
@@ -54,7 +55,6 @@ function MobileDocumentRow({
   const rowTestId = String(doc.id ?? doc.title).trim().replace(/\s+/g, "-");
   const subtitleParts = [
     doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
-    doc.embeddingStatus ? String(doc.embeddingStatus).trim() : null,
   ].filter(Boolean);
 
   return (
@@ -100,6 +100,10 @@ function MobileDocumentRow({
             <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
               Open in Workspace
             </span>
+            <DocumentEmbeddingStatusBadge
+              status={doc.embeddingStatus}
+              embeddingError={doc.embeddingError}
+            />
             {subtitleParts.length > 0 ? (
               <span className="truncate">{subtitleParts.join(" • ")}</span>
             ) : null}

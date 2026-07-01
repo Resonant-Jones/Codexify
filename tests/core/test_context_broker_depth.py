@@ -1,10 +1,13 @@
 """Tests validating ContextBroker depth modes and diagnostic retrieval."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from guardian.context.broker import ContextBroker
+
+USER_A = "user-1"
 
 
 @pytest.fixture
@@ -872,3 +875,110 @@ class TestContextBrokerDocuments:
         assert context["docs"]["thread"] == thread_docs
         broker._query_project_docs.assert_called_once()
         broker._query_thread_docs.assert_called_once()
+
+    def test_uploaded_docs_are_hidden_until_ready(self, context_broker):
+        broker = context_broker
+        session = MagicMock()
+        query = MagicMock()
+        query.filter.return_value = query
+        session.query.return_value = query
+
+        pending_row = SimpleNamespace(
+            id="doc-1",
+            user_id=USER_A,
+            deleted_at=None,
+            embedding_status="pending",
+        )
+        ready_row = SimpleNamespace(
+            id="doc-1",
+            user_id=USER_A,
+            deleted_at=None,
+            embedding_status="ready",
+        )
+        uploaded_model = SimpleNamespace(id=object())
+
+        query.first.return_value = pending_row
+        assert (
+            broker._load_doc_by_type(
+                session=session,
+                doc_id="doc-1",
+                doc_type="uploaded",
+                user_id=USER_A,
+                generated_model=SimpleNamespace(id=object()),
+                uploaded_model=uploaded_model,
+            )
+            is None
+        )
+
+        query.first.return_value = ready_row
+        assert (
+            broker._load_doc_by_type(
+                session=session,
+                doc_id="doc-1",
+                doc_type="uploaded",
+                user_id=USER_A,
+                generated_model=SimpleNamespace(id=object()),
+                uploaded_model=uploaded_model,
+            )
+            is ready_row
+        )
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_skips_unready_document_hits(
+        self, monkeypatch
+    ):
+        chatlog_db = AsyncMock()
+        chatlog_db.last_messages = MagicMock(return_value=[])
+        chatlog_db.get_connector_config = MagicMock(return_value=None)
+        vector_store = AsyncMock()
+        broker = ContextBroker(
+            chatlog_db=chatlog_db,
+            vector_store=vector_store,
+            memory_store=AsyncMock(),
+            sensors=None,
+        )
+        broker.vector.search = MagicMock(
+            return_value=[
+                {
+                    "text": "thread message hit",
+                    "user_id": USER_A,
+                    "metadata": {"message_id": 11},
+                    "score": 0.95,
+                },
+                {
+                    "text": "pending document chunk",
+                    "user_id": USER_A,
+                    "metadata": {
+                        "source": "document",
+                        "doc_id": "doc-pending",
+                    },
+                    "score": 0.9,
+                },
+                {
+                    "text": "ready document chunk",
+                    "user_id": USER_A,
+                    "metadata": {"source": "document", "doc_id": "doc-ready"},
+                    "score": 0.85,
+                },
+            ]
+        )
+        monkeypatch.setattr(
+            broker,
+            "_uploaded_document_is_ready",
+            MagicMock(
+                side_effect=lambda *, doc_id, user_id: doc_id == "doc-ready"
+            ),
+        )
+
+        results = await broker._search_semantic(
+            "hello",
+            3,
+            namespace="thread:1",
+            user_id=USER_A,
+        )
+
+        assert {item["text"] for item in results} == {
+            "thread message hit",
+            "ready document chunk",
+        }
+        assert "pending document chunk" not in {item["text"] for item in results}

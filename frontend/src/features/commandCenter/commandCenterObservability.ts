@@ -201,10 +201,6 @@ function renderMaybeNumber(value: number | null | undefined): string {
   return value == null ? "—" : String(value);
 }
 
-function renderMaybeString(value: string | null | undefined): string {
-  return value == null || !String(value).trim() ? "—" : String(value).trim();
-}
-
 type CommandCenterNormalizedTraceCounts = {
   graph: number;
   memory: number;
@@ -988,12 +984,10 @@ export function describeCommandCenterTraceListSelection(
 // ── Guardian Operator Run Verdict Classifier ─────────────────────────────
 
 import type {
-  CommandCenterHealthItem,
   CommandCenterRunVerdict,
   CommandCenterRunVerdictValue,
 } from "@/features/commandCenter/types";
 import {
-  COMMAND_CENTER_HEALTH_STATES,
   COMMAND_CENTER_RUN_VERDICTS,
   describeCommandCenterRunVerdictPresentation,
 } from "@/features/commandCenter/types";
@@ -1158,7 +1152,6 @@ export function deriveGuardianRunVerdict(
   // ── Core health ───────────────────────────────────────────────────────
 
   const coreStatus = coreItem!.status;
-  const coreOk = coreStatus === COMMAND_CENTER_HEALTH_STATES.OK;
   const coreDown = coreStatus === COMMAND_CENTER_HEALTH_STATES.DOWN;
 
   if (coreDown) {

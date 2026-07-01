@@ -12,7 +12,6 @@ import {
   getMobileNavigationRailPillStyle,
   type MobileNavigationRailFeedbackContext,
 } from "./navigationRailFeedbackContract";
-import { getMobileNavPillSelectionStyle } from "./mobileNavSelectionContract";
 
 export {
   getMobileNavPillSelectionStyle,

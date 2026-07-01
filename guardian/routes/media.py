@@ -81,6 +81,7 @@ from guardian.services.media_identity import (
     resolve_asset as resolve_asset_from_aliases,
 )
 from guardian.services.media_identity import source_label_from_filename, utcnow
+from guardian.protocol_tokens import EmbeddingLifecycleStatus
 
 logger = logging.getLogger(__name__)
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
@@ -1589,12 +1590,12 @@ async def upload_document(
                     "DOCX extraction errored for %s: %s", file.filename, exc
                 )
 
-        embedding_status = "pending"
+        embedding_status = EmbeddingLifecycleStatus.PENDING.value
         embedding_error = None
         embedding_started_at = None
         embedding_completed_at = None
         if not parsed_text:
-            embedding_status = "failed"
+            embedding_status = EmbeddingLifecycleStatus.FAILED.value
             embedding_error = "parsed_text_missing"
             embedding_completed_at = datetime.now(timezone.utc)
 
@@ -1892,7 +1893,7 @@ async def upload_document(
                     file.filename,
                     e,
                 )
-                embedding_status = "failed"
+                embedding_status = EmbeddingLifecycleStatus.FAILED.value
                 embedding_error = str(e)
                 embedding_completed_at = datetime.now(timezone.utc)
                 with db.get_session() as session:
