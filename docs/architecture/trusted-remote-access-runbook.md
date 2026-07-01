@@ -76,4 +76,41 @@ The trusted-remote overlay is **local-only and must never be committed**. It may
   ```
 
 - Secrets should be regenerated per environment. Treat any previously committed overlay values as expired local/dev material.
-- The guardrail in `scripts/preflight.sh` fails if `config/trusted-remote.env` is ever tracked or staged again.
+- The guardrail in `scripts/preflight.sh` fails if a real overlay (any trusted-remote env variant) is tracked or staged, if the `.example` is missing, or if the `.example` carries obvious secret-looking values.
+
+### Verify the real overlay is ignored
+
+```bash
+git check-ignore -v config/trusted-remote.env
+git ls-files config/trusted-remote.env   # must print nothing
+```
+
+The first command should print the `.gitignore` rule that matches; the second must print nothing (untracked).
+
+### If a real overlay is accidentally staged
+
+```bash
+git restore --staged config/trusted-remote.env
+git status   # confirm it is no longer staged
+```
+
+The file stays on disk; only its staged state is cleared.
+
+### If a real overlay is accidentally committed
+
+1. Remove it from tracking (keeps the local copy):
+
+   ```bash
+   git rm --cached config/trusted-remote.env
+   git commit -m "chore(security): stop tracking trusted remote env overlay"
+   ```
+2. Treat any values that reached history as **expired** — regenerate `GUARDIAN_SESSION_SECRET` / `GUARDIAN_JWT_SECRET` per environment.
+3. History rewriting (`git filter-repo` / BFG) is a separate, high-blast-radius decision and is not part of this runbook. Only consider it if the repo is shared beyond the local machine.
+
+### Run the preflight check
+
+```bash
+bash scripts/preflight.sh
+```
+
+It exits non-zero if a trusted-remote env file is tracked or staged, the `.example` is missing, or the `.example` contains obvious secret-looking values. It passes when only the `.example` is present and the real overlay is ignored.
