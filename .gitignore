@@ -106,6 +106,13 @@ frontend/store/
 models/
 
 # Local runtime / secrets (DO NOT COMMIT)
+# Local trusted-remote overlay; may carry local/dev session or JWT secrets.
+# Cover the canonical name plus common variant spellings so a rename cannot
+# accidentally re-commit a real overlay. The .example file stays tracked.
+config/trusted-remote.env
+trusted-remote.env
+*.trusted-remote.env
+.env.trusted-remote
 /data/credentials.json
 /data/token.pickle
 /data/trust_registry.json

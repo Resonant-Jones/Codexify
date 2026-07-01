@@ -43,6 +43,8 @@ Sequence:
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes; proving reliable selection/injection in executed turns remains an active validation target.
    - Remote Recall Search-as-RAG is a narrow, gated web-evidence branch on this flow. Local retrieval remains the default. Remote Recall is invoked ONLY when the resolved retrieval posture is explicit `global_search`, `REMOTE_RECALL_ENABLED=true`, provider feature flags/credentials/egress are all enabled, and every candidate result passes the Web Evidence Intake Gate before any web content enters synthesis. It is off by default and never enables web search for ordinary local/conversation/workspace turns. Queue acceptance still means the work was accepted, not that web search succeeded.
+   - Remote Recall evidence enters synthesis only as lower-authority bounded retrieval/context data. It is injected as a `user`-role message that is explicitly delimited and labeled as untrusted retrieved data; it MUST NOT be injected as `system` or `developer` authority, and must never be treated as executable instruction. Only Web Evidence Intake Gate-eligible envelopes are injected; blocked evidence remains trace/diagnostic-only.
+   - Remote Recall proof depends on terminal task evidence, a persisted assistant message, and `trace["remote_recall"]` metadata (provider, source kinds, candidate/eligible/blocked counts, gate decisions). Route acceptance, a green health endpoint, and unit-test passes are not live proof. One live supported-path proof (PASS) exists on `feature/remote-retrieval` only, under intentionally enabled Groq/egress/posture overrides; it is **not proven on `main`** until the seam is merged and rerun there. See `remote-recall-live-proof.md`.
    - For the workspace proof harness, executed-path worker-visible completion payload evidence is the canonical proof surface; debug trace remains diagnostic-only and cannot replace the executed completion record.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
@@ -91,11 +93,13 @@ Debug trace note:
 - The debug route must not expose raw image or document content, hidden prompts, chain-of-thought, or secrets.
 
 Conceptual state split:
-- The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
+- The runtime docs now recognize a distinction between provider runtime state, request execution state, and transport visibility state.
 - Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
 - Request execution state answers what a specific completion attempt is doing after acceptance.
-- Lifecycle visibility state answers what the UI or operator can currently observe from task events, persisted assistant rows, and related breadcrumbs.
-- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider state vocabulary used by frontend/shared-runtime interpretation.
+- Transport visibility state answers whether the frontend can still observe the stream for that attempt, including connected, suspected_stalled, recovering, recovered, and failed cases.
+- The transport layer can lose visible progress while the backend keeps running, which is why a later visible assistant turn may belong to an earlier accepted request rather than a new backend failure.
+- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider/transport vocabulary used by frontend/shared-runtime interpretation.
+- `docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md` defines the third-plane decision and keeps recovery observation-safe rather than replay-driven.
 - This flow remains descriptive of the current queue-backed path. It should not be read as proof that every contract state is already emitted literally by the backend on `main`.
 
 Concrete anchors:

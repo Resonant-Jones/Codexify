@@ -1,7 +1,7 @@
 .tts-console-overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: var(--shell-overlay-z, 2000);
   display: flex;
   align-items: center;
   justify-content: center;

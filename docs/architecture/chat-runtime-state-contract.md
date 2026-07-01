@@ -7,6 +7,7 @@ The normative document is `docs/architecture/chat-runtime-contract.md`.
 Use that file for:
 - canonical provider runtime states
 - canonical request lifecycle states
+- canonical transport visibility states
 - message-versus-attempt identity
 - UI status presentation rules
 - replay and transition semantics

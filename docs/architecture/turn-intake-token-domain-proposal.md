@@ -3,7 +3,7 @@
 Purpose: Evaluate which repeated Turn Intake Compiler and Fixture Pack values are contract-bearing enough to deserve promotion into canonical token registries later.
 Classification: architecture token-domain proposal
 Implementation status: docs-only proposal; no runtime tokens, registries, tests, prompt wiring, classifier behavior, or routing behavior implemented by this document
-Last updated: 2026-06-27
+Last updated: 2026-06-29
 Source anchors / governing docs:
 - docs/architecture/turn-intake-compiler-contract.md
 - docs/architecture/turn-intake-fixture-pack.md
@@ -19,6 +19,8 @@ Source anchors / governing docs:
 - docs/architecture/adr/024-context-command-and-active-connector-semantics.md
 
 This is a proposal only. It is not an implemented token registry and does not prove runtime support.
+
+Projection note: [fixtures/turn-intake-fixtures.v1.json](./fixtures/turn-intake-fixtures.v1.json) preserves fixture vocabulary as machine-readable candidate values. The JSON projection does not implement canonical runtime tokens, and any tokenization still requires a separate explicit task.
 
 ## Purpose
 
@@ -207,4 +209,3 @@ Possible follow-on slices, once a future implementation task is authorized:
 - Should `TurnMutationPosture` remain derivable, or should it become a first-class token domain if traces need explicit posture labels?
 - Should `TurnBoundaryReason` become machine-readable only after trace and diagnostics requirements are proven?
 - Which of the turn-intake values should be shared across backend, frontend, and diagnostics surfaces versus kept backend-only?
-

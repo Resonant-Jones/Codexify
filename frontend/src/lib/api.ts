@@ -10,6 +10,12 @@ import {
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
+import type {
+  PersonaVoicePreviewRequest,
+  PersonaVoicePreviewResponse,
+  PersonaVoiceProviderRecord,
+  PersonaVoiceSelectableVoiceEnvelope,
+} from "@/features/personaStudio/types";
 import {
   clearRuntimeApiKey as clearRuntimeApiKeyState,
   getRuntimeApiKey,
@@ -294,6 +300,70 @@ export function buildThreadDocumentsPath(threadId: string | number): string {
 
 export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
+}
+
+export function buildVoiceProvidersPath(): string {
+  return "/api/voice/providers";
+}
+
+export function buildVoiceProviderPath(providerId: string | number): string {
+  return `${buildVoiceProvidersPath()}/${normalizePathSegment(providerId)}`;
+}
+
+export function buildVoiceProviderVoicesPath(
+  providerId: string | number
+): string {
+  return `${buildVoiceProviderPath(providerId)}/voices`;
+}
+
+export function buildVoicePreviewPath(): string {
+  return "/api/voice/preview";
+}
+
+export async function fetchPersonaVoiceProviders(): Promise<
+  PersonaVoiceProviderRecord[]
+> {
+  try {
+    const response = await api.get<{ providers?: PersonaVoiceProviderRecord[] }>(
+      buildVoiceProvidersPath()
+    );
+    return response.data?.providers ?? [];
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
+}
+
+export async function fetchPersonaVoiceProviderVoices(
+  providerId: string
+): Promise<PersonaVoiceSelectableVoiceEnvelope> {
+  try {
+    const response = await api.get<PersonaVoiceSelectableVoiceEnvelope>(
+      buildVoiceProviderVoicesPath(providerId)
+    );
+    return response.data;
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
+}
+
+export async function previewPersonaVoice(
+  payload: PersonaVoicePreviewRequest
+): Promise<PersonaVoicePreviewResponse> {
+  try {
+    const response = await api.post<PersonaVoicePreviewResponse>(
+      buildVoicePreviewPath(),
+      payload
+    );
+    return response.data;
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
 }
 
 export function buildLlmModelOverridesPath(): string {
