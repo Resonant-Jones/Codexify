@@ -50,6 +50,11 @@ def run_git(
     Raises :class:`GitError` on non-zero exit, timeout, or OS-level failure.
     """
     try:
+        env = os.environ.copy()
+        # Preserve the read-only discovery contract for background status probes:
+        # git status may refresh cached stat data and write the index unless
+        # optional locks are disabled.
+        env["GIT_OPTIONAL_LOCKS"] = "0"
         result = subprocess.run(
             ["git", *args],
             cwd=cwd,
@@ -57,6 +62,7 @@ def run_git(
             text=True,
             timeout=timeout,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise GitError(
