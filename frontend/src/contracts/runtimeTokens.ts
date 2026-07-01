@@ -262,6 +262,9 @@ export const CHAT_REQUEST_STATES = {
 /** Backend event name for chat orphan turn recovery. */
 export const CHAT_ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered";
 
+/** Backend event name for new thread creation (cross-client thread-list sync). */
+export const CHAT_THREAD_CREATED = "thread.created";
+
 export type ChatRequestState =
   (typeof CHAT_REQUEST_STATES)[keyof typeof CHAT_REQUEST_STATES];
 
