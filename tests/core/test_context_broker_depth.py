@@ -1,13 +1,10 @@
 """Tests validating ContextBroker depth modes and diagnostic retrieval."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from guardian.context.broker import ContextBroker
-
-USER_A = "user-1"
 
 
 @pytest.fixture
@@ -876,8 +873,8 @@ class TestContextBrokerDocuments:
         broker._query_project_docs.assert_called_once()
         broker._query_thread_docs.assert_called_once()
 
-    def test_uploaded_docs_are_hidden_until_ready(self, context_broker):
-        broker = context_broker
+    def test_uploaded_docs_are_hidden_until_ready(self):
+        broker = _broker()
         session = MagicMock()
         query = MagicMock()
         query.filter.return_value = query
@@ -924,19 +921,8 @@ class TestContextBrokerDocuments:
         )
 
     @pytest.mark.asyncio
-    async def test_semantic_search_skips_unready_document_hits(
-        self, monkeypatch
-    ):
-        chatlog_db = AsyncMock()
-        chatlog_db.last_messages = MagicMock(return_value=[])
-        chatlog_db.get_connector_config = MagicMock(return_value=None)
-        vector_store = AsyncMock()
-        broker = ContextBroker(
-            chatlog_db=chatlog_db,
-            vector_store=vector_store,
-            memory_store=AsyncMock(),
-            sensors=None,
-        )
+    async def test_semantic_search_skips_unready_document_hits(self, monkeypatch):
+        broker = _broker()
         broker.vector.search = MagicMock(
             return_value=[
                 {
