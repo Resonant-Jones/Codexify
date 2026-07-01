@@ -12,6 +12,16 @@ Before exploring any area, orient from:
 - `docs/collaborators/zac/agent-rag-brief.md` — your agent operating brief.
 - `docs/collaborators/zac/agent-startup-prompt.md` — copy-paste startup prompt for Zac's agent.
 
+## Report-Only Mode
+
+When Zac wants to learn rather than propose, use these report-only files:
+
+- `docs/collaborators/zac/report-only-agent-lenses.md` — seven report-only lenses (Cartographer, Doc Gardener, UI Naturalist, Runtime Boundary Scout, Dev-Experience Mechanic, Test Cartographer, Continuity Museum Guide).
+- `docs/collaborators/zac/report-request-prompts.md` — copy-paste prompts for each lens plus a general report prompt.
+- `docs/collaborators/zac/report-output-templates.md` — standardized report shapes for each lens type.
+
+Reports produce understanding. Proposals produce intent. Both are valid, but they are separate agent modes.
+
 ## Current Continuity Milestone
 
 The Continuity operator six-route surface is complete as a test-only, quarantined substrate.

@@ -9,6 +9,8 @@ This file is a copy-paste prompt Zac can give to an AI agent. It tells the agent
 
 Zac should not need to manually summarize the directory each time he wants to explore. Copy the prompt below, paste it into an agent, and point the agent at the `docs/collaborators/zac/` directory.
 
+**Report-only mode:** If Zac asks for learning, orientation, or understanding rather than a proposal, use report-only mode. In report-only mode, read `report-only-agent-lenses.md`, `report-request-prompts.md`, and `report-output-templates.md`. Choose a lens that matches Zac's intent. Produce a report — not a proposal and not implementation. The default prompt below is for proposal-before-change exploration; report-only prompts are in `report-request-prompts.md`.
+
 ## Copy-Paste Prompt
 
 ---
