@@ -13,7 +13,6 @@ import {
   resolveSidebarThreadBucketId,
   resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
-  collectSidebarProvenanceOptions,
   threadMatchesSidebarProvenance,
   type SidebarProvenanceOption,
 } from "./sidebarPresentation";

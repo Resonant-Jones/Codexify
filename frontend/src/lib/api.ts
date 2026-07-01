@@ -21,7 +21,6 @@ import {
   getRuntimeApiKey,
   setRuntimeApiKey as setRuntimeApiKeyState,
 } from "@/lib/runtimeAuth";
-import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 
 export type { SlashCommandIntentPayload };
 
@@ -707,16 +706,17 @@ export function resolveBackendThreadIdFromResponse(
   responseLike: unknown,
   context: ThreadIdResolutionContext
 ): ThreadIdResolution {
-  const response = isPlainObject(responseLike) ? responseLike : null;
+  const response: Record<string, unknown> | null = isPlainObject(responseLike) ? responseLike : null;
   const responseHasDataProp =
     Boolean(response) && Object.prototype.hasOwnProperty.call(response, "data");
   const responseDataValue = responseHasDataProp ? response?.data : undefined;
   const responseData = isPlainObject(responseDataValue) ? responseDataValue : null;
+  const responseDataThread = responseData && isPlainObject(responseData.thread)
+    ? responseData.thread
+    : null;
   const responseThread = response && isPlainObject(response.thread)
     ? response.thread
-    : responseData && isPlainObject(responseData.thread)
-      ? responseData.thread
-      : null;
+    : responseDataThread;
   const parserFailureReason: ThreadIdParserFailureReason =
     response != null &&
     responseHasDataProp &&
@@ -740,12 +740,12 @@ export function resolveBackendThreadIdFromResponse(
   const candidates: Array<[string, unknown]> = [
     ["response.thread_id", response?.thread_id],
     ["response.threadId", response?.threadId],
-    ["response.id", response?.id],
+    ["response.id", response?.["id"]],
     ["response.thread.id", responseThread?.id],
     ["response.data.thread_id", responseData?.thread_id],
     ["response.data.threadId", responseData?.threadId],
     ["response.data.id", responseData?.id],
-    ["response.data.thread.id", responseData?.thread?.id],
+    ["response.data.thread.id", responseDataThread?.id],
   ];
 
   for (const [branch, rawValue] of candidates) {
@@ -1065,21 +1065,6 @@ function readCompletionMeta(config: unknown): {
     threadId,
     turnId: normalizeCompletionTurnId(candidate?.__cfyCompletionTurnId),
   };
-}
-
-function completionErrorDetail(error: any): string {
-  const detail = error?.response?.data?.detail;
-  if (typeof detail === "string") return detail.toLowerCase();
-  if (!detail || typeof detail !== "object") return "";
-  return [
-    detail?.error,
-    detail?.reason,
-    detail?.message,
-    detail?.code,
-  ]
-    .filter(Boolean)
-    .map((value) => String(value).toLowerCase())
-    .join(" ");
 }
 
 export function getInFlightCompletionTurnId(
