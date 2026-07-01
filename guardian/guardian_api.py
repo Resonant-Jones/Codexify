@@ -1290,6 +1290,7 @@ _include_router(
     label="worktrees",
     flag_name="CODEXIFY_ENABLE_WORKTREE_ROUTES",
     include_fn=lambda: app.include_router(worktrees_router),
+    default_enabled=False,
 )
 
 logger.info(
