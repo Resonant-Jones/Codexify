@@ -451,9 +451,9 @@ export function ChatBubble({
   playState?: "idle" | "playing" | "pending" | "unavailable" | "disabled";
   onPlay?: () => void;
   isPhoneShell?: boolean;
-}) {
+  }) {
   const fmtTime = (ts: number | null | undefined) => {
-    if (!Number.isFinite(ts)) return null;
+    if (typeof ts !== "number" || !Number.isFinite(ts)) return null;
     const date = new Date(ts);
     if (Number.isNaN(date.getTime())) return null;
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
