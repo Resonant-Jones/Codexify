@@ -671,15 +671,17 @@ def _coerce_tags(raw: Any) -> tuple[str, ...]:
 def _normalize_memory_candidate_header_dict(
     raw: dict[str, Any], *, fallback_candidate_id: str
 ) -> MemoryCandidateHeader:
-    candidate_id = str(
-        raw.get("candidate_id") or raw.get("id") or fallback_candidate_id
-    ).strip() or fallback_candidate_id
-    user_id = str(
-        raw.get("user_id") or raw.get("owner_user_id") or ""
-    ).strip()
-    kind = str(
-        raw.get("kind") or raw.get("source_type") or "semantic"
-    ).strip() or "semantic"
+    candidate_id = (
+        str(
+            raw.get("candidate_id") or raw.get("id") or fallback_candidate_id
+        ).strip()
+        or fallback_candidate_id
+    )
+    user_id = str(raw.get("user_id") or raw.get("owner_user_id") or "").strip()
+    kind = (
+        str(raw.get("kind") or raw.get("source_type") or "semantic").strip()
+        or "semantic"
+    )
     title = str(raw.get("title") or "").strip() or None
     summary = str(raw.get("summary") or "").strip() or None
     silo = str(raw.get("silo") or "").strip() or None
@@ -745,8 +747,7 @@ def _memory_preselection_headers_from_memory_items(
             "thread_id": item.get("thread_id")
             or metadata.get("thread_id")
             or metadata.get("source_thread_id"),
-            "persona_id": item.get("persona_id")
-            or metadata.get("persona_id"),
+            "persona_id": item.get("persona_id") or metadata.get("persona_id"),
             "identity_depth": item.get("identity_depth")
             or metadata.get("identity_depth"),
             "diary_excluded": item.get("diary_excluded")
@@ -755,8 +756,7 @@ def _memory_preselection_headers_from_memory_items(
             "created_at": item.get("created_at")
             or metadata.get("created_at")
             or metadata.get("source_created_at"),
-            "updated_at": item.get("updated_at")
-            or metadata.get("updated_at"),
+            "updated_at": item.get("updated_at") or metadata.get("updated_at"),
         }
         headers.append(
             _normalize_memory_candidate_header_dict(
@@ -871,8 +871,7 @@ def _apply_memory_preselection_active_influence(
     selected_ordered = [
         candidate_id
         for candidate_id in dict.fromkeys(
-            _clean_id(candidate_id)
-            for candidate_id in selected_candidate_ids
+            _clean_id(candidate_id) for candidate_id in selected_candidate_ids
         )
         if candidate_id
     ]
@@ -901,15 +900,17 @@ def _apply_memory_preselection_active_influence(
                 or metadata.get("source_message_id")
             )
 
-        if candidate_id and candidate_id in scoped and candidate_id not in selected:
+        if (
+            candidate_id
+            and candidate_id in scoped
+            and candidate_id not in selected
+        ):
             removed.append(candidate_id)
             continue
         kept.append(item)
 
     removed_ordered = [
-        candidate_id
-        for candidate_id in dict.fromkeys(removed)
-        if candidate_id
+        candidate_id for candidate_id in dict.fromkeys(removed) if candidate_id
     ]
     applied = bool(removed_ordered)
     influence = {
@@ -1569,12 +1570,14 @@ class ContextBroker:
                 if isinstance(entry, dict)
                 and str(entry.get("candidate_id") or "").strip()
             ]
-            filtered_memory_items, active_influence, applied = (
-                _apply_memory_preselection_active_influence(
-                    context.get("memory", []),
-                    selected_candidate_ids=selected_candidate_ids,
-                    scoped_candidate_ids=scoped_candidate_ids,
-                )
+            (
+                filtered_memory_items,
+                active_influence,
+                applied,
+            ) = _apply_memory_preselection_active_influence(
+                context.get("memory", []),
+                selected_candidate_ids=selected_candidate_ids,
+                scoped_candidate_ids=scoped_candidate_ids,
             )
             if applied:
                 context["memory"] = filtered_memory_items
@@ -1805,7 +1808,9 @@ class ContextBroker:
             context.get("obsidian", [])
         )
         if isinstance(context.get("docs"), dict):
-            context["docs"] = self._filter_codex_from_doc_buckets(context["docs"])
+            context["docs"] = self._filter_codex_from_doc_buckets(
+                context["docs"]
+            )
         if "memory" in context:
             context["memory"] = self._filter_codex_entries(
                 context.get("memory", [])
@@ -3361,6 +3366,7 @@ class ContextBroker:
         row = (
             session.query(uploaded_model)
             .filter(uploaded_model.id == doc_id)
+            .filter(uploaded_model.embedding_status == "ready")
             .first()
         )
         if row and getattr(row, "deleted_at", None) is None:
