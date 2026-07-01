@@ -530,6 +530,7 @@ from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
+from guardian.routes.core_loop_proof import router as core_loop_proof_router
 from guardian.routes.codex import router as codex_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
@@ -1034,6 +1035,7 @@ _include_router(
     include_fn=lambda: app.include_router(api_chat_router),
     core_surface=True,
 )
+app.include_router(core_loop_proof_router)
 _include_router(
     label="imprint",
     flag_name="CODEXIFY_ENABLE_IMPRINT_ROUTES",
