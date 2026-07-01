@@ -10,6 +10,7 @@ from guardian.workers import document_embed_worker
 class _FakeDoc:
     def __init__(self) -> None:
         self.id = "doc-1"
+        self.asset_id = "asset-1"
         self.parsed_text = "Hello world"
         self.filename = "doc-1.txt"
         self.user_id = "default"
