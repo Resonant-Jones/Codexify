@@ -62,7 +62,7 @@ function readProjectsCache(): Project[] {
 function writeProjectsCache(list: Project[]) {
   try {
     if (typeof window === "undefined") return;
-    const compact = collapseSidebarGeneralProjectAliases(list as Project[]);
+    const compact = collapseSidebarGeneralProjectAliases(list);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(compact));
   } catch {
     /* ignore */
@@ -73,12 +73,12 @@ function mergeProjects(primary: Project[], secondary: Project[]): Project[] {
   const seen = new Map<string, Project>();
   const push = (p?: Project) => {
     if (!p) return;
-    const normalized = normalizeSidebarProject(p as any);
+    const normalized = normalizeSidebarProject(p);
     const key = String(normalized.id ?? "");
     const nameKey = `name:${normalized.name}`;
     const existingKey = key || nameKey;
     const previous = seen.get(existingKey);
-    const merged = previous ? normalizeSidebarProject({ ...previous, ...normalized } as any) : normalized;
+    const merged = previous ? normalizeSidebarProject({ ...previous, ...normalized }) : normalized;
     seen.set(existingKey, merged);
   };
   primary.forEach(push);
