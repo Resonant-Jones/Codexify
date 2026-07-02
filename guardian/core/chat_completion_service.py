@@ -50,9 +50,9 @@ from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PERSONAL_KNOWLEDGE,
     SOURCE_MODE_PROJECT,
     SOURCE_MODE_WORKSPACE,
+    is_global_search_posture,
     normalize_retrieval_override_mode,
     normalize_source_mode,
-    is_global_search_posture,
     resolve_context_assembly_policy,
     resolve_retrieval_plan,
     source_mode_boundary_label,
@@ -235,7 +235,13 @@ def _summarize_retrieval_bundle(bundle: Any) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         return {"present": False}
     summary: dict[str, Any] = {"present": True}
-    for key in ("semantic", "memory", "graph", "personal_facts", "verified_personal_facts"):
+    for key in (
+        "semantic",
+        "memory",
+        "graph",
+        "personal_facts",
+        "verified_personal_facts",
+    ):
         value = bundle.get(key)
         if isinstance(value, list):
             summary[key] = len(value)
@@ -813,12 +819,24 @@ def _has_active_obsidian_slash_intent(task: Any) -> bool:
     if not isinstance(slash_intent, dict):
         return False
 
-    command_id = str(
-        slash_intent.get("commandId") or slash_intent.get("command_id") or ""
-    ).strip().lower()
-    intent_kind = str(
-        slash_intent.get("intentKind") or slash_intent.get("intent_kind") or ""
-    ).strip().lower()
+    command_id = (
+        str(
+            slash_intent.get("commandId")
+            or slash_intent.get("command_id")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
+    intent_kind = (
+        str(
+            slash_intent.get("intentKind")
+            or slash_intent.get("intent_kind")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
     return command_id == "obsidian" and intent_kind in {"", "integration"}
 
 
@@ -1604,13 +1622,17 @@ def _build_remote_recall_evidence_context_message(
     for envelope in evidence:
         title = str(getattr(envelope, "title", "") or "").strip()
         snippet = str(
-            getattr(envelope, "snippet", "") or getattr(envelope, "text", "") or ""
+            getattr(envelope, "snippet", "")
+            or getattr(envelope, "text", "")
+            or ""
         ).strip()
         url = str(getattr(envelope, "url", "") or "").strip()
         rank = getattr(envelope, "rank", None)
         label = f"[{rank}] " if isinstance(rank, int) else ""
         title_part = f"{title} " if title else ""
-        lines.append(f"- {label}{title_part}({url})" if url else f"- {label}{title_part}")
+        lines.append(
+            f"- {label}{title_part}({url})" if url else f"- {label}{title_part}"
+        )
         if snippet:
             lines.append(f"    {snippet}")
     lines.append("</remote_recall_evidence>")
@@ -3727,6 +3749,9 @@ async def build_messages_for_llm(
                 exc,
             )
 
+    # Completion context is intentionally bounded separately from
+    # the visible transcript (which may page older messages through
+    # the transcript endpoint at GET /{thread_id}/messages).
     limit = int(task.max_context or 50)
     items = dependencies.chatlog_db.list_messages(
         thread_id, limit=limit, offset=0
@@ -3772,7 +3797,9 @@ async def build_messages_for_llm(
 
         # Check for structured content preserved in extra_meta
         extra_meta = msg.get("extra_meta")
-        if isinstance(extra_meta, dict) and isinstance(extra_meta.get("original_content"), list):
+        if isinstance(extra_meta, dict) and isinstance(
+            extra_meta.get("original_content"), list
+        ):
             latest_structured_content = extra_meta["original_content"]
 
         if isinstance(raw_content, str):
@@ -4668,7 +4695,10 @@ def run_chat_completion_task(
                 break
         # Replace the content of the last user message with structured content
         for i in range(len(messages_for_llm) - 1, -1, -1):
-            if str(messages_for_llm[i].get("role", "")).strip().lower() == "user":
+            if (
+                str(messages_for_llm[i].get("role", "")).strip().lower()
+                == "user"
+            ):
                 messages_for_llm[i] = dict(messages_for_llm[i])
                 messages_for_llm[i]["content"] = latest_turn_msgs
                 break

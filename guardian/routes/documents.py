@@ -689,6 +689,8 @@ async def _get_thread_documents_impl(
                             "id": uploaded_doc.id,
                             "title": uploaded_doc.filename or uploaded_doc.id,
                             "relation": link.relation,
+                            "embedding_status": uploaded_doc.embedding_status,
+                            "embedding_error": uploaded_doc.embedding_error,
                             "created_at": (
                                 link.created_at.isoformat()
                                 if link.created_at

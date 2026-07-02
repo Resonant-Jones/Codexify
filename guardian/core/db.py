@@ -623,10 +623,18 @@ class _PostgresGuardianDB:
         limit: int = 50,
         offset: int = 0,
         exclude_kinds: Optional[List[str]] = None,
+        before_message_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """List messages in a thread."""
+        """List messages in a thread.
+
+        When ``before_message_id`` is provided, cursor-based pagination
+        is used instead of offset: only messages with an id strictly
+        less than ``before_message_id`` are returned (oldest-first).
+        """
         with self.get_session() as session:
             query = session.query(ChatMessage).filter_by(thread_id=thread_id)
+            if before_message_id is not None:
+                query = query.filter(ChatMessage.id < before_message_id)
             if exclude_kinds:
                 query = query.filter(
                     or_(

@@ -43,8 +43,8 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_APPROVAL_SOURCES,
     GUARDIAN_DELEGATION_APPROVAL_STATES,
     GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES,
-    GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_INTENT_STATUSES,
+    GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_RUN_STATUSES,
     GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_KINDS,
     GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES,
@@ -86,8 +86,8 @@ from guardian.protocol_tokens import (
     GuardianDelegationApprovalSource,
     GuardianDelegationApprovalState,
     GuardianDelegationContextSourceType,
-    GuardianDelegationInteractionMode,
     GuardianDelegationIntentStatus,
+    GuardianDelegationInteractionMode,
     GuardianDelegationRunStatus,
     GuardianDelegationTranscriptItemKind,
     GuardianDelegationTranscriptItemSource,
@@ -124,8 +124,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
     assert GUARDIAN_DELEGATION_INTERACTION_MODES == {"non_blocking"}
     assert GuardianDelegationApprovalMode.SCOPED_AUTO.value == "scoped_auto"
     assert (
-        GuardianDelegationApprovalMode.HUMAN_REQUIRED.value
-        == "human_required"
+        GuardianDelegationApprovalMode.HUMAN_REQUIRED.value == "human_required"
     )
     assert GUARDIAN_DELEGATION_APPROVAL_MODES == {
         "human_required",
@@ -213,9 +212,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
         GuardianDelegationContextSourceType.SELECTED_TURN.value
         == "selected_turn"
     )
-    assert (
-        GuardianDelegationContextSourceType.PROJECT_KB.value == "project_kb"
-    )
+    assert GuardianDelegationContextSourceType.PROJECT_KB.value == "project_kb"
     assert (
         GuardianDelegationContextSourceType.ARCHITECTURE_DOC.value
         == "architecture_doc"
@@ -223,8 +220,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
     assert GuardianDelegationContextSourceType.ADR.value == "adr"
     assert GuardianDelegationContextSourceType.TASK_FILE.value == "task_file"
     assert (
-        GuardianDelegationContextSourceType.PROTOCOL_DOC.value
-        == "protocol_doc"
+        GuardianDelegationContextSourceType.PROTOCOL_DOC.value == "protocol_doc"
     )
     assert (
         GuardianDelegationContextSourceType.LINKED_DOCUMENT.value
@@ -251,10 +247,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
         GuardianDelegationTranscriptItemKind.APPROVAL_STATE.value
         == "approval_state"
     )
-    assert (
-        GuardianDelegationTranscriptItemKind.RUN_LINKED.value
-        == "run_linked"
-    )
+    assert GuardianDelegationTranscriptItemKind.RUN_LINKED.value == "run_linked"
     assert GuardianDelegationTranscriptItemKind.RUN_STATUS.value == "run_status"
     assert (
         GuardianDelegationTranscriptItemKind.AGENT_RUN_EVENT.value
@@ -326,12 +319,10 @@ def test_context_request_status_tokens() -> None:
 
 def test_provider_failure_and_transport_classification_tokens() -> None:
     assert (
-        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
-        == "provider_timeout"
+        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value == "provider_timeout"
     )
     assert (
-        GuardianProviderFailureKind.TRANSPORT_ERROR.value
-        == "transport_error"
+        GuardianProviderFailureKind.TRANSPORT_ERROR.value == "transport_error"
     )
     assert GuardianProviderFailureKind.REQUEST_ERROR.value == "request_error"
     assert GUARDIAN_PROVIDER_FAILURE_KINDS == {
@@ -340,9 +331,7 @@ def test_provider_failure_and_transport_classification_tokens() -> None:
         "request_error",
     }
 
-    assert (
-        GuardianProviderTransportClassification.TIMEOUT.value == "timeout"
-    )
+    assert GuardianProviderTransportClassification.TIMEOUT.value == "timeout"
     assert (
         GuardianProviderTransportClassification.CONNECTION_REFUSED.value
         == "connection_refused"
@@ -1139,21 +1128,21 @@ def test_legacy_loop_stop_tokens() -> None:
 
 def test_chat_event_type_tokens() -> None:
     """Canonical chat lifecycle event tokens."""
-    from guardian.protocol_tokens import ChatEventType, CHAT_EVENT_TYPES
+    from guardian.protocol_tokens import CHAT_EVENT_TYPES, ChatEventType
 
     assert (
         ChatEventType.ORPHANED_TURN_RECOVERED.value
         == "chat.orphaned_turn_recovered"
     )
+    assert ChatEventType.THREAD_CREATED.value == "thread.created"
     assert CHAT_EVENT_TYPES == {
         "chat.orphaned_turn_recovered",
+        "thread.created",
     }
 
 
 def test_remote_recall_source_kind_tokens() -> None:
-    assert (
-        RemoteRecallSourceKind.GROQ_WEB_SEARCH.value == "groq_web_search"
-    )
+    assert RemoteRecallSourceKind.GROQ_WEB_SEARCH.value == "groq_web_search"
     assert RemoteRecallSourceKind.WIKIPEDIA.value == "wikipedia"
     assert RemoteRecallSourceKind.ARXIV.value == "arxiv"
     assert RemoteRecallSourceKind.SEMANTIC_SCHOLAR.value == "semantic_scholar"
