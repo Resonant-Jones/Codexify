@@ -38,6 +38,7 @@ from guardian.core.config import Settings, get_settings
 from guardian.memoryos.retriever import MemoryOSRetriever
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
+    EmbeddingLifecycleStatus,
     PersonalFactStatus,
     TraceSnapshotAbsenceReason,
 )
@@ -1987,6 +1988,87 @@ class ContextBroker:
 
         return result if isinstance(result, list) else []
 
+    def _load_uploaded_document_row(
+        self,
+        *,
+        session: Any,
+        doc_id: str,
+        user_id: str,
+        uploaded_model: Any,
+    ) -> Any | None:
+        row = (
+            session.query(uploaded_model)
+            .filter(uploaded_model.id == doc_id)
+            .first()
+        )
+        if row is None or getattr(row, "deleted_at", None) is not None:
+            return None
+
+        row_user_id = str(getattr(row, "user_id", "") or "").strip()
+        if row_user_id != str(user_id or "").strip():
+            return None
+        return row
+
+    @staticmethod
+    def _uploaded_document_row_is_ready(row: Any) -> bool:
+        return (
+            str(getattr(row, "embedding_status", "") or "").strip().lower()
+            == EmbeddingLifecycleStatus.READY.value
+        )
+
+    def _uploaded_document_is_ready(
+        self,
+        *,
+        doc_id: str,
+        user_id: str,
+    ) -> bool:
+        session_provider = self._resolve_session_provider()
+        if session_provider is None:
+            return False
+
+        try:
+            from guardian.db.models import UploadedDocument
+        except Exception as exc:
+            logger.debug(
+                "[ContextBroker] UploadedDocument model unavailable; skipping readiness check: %s",
+                exc,
+            )
+            return False
+
+        session = None
+        try:
+            session = session_provider()
+            if hasattr(session, "__enter__") and hasattr(session, "__exit__"):
+                with session as managed_session:
+                    row = self._load_uploaded_document_row(
+                        session=managed_session,
+                        doc_id=doc_id,
+                        user_id=user_id,
+                        uploaded_model=UploadedDocument,
+                    )
+                    return self._uploaded_document_row_is_ready(row)
+
+            row = self._load_uploaded_document_row(
+                session=session,
+                doc_id=doc_id,
+                user_id=user_id,
+                uploaded_model=UploadedDocument,
+            )
+            return self._uploaded_document_row_is_ready(row)
+        except Exception as exc:
+            logger.debug(
+                "[ContextBroker] Uploaded document readiness check failed doc_id=%s: %s",
+                doc_id,
+                exc,
+            )
+            return False
+        finally:
+            if session is not None and hasattr(session, "close"):
+                try:
+                    session.close()
+                except Exception:
+                    pass
+
     async def _search_semantic(
         self,
         query: str,
@@ -2017,26 +2099,50 @@ class ContextBroker:
                 return []
             normalized_user_id = str(user_id or "").strip()
             normalized_namespace = str(namespace or "").strip()
+            ready_doc_cache: dict[str, bool] = {}
+
+            def _document_is_ready(doc_id: str, item_user_id: str) -> bool:
+                cache_key = doc_id.strip()
+                if not cache_key:
+                    return False
+                if cache_key not in ready_doc_cache:
+                    ready_doc_cache[cache_key] = self._uploaded_document_is_ready(
+                        doc_id=cache_key,
+                        user_id=item_user_id or normalized_user_id,
+                    )
+                return ready_doc_cache[cache_key]
+
             filtered: list[dict[str, Any]] = []
             for item in result:
                 if not isinstance(item, dict):
                     continue
+                metadata_value = item.get("metadata")
+                metadata = (
+                    dict(metadata_value)
+                    if isinstance(metadata_value, dict)
+                    else {}
+                )
+                doc_id = str(
+                    metadata.get("doc_id") or item.get("doc_id") or ""
+                ).strip()
                 item_user_id = str(
                     (
                         item.get("user_id")
                         or item.get("owner_user_id")
-                        or item.get("metadata", {}).get("user_id")
-                        or item.get("metadata", {}).get("owner_user_id")
+                        or metadata.get("user_id")
+                        or metadata.get("owner_user_id")
                     )
                     or ""
                 ).strip()
+                if doc_id and not _document_is_ready(doc_id, item_user_id):
+                    continue
                 if item_user_id == normalized_user_id:
                     filtered.append(item)
                     continue
                 if normalized_namespace != OBSIDIAN_NAMESPACE:
                     continue
                 scoped_item = dict(item)
-                scoped_metadata = dict(item.get("metadata") or {})
+                scoped_metadata = dict(metadata)
                 scoped_metadata["user_id"] = normalized_user_id
                 scoped_metadata["owner_user_id"] = normalized_user_id
                 scoped_item["metadata"] = scoped_metadata
@@ -3368,11 +3474,13 @@ class ContextBroker:
             .filter(uploaded_model.id == doc_id)
             .filter(uploaded_model.embedding_status == "ready")
             .first()
+        row = self._load_uploaded_document_row(
+            session=session,
+            doc_id=doc_id,
+            user_id=user_id,
+            uploaded_model=uploaded_model,
         )
-        if row and getattr(row, "deleted_at", None) is None:
-            row_user_id = str(getattr(row, "user_id", "") or "").strip()
-            if row_user_id != str(user_id).strip():
-                return None
+        if row is not None and self._uploaded_document_row_is_ready(row):
             return row
         return None
 

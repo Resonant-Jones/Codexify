@@ -4,7 +4,6 @@ import { fetchLatestRetrievalPosture } from "@/lib/api";
 
 import type {
   CommandCenterRetrievalPosture,
-  CommandCenterRetrievalPostureResponse,
 } from "@/features/commandCenter/types";
 
 type UseRetrievalPostureResult = {

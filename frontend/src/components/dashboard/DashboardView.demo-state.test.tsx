@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
@@ -235,6 +236,8 @@ describe("DashboardView beta contract", () => {
                 id: "doc-1",
                 filename: "User Plan.md",
                 ext: "md",
+                embedding_status: "failed",
+                embedding_error: "parsed_text_missing",
               },
             ],
           },
@@ -268,6 +271,12 @@ describe("DashboardView beta contract", () => {
         "mobile_stack"
       );
     });
+
+    expect(
+      within(screen.getByTestId("dashboard-mobile-doc-row-doc-1")).getByText(
+        "Failed - No text"
+      )
+    ).toBeInTheDocument();
 
     const openRecentDocumentButton = await screen.findByRole("button", {
       name: "Open User Plan.md in Workspace",

@@ -625,6 +625,7 @@ export function useChat(options: UseChatOptions = {}) {
     activeTaskId: null,
     activeThreadId: null,
     startedAt: null,
+    requestState: null,
   });
   const [streamingDraft, setStreamingDraft] = useState<StreamingDraft>({
     threadId: null,

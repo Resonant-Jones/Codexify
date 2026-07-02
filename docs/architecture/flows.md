@@ -233,6 +233,7 @@ Supported readback contract:
 - `GET /api/documents/{id}` is the supported document detail route for upload -> embed -> retrieve proof.
 - The detail route resolves document identity by `uploaded_documents.id` and preserves compatibility lookup by `asset_id`.
 - The detail payload is expected to include embedding lifecycle visibility (`embedding_status`, `embedding_error`, `embedding_started_at`, `embedding_completed_at`) without requiring direct DB inspection.
+- `docs/architecture/rag-and-retrieval.md` captures the ready-only retrieval gate: `pending`, `processing`, and `failed` stay visible for diagnosis, but only `ready` documents are eligible for broker retrieval.
 
 Failure modes:
 - Unsupported MIME/type returns `400`

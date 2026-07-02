@@ -6,7 +6,7 @@
  * API key/local fields, test, and finish. Uses backend metadata to render fields.
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { Connector, ConnectorOption, RequiredField } from "./useConnectors";
+import { Connector, RequiredField } from "./useConnectors";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { Loader2 } from "lucide-react";
