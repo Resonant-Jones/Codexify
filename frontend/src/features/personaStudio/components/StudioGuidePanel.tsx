@@ -36,14 +36,12 @@ export default function StudioGuidePanel({
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge
-              variant="outline"
               className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
               style={{ borderColor: "var(--panel-border)" }}
             >
               {hasDraft ? "Draft aware" : "No draft selected"}
             </Badge>
             <Badge
-              variant="outline"
               className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
               style={{ borderColor: "var(--panel-border)" }}
             >
@@ -74,7 +72,6 @@ export default function StudioGuidePanel({
                   <p className="text-sm leading-6 text-[var(--muted)]">{card.summary}</p>
                 </div>
                 <Badge
-                  variant="outline"
                   className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                   style={{ borderColor: "var(--panel-border)" }}
                 >
@@ -95,7 +92,6 @@ export default function StudioGuidePanel({
                   {card.evidence.map((item) => (
                     <Badge
                       key={`${card.id}-${item}`}
-                      variant="outline"
                       className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                       style={{ borderColor: "var(--panel-border)" }}
                     >

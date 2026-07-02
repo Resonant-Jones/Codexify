@@ -394,7 +394,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
-                            variant="outline"
                             className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                             style={{ borderColor: "var(--panel-border)" }}
                           >
@@ -431,7 +430,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge
-                                  variant="outline"
                                   className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                                   style={{ borderColor: "var(--panel-border)" }}
                                 >
@@ -445,7 +443,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                                 </div>
                               </div>
                               <Badge
-                                variant="outline"
                                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                                 style={{ borderColor: "var(--panel-border)" }}
                               >
@@ -626,10 +623,9 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <Badge
-                                    variant="outline"
-                                    className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                                    style={{ borderColor: "var(--panel-border)" }}
+                                    <Badge
+                                      className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                                      style={{ borderColor: "var(--panel-border)" }}
                                   >
                                     Turn {turnNumber}
                                   </Badge>
