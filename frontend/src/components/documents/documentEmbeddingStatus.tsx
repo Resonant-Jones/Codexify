@@ -48,9 +48,10 @@ function resolveStatusPresentation(raw?: string, embeddingError?: string) {
   if (!key) return null;
 
   const config = STATUS_STYLES[key as keyof typeof STATUS_STYLES];
-  const label = config?.label ?? key.charAt(0).toUpperCase() + key.slice(1);
+  const baseLabel = config?.label ?? key.charAt(0).toUpperCase() + key.slice(1);
   const errorHint = key === "failed" ? resolveErrorHint(embeddingError) : null;
-  const title = errorHint ? `${label} - ${errorHint}` : label;
+  const label = errorHint ? `${baseLabel} - ${errorHint}` : baseLabel;
+  const title = label;
 
   return {
     label,
