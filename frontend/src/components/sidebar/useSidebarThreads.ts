@@ -11,7 +11,6 @@ import {
   isSidebarGeneralProjectName,
   cleanSidebarProjectTitle,
   resolveSidebarThreadBucketId,
-  resolveSidebarGeneralProjectId,
   threadBelongsToGeneral,
   threadMatchesSidebarProvenance,
   type SidebarProvenanceOption,
