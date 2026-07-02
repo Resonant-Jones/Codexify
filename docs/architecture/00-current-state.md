@@ -62,6 +62,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
+- Do not assume hosted rooms, participant node attachment, Shared Room KB, or cross-node document handoff are implemented from the Hosted Room and Sovereign Node Participation Contract; that contract is future docs-only architecture and does not widen the supported beta release surface.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.

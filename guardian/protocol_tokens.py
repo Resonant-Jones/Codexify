@@ -130,6 +130,7 @@ class ChatEventType(str, Enum):
     """Canonical chat lifecycle event names."""
 
     ORPHANED_TURN_RECOVERED = "chat.orphaned_turn_recovered"
+    THREAD_CREATED = "thread.created"
 
 
 class ToolTurnState(str, Enum):
