@@ -4,7 +4,6 @@ import {
   hasResolvedRuntimeApiKey,
   hasRuntimeApiKey,
 } from "@/lib/runtimeAuth";
-import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 
 export type AuthStatus = "unknown" | "authenticated" | "unauthenticated";
 

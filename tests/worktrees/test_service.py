@@ -15,6 +15,7 @@ from guardian.worktrees.service import (
     GitError,
     discover_worktree_lanes,
     resolve_repo_path,
+    run_git,
 )
 
 # Allowed read-only commands per the MVP spec. Any other git subcommand would
@@ -53,6 +54,27 @@ def _make_repo(tmp_path: Path) -> Path:
     repo.mkdir()
     (repo / ".git").mkdir()
     return repo
+
+
+def test_run_git_disables_optional_locks(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return type(
+            "Completed", (), {"returncode": 0, "stdout": "ok\n", "stderr": ""}
+        )()
+
+    monkeypatch.setattr("guardian.worktrees.service.subprocess.run", fake_run)
+
+    assert run_git(["status", "--short"], cwd=str(tmp_path)) == "ok\n"
+
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    env = kwargs["env"]
+    assert isinstance(env, dict)
+    assert env["GIT_OPTIONAL_LOCKS"] == "0"
 
 
 # ---------------------------------------------------------------------------
@@ -278,3 +300,25 @@ def test_unexpected_git_status_failure_sets_git_state_error(
     discovery = discover_worktree_lanes(str(repo), git_runner=runner)
     lane: WorktreeLane = discovery.lanes[0]
     assert "git_state_error" in lane.risk_flags
+
+
+def test_run_git_disables_optional_locks(monkeypatch, tmp_path: Path) -> None:
+    """Background discovery must not refresh/write Git index locks."""
+    from subprocess import CompletedProcess
+
+    from guardian.worktrees import service
+
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return CompletedProcess(args=args[0], returncode=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "1")
+    monkeypatch.setattr(service.subprocess, "run", fake_run)
+
+    assert service.run_git(["status", "--short"], cwd=str(tmp_path)) == "ok\n"
+
+    env = captured["kwargs"]["env"]  # type: ignore[index]
+    assert env["GIT_OPTIONAL_LOCKS"] == "0"

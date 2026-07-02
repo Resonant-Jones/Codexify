@@ -384,7 +384,6 @@ function ToolsEditor({
           {config.tools.pinnedTools.map((tool) => (
             <Badge
               key={tool}
-              variant="outline"
               className="px-2 py-1 text-xs"
               style={{ borderColor: "var(--panel-border)" }}
             >
@@ -419,7 +418,6 @@ function ToolsEditor({
           {config.tools.allowedTools.map((tool) => (
             <Badge
               key={tool}
-              variant="outline"
               className="px-2 py-1 text-xs"
               style={{ borderColor: "var(--panel-border)" }}
             >
@@ -454,7 +452,6 @@ function ToolsEditor({
           {config.tools.skills.map((skill) => (
             <Badge
               key={skill}
-              variant="outline"
               className="px-2 py-1 text-xs"
               style={{ borderColor: "var(--panel-border)" }}
             >
@@ -945,7 +942,7 @@ export default function PersonaStudioPage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1" />
-                  <Badge variant="outline" className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
+                  <Badge className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>
                     {activeTab}
                   </Badge>
                 </div>

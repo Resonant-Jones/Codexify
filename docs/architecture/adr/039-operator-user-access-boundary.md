@@ -6,11 +6,11 @@ tags:
 * user-boundary
 * access-topology
   aliases:
-* ADR-038
+* ADR-039
 * Operator User Access Boundary
 ---
 
-# ADR-038: Operator / User Access Boundary
+# ADR-039: Operator / User Access Boundary
 
 ## Status
 
@@ -137,6 +137,7 @@ Any future implementation that operationalizes this ADR must include proof for:
 - `docs/architecture/modules-and-ownership.md`
 - `docs/architecture/account-export-restore-contract.md`
 - `docs/architecture/persona-studio-spec.md`
+- `docs/architecture/adr/040-network-profile-topology-resolution-contract.md`
 
 ## Documentation Follow-Through
 

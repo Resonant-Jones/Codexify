@@ -180,31 +180,3 @@ function CardField({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-function CardChip({
-  label,
-  children,
-  secondary,
-}: {
-  label: string;
-  children?: React.ReactNode;
-  secondary?: boolean;
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs"
-      style={{
-        background: secondary
-          ? "var(--surface-soft)"
-          : "color-mix(in oklab, var(--chip-bg) 82%, var(--accent-strong) 18%)",
-        border: `1px solid ${secondary ? "var(--panel-border)" : "color-mix(in oklab, var(--accent-strong) 42%, var(--panel-border))"}`,
-        borderRadius: "var(--tile-radius)",
-        color: "var(--text)",
-        padding: "2px 8px",
-      }}
-    >
-      {label}
-      {children}
-    </span>
-  );
-}
