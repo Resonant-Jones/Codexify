@@ -88,6 +88,7 @@ export default function ThreadList({
   creatingThread,
   className,
 }: ThreadListProps) {
+  void creatingThread;
   return (
     <ThreadPreviewList
       threads={threads}
@@ -107,7 +108,6 @@ export default function ThreadList({
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}
-      creatingThread={creatingThread}
     />
   );
 }
@@ -291,7 +291,6 @@ function ThreadTileRow({
   onDelete: (threadId: string) => Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [focusWithin, setFocusWithin] = React.useState(false);
   const [actionBusy, setActionBusy] = React.useState<ThreadAction | null>(null);
   const [hoveredAction, setHoveredAction] = React.useState<ThreadAction | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
@@ -444,18 +443,10 @@ function ThreadTileRow({
     ? (isDarkMode ? darkActiveBackground : highlightBg)
     : (isDarkMode ? "var(--panel-sheet)" : "var(--panel-bg)");
 
-  const showActions = active || focusWithin;
   return (
     <div
       data-testid={`thread-row-${thread.id}`}
       className={clsx("relative", className)}
-      onFocusCapture={() => setFocusWithin(true)}
-      onBlurCapture={(event) => {
-        const nextTarget = event.relatedTarget as Node | null;
-        if (!event.currentTarget.contains(nextTarget)) {
-          setFocusWithin(false);
-        }
-      }}
     >
       <TileShell
         as="button"

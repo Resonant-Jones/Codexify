@@ -173,7 +173,7 @@ export default function SidebarRoot({
     if (currentProjectId === null) return "General";
     if (currentProjectId) {
       const proj = projectList.find((p) => String(p.id) === String(currentProjectId));
-      return proj ? cleanSidebarProjectTitle(proj as any) : hookScopeLabel;
+      return proj ? cleanSidebarProjectTitle(proj) : hookScopeLabel;
     }
     return hookScopeLabel;
   }, [currentProjectId, hookScopeLabel, projectList]);
@@ -373,7 +373,7 @@ export default function SidebarRoot({
             new CustomEvent("cfy:toast", {
               detail: {
                 kind: "success",
-                message: `Project "${cleanSidebarProjectTitle(existing as any)}" deleted`,
+                message: `Project "${cleanSidebarProjectTitle(existing)}" deleted`,
               },
             })
           );
