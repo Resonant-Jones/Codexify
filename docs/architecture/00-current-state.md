@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-03
+2026-07-05
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,13 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. The week-on-week changes on `main` are incremental rather than phase-shifting.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. The current mainline posture is stable and incremental, not a new phase.
 
 ## What changed recently
-- Document RAG now gates retrieval on ready documents instead of assuming every linked document is usable.
-- Chat transcript history now supports pagination.
-- Guardian orientation / hosted-room / shared-presence contract docs were added on `main`.
-- The current release story is still local-first; no new supported runtime surface landed this week.
+- Persona Studio TypeScript errors were cleaned up and the panel badge styling was unified.
+- Document RAG now gates retrieval on ready documents and surfaces failure hints in status UI.
+- Guardian orientation, hosted-room, and shared-presence contract docs landed on `main`.
+- No new supported runtime surface was added this week.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
