@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-05
+2026-07-06
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. The current mainline posture is stable and incremental, not a new phase.
 
 ## What changed recently
+- No merged `main` changes landed since the last audit.
 - Persona Studio TypeScript errors were cleaned up and the panel badge styling was unified.
 - Document RAG now gates retrieval on ready documents and surfaces failure hints in status UI.
 - Guardian orientation, hosted-room, and shared-presence contract docs landed on `main`.
