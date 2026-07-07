@@ -3469,11 +3469,6 @@ class ContextBroker:
                 return row
             return None
 
-        row = (
-            session.query(uploaded_model)
-            .filter(uploaded_model.id == doc_id)
-            .filter(uploaded_model.embedding_status == "ready")
-            .first()
         row = self._load_uploaded_document_row(
             session=session,
             doc_id=doc_id,
