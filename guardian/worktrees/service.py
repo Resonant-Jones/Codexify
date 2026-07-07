@@ -62,11 +62,7 @@ def run_git(
             text=True,
             timeout=timeout,
             check=False,
-<<<<<<< ours
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
-=======
             env=env,
->>>>>>> theirs
         )
     except subprocess.TimeoutExpired as exc:
         raise GitError(
