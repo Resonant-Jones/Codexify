@@ -1,5 +1,5 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
-Start here: begin with [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture. It is the highest-priority entry for release-truth questions.
+Start here: use [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities. It is the highest-priority entry for release-truth questions.
 Last updated: 2026-07-06
 Source anchors:
 - docs/architecture/
