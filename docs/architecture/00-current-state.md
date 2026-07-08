@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-08
+2026-07-02
 
 ## Interpretation rule
 This file is authoritative for:
@@ -19,11 +19,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - No material `main`line changes since the prior weekly audit.
 - The release-truth docs and operator routing stayed stable.
 - Docs-only contracts remain docs-only; no new runtime proof landed on `main`.
-- `main` now includes internal command-bus exposure for the Guardian Codex Runner JSON preflight adapter; it does not add a UI, new API route, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- `main` now includes a controlled operator-proof packet for the Guardian Codex Runner command-bus bridge; it validates command-bus lifecycle wiring and boundary preservation only, and it does not prove live Codex Runner execution, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds a live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds a retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds an opt-in local Docker container visibility contract for the Guardian Codex Runner bridge; it exists to address the failed live validate retry proof where the backend container could not see `/Volumes/Dev_SSD/Codex-Runner`; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- A docs-only Codexify-side Guardian/Codex Runner preflight bridge contract now exists in `docs/architecture/guardian-codex-runner-preflight-bridge-contract.md`; it does not add shipped runtime behavior, UI integration, a backend command adapter, Pi Loop invocation, or Codexify ingestion.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality
