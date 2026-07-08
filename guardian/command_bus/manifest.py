@@ -7,6 +7,9 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from guardian.codex_runner_bridge.command_bus import (
+    build_guardian_bridge_command_specs,
+)
 from guardian.command_bus.contracts import (
     CapabilitiesSpec,
     CommandSpec,
@@ -56,6 +59,9 @@ def build_manifest(app: FastAPI) -> ManifestResponse:
                 )
             )
 
+    commands.extend(build_guardian_bridge_command_specs())
+    _validate_command_collisions(commands)
+
     generated_at = datetime.now(tz=timezone.utc).isoformat()
     return ManifestResponse(
         generated_at=generated_at,
@@ -70,10 +76,37 @@ def build_command_index(
     manifest = build_manifest(app)
     index: dict[str, CommandSpec] = {}
     for command in manifest.commands:
-        index[command.command_id] = command
-        for alias in command.aliases:
-            index.setdefault(alias, command)
+        _register_command(index, command)
     return index, manifest
+
+
+def _validate_command_collisions(commands: list[CommandSpec]) -> None:
+    index: dict[str, CommandSpec] = {}
+    for command in commands:
+        _register_command(index, command)
+
+
+def _register_command(
+    index: dict[str, CommandSpec], command: CommandSpec
+) -> None:
+    keys = [command.command_id, *command.aliases]
+    normalized_keys = [str(key).strip() for key in keys]
+    if any(not key for key in normalized_keys):
+        raise ValueError("Command manifest entries must have non-empty identifiers.")
+    if len(set(normalized_keys)) != len(normalized_keys):
+        raise ValueError(
+            f"Command manifest entry {command.command_id!r} has duplicate identifiers."
+        )
+    for key in normalized_keys:
+        existing = index.get(key)
+        if existing is not None:
+            raise ValueError(
+                "Command manifest collision for "
+                f"{key!r}: {existing.command_id!r} vs {command.command_id!r}"
+            )
+    index[command.command_id] = command
+    for alias in command.aliases:
+        index[alias] = command
 
 
 def _build_command_spec(

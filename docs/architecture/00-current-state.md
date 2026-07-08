@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-02
+2026-07-08
 
 ## Interpretation rule
 This file is authoritative for:
@@ -19,7 +19,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - No material `main`line changes since the prior weekly audit.
 - The release-truth docs and operator routing stayed stable.
 - Docs-only contracts remain docs-only; no new runtime proof landed on `main`.
-- The current Guardian bridge branch now includes an unexposed backend JSON-only adapter seam for Guardian Codex Runner preflight validation; it does not add UI integration, API routes, command-bus invocation, Pi Loop invocation, Codexify ingestion, source mutation, or durable mutation.
+- `main` now includes internal command-bus exposure for the Guardian Codex Runner JSON preflight adapter; it does not add a UI, new API route, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality

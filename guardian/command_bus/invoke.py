@@ -41,6 +41,10 @@ from guardian.command_bus.redaction_policy import (
     redact_arguments,
 )
 from guardian.command_bus.store import CommandBusStore, IdempotencyConflictError
+from guardian.codex_runner_bridge.command_bus import (
+    execute_guardian_bridge_command,
+    is_guardian_bridge_command,
+)
 from guardian.tools.policy import (
     apply_policy_mode,
     evaluate_tool_policy,
@@ -398,6 +402,10 @@ async def execute_invoke(
 
     args_hash = compute_args_hash(args_dict)
     args_redacted = redact_arguments(command.command_id, args_dict)
+    is_guardian_bridge_internal = (
+        command.layer == "internal"
+        and is_guardian_bridge_command(command.command_id)
+    )
 
     # ── Work-order linkage validation (before execution) ─────
     wo_id = (payload.work_order_id or "").strip() or None
@@ -496,17 +504,10 @@ async def execute_invoke(
         payload=created_payload,
     )
 
-    is_readonly_command = command.effect == "read" and command.method in {
-        "GET",
-        "HEAD",
-    }
-    should_execute = is_readonly_command or (
-        allow_write_execution and command.effect == "write"
-    )
     blocked_reason: str | None = pre_dispatch_blocked_reason
 
     # Explicit recursion guard, including future alias paths.
-    if blocked_reason is None:
+    if blocked_reason is None and not is_guardian_bridge_internal:
         try:
             rendered = render_path(
                 command.path_template, args_dict.get("path_params") or {}
@@ -523,7 +524,18 @@ async def execute_invoke(
         )
         blocked_reason = f"policy_{invoke_policy.decision}:{reasons}"
 
-    if not should_execute and blocked_reason is None:
+    if (
+        not is_guardian_bridge_internal
+        and not (
+            command.effect == "read"
+            and command.method in {
+                "GET",
+                "HEAD",
+            }
+        )
+        and not (allow_write_execution and command.effect == "write")
+        and blocked_reason is None
+    ):
         blocked_reason = "phase1_write_blocked"
 
     if blocked_reason is not None:
@@ -599,6 +611,57 @@ async def execute_invoke(
             "provenance_json": provenance_json,
         },
     )
+
+    if is_guardian_bridge_internal:
+        try:
+            execution_result = execute_guardian_bridge_command(
+                command_id=command.command_id,
+                arguments=payload.arguments,
+            )
+        except Exception as exc:
+            error_text = str(exc)
+            store.update_run(run_id=run_id, status="failed", error_text=error_text)
+            store.append_event(
+                run_id=run_id,
+                event_type="run.failed",
+                payload={
+                    "error": error_text,
+                    "provenance_json": provenance_json,
+                },
+            )
+            failed_response = {
+                "run_id": run_id,
+                "status": "failed",
+                "invoke_version": payload.invoke_version,
+                "manifest_version": manifest.manifest_version,
+                "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+                "error": error_text,
+                "policy_warnings": invoke_policy.warnings,
+            }
+            if invoke_policy.warnings:
+                failed_response["warning"] = invoke_policy.warnings[0]
+            return failed_response
+
+        store.update_run(
+            run_id=run_id, status="completed", result_json=execution_result
+        )
+        store.append_event(
+            run_id=run_id,
+            event_type="run.completed",
+            payload={
+                "result": execution_result.get("result"),
+                "provenance_json": provenance_json,
+            },
+        )
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "invoke_version": payload.invoke_version,
+            "manifest_version": manifest.manifest_version,
+            "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
+            "inline_result": execution_result,
+            "policy_warnings": invoke_policy.warnings,
+        }
 
     try:
         execution_result = await execute_loopback_request(
