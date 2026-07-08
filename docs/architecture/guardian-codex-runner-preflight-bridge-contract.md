@@ -31,7 +31,7 @@ This task is docs-only. It does not implement runtime behavior.
 Current status:
 
 - Codex Runner already implements local CLI Guardian preflight tools.
-- Codexify does not yet expose those tools through backend or UI.
+- Codexify now exposes those tools through an internal backend command-bus layer, but not through UI or a new API route.
 - This contract is architecture-impacting because it defines a future control-plane seam across the Codexify backend boundary.
 - This contract does not add shipped runtime behavior, release support, or operator authority.
 
@@ -40,15 +40,18 @@ Implementation status note:
 - a backend contract module now exists at `guardian/codex_runner_bridge/contracts.py`
 - typed request/response/authority/path validation helpers now exist
 - a backend JSON-only adapter now exists for `validate-plan-pack` and `orchestrate-dry-run` preflight
-- the adapter is backend-only and unexposed
+- internal command-bus command specs now exist for `internal::guardian.codex_runner.validate_plan_pack` and `internal::guardian.codex_runner.orchestrate_dry_run_preflight`
+- the bridge remains backend-owned, JSON-only, read-only, and preflight-only
 - the adapter forces JSON mode
 - the adapter does not support write flags yet
+- command-bus run/event persistence may record invocation metadata
 - no API route exists
-- no command-bus command exists
 - no UI exists
+- no write flags exist
 - no Pi Loop invocation exists
 - no Codexify ingestion exists
-- no durable mutation exists
+- no source mutation exists
+- no durable mutation exists beyond ordinary command-bus run/event records
 
 Required boundary label for any future bridge surface:
 
@@ -101,16 +104,16 @@ What is true now:
 - The supported path remains the local Docker Compose stack with local-only provider posture.
 - Docs-only contracts do not mean shipped runtime behavior.
 - Codex Runner already implements local CLI Guardian preflight tools.
-- Codexify does not yet expose those tools in the UI or backend.
-- Codexify already has a backend command/tooling layer, but this task does not add a new command.
+- Codexify now exposes those tools through an internal backend command-bus layer, but still not through UI or a new API route.
+- Codexify already has a backend command/tooling layer, and this task adds typed internal command-bus exposure for the JSON-only bridge.
 - Guardian evidence artifacts remain evidence, not approval or durable truth.
 
 What is not yet true:
 
 - No Codexify Guardian UI button exists for Codex Runner preflight.
-- No Codexify backend adapter exists for Codex Runner preflight.
 - No Codex Runner daemon/service is integrated with Codexify.
-- No Codexify route or command-bus command invokes `codexrun guardian` commands.
+- No Codexify HTTP route invokes `codexrun guardian` commands.
+- No public or UI surface exposes the internal command-bus bridge commands.
 - No Codexify durable record ingests Guardian receipts.
 - No Guardian path invokes Pi Loop from Codexify.
 

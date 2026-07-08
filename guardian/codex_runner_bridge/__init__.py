@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from guardian.codex_runner_bridge.command_bus import (
+    build_guardian_bridge_command_specs,
+    execute_guardian_bridge_command,
+    is_guardian_bridge_command,
+)
 from guardian.codex_runner_bridge.adapter import (
     GuardianBridgeAdapterError,
     GuardianBridgeCommandError,
@@ -54,8 +59,11 @@ __all__ = [
     "GuardianBridgeResult",
     "GuardianBridgeUnsupportedOperationError",
     "build_codex_runner_command",
+    "build_guardian_bridge_command_specs",
     "default_authority",
+    "execute_guardian_bridge_command",
     "normalize_bridge_path",
+    "is_guardian_bridge_command",
     "run_codex_runner_json",
     "validate_bridge_request",
     "validate_codex_runner_path",
