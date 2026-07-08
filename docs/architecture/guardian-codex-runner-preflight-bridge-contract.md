@@ -53,6 +53,12 @@ Implementation status note:
 - no source mutation exists
 - no durable mutation exists beyond ordinary command-bus run/event records
 
+Controlled proof note:
+
+- the operator proof packet lives at `docs/architecture/guardian-codex-runner-command-bus-proof.md`
+- the proof packet is controlled and does not prove live Codex Runner execution
+- live proof remains a future separate slice
+
 Required boundary label for any future bridge surface:
 
 ```txt
