@@ -163,7 +163,7 @@ class CommandSpec(BaseModel):
 
     command_id: str
     aliases: list[str] = Field(default_factory=list)
-    layer: Literal["raw"] = "raw"
+    layer: Literal["raw", "internal"] = "raw"
     method: str
     path_template: str
     operation_id: str | None = None
