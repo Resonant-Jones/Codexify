@@ -20,6 +20,8 @@ Live proof attempt timestamp: `2026-07-08T20:42:31.123677+00:00`
 
 Reason: the local Codexify backend was not reachable on `http://localhost:8888`, so the existing command-bus route could not be reached for a real live invoke.
 
+A retry proof packet exists at [`guardian-codex-runner-command-bus-live-validate-retry-proof.md`](./guardian-codex-runner-command-bus-live-validate-retry-proof.md). The retry proof is separate operator evidence.
+
 ## 3. Scope
 
 This proof is validate-only.
@@ -244,5 +246,9 @@ Do not interpret this blocked proof as:
 This branch adds the first live validate-only proof packet for the Guardian Codex Runner command-bus bridge.
 
 The proof result is BLOCKED because the local Codexify backend was not reachable on `http://localhost:8888` during the proof attempt.
+
+A retry proof packet exists at [`guardian-codex-runner-command-bus-live-validate-retry-proof.md`](./guardian-codex-runner-command-bus-live-validate-retry-proof.md). That retry proof is separate operator evidence.
+
+Live orchestration proof remains deferred.
 
 No live validate pass is claimed.
