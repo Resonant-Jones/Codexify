@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from guardian.codex_runner_bridge.adapter import (
+    GuardianBridgeAdapterError,
+    GuardianBridgeCommandError,
+    GuardianBridgeJsonError,
+    GuardianBridgeUnsupportedOperationError,
+    build_codex_runner_command,
+    run_codex_runner_json,
+)
 from guardian.codex_runner_bridge.contracts import (
     ADAPTER_VERSION,
     ALLOWED_GUARDIAN_BRIDGE_OPERATIONS,
@@ -34,15 +42,21 @@ __all__ = [
     "CODEXIFY_ROOT",
     "CODEX_RUNNER_ROOT",
     "GuardianBridgeAuthority",
+    "GuardianBridgeAdapterError",
+    "GuardianBridgeCommandError",
     "GuardianBridgeEvidencePaths",
+    "GuardianBridgeJsonError",
     "GuardianBridgeOperation",
     "GuardianBridgePathError",
     "GuardianBridgeRequest",
     "GuardianBridgeResponse",
     "GuardianBridgeResponseMode",
     "GuardianBridgeResult",
+    "GuardianBridgeUnsupportedOperationError",
+    "build_codex_runner_command",
     "default_authority",
     "normalize_bridge_path",
+    "run_codex_runner_json",
     "validate_bridge_request",
     "validate_codex_runner_path",
     "validate_operation",
