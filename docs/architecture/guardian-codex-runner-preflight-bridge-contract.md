@@ -61,7 +61,8 @@ Controlled proof note:
 
 Implementation/proof-status note:
 
-- a live validate-only command-bus proof document now exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`
+- a live validate-only command-bus proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`
+- a retry live validate-only proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-retry-proof.md`
 - it does not prove live orchestration
 - it does not enable write flags
 - it does not add UI support

@@ -20,6 +20,8 @@ Automated tests must not execute real `codexrun`.
 
 Live validate proof is separate operator evidence at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`.
 
+A retry live validate proof packet exists at [`guardian-codex-runner-command-bus-live-validate-retry-proof.md`](./guardian-codex-runner-command-bus-live-validate-retry-proof.md). The retry proof is separate operator evidence.
+
 Controlled proof remains the automated proof packet.
 
 Live orchestration proof remains deferred.
