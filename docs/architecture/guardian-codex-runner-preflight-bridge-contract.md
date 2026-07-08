@@ -35,6 +35,18 @@ Current status:
 - This contract is architecture-impacting because it defines a future control-plane seam across the Codexify backend boundary.
 - This contract does not add shipped runtime behavior, release support, or operator authority.
 
+Implementation status note:
+
+- a backend contract module now exists at `guardian/codex_runner_bridge/contracts.py`
+- typed request/response/authority/path validation helpers now exist
+- no adapter execution exists
+- no subprocess invocation exists
+- no API route exists
+- no command-bus command exists
+- no UI exists
+- no Pi Loop invocation exists
+- no Codexify ingestion exists
+
 Required boundary label for any future bridge surface:
 
 ```txt
