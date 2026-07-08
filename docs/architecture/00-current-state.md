@@ -19,6 +19,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - No material `main`line changes since the prior weekly audit.
 - The release-truth docs and operator routing stayed stable.
 - Docs-only contracts remain docs-only; no new runtime proof landed on `main`.
+- `main` now includes a backend contract-only module for the Guardian Codex Runner preflight bridge; it does not implement adapter execution, routes, UI, Pi Loop invocation, Codexify ingestion, or durable mutation.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality
