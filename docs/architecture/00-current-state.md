@@ -20,6 +20,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - The release-truth docs and operator routing stayed stable.
 - Docs-only contracts remain docs-only; no new runtime proof landed on `main`.
 - `main` now includes internal command-bus exposure for the Guardian Codex Runner JSON preflight adapter; it does not add a UI, new API route, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` now includes a controlled operator-proof packet for the Guardian Codex Runner command-bus bridge; it validates command-bus lifecycle wiring and boundary preservation only, and it does not prove live Codex Runner execution, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality

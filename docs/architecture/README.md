@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture. It is the highest-priority entry for release-truth questions.
-Last updated: 2026-07-02
+Last updated: 2026-07-08
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -190,6 +190,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): canonical boundary for future Guardian-mediated invocation of Pi-like external coding-agent harnesses, including command authority, result return, lineage, and provider-lane separation.
 - [ADR-020 Guardian Mediated Coding Agent Execution Contract](./adr/020-guardian-mediated-coding-agent-execution-contract.md): contract-only seam for Guardian-mediated coding-agent requests and results, including future Pi SDK adapters.
 - [Guardian Delegation Loop Contract](./guardian-delegation-loop-contract.md): Phase 1 docs-only contract for the future hybrid bridge from Guardian-owned chat intake through durable intent, existing AgentRun backbone, source-thread continuation, and Command Center transcript mirror. It does not claim current implementation or widen the release promise.
+- [Guardian Codex Runner Preflight Bridge Contract](./guardian-codex-runner-preflight-bridge-contract.md): architecture contract for the backend-owned, typed, JSON-only, preflight-only Guardian bridge seam into Codex Runner; not UI support and not release support expansion.
+- [Guardian Codex Runner Command-Bus Proof](./guardian-codex-runner-command-bus-proof.md): controlled proof packet for the two internal Guardian bridge commands; not live Codex Runner proof, not UI support, and not release support expansion.
 - [Pi Invocation Boundary Contract](./pi-invocation-boundary-contract.md): Codexify-native boundary contract for future Pi-like harness invocation, Guardian ownership, provider-lane separation, and bounded result return.
 - [Solo Operator Coding Worker Runbook](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md): operational truth for the current coding-worker route, queue, adapter registry, validation behavior, mutation-scope guard, optional worktree isolation, patch artifact capture, and opt-in commit-after-green seam. It is an ops surface, not a release promise.
 - [Identity and Runtime Mode](./identity-and-runtime-mode.md): canonical runtime-mode and account-boundary invariants for pre-auth guardrails and export-safe isolation.
