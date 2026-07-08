@@ -18,7 +18,11 @@ This is a controlled operator proof, not live Codex Runner proof.
 
 Automated tests must not execute real `codexrun`.
 
-Live proof remains a future separate slice.
+Live validate proof is separate operator evidence at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`.
+
+Controlled proof remains the automated proof packet.
+
+Live orchestration proof remains deferred.
 
 ## 3. Scope
 

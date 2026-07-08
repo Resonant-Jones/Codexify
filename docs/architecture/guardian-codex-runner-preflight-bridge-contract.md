@@ -59,6 +59,14 @@ Controlled proof note:
 - the proof packet is controlled and does not prove live Codex Runner execution
 - live proof remains a future separate slice
 
+Implementation/proof-status note:
+
+- a live validate-only command-bus proof document now exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`
+- it does not prove live orchestration
+- it does not enable write flags
+- it does not add UI support
+- it does not add Codexify ingestion
+
 Required boundary label for any future bridge surface:
 
 ```txt
