@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-07
+2026-07-08
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,14 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Mainline posture is stable and incremental; there is no new shipped phase.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is still shipping incremental documentation and runtime-tightening work, not a new release phase.
 
 ## What changed recently
-- No merged `main` changes landed since the last audit.
-- Persona Studio TypeScript errors were cleaned up and the panel badge styling was unified.
-- Document RAG now gates retrieval on ready documents and surfaces failure hints in status UI.
-- Guardian orientation, hosted-room, and shared-presence contract docs landed on `main`.
-- No new supported runtime surface was added this week.
+- `main` merged document-RAG retrieval gating for ready documents.
+- `main` added the Guardian orientation layer contract and related boundary docs.
+- `main` added the shared-presence protocol and hosted-room sovereign-node contract docs.
+- `main` added paginated chat transcript history and live thread-list sync.
+- `main` added the Project Pulse read-only contract and continuity operator doc grounding.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -33,6 +33,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Graph writes remain default-off on the supported Compose path.
 - The Continuity operator surface remains test-only, API-key-gated, and profile-quarantined under `test-continuity`.
+- `main` now includes docs for Guardian orientation, shared presence, hosted-room topology, and Project Pulse, but those are not additional supported runtime promises by themselves.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -43,6 +44,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
+- Do not assume the new document-RAG gating docs imply full retrieval-system maturity beyond the documented ready-document path.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
@@ -51,6 +53,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Federation remains high-blast-radius and trust-policy sensitive.
 - Graph-write enablement stays outside the default release promise.
 - New docs-only contracts are guidance only until runtime proof lands on `main`.
+- The growing contract surface increases interpretation risk unless release claims stay pinned to `main` and `00-current-state.md`.
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
@@ -68,6 +71,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
 - [ ] New docs-only contracts must stay out of the supported runtime claim set until proven on `main`.
 - [ ] Any new release claim needs fresh proof on `main`, not branch-local evidence.
+- [ ] Release-readiness language must continue to separate docs coverage from runtime proof.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
