@@ -39,13 +39,16 @@ Implementation status note:
 
 - a backend contract module now exists at `guardian/codex_runner_bridge/contracts.py`
 - typed request/response/authority/path validation helpers now exist
-- no adapter execution exists
-- no subprocess invocation exists
+- a backend JSON-only adapter now exists for `validate-plan-pack` and `orchestrate-dry-run` preflight
+- the adapter is backend-only and unexposed
+- the adapter forces JSON mode
+- the adapter does not support write flags yet
 - no API route exists
 - no command-bus command exists
 - no UI exists
 - no Pi Loop invocation exists
 - no Codexify ingestion exists
+- no durable mutation exists
 
 Required boundary label for any future bridge surface:
 
