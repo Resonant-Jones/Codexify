@@ -338,6 +338,221 @@ describe("useDocumentCollaboration", () => {
     });
   });
 
+  describe("typing", () => {
+    it("notifyTyping() sends typing.start with user_id and timestamp", async () => {
+      render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const { result } = render(defaultOptions());
+      await act(async () => {
+        latestWs().simulateOpen();
+        result.current.notifyTyping();
+      });
+
+      const typingMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "typing.start"
+      );
+      expect(typingMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(typingMsgs[typingMsgs.length - 1].user_id).toBe("user1");
+      expect(typingMsgs[typingMsgs.length - 1].timestamp).toBeDefined();
+    });
+
+    it("stopTyping() sends typing.stop with user_id and timestamp", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+        result.current.stopTyping();
+      });
+
+      const typingMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "typing.stop"
+      );
+      expect(typingMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(typingMsgs[typingMsgs.length - 1].user_id).toBe("user1");
+      expect(typingMsgs[typingMsgs.length - 1].timestamp).toBeDefined();
+    });
+
+    it("incoming typing.start adds a remote user to typingUsers", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+      expect(result.current.typingUsers[0].user_id).toBe("user2");
+    });
+
+    it("incoming typing.stop removes a remote user from typingUsers", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.stop",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("typing events from the current user are ignored", async () => {
+      const { result } = render(defaultOptions({ userId: "user1" }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user1",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("typing users auto-expire after 3000ms", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      // Advance past the expiry threshold
+      await act(async () => {
+        vi.advanceTimersByTime(3_100);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("typing expiry timer resets on repeated typing.start", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      // Advance 2s — not past expiry yet
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+
+      // Another typing.start resets the timer
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      // Advance another 2s — still within the reset window
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      // Advance past full expiry
+      await act(async () => {
+        vi.advanceTimersByTime(1_100);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("cleans up typing timers on unmount", async () => {
+      const { result, unmount } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      // Unmount before expiry — should not throw
+      unmount();
+
+      // Advance past expiry — timers should have been cleared, no state updates
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+
+      // No assertion needed — just verifying no crash from stale timer
+    });
+
+    it("notifyTyping does not send when disconnected", async () => {
+      const { result } = render(defaultOptions());
+
+      // Do not open — socket is still connecting
+      await act(async () => {
+        result.current.notifyTyping();
+      });
+
+      const typingMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "typing.start"
+      );
+      expect(typingMsgs.length).toBe(0);
+    });
+  });
+
   describe("sendContentUpdate", () => {
     it("sends the update payload when connected and editable", async () => {
       const { result } = render(defaultOptions({ canEdit: true }));
