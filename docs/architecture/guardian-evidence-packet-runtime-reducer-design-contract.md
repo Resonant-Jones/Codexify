@@ -49,6 +49,13 @@ A local reducer dry-run CLI now exists at `scripts/guardian/reducer_dry_run.py`.
 ```bash
 python3 scripts/guardian/reducer_dry_run.py --json
 python3 scripts/guardian/reducer_dry_run.py --json --review-depth high --input readme:static_docs:docs/architecture/README.md
+The local Makefile target `guardian-evidence-reducer-dry-run` wraps this pure dry-run skeleton and returns diagnostics JSON only. It returns `packet=null` and `validation_result=null`; it does not reduce evidence, generate packets, validate packets, read evidence source files, write files, or call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is local tooling, not runtime wiring, CI gating, or release support.
+
+Examples:
+
+```text
+python3 scripts/guardian/reducer_dry_run.py --json
+make guardian-evidence-reducer-dry-run
 ```
 
 ## 6. Reducer Design Boundary

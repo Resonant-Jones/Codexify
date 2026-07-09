@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-reducer-dry-run audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -211,6 +211,10 @@ guardian-brief:
 # Validate GuardianEvidencePacket fixtures locally.
 guardian-evidence-packets-validate:
 	python3 scripts/guardian/validate_evidence_packets.py --json
+
+# Run local GuardianEvidencePacket reducer dry-run diagnostics.
+guardian-evidence-reducer-dry-run:
+	python3 scripts/guardian/reducer_dry_run.py --json
 
 # Generate the Unity Audit coherence scaffold
 audit-unity:
