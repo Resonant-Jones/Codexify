@@ -11,6 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "guardian" / "evidence_packets"
 CONTRACTS = PACKAGE / "contracts.py"
+SINGLE_VALIDATOR = ROOT / "scripts" / "guardian" / "validate_evidence_packet.py"
+BATCH_VALIDATOR = ROOT / "scripts" / "guardian" / "validate_evidence_packets.py"
+PROTOCOL_TOKENS = ROOT / "guardian" / "protocol_tokens.py"
 FIXTURES = ROOT / "docs" / "architecture" / "fixtures"
 
 EXPECTED_PACKET_FIELDS = (
@@ -66,6 +69,15 @@ def test_contract_module_is_stdlib_only_and_has_no_forbidden_imports() -> None:
         assert token not in source.lower()
     assert "import json" in source
     assert "from collections.abc import Mapping" in source
+
+
+def test_validators_consume_backend_contracts_without_import_side_effects() -> None:
+    single_source = SINGLE_VALIDATOR.read_text()
+    batch_source = BATCH_VALIDATOR.read_text()
+    assert "guardian.evidence_packets.contracts" in single_source
+    assert "guardian.evidence_packets.contracts" not in batch_source
+    assert "packet_json_invalid" not in CONTRACTS.read_text()
+    assert "packet_json_invalid" not in PROTOCOL_TOKENS.read_text()
 
 
 def test_contract_constants_match_schema() -> None:

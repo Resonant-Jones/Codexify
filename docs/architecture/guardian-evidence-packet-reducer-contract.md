@@ -53,6 +53,8 @@ The [runtime reducer design contract](./guardian-evidence-packet-runtime-reducer
 
 Code-level contract constants now exist under `guardian/evidence_packets/contracts.py`. Future backend reducer work should use this package for repeated contract-bearing packet literals. This does not implement reducer behavior or generator behavior.
 
+Packet literals now have a code-level source under `guardian/evidence_packets/contracts.py`, and local validators are aligned to that package. Future backend reducer work must avoid re-inventing packet literals.
+
 ## 3. Scope
 
 This contract defines:
