@@ -30,11 +30,17 @@ export type UseDocumentCollaborationResult = {
   accessDenied: boolean;
   /** Users currently present in the document session. */
   activeUsers: PresenceUser[];
+  /** Users who are currently typing (remote only, never includes current user). */
+  typingUsers: PresenceUser[];
   /** Send a local content update to all other clients in the session. */
   sendContentUpdate: (content: string) => void;
+  /** Signal that the current user is actively typing. */
+  notifyTyping: () => void;
+  /** Signal that the current user has stopped typing. */
+  stopTyping: () => void;
 };
 
-// ─── Colour palette ──────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const USER_COLORS = [
   "#FF6B6B",
@@ -43,6 +49,9 @@ const USER_COLORS = [
   "#FFA07A",
   "#98D8C8",
 ];
+
+/** Typing indicator auto-expires after this many milliseconds. */
+const TYPING_EXPIRY_MS = 3_000;
 
 // ─── URL construction ────────────────────────────────────────────────────────
 
@@ -76,9 +85,11 @@ export function useDocumentCollaboration({
   const [isConnected, setIsConnected] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
+  const [typingUsers, setTypingUsers] = useState<PresenceUser[]>([]);
 
   const clientRef = useRef<WsClient | null>(null);
   const userColorMapRef = useRef<Map<string, string>>(new Map());
+  const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Assign stable colours to user IDs
   const assignColor = useCallback((uid: string): string => {
@@ -100,6 +111,58 @@ export function useDocumentCollaboration({
       setActiveUsers(users);
     },
     [assignColor],
+  );
+
+  // ── Typing handlers ────────────────────────────────────────────────────
+
+  const addTypingUser = useCallback(
+    (uid: string) => {
+      if (uid === userId) return;
+
+      // Clear any existing expiry timer for this user
+      const timers = typingTimersRef.current;
+      const existing = timers.get(uid);
+      if (existing) clearTimeout(existing);
+
+      setTypingUsers((prev) => {
+        if (prev.some((u) => u.user_id === uid)) return prev;
+        return [...prev, { user_id: uid, color: assignColor(uid) }];
+      });
+
+      // Auto-expire after TYPING_EXPIRY_MS
+      timers.set(
+        uid,
+        setTimeout(() => {
+          removeTypingUser(uid);
+        }, TYPING_EXPIRY_MS)
+      );
+    },
+    [assignColor, userId],
+  );
+
+  const removeTypingUser = useCallback((uid: string) => {
+    const timers = typingTimersRef.current;
+    const timer = timers.get(uid);
+    if (timer) {
+      clearTimeout(timer);
+      timers.delete(uid);
+    }
+
+    setTypingUsers((prev) => prev.filter((u) => u.user_id !== uid));
+  }, []);
+
+  const handleRemoteTypingStart = useCallback(
+    (uid: string) => {
+      addTypingUser(uid);
+    },
+    [addTypingUser],
+  );
+
+  const handleRemoteTypingStop = useCallback(
+    (uid: string) => {
+      removeTypingUser(uid);
+    },
+    [removeTypingUser],
   );
 
   // Connect / reconnect when dependencies change
@@ -144,6 +207,10 @@ export function useDocumentCollaboration({
         rebuildPresence(data.active_users);
       } else if (data?.type === "presence.leave" && Array.isArray(data?.active_users)) {
         rebuildPresence(data.active_users);
+      } else if (data?.type === "typing.start" && typeof data?.user_id === "string") {
+        handleRemoteTypingStart(data.user_id);
+      } else if (data?.type === "typing.stop" && typeof data?.user_id === "string") {
+        handleRemoteTypingStop(data.user_id);
       }
     });
 
@@ -154,6 +221,11 @@ export function useDocumentCollaboration({
     client.connect();
 
     return () => {
+      // Clean up typing timers
+      const timers = typingTimersRef.current;
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+
       client.disconnect();
       clientRef.current = null;
     };
@@ -175,10 +247,31 @@ export function useDocumentCollaboration({
     [canEdit, userId],
   );
 
+  // Public API — deliberately not wrapped in useCallback so they always
+  // capture the latest clientRef. The WsClient.send() guards on socket readiness.
+  const notifyTyping = () => {
+    clientRef.current?.send({
+      type: "typing.start",
+      user_id: userId,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  const stopTyping = () => {
+    clientRef.current?.send({
+      type: "typing.stop",
+      user_id: userId,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
   return {
     isConnected,
     accessDenied,
     activeUsers,
+    typingUsers,
     sendContentUpdate,
+    notifyTyping,
+    stopTyping,
   };
 }
