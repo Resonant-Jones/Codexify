@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
 _DEFAULT_GROQ_BASE = "https://api.groq.com"
+_DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com"
 _DEFAULT_MINIMAX_BASE = "https://api.minimax.io/v1"
 _DEFAULT_ALIBABA_BASE = "https://coding-intl.dashscope.aliyuncs.com/v1"
 _DEFAULT_LOCAL_DOCKER_FALLBACK_BASE = "http://host.docker.internal:8000"
@@ -1630,6 +1631,18 @@ def chat_with_ai(
                 },
             ),
         )
+    if provider_name == "deepseek":
+        return call_deepseek(
+            messages,
+            target_model,
+            **_filter_callable_kwargs(
+                call_deepseek,
+                {
+                    "temperature": temperature,
+                    "settings": settings,
+                },
+            ),
+        )
     if provider_name == "alibaba":
         return call_alibaba(
             messages,
@@ -2949,6 +2962,30 @@ def call_openai(
         api_key=settings.OPENAI_API_KEY,
         base_url=settings.OPENAI_BASE_URL,
         default_base_url=_DEFAULT_OPENAI_BASE,
+        base_path="/v1/chat/completions",
+        messages=messages,
+        model=model,
+        temperature=temperature,
+        timeout=30.0,
+        settings=settings,
+    )
+
+
+def call_deepseek(
+    messages,
+    model: str,
+    *,
+    temperature: Optional[float] = None,
+    settings: Optional[Settings] = None,
+):
+    settings = _resolve_settings(settings)
+    return _call_openai_compatible_chat(
+        provider_name="deepseek",
+        provider_display_name="DeepSeek",
+        egress_target="deepseek",
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        default_base_url=_DEFAULT_DEEPSEEK_BASE,
         base_path="/v1/chat/completions",
         messages=messages,
         model=model,

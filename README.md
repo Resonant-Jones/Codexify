@@ -14,6 +14,8 @@ Codexify treats AI work as an evolving workspace. Threads, documents, memories, 
 
 The goal is not to hide complexity. The goal is to make the complexity legible, inspectable, and useful.
 
+The future of AI work is not just better models. It is better boundaries.
+
 ## Highlights
 
 - **Local-first runtime** with Docker Compose as the reference path.

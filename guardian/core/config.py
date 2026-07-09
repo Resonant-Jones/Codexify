@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ALIBABA_API_BASE = (
     "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
 )
+_DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com"
 _DEFAULT_MINIMAX_ANTHROPIC_API_BASE = "https://api.minimax.io/anthropic"
 SUPPORTED_ROUTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "openai",
     "groq",
+    "deepseek",
     "alibaba",
     "minimax",
 )
@@ -30,6 +32,7 @@ ROUTER_SUPPORTED_LLM_PROVIDERS: tuple[str, ...] = (
     "local",
     "groq",
     "openai",
+    "deepseek",
     "alibaba",
     "minimax",
 )
@@ -96,7 +99,7 @@ class Settings(BaseSettings):
     ALLOW_CLOUD_PROVIDERS: bool = Field(
         default=False,
         description=(
-            "Safety switch: when false, cloud providers (openai/groq/alibaba/minimax) are disallowed and local must be used. "
+            "Safety switch: when false, cloud providers (openai/groq/deepseek/alibaba/minimax) are disallowed and local must be used. "
             "Set to true only if you intentionally want cloud fallback."
         ),
     )
@@ -116,7 +119,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
-            "Supported entries include: openai, groq, alibaba, minimax, elevenlabs, federation, webhook."
+            "Supported entries include: openai, groq, deepseek, alibaba, minimax, elevenlabs, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(
@@ -142,6 +145,18 @@ class Settings(BaseSettings):
     GROQ_MODEL: str | None = Field(
         default=None,
         description="Optional explicit chat model for Groq completions.",
+    )
+    DEEPSEEK_API_KEY: str | None = Field(
+        default=None,
+        description="API key for DeepSeek.",
+    )
+    DEEPSEEK_BASE_URL: str | None = Field(
+        default=_DEFAULT_DEEPSEEK_BASE,
+        description="Base URL for DeepSeek's OpenAI-compatible API endpoint.",
+    )
+    DEEPSEEK_CHAT_MODEL: str | None = Field(
+        default="deepseek-v4-pro",
+        description="Default chat model for DeepSeek completions.",
     )
     EMBEDDER_PROVIDER: str = Field(
         default="local_api",
@@ -514,7 +529,7 @@ class Settings(BaseSettings):
     )
     PROVIDER_MAX_RETRIES: int = Field(
         default=3,
-        description="Max retry attempts for provider requests (applies to local/openai/groq).",
+        description="Max retry attempts for provider requests (applies to local/openai/groq/deepseek).",
     )
     PROVIDER_RETRY_BASE_SECONDS: float = Field(
         default=0.5,
@@ -750,6 +765,12 @@ class Settings(BaseSettings):
             logger.warning(
                 "[config] DEFAULT_CLOUD_MODEL is deprecated for Groq; use GROQ_MODEL."
             )
+        if not str(getattr(self, "DEEPSEEK_BASE_URL", "") or "").strip():
+            self.DEEPSEEK_BASE_URL = _DEFAULT_DEEPSEEK_BASE
+        if not _normalize_model_setting(
+            getattr(self, "DEEPSEEK_CHAT_MODEL", None)
+        ):
+            self.DEEPSEEK_CHAT_MODEL = "deepseek-v4-pro"
 
 
 # Create a singleton instance that can be imported across the application
@@ -1143,6 +1164,16 @@ def validate_llm_config(
             )
         if not settings.GROQ_API_KEY:
             raise LLMConfigError("GROQ_API_KEY is not configured")
+        _validate_supported_profile_contract(settings)
+        return
+
+    if provider == "deepseek":
+        if not settings.ALLOW_CLOUD_PROVIDERS:
+            raise LLMConfigError(
+                "Cloud providers are disabled (ALLOW_CLOUD_PROVIDERS=false). Set LLM_PROVIDER=local or enable cloud explicitly."
+            )
+        if not settings.DEEPSEEK_API_KEY:
+            raise LLMConfigError("DEEPSEEK_API_KEY is not configured")
         _validate_supported_profile_contract(settings)
         return
 

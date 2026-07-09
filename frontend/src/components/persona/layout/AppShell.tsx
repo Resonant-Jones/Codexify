@@ -1937,6 +1937,7 @@ export default function AppShell({
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
+    "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,
     "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
     "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
     "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
@@ -2914,10 +2915,12 @@ export default function AppShell({
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
+        position: isPhoneShell ? "fixed" : undefined,
         height: isPhoneShell ? "var(--shell-viewport-height, 100vh)" : undefined,
         minHeight: isPhoneShell
           ? "var(--shell-viewport-height, 100vh)"
           : shellViewportProfile.shellMinHeight,
+        top: isPhoneShell ? "var(--shell-viewport-offset-top, 0px)" : undefined,
         padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",

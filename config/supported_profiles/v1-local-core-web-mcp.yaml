@@ -70,7 +70,7 @@ provider_contract:
   ALLOW_CLOUD_PROVIDERS: false
   CODEXIFY_LOCAL_ONLY_MODE: true
   CODEXIFY_EGRESS_ALLOWLIST: ""
-  LOCAL_BASE_URL: http://100.109.4.57:8000/v1
+  LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
   # Model names are NOT enforced here — the system discovers available models
   # at runtime. If no local models exist AND no cloud provider is configured,

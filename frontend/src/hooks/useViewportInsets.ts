@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type ViewportInsets = {
   layoutViewportHeight: number;
   visualViewportHeight: number;
+  visualViewportOffsetTop: number;
   keyboardInset: number;
   isKeyboardOpen: boolean;
 };
@@ -10,6 +11,7 @@ export type ViewportInsets = {
 const DEFAULT_VIEWPORT_INSETS: ViewportInsets = {
   layoutViewportHeight: 0,
   visualViewportHeight: 0,
+  visualViewportOffsetTop: 0,
   keyboardInset: 0,
   isKeyboardOpen: false,
 };
@@ -37,6 +39,7 @@ function readViewportInsets(): ViewportInsets {
   return {
     layoutViewportHeight,
     visualViewportHeight,
+    visualViewportOffsetTop,
     keyboardInset,
     isKeyboardOpen: keyboardInset > 24,
   };
@@ -66,6 +69,7 @@ export function useViewportInsets(enabled = true): ViewportInsets {
         setViewportInsets((previous) =>
           previous.layoutViewportHeight === next.layoutViewportHeight &&
           previous.visualViewportHeight === next.visualViewportHeight &&
+          previous.visualViewportOffsetTop === next.visualViewportOffsetTop &&
           previous.keyboardInset === next.keyboardInset &&
           previous.isKeyboardOpen === next.isKeyboardOpen
             ? previous
