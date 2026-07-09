@@ -307,6 +307,12 @@ A local static validator script now exists at `scripts/guardian/validate_evidenc
 python3 scripts/guardian/validate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-packet.codex-runner-bridge-proof-chain.v1.json --json
 ```
 
+A local batch validator script exists at `scripts/guardian/validate_evidence_packets.py`. It scans GuardianEvidencePacket fixtures under `docs/architecture/fixtures` by default and emits a `GuardianEvidencePacketBatchValidationResult`. It preserves individual packet warnings, does not convert warnings into failures, and does not prove claim truth.
+
+```bash
+python3 scripts/guardian/validate_evidence_packets.py --json
+```
+
 The script validates shape and guardrail presence only. It does not prove claim truth. It does not promote evidence to authority. It is not runtime code, not ingestion, not UI, and does not write receipts. It does not invoke live validation or orchestration.
 
 ## 27. Relationship to Runtime Reducer Implementation

@@ -555,6 +555,15 @@ def _build_result(
     }
 
 
+def validate_packet_file(packet_file: Path) -> dict[str, Any]:
+    """Validate a GuardianEvidencePacket JSON file.
+
+    Returns a GuardianEvidencePacketStaticValidationResult dict.
+    Import-friendly wrapper for use by batch validators and other tools.
+    """
+    return validate_packet(str(packet_file))
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
