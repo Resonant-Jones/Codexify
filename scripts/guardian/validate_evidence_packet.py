@@ -20,102 +20,45 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Direct script execution starts with scripts/guardian on sys.path. Add only
+# the repository root so this local tool can import its pure contract package.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from guardian.evidence_packets.contracts import (
+    ALLOWED_CLAIM_STATUSES,
+    ALLOWED_REVIEW_DEPTHS,
+    BOUNDARY_LABEL,
+    GUARDIAN_EVIDENCE_PACKET_SCHEMA_VERSION,
+    REQUIRED_AUTHORITY_LOCKS,
+    REQUIRED_CLAIM_FIELDS,
+    REQUIRED_EVIDENCE_REF_FIELDS,
+    REQUIRED_INVARIANT_CHECK_FIELDS,
+    REQUIRED_LOOP_POLICY_FIELDS,
+    REQUIRED_PACKET_FIELDS,
+    STATIC_VALIDATION_RESULT_SCHEMA_VERSION,
+    authority_locks_true,
+    is_allowed_claim_status,
+    is_allowed_review_depth,
+    is_preflight_evidence_class,
+    missing_authority_locks,
+    missing_claim_fields,
+    missing_evidence_ref_fields,
+    missing_invariant_check_fields,
+    missing_loop_policy_fields,
+    missing_packet_fields,
+    packet_declares_boundary_label,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "guardian_evidence_packet.v1"
 VALIDATOR_VERSION = "guardian_evidence_packet_static_validator_contract.v1"
-RESULT_VERSION = "guardian_evidence_packet_static_validation_result.v1"
 SCRIPT_ID = "scripts/guardian/validate_evidence_packet.py"
 
-ALLOWED_REVIEW_DEPTHS = frozenset({"light", "medium", "high", "xhigh"})
-ALLOWED_CLAIM_STATUSES = frozenset({
-    "supported", "unsupported", "blocked", "inferred", "not_evaluated",
-})
 ALLOWED_RESULTS = frozenset({"pass", "pass_with_warnings", "fail"})
-
-REQUIRED_AUTHORITY_LOCKS = (
-    "guardian_operational",
-    "plan_execution_allowed",
-    "pi_loop_invocation_allowed",
-    "codexify_ingestion_allowed",
-    "durable_mutation_allowed",
-    "provider_execution_allowed",
-    "patch_application_allowed",
-    "dispatch_allowed",
-    "merge_allowed",
-)
-
-REQUIRED_PACKET_FIELDS = (
-    "schema_version",
-    "packet_id",
-    "created_at",
-    "source_domain",
-    "evidence_class",
-    "review_depth",
-    "subject",
-    "reducer_profile_ref",
-    "raw_evidence_refs",
-    "reduced_summary",
-    "claim_ledger",
-    "authority_state",
-    "invariant_checks",
-    "uncertainty",
-    "forbidden_interpretations",
-    "next_gate_options",
-    "recommended_next_gate",
-    "loop_policy",
-    "provenance",
-    "limits",
-)
-
-REQUIRED_EVIDENCE_REF_FIELDS = (
-    "ref_id",
-    "ref_type",
-    "uri_or_path",
-    "source_system",
-    "content_hash",
-    "timestamp",
-    "status",
-    "trust_posture",
-    "notes",
-)
-
-REQUIRED_CLAIM_FIELDS = (
-    "claim_id",
-    "claim",
-    "status",
-    "evidence_refs",
-    "confidence",
-    "limits",
-    "counterclaims",
-    "missing_evidence",
-    "forbidden_interpretations",
-)
-
-REQUIRED_INVARIANT_FIELDS = (
-    "invariant_id",
-    "status",
-    "evidence_refs",
-    "notes",
-)
-
-REQUIRED_LOOP_POLICY_FIELDS = (
-    "bounded",
-    "review_depth",
-    "self_check_passes",
-    "recursive_autonomous_loop_allowed",
-    "adversarial_review_required",
-    "missing_proof_ledger_required",
-)
-
-BOUNDARY_LABEL_EXPECTED = (
-    "PREFLIGHT ONLY\n"
-    "NO PI LOOP INVOCATION\n"
-    "NO SOURCE MUTATION\n"
-    "NO CODEXIFY INGESTION"
-)
 
 # Candidate validator issue codes (not runtime protocol tokens)
 ISSUE_CODES = frozenset({
@@ -303,13 +246,13 @@ def _check_schema_version(packet: dict, add) -> None:
     if sv is None:
         add("error", "packet_schema_version_missing", "$.schema_version",
             "schema_version is required")
-    elif sv != SCHEMA_VERSION:
+    elif sv != GUARDIAN_EVIDENCE_PACKET_SCHEMA_VERSION:
         add("error", "packet_schema_version_unsupported", "$.schema_version",
-            f"schema_version must be '{SCHEMA_VERSION}', got '{sv}'")
+            f"schema_version must be '{GUARDIAN_EVIDENCE_PACKET_SCHEMA_VERSION}', got '{sv}'")
 
 
 def _check_required_fields(packet: dict, add) -> None:
-    for field in REQUIRED_PACKET_FIELDS:
+    for field in missing_packet_fields(packet):
         if field not in packet:
             add("error", "packet_required_field_missing", f"$.{field}",
                 f"Required field '{field}' is missing")
@@ -317,7 +260,7 @@ def _check_required_fields(packet: dict, add) -> None:
 
 def _check_review_depth(packet: dict, add) -> None:
     rd = packet.get("review_depth")
-    if rd is not None and rd not in ALLOWED_REVIEW_DEPTHS:
+    if rd is not None and not is_allowed_review_depth(rd):
         add("error", "review_depth_invalid", "$.review_depth",
             f"review_depth must be one of {sorted(ALLOWED_REVIEW_DEPTHS)}, got '{rd}'")
 
@@ -339,7 +282,7 @@ def _check_evidence_refs(packet: dict, add) -> set[str]:
             add("error", "evidence_ref_required_field_missing",
                 f"$.raw_evidence_refs[{idx}]", "Evidence ref must be an object")
             continue
-        for field in REQUIRED_EVIDENCE_REF_FIELDS:
+        for field in missing_evidence_ref_fields(ref):
             if field not in ref:
                 add("error", "evidence_ref_required_field_missing",
                     f"$.raw_evidence_refs[{idx}].{field}",
@@ -365,13 +308,13 @@ def _check_claim_ledger(packet: dict, ref_id_set: set[str], add) -> None:
             add("error", "claim_required_field_missing",
                 f"$.claim_ledger[{idx}]", "Claim must be an object")
             continue
-        for field in REQUIRED_CLAIM_FIELDS:
+        for field in missing_claim_fields(claim):
             if field not in claim:
                 add("error", "claim_required_field_missing",
                     f"$.claim_ledger[{idx}].{field}",
                     f"Claim missing required field '{field}'")
         status = claim.get("status")
-        if isinstance(status, str) and status not in ALLOWED_CLAIM_STATUSES:
+        if isinstance(status, str) and not is_allowed_claim_status(status):
             add("error", "claim_status_invalid",
                 f"$.claim_ledger[{idx}].status",
                 f"Claim status must be one of {sorted(ALLOWED_CLAIM_STATUSES)}, got '{status}'")
@@ -390,21 +333,20 @@ def _check_authority(packet: dict, add) -> None:
         add("error", "authority_state_missing", "$.authority_state",
             "authority_state is required")
         return
+    for lock in missing_authority_locks(auth):
+        add("error", "authority_lock_missing", f"$.authority_state.{lock}",
+            f"Authority lock '{lock}' is missing from authority_state")
+    true_locks = authority_locks_true(auth)
     for lock in REQUIRED_AUTHORITY_LOCKS:
-        if lock not in auth:
-            add("error", "authority_lock_missing", f"$.authority_state.{lock}",
-                f"Authority lock '{lock}' is missing from authority_state")
+        if lock not in true_locks:
             continue
-        val = auth[lock]
-        if val is True:
-            ec = packet.get("evidence_class", "")
-            bl = packet.get("boundary_label", "")
-            preflight = ("preflight" in str(ec).lower() or
-                         "PREFLIGHT ONLY" in str(bl))
-            if preflight or str(ec):
-                add("error", "authority_lock_true_for_preflight",
-                    f"$.authority_state.{lock}",
-                    f"Authority lock '{lock}' is true in a preflight-only packet")
+        ec = packet.get("evidence_class", "")
+        bl = packet.get("boundary_label", "")
+        preflight = is_preflight_evidence_class(ec) or "PREFLIGHT ONLY" in str(bl)
+        if preflight or str(ec):
+            add("error", "authority_lock_true_for_preflight",
+                f"$.authority_state.{lock}",
+                f"Authority lock '{lock}' is true in a preflight-only packet")
 
 
 def _check_invariant_checks(packet: dict, add) -> None:
@@ -414,7 +356,7 @@ def _check_invariant_checks(packet: dict, add) -> None:
     for idx, inv in enumerate(invs):
         if not isinstance(inv, dict):
             continue
-        for field in REQUIRED_INVARIANT_FIELDS:
+        for field in missing_invariant_check_fields(inv):
             if field not in inv:
                 add("error", "invariant_required_field_missing",
                     f"$.invariant_checks[{idx}].{field}",
@@ -461,7 +403,7 @@ def _check_loop_policy(packet: dict, add) -> None:
         add("error", "loop_policy_missing", "$.loop_policy",
             "loop_policy is required")
         return
-    for field in REQUIRED_LOOP_POLICY_FIELDS:
+    for field in missing_loop_policy_fields(lp):
         if field not in lp:
             add("error", "loop_policy_missing", f"$.loop_policy.{field}",
                 f"loop_policy missing required field '{field}'")
@@ -478,11 +420,8 @@ def _check_boundary_label(packet: dict, add) -> None:
         add("error", "boundary_label_missing", "$.boundary_label",
             "boundary_label is missing or empty")
         return
-    missing_lines = [
-        line for line in BOUNDARY_LABEL_EXPECTED.split("\n")
-        if line not in bl
-    ]
-    if missing_lines:
+    if not packet_declares_boundary_label({"boundary_label": bl}):
+        missing_lines = [line for line in BOUNDARY_LABEL.splitlines() if line not in bl]
         add("error", "boundary_label_missing", "$.boundary_label",
             f"boundary_label missing required lines: {missing_lines}")
 
@@ -540,7 +479,7 @@ def _build_result(
     issues: list[dict[str, str]],
 ) -> dict[str, Any]:
     return {
-        "schema_version": RESULT_VERSION,
+        "schema_version": STATIC_VALIDATION_RESULT_SCHEMA_VERSION,
         "validated_packet_ref": packet_ref,
         "validator_contract_version": VALIDATOR_VERSION,
         "result": result,

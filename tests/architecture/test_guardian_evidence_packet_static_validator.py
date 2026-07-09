@@ -49,7 +49,7 @@ def test_script_no_runtime_imports() -> None:
     source = SCRIPT.read_text()
     forbidden = (
         "docker", "requests", "httpx", "subprocess", "sqlite3",
-        "psycopg", "sqlalchemy", "fastapi", "guardian.",
+        "psycopg", "sqlalchemy", "fastapi", "guardian.protocol_tokens",
     )
     for mod in forbidden:
         assert mod not in source, f"Script must not import {mod}"
@@ -63,9 +63,38 @@ def test_script_uses_stdlib_only() -> None:
         stripped = line.strip()
         allowed_prefixes = ("import json", "import argparse", "import sys",
                             "import os", "from datetime", "from pathlib",
-                            "from __future__", "from typing")
+                            "from __future__", "from typing",
+                            "from guardian.evidence_packets.contracts")
         if not any(stripped.startswith(p) for p in allowed_prefixes):
             pytest.fail(f"Script may have non-stdlib import: {stripped}")
+
+
+def test_script_uses_backend_packet_contracts_without_duplicate_shape_constants() -> None:
+    source = SCRIPT.read_text()
+    assert "from guardian.evidence_packets.contracts import" in source
+    assert "GUARDIAN_EVIDENCE_PACKET_SCHEMA_VERSION" in source
+    assert "STATIC_VALIDATION_RESULT_SCHEMA_VERSION" in source
+    assert "BOUNDARY_LABEL" in source
+    assert "ALLOWED_REVIEW_DEPTHS" in source
+    assert "ALLOWED_CLAIM_STATUSES" in source
+    assert "REQUIRED_PACKET_FIELDS" in source
+    assert "REQUIRED_AUTHORITY_LOCKS" in source
+    assert "SCHEMA_VERSION =" not in source
+    assert "RESULT_VERSION =" not in source
+    assert "BOUNDARY_LABEL_EXPECTED =" not in source
+    assert "ALLOWED_REVIEW_DEPTHS = frozenset" not in source
+    assert "REQUIRED_PACKET_FIELDS = (" not in source
+
+
+def test_validator_issue_codes_remain_local() -> None:
+    source = SCRIPT.read_text()
+    assert "ISSUE_CODES = frozenset" in source
+    assert "guardian.protocol_tokens" not in source
+
+
+def test_local_validator_fixture_still_validates() -> None:
+    proc = _run(str(ROOT / "docs/architecture/fixtures" / "guardian-evidence-packet.local-validator-toolchain.v1.json"), "--json")
+    assert proc.returncode == 0
 
 
 # ---------------------------------------------------------------------------
