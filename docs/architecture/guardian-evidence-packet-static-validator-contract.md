@@ -311,9 +311,10 @@ A local batch validator script exists at `scripts/guardian/validate_evidence_pac
 
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
+make guardian-evidence-packets-validate
 ```
 
-The script validates shape and guardrail presence only. It does not prove claim truth. It does not promote evidence to authority. It is not runtime code, not ingestion, not UI, and does not write receipts. It does not invoke live validation or orchestration.
+The local Makefile target is operator tooling only: it runs the batch validator over the fixture set. It is not runtime code, ingestion, UI, CI by default, or a release gate by default. It does not write receipts or invoke live validation or orchestration. The script validates shape and guardrail presence only. It does not prove claim truth or promote evidence to authority.
 
 ## 27. Relationship to Runtime Reducer Implementation
 
