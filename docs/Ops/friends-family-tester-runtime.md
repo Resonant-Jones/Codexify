@@ -257,6 +257,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 - **Do not reuse secrets** between `.env.tester` and `.env`.
 - **The dev stack and tester stack share Docker images but have fully isolated volumes** thanks to distinct `COMPOSE_PROJECT_NAME` values.
 - **`docker compose down -v` is destructive** — it removes all volumes for the given project. Double-check `COMPOSE_PROJECT_NAME` before running it.
+- **The tester and dev stacks cannot run simultaneously** because Docker Compose appends host port mappings (they are not replaced by overrides). The backend, frontend, db, and neo4j host ports will conflict. Stop the dev stack before starting the tester, and vice versa.
 
 ## Related Documents
 
