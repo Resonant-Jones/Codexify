@@ -59,6 +59,8 @@ Code-level reducer interface contracts now exist under `guardian/evidence_packet
 
 A pure reducer dry-run skeleton exists under `guardian/evidence_packets/reducer.py`. It proves lifecycle stop behavior only; it is not a reducer implementation, packet generator, or runtime support.
 
+A local reducer dry-run CLI exists under `scripts/guardian/reducer_dry_run.py`. It proves dry-run diagnostics and stop behavior only; it is not a reducer implementation, packet generator, validation behavior, or runtime support.
+
 ## 3. Scope
 
 This contract defines:

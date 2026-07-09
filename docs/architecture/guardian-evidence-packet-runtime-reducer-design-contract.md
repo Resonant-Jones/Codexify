@@ -44,6 +44,13 @@ Pure reducer interface contracts now exist at `guardian/evidence_packets/reducer
 
 A pure reducer dry-run skeleton now exists at `guardian/evidence_packets/reducer.py`. It accepts `ReducerInputBundle` and returns `ReducerResult`, stops after receive/classify/stop diagnostics, and returns `packet=None` and `validation_result=None`. It does not reduce evidence, generate packets, validate packets, call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not runtime wiring.
 
+A local reducer dry-run CLI now exists at `scripts/guardian/reducer_dry_run.py`. It wraps the pure dry-run skeleton and returns diagnostics JSON only, with `packet=null` and `validation_result=null`. It does not reduce evidence, generate packets, validate packets, read evidence source files, write files, call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not runtime wiring.
+
+```bash
+python3 scripts/guardian/reducer_dry_run.py --json
+python3 scripts/guardian/reducer_dry_run.py --json --review-depth high --input readme:static_docs:docs/architecture/README.md
+```
+
 ## 6. Reducer Design Boundary
 
 A future reducer is a pure, bounded evidence-reduction boundary. It receives an explicitly bounded input set and produces only a `GuardianEvidencePacket` plus an associated static validation result and diagnostic summary where separately requested.
