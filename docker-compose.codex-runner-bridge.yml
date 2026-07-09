@@ -8,11 +8,18 @@
 # This override makes the host Codex Runner checkout visible to the Codexify
 # backend container at the exact path expected by the existing bridge adapter.
 #
+# It also configures module-mode invocation (python -m codex_runner ...) so the
+# backend can invoke Codex Runner through the mounted source checkout without
+# requiring a global `codexrun` binary on the container PATH.
+#
 # ------------------------------------------------------------------------------
 # IMPORTANT: this override is:
 #   - local-only
 #   - opt-in (not applied by default unless explicitly included via -f)
 #   - for Guardian Codex Runner preflight validation only
+#
+# Module invocation is opt-in and local-only.  The default adapter behavior
+# remains binary mode (codexrun on PATH) unless this override is used.
 #
 # ------------------------------------------------------------------------------
 # BOUNDARY:
@@ -21,6 +28,9 @@
 #   NO PI LOOP INVOCATION
 #   NO SOURCE MUTATION
 #   NO CODEXIFY INGESTION
+#
+# Module invocation does NOT authorize write flags, orchestration, source
+# mutation, Pi Loop invocation, or Codexify ingestion.
 # ------------------------------------------------------------------------------
 #
 # Docker Desktop may require the host path to be shared before the bind mount
@@ -34,3 +44,13 @@ services:
       # Read-only bind mount of the host Codex Runner checkout into the backend
       # container at the exact path the bridge adapter expects.
       - ${CODEX_RUNNER_HOST_ROOT:-/Volumes/Dev_SSD/Codex-Runner}:${CODEX_RUNNER_CONTAINER_ROOT:-/Volumes/Dev_SSD/Codex-Runner}:ro
+    environment:
+      # Opt-in module invocation: use python -m codex_runner instead of a
+      # global `codexrun` binary.  Set CODEXRUN_INVOCATION_MODE=binary to
+      # revert to the default binary-mode behavior.
+      CODEXRUN_INVOCATION_MODE: "${CODEXRUN_INVOCATION_MODE:-module}"
+      CODEXRUN_PYTHON_BINARY: "${CODEXRUN_PYTHON_BINARY:-python}"
+      CODEXRUN_MODULE: "${CODEXRUN_MODULE:-codex_runner}"
+      # Prepend the mounted Codex Runner src directory to PYTHONPATH so
+      # python -m codex_runner resolves inside the mounted checkout.
+      PYTHONPATH: "${CODEX_RUNNER_CONTAINER_ROOT:-/Volumes/Dev_SSD/Codex-Runner}/src:/app"

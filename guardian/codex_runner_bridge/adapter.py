@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-from typing import Any
+from typing import Any, Mapping
 
 from guardian.codex_runner_bridge.contracts import (
     BOUNDARY_LABEL,
@@ -39,6 +40,77 @@ class GuardianBridgeUnsupportedOperationError(GuardianBridgeAdapterError):
     """Raised when a request asks for an unsupported bridge operation."""
 
 
+class GuardianBridgeInvocationModeError(GuardianBridgeAdapterError):
+    """Raised when the configured invocation mode is unsupported or invalid."""
+
+
+class GuardianBridgeInvocationConfigError(GuardianBridgeAdapterError):
+    """Raised when invocation config contains invalid tokens (e.g. whitespace)."""
+
+
+# ---------------------------------------------------------------------------
+# Invocation-mode resolver
+# ---------------------------------------------------------------------------
+
+ALLOWED_INVOCATION_MODES: tuple[str, ...] = ("binary", "module")
+DEFAULT_INVOCATION_MODE: str = "binary"
+
+CODEXRUN_INVOCATION_MODE_ENV = "CODEXRUN_INVOCATION_MODE"
+CODEXRUN_BINARY_ENV = "CODEXRUN_BINARY"
+CODEXRUN_PYTHON_BINARY_ENV = "CODEXRUN_PYTHON_BINARY"
+CODEXRUN_MODULE_ENV = "CODEXRUN_MODULE"
+
+def _clean_single_token(value: str, env_name: str) -> str:
+    token = value.strip()
+    if not token:
+        raise GuardianBridgeInvocationConfigError(
+            f"{env_name} must be non-empty."
+        )
+    if any(ch.isspace() for ch in token):
+        raise GuardianBridgeInvocationConfigError(
+            f"{env_name} must not contain whitespace."
+        )
+    return token
+
+
+def resolve_codexrun_command_prefix(
+    env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Return the command prefix argv list for the requested invocation mode.
+
+    Environment keys read (via *env* or ``os.environ``):
+
+    * ``CODEXRUN_INVOCATION_MODE`` – ``"binary"`` (default) or ``"module"``
+    * ``CODEXRUN_BINARY`` – executable token for binary mode (default ``"codexrun"``)
+    * ``CODEXRUN_PYTHON_BINARY`` – Python executable for module mode (default ``"python"``)
+    * ``CODEXRUN_MODULE`` – module name for module mode (default ``"codex_runner"``)
+    """
+    resolved_env = os.environ if env is None else dict(env)
+
+    mode_raw = resolved_env.get(
+        CODEXRUN_INVOCATION_MODE_ENV, DEFAULT_INVOCATION_MODE
+    )
+    mode = mode_raw.strip().lower()
+    if mode not in ALLOWED_INVOCATION_MODES:
+        raise GuardianBridgeInvocationModeError(
+            f"{CODEXRUN_INVOCATION_MODE_ENV} must be one of: "
+            f"{', '.join(ALLOWED_INVOCATION_MODES)}. Got: {mode_raw!r}"
+        )
+
+    if mode == "binary":
+        binary = resolved_env.get(CODEXRUN_BINARY_ENV, CODEXRUN_BINARY)
+        return [_clean_single_token(binary, CODEXRUN_BINARY_ENV)]
+
+    # module mode
+    py_binary = resolved_env.get(CODEXRUN_PYTHON_BINARY_ENV, "python")
+    module_name = resolved_env.get(CODEXRUN_MODULE_ENV, "codex_runner")
+    return [
+        _clean_single_token(py_binary, CODEXRUN_PYTHON_BINARY_ENV),
+        "-m",
+        _clean_single_token(module_name, CODEXRUN_MODULE_ENV),
+    ]
+
+
 def build_codex_runner_command(request: GuardianBridgeRequest) -> list[str]:
     validated = validate_bridge_request(request)
 
@@ -59,9 +131,11 @@ def build_codex_runner_command(request: GuardianBridgeRequest) -> list[str]:
             "write_orchestration_receipt is not supported by this adapter slice."
         )
 
+    prefix = resolve_codexrun_command_prefix()
+
     if validated.operation == GuardianBridgeOperation.VALIDATE_PLAN_PACK:
         return [
-            CODEXRUN_BINARY,
+            *prefix,
             "guardian",
             "validate-plan-pack",
             "--path",
@@ -75,7 +149,7 @@ def build_codex_runner_command(request: GuardianBridgeRequest) -> list[str]:
                 "validation_receipt_path is required for orchestrate_dry_run_preflight."
             )
         return [
-            CODEXRUN_BINARY,
+            *prefix,
             "guardian",
             "orchestrate-dry-run",
             "--plan-pack",
@@ -188,12 +262,21 @@ def run_codex_runner_json(
 
 __all__ = [
     "ADAPTER_VERSION",
+    "ALLOWED_INVOCATION_MODES",
     "CODEXRUN_BINARY",
+    "CODEXRUN_BINARY_ENV",
+    "CODEXRUN_INVOCATION_MODE_ENV",
+    "CODEXRUN_MODULE_ENV",
+    "CODEXRUN_PYTHON_BINARY_ENV",
+    "DEFAULT_INVOCATION_MODE",
     "DEFAULT_TIMEOUT_SECONDS",
     "GuardianBridgeAdapterError",
     "GuardianBridgeCommandError",
+    "GuardianBridgeInvocationConfigError",
+    "GuardianBridgeInvocationModeError",
     "GuardianBridgeJsonError",
     "GuardianBridgeUnsupportedOperationError",
     "build_codex_runner_command",
+    "resolve_codexrun_command_prefix",
     "run_codex_runner_json",
 ]
