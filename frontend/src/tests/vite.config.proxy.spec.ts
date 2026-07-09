@@ -38,11 +38,12 @@ describe("vite /media proxy", () => {
     );
   });
 
-  it("binds the dev server to 0.0.0.0 and allows the MagicDNS host", async () => {
+  it("binds the dev server to 0.0.0.0 and allows the MagicDNS host and Tailscale IP", async () => {
     const viteConfigModule = await import("../vite.config");
     const config = viteConfigModule.default as any;
 
     expect(config.server?.host).toBe("0.0.0.0");
     expect(config.server?.allowedHosts).toContain("vaultnode");
+    expect(config.server?.allowedHosts).toContain("100.100.42.37");
   });
 });
