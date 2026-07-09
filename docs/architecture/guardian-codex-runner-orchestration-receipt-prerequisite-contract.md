@@ -332,6 +332,8 @@ An operator receipt path availability check has been performed. See [`guardian-c
 
 An operator-selected receipt path check was performed. See [`guardian-codex-runner-selected-validation-receipt-proof.md`](./guardian-codex-runner-selected-validation-receipt-proof.md) — the selected receipt was verified as `SELECTED_AVAILABLE`. Selected availability does not imply trust, ingestion, orchestration, dispatch, or execution authority.
 
+The first live dry-run orchestration preflight proof was performed. See [`guardian-codex-runner-command-bus-live-orchestration-proof.md`](./guardian-codex-runner-command-bus-live-orchestration-proof.md). Orchestration preflight success, if observed, is dry-run record preparation only — not execution authority.
+
 Live orchestration proof remains deferred.
 
 ## 19. Forbidden Interpretations

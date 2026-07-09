@@ -77,7 +77,10 @@ Implementation/proof-status note:
 - a validation receipt availability proof exists at `docs/architecture/guardian-codex-runner-validation-receipt-availability-proof.md`
 - the availability proof records whether an operator-selected receipt path is visible
 - a selected validation receipt proof exists at `docs/architecture/guardian-codex-runner-selected-validation-receipt-proof.md`
+- a live dry-run orchestration proof exists at `docs/architecture/guardian-codex-runner-command-bus-live-orchestration-proof.md`
 - it does not prove live orchestration
+- it does not prove Pi Loop invocation
+- it does not prove plan execution
 - it does not create, trust, or ingest receipts
 - it does not enable write flags
 - it does not prove live validation
