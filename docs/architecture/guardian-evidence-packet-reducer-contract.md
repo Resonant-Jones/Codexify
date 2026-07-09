@@ -51,6 +51,8 @@ The local validator toolchain fixture demonstrates the schema outside the bridge
 
 The [runtime reducer design contract](./guardian-evidence-packet-runtime-reducer-design-contract.md) defines the future reducer boundary. It is docs-only: it does not implement reducer code or packet generation, and it does not authorize ingestion, execution, UI, Execution Ledger adoption, or WorkOrder mutation.
 
+Code-level contract constants now exist under `guardian/evidence_packets/contracts.py`. Future backend reducer work should use this package for repeated contract-bearing packet literals. This does not implement reducer behavior or generator behavior.
+
 ## 3. Scope
 
 This contract defines:
