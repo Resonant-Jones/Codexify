@@ -21,6 +21,8 @@ The bridge proof-chain fixture is an example, not a required model for every evi
 
 The local validator toolchain fixture is the second example packet. It demonstrates packet authoring for local tooling evidence rather than bridge proof evidence. It is still a static fixture, not runtime reducer output, packet generator output, Codexify ingestion, Execution Ledger truth, or WorkOrder mutation.
 
+Manual authoring remains valid before runtime reducer implementation. The [runtime reducer design contract](./guardian-evidence-packet-runtime-reducer-design-contract.md) defines future automated reduction boundaries. Future reducer output must preserve the same authoring invariants: evidence refs, uncertainty, forbidden interpretations, and false authority locks unless separately authorized.
+
 ## 4. When to Author a GuardianEvidencePacket
 
 Author a packet when raw evidence needs bounded Guardian-readable reduction. Suitable inputs include proof documents, command-run records, receipts, validation output, hashes, architecture contracts, and other source artifacts whose references can be preserved.
