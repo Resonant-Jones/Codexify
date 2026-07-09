@@ -40,6 +40,8 @@ Pure backend contract constants now exist at `guardian/evidence_packets/contract
 
 Future reducer implementation should use `guardian/evidence_packets/contracts.py` as the source for packet constants. Local validators already consume that package, keeping future reducer and current local validation aligned. Passing validation remains shape/guardrail evidence only, not truth or authority.
 
+Pure reducer interface contracts now exist at `guardian/evidence_packets/reducer_contracts.py`. They define input classes, output classes, reducer lifecycle constants, frozen dataclasses, and pure helper functions. They do not implement reduction, generate packets, validate packets, or call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. Future reducer implementation should use these interfaces instead of inventing a parallel reducer shape.
+
 ## 6. Reducer Design Boundary
 
 A future reducer is a pure, bounded evidence-reduction boundary. It receives an explicitly bounded input set and produces only a `GuardianEvidencePacket` plus an associated static validation result and diagnostic summary where separately requested.
