@@ -312,3 +312,143 @@ def test_adapter_tests_do_not_execute_real_codexrun(monkeypatch):
         "/Volumes/Dev_SSD/Codex-Runner/docs/guardian/examples/sample-dry-run-plan-pack",
         "--json",
     ]]
+
+
+# ---------------------------------------------------------------------------
+# Invocation mode tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_codexrun_command_prefix_default_binary():
+    prefix = a.resolve_codexrun_command_prefix(env={})
+    assert prefix == ["codexrun"]
+
+
+def test_resolve_codexrun_command_prefix_explicit_binary_default_binary():
+    prefix = a.resolve_codexrun_command_prefix(env={"CODEXRUN_INVOCATION_MODE": "binary"})
+    assert prefix == ["codexrun"]
+
+
+def test_resolve_codexrun_command_prefix_binary_custom():
+    prefix = a.resolve_codexrun_command_prefix(env={
+        "CODEXRUN_INVOCATION_MODE": "binary",
+        "CODEXRUN_BINARY": "/custom/codexrun",
+    })
+    assert prefix == ["/custom/codexrun"]
+
+
+def test_resolve_codexrun_command_prefix_binary_rejects_whitespace():
+    with pytest.raises(a.GuardianBridgeInvocationConfigError):
+        a.resolve_codexrun_command_prefix(env={
+            "CODEXRUN_INVOCATION_MODE": "binary",
+            "CODEXRUN_BINARY": "codexrun --flag",
+        })
+
+
+def test_resolve_codexrun_command_prefix_module_default():
+    prefix = a.resolve_codexrun_command_prefix(env={"CODEXRUN_INVOCATION_MODE": "module"})
+    assert prefix == ["python", "-m", "codex_runner"]
+
+
+def test_resolve_codexrun_command_prefix_module_custom_python():
+    prefix = a.resolve_codexrun_command_prefix(env={
+        "CODEXRUN_INVOCATION_MODE": "module",
+        "CODEXRUN_PYTHON_BINARY": "/usr/bin/python3",
+    })
+    assert prefix == ["/usr/bin/python3", "-m", "codex_runner"]
+
+
+def test_resolve_codexrun_command_prefix_module_custom_module():
+    prefix = a.resolve_codexrun_command_prefix(env={
+        "CODEXRUN_INVOCATION_MODE": "module",
+        "CODEXRUN_MODULE": "codex_runner",
+    })
+    assert prefix == ["python", "-m", "codex_runner"]
+
+
+def test_resolve_codexrun_command_prefix_module_rejects_whitespace_python():
+    with pytest.raises(a.GuardianBridgeInvocationConfigError):
+        a.resolve_codexrun_command_prefix(env={
+            "CODEXRUN_INVOCATION_MODE": "module",
+            "CODEXRUN_PYTHON_BINARY": "python -u",
+        })
+
+
+def test_resolve_codexrun_command_prefix_module_rejects_whitespace_module():
+    with pytest.raises(a.GuardianBridgeInvocationConfigError):
+        a.resolve_codexrun_command_prefix(env={
+            "CODEXRUN_INVOCATION_MODE": "module",
+            "CODEXRUN_MODULE": "codex runner",
+        })
+
+
+def test_resolve_codexrun_command_prefix_unsupported_mode():
+    with pytest.raises(a.GuardianBridgeInvocationModeError):
+        a.resolve_codexrun_command_prefix(env={"CODEXRUN_INVOCATION_MODE": "unknown"})
+
+
+# --- Invocation mode integration with build_codex_runner_command ---
+
+
+def _mock_env(monkeypatch, **kwargs):
+    monkeypatch.setattr(a, "resolve_codexrun_command_prefix", lambda env=None: list(kwargs.get("prefix", ["codexrun"])))
+
+
+def test_build_command_uses_binary_prefix_by_default(monkeypatch):
+    _mock_env(monkeypatch, prefix=["codexrun"])
+    command = a.build_codex_runner_command(
+        _validate_request(operation="guardian.validate_plan_pack")
+    )
+    assert command[0] == "codexrun"
+
+
+def test_build_command_uses_module_prefix_when_module_mode(monkeypatch):
+    _mock_env(monkeypatch, prefix=["python", "-m", "codex_runner"])
+    command = a.build_codex_runner_command(
+        _validate_request(operation="guardian.validate_plan_pack")
+    )
+    assert command[:3] == ["python", "-m", "codex_runner"]
+    assert command[3] == "guardian"
+
+
+def test_build_command_in_module_mode_still_json_only(monkeypatch):
+    _mock_env(monkeypatch, prefix=["python", "-m", "codex_runner"])
+    command = a.build_codex_runner_command(
+        _validate_request(operation="guardian.validate_plan_pack")
+    )
+    assert "--json" in command
+
+
+def test_build_command_module_mode_still_rejects_write_flags(monkeypatch):
+    _mock_env(monkeypatch, prefix=["python", "-m", "codex_runner"])
+    with pytest.raises(a.GuardianBridgeUnsupportedOperationError):
+        a.build_codex_runner_command(
+            _validate_request(
+                operation="guardian.validate_plan_pack",
+                write_receipt=True,
+            )
+        )
+
+
+def test_build_command_module_mode_orchestrate_still_requires_receipt(monkeypatch):
+    _mock_env(monkeypatch, prefix=["python", "-m", "codex_runner"])
+    with pytest.raises(a.GuardianBridgeCommandError):
+        a.build_codex_runner_command(
+            _validate_request(
+                operation="guardian.orchestrate_dry_run_preflight",
+                validation_receipt_path=None,
+            )
+        )
+
+
+def test_subprocess_never_uses_shell_true(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, '{"reason":"ok"}', "")
+
+    monkeypatch.setattr(a.subprocess, "run", fake_run)
+    a.run_codex_runner_json(_validate_request(operation="guardian.validate_plan_pack"))
+    assert seen["shell"] is False

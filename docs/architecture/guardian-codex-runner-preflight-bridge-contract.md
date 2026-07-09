@@ -67,6 +67,9 @@ Implementation/proof-status note:
 - the visibility contract mounts Codex Runner read-only via `docker-compose.codex-runner-bridge.yml` for backend preflight validation
 - a mounted live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-mounted-proof.md`
 - the visibility mount contract solved the filesystem visibility gap (Codex Runner is visible inside the backend container), but the `codexrun` binary is not available on the container PATH
+- the adapter now supports explicit binary/module invocation modes (`CODEXRUN_INVOCATION_MODE`)
+- the opt-in compose override uses module mode (`python -m codex_runner ...`) for the local Docker backend
+- default adapter behavior remains binary mode (`codexrun` on PATH)
 - it does not enable write flags
 - it does not prove live validation
 - it does not prove live orchestration
