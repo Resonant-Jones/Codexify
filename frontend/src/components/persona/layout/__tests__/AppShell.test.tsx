@@ -1262,8 +1262,58 @@ describe("AppShell workspace drawer shell", () => {
 
       expect(root.style.height).toBe("var(--shell-viewport-height, 100vh)");
       expect(root.style.minHeight).toBe("var(--shell-viewport-height, 100vh)");
+      expect(root.style.position).toBe("fixed");
+      expect(root.style.top).toBe("var(--shell-viewport-offset-top, 0px)");
       expect(root.style.getPropertyValue("--shell-viewport-height")).toBe("544px");
+      expect(root.style.getPropertyValue("--shell-viewport-offset-top")).toBe("0px");
       expect(root.style.getPropertyValue("--shell-keyboard-inset")).toBe("300px");
+    } finally {
+      if (originalInnerHeight) {
+        Object.defineProperty(window, "innerHeight", originalInnerHeight);
+      }
+      if (originalVisualViewport) {
+        Object.defineProperty(window, "visualViewport", originalVisualViewport);
+      } else {
+        const windowWithVisualViewport = window as Window & {
+          visualViewport?: typeof window.visualViewport;
+        };
+        delete windowWithVisualViewport.visualViewport;
+      }
+    }
+  });
+
+  it("keeps the phone shell aligned with a non-zero visual viewport offset", () => {
+    const originalInnerHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    const originalVisualViewport = Object.getOwnPropertyDescriptor(
+      window,
+      "visualViewport"
+    );
+
+    setViewportWidth(390);
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      writable: true,
+      value: 844,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: {
+        height: 544,
+        offsetTop: 32,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(null);
+
+    try {
+      const { container } = render(<AppShell />);
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(root.style.position).toBe("fixed");
+      expect(root.style.top).toBe("var(--shell-viewport-offset-top, 0px)");
+      expect(root.style.getPropertyValue("--shell-viewport-offset-top")).toBe("32px");
     } finally {
       if (originalInnerHeight) {
         Object.defineProperty(window, "innerHeight", originalInnerHeight);
