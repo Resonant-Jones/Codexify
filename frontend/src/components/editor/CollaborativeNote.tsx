@@ -41,6 +41,7 @@ export function CollaborativeNote({
   const [showAuditTrail, setShowAuditTrail] = useState(false);
 
   const autosaveTimer = useRef<NodeJS.Timeout>();
+  const stopTypingTimer = useRef<NodeJS.Timeout>();
 
   // ── Audit trail ──────────────────────────────────────────────────────────
 
@@ -78,7 +79,10 @@ export function CollaborativeNote({
     isConnected,
     accessDenied,
     activeUsers,
+    typingUsers,
     sendContentUpdate,
+    notifyTyping,
+    stopTyping,
   } = useDocumentCollaboration({
     documentId,
     userId,
@@ -124,6 +128,10 @@ export function CollaborativeNote({
       if (autosaveTimer.current) {
         clearInterval(autosaveTimer.current);
       }
+      if (stopTypingTimer.current) {
+        clearTimeout(stopTypingTimer.current);
+        stopTyping();
+      }
     };
   }, [content, threadId, authToken]);
 
@@ -133,6 +141,13 @@ export function CollaborativeNote({
     setContent(value);
     sendContentUpdate(value);
     onContentChange?.(value);
+
+    // Typing indicator
+    notifyTyping();
+    if (stopTypingTimer.current) clearTimeout(stopTypingTimer.current);
+    stopTypingTimer.current = setTimeout(() => {
+      stopTyping();
+    }, 1_200);
   };
 
   // ── Access denied ────────────────────────────────────────────────────────
@@ -208,6 +223,21 @@ export function CollaborativeNote({
           <span style={{ fontSize: 13, fontWeight: 600 }}>
             {isConnected ? "Live Editing" : "Offline"}
           </span>
+
+          {/* Typing indicator */}
+          {typingUsers.length > 0 && (
+            <span
+              style={{
+                fontSize: 11,
+                color: "var(--text-subtle)",
+                fontStyle: "italic",
+              }}
+            >
+              {typingUsers.length === 1
+                ? `${typingUsers[0].user_id} is typing…`
+                : `${typingUsers.length} collaborators are typing…`}
+            </span>
+          )}
 
           {/* Permission lock indicator */}
           {!permissions?.can_edit && (

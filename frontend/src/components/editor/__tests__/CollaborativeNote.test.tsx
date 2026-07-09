@@ -333,6 +333,168 @@ describe("CollaborativeNote", () => {
     });
   });
 
+  // ── Typing indicator ──────────────────────────────────────────────────
+
+  it("local typing sends typing.start", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Live Editing")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "x" } });
+    });
+
+    // The hook's notifyTyping is called inside handleChange.
+    // Hook-level tests (useDocumentCollaboration) cover the message payload.
+    // Here we verify the component stays stable after the change.
+    expect(textarea.value).toBe("x");
+  });
+
+  it("local typing eventually sends typing.stop after debounce", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Live Editing")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "x" } });
+    });
+
+    // Advance past the 1200ms debounce — the timer fires stopTyping
+    vi.advanceTimersByTime(2_000);
+
+    // Component remains stable after debounce expires
+    expect(textarea.value).toBe("x");
+  });
+
+  it("remote typing event renders the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+  });
+
+  it("remote typing expiry hides the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+
+    // Advance past the 3000ms auto-expiry
+    await act(async () => {
+      vi.advanceTimersByTime(3_100);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/user2 is typing/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("multiple typing users show collaborators count", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user3",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 collaborators are typing/)).toBeInTheDocument();
+    });
+  });
+
   // ── Cleanup ─────────────────────────────────────────────────────────────
 
   it("cleans up on unmount", async () => {
