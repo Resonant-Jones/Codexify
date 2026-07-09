@@ -65,6 +65,8 @@ Implementation/proof-status note:
 - a retry live validate-only proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-retry-proof.md`
 - an opt-in local Docker container visibility contract exists at `docs/architecture/guardian-codex-runner-container-visibility-contract.md`
 - the visibility contract mounts Codex Runner read-only via `docker-compose.codex-runner-bridge.yml` for backend preflight validation
+- a mounted live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-mounted-proof.md`
+- the visibility mount contract solved the filesystem visibility gap (Codex Runner is visible inside the backend container), but the `codexrun` binary is not available on the container PATH
 - it does not enable write flags
 - it does not prove live validation
 - it does not prove live orchestration
