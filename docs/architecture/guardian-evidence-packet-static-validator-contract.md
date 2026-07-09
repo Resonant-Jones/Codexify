@@ -311,6 +311,8 @@ A local batch validator script exists at `scripts/guardian/validate_evidence_pac
 
 The authoring template at `templates/guardian-evidence-packet-template.v1.json` is intentionally outside `docs/architecture/fixtures`. The batch validator validates fixtures, not templates. Future generated or authored packets should be moved into `docs/architecture/fixtures` only after they represent real evidence. The [authoring guide](./guardian-evidence-packet-authoring-guide.md) defines the human or agent ritual before validation.
 
+The batch validator now validates multiple fixtures, including the bridge proof-chain fixture and the local validator toolchain fixture. Warnings remain non-fatal. Validation remains shape and guardrail checking only; it does not prove claim truth or evidence sufficiency.
+
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
 make guardian-evidence-packets-validate
