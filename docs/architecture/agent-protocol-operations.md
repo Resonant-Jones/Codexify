@@ -117,6 +117,15 @@ Read more:
 - [`Runtime Protocol Token Contract`](./runtime-protocol-token-contract.md)
 - [`Canonical Token Philosophy`](./canonical-token-philosophy.md)
 
+### How should Guardian evidence be reduced?
+
+Guardian-facing evidence summaries must preserve evidence refs, uncertainty, and forbidden interpretations. Reducer depth is a contract for evidence handling and self-check, not a personality or model-effort setting. Architecture-impact evidence summaries should use high or xhigh depth. No agent may treat a reduced summary as authority when the packet says authority locks are false.
+
+Read more:
+
+- [`Guardian Evidence Packet and Reducer Profile Contract`](./guardian-evidence-packet-reducer-contract.md)
+- [`Guardian Codex Runner Bridge Proof Chain Index`](./guardian-codex-runner-bridge-proof-chain-index.md)
+
 ### How should validation be interpreted?
 Validation commands prove only the surface they test. Import checks are not full proof. Docs validation is not runtime proof. Runtime proof requires live supported-path evidence when release readiness is involved.
 
