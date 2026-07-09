@@ -433,6 +433,12 @@ Key properties of the fixture:
 - The fixture preserves the exact four-line bridge boundary label.
 - All nine authority locks remain false in the fixture.
 
+A static validator contract for GuardianEvidencePacket shape and guardrail checks exists at [`guardian-evidence-packet-static-validator-contract.md`](./guardian-evidence-packet-static-validator-contract.md). The static validator contract defines future packet shape checks and guardrail checks. Static validation is not authority. Static validation does not prove claim truth. Static validation does not implement runtime reducer behavior.
+
+A local static validator script exists at `scripts/guardian/validate_evidence_packet.py`. The script can check packet shape before future operator surfacing. Passing static validation is not evidence adoption. Passing static validation is not Execution Ledger truth. Passing static validation is not WorkOrder mutation.
+
+Future reducer implementations should produce packets that pass static validation before operator surfacing.
+
 ## 27. Failure Modes
 
 | Failure | Cause | Mitigation |

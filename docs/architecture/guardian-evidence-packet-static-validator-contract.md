@@ -301,6 +301,14 @@ Future reducer implementations should produce packets that pass static validatio
 
 The GuardianEvidencePacket bridge proof-chain fixture is a candidate for static validation. A future validator implementation should be able to validate the fixture and produce a `GuardianEvidencePacketStaticValidationResult`. The fixture's recommended next gate is `guardian_evidence_packet_static_validator_contract`.
 
+A local static validator script now exists at `scripts/guardian/validate_evidence_packet.py`. Invocation:
+
+```bash
+python3 scripts/guardian/validate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-packet.codex-runner-bridge-proof-chain.v1.json --json
+```
+
+The script validates shape and guardrail presence only. It does not prove claim truth. It does not promote evidence to authority. It is not runtime code, not ingestion, not UI, and does not write receipts. It does not invoke live validation or orchestration.
+
 ## 27. Relationship to Runtime Reducer Implementation
 
 A runtime reducer implementation is a separate future slice. The static validator does not:
