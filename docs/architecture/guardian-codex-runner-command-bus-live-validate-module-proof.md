@@ -324,6 +324,8 @@ No failure or blocked conditions were encountered.
 
 ## 21. Future Orchestration Live-Proof Slice
 
+**Follow-up:** An operator receipt path availability check was performed. See [`guardian-codex-runner-validation-receipt-availability-proof.md`](./guardian-codex-runner-validation-receipt-availability-proof.md).
+
 Live orchestration proof remains deferred.
 
 A future orchestration slice requires an explicit validation receipt path. See [`guardian-codex-runner-orchestration-receipt-prerequisite-contract.md`](./guardian-codex-runner-orchestration-receipt-prerequisite-contract.md) for the prerequisite contract.
