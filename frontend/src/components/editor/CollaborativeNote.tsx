@@ -1,11 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import api from "@/lib/api";
-import { WsClient } from "@/lib/wsClient";
-
-type PresenceUser = {
-  user_id: string;
-  color: string;
-};
+import { useDocumentCollaboration } from "./useDocumentCollaboration";
+import type { PresenceUser } from "./useDocumentCollaboration";
 
 type AuditLogEntry = {
   id: number;
@@ -19,14 +15,6 @@ type UserPermissions = {
   can_edit: boolean;
   can_comment: boolean;
 };
-
-const USER_COLORS = [
-  "#FF6B6B", // Red
-  "#4ECDC4", // Teal
-  "#45B7D1", // Blue
-  "#FFA07A", // Light Salmon
-  "#98D8C8", // Mint
-];
 
 export type CollaborativeNoteProps = {
   documentId: string;
@@ -46,35 +34,22 @@ export function CollaborativeNote({
   authToken,
 }: CollaborativeNoteProps) {
   const [content, setContent] = useState(initialContent);
-  const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
   const [lastAutosave, setLastAutosave] = useState<Date | null>(null);
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<UserPermissions | null>(null);
   const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
   const [showAuditTrail, setShowAuditTrail] = useState(false);
-  const [accessDenied, setAccessDenied] = useState(false);
-  const wsClientRef = useRef<WsClient | null>(null);
+
   const autosaveTimer = useRef<NodeJS.Timeout>();
-  const auditRefreshTimer = useRef<NodeJS.Timeout>();
-  const userColorMap = useRef<Map<string, string>>(new Map());
 
-  // Assign stable colors to users
-  const getUserColor = (uid: string): string => {
-    if (!userColorMap.current.has(uid)) {
-      const colorIndex = userColorMap.current.size % USER_COLORS.length;
-      userColorMap.current.set(uid, USER_COLORS[colorIndex]);
-    }
-    return userColorMap.current.get(uid)!;
-  };
+  // ── Audit trail ──────────────────────────────────────────────────────────
 
-  // Fetch audit trail from API
   const fetchAuditTrail = useCallback(async () => {
     try {
       const response = await fetch(
         `/api/collab/${documentId}/audit?limit=100`,
         {
-          headers: authToken ? { "Authorization": `Bearer ${authToken}` } : {},
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
         }
       );
       if (response.ok) {
@@ -86,103 +61,35 @@ export function CollaborativeNote({
     }
   }, [documentId, authToken]);
 
-  // Handle incoming remote changes
-  const applyRemoteChange = useCallback((message: any) => {
-    if (message.type === "update") {
-      const { payload } = message;
-      if (payload.content !== undefined && payload.content !== content) {
-        setContent(payload.content);
-        if (onContentChange) {
-          onContentChange(payload.content);
-        }
-      }
-    } else if (message.type === "presence.join") {
-      setActiveUsers((prevUsers: any) => {
-        const newUsers = message.active_users.map((uid: string) => ({
-          user_id: uid,
-          color: getUserColor(uid),
-        }));
-        return newUsers;
-      });
-    } else if (message.type === "presence.leave") {
-      setActiveUsers((prevUsers: any) => {
-        const newUsers = message.active_users.map((uid: string) => ({
-          user_id: uid,
-          color: getUserColor(uid),
-        }));
-        return newUsers;
-      });
-    }
-  }, [content, onContentChange]);
+  // ── Remote content handler ───────────────────────────────────────────────
 
-  // Initialize WebSocket connection
-  useEffect(() => {
-    const getApiBase = () => {
-      const env = (import.meta as any).env;
-      if (env?.VITE_GUARDIAN_API_BASE) {
-        return env.VITE_GUARDIAN_API_BASE;
-      }
-      if (typeof window !== "undefined" && window.location.origin) {
-        return window.location.origin;
-      }
-      return "http://localhost:8000";
-    };
+  const handleRemoteContentUpdate = useCallback(
+    (remoteContent: string) => {
+      if (remoteContent === content) return;
+      setContent(remoteContent);
+      onContentChange?.(remoteContent);
+    },
+    [content, onContentChange],
+  );
 
-    const apiBase = getApiBase();
-    const wsProtocol = apiBase.startsWith("https") ? "wss" : "ws";
-    let wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/api/collab/ws/${documentId}`;
+  // ── Collaboration hook ───────────────────────────────────────────────────
 
-    // Add token to query if provided
-    if (authToken) {
-      wsUrl += `?token=${encodeURIComponent(authToken)}`;
-    }
+  const {
+    isConnected,
+    accessDenied,
+    activeUsers,
+    sendContentUpdate,
+  } = useDocumentCollaboration({
+    documentId,
+    userId,
+    authToken,
+    canEdit: permissions?.can_edit !== false,
+    onRemoteContentUpdate: handleRemoteContentUpdate,
+    onAuditRefresh: fetchAuditTrail,
+  });
 
-    const client = new WsClient(wsUrl, {
-      onUnauthorized: () => {
-        setAccessDenied(true);
-      },
-    });
-    wsClientRef.current = client;
+  // ── Autosave ─────────────────────────────────────────────────────────────
 
-    client.onStatusChange = (status) => {
-      setIsConnected(status === "connected");
-    };
-
-    client.onConnectionChange = (connected) => {
-      if (connected) {
-        console.log(`Connected to collaborative session for document ${documentId}`);
-        setAccessDenied(false);
-
-        // Send initial handshake with user_id and token
-        client.send({
-          user_id: userId,
-          token: authToken,
-        });
-
-        // Fetch initial audit trail
-        fetchAuditTrail();
-      } else {
-        console.log("Disconnected from collaborative session");
-      }
-    };
-
-    client.on("message", (data) => {
-      applyRemoteChange(data);
-    });
-
-    client.on("error", (data: any) => {
-      console.error("WebSocket error:", data?.message ?? data);
-    });
-
-    client.connect();
-
-    return () => {
-      client.disconnect();
-      wsClientRef.current = null;
-    };
-  }, [documentId, userId, authToken, applyRemoteChange, fetchAuditTrail]);
-
-  // Auto-save every 15 seconds
   useEffect(() => {
     autosaveTimer.current = setInterval(async () => {
       try {
@@ -211,7 +118,7 @@ export function CollaborativeNote({
           status ? `Autosave failed (${status})` : "Autosave failed"
         );
       }
-    }, 15000); // 15 seconds
+    }, 15_000);
 
     return () => {
       if (autosaveTimer.current) {
@@ -220,32 +127,16 @@ export function CollaborativeNote({
     };
   }, [content, threadId, authToken]);
 
-  // Handle local changes
+  // ── Local changes ────────────────────────────────────────────────────────
+
   const handleChange = (value: string) => {
     setContent(value);
-
-    // Send to other clients (only if we have edit permission)
-    const client = wsClientRef.current;
-    if (client?.isConnected && permissions?.can_edit !== false) {
-      client.send({
-        type: "update",
-        content: value,
-        user_id: userId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (onContentChange) {
-      onContentChange(value);
-    }
+    sendContentUpdate(value);
+    onContentChange?.(value);
   };
 
-  // Handle permission updates from WebSocket
-  const handlePermissionsUpdate = useCallback((perms: UserPermissions) => {
-    setPermissions(perms);
-  }, []);
+  // ── Access denied ────────────────────────────────────────────────────────
 
-  // Show access denied message
   if (accessDenied) {
     return (
       <div
@@ -278,6 +169,8 @@ export function CollaborativeNote({
       </div>
     );
   }
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -373,7 +266,8 @@ export function CollaborativeNote({
                 whiteSpace: "nowrap",
               }}
             >
-              Saved {Math.round((Date.now() - lastAutosave.getTime()) / 1000)}s ago
+              Saved{" "}
+              {Math.round((Date.now() - lastAutosave.getTime()) / 1000)}s ago
             </span>
           )}
           {autosaveError && (
@@ -395,7 +289,9 @@ export function CollaborativeNote({
               padding: "4px 12px",
               fontSize: 12,
               fontWeight: 500,
-              backgroundColor: showAuditTrail ? "var(--info-surface)" : "var(--surface-soft)",
+              backgroundColor: showAuditTrail
+                ? "var(--info-surface)"
+                : "var(--surface-soft)",
               border: "1px solid var(--panel-border)",
               borderRadius: 4,
               cursor: "pointer",
@@ -471,8 +367,14 @@ export function CollaborativeNote({
           lineHeight: 1.6,
           resize: "none",
           outline: "none",
-          color: permissions?.can_edit === false ? "var(--text-subtle)" : "var(--text)",
-          backgroundColor: permissions?.can_edit === false ? "var(--surface-soft)" : "var(--panel-bg)",
+          color:
+            permissions?.can_edit === false
+              ? "var(--text-subtle)"
+              : "var(--text)",
+          backgroundColor:
+            permissions?.can_edit === false
+              ? "var(--surface-soft)"
+              : "var(--panel-bg)",
           cursor: permissions?.can_edit === false ? "not-allowed" : "text",
         }}
       />
