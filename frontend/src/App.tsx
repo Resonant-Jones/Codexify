@@ -604,8 +604,7 @@ export default function App() {
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
-  const [desktopRecoveryRequested, setDesktopRecoveryRequested] =
-    React.useState(false);
+  const [desktopRecoveryRequested] = React.useState(false);
 
   React.useEffect(() => {
     if (!desktopRuntime) return;

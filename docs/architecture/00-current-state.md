@@ -21,6 +21,14 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `main` added the shared-presence protocol and hosted-room sovereign-node contract docs.
 - `main` added paginated chat transcript history and live thread-list sync.
 - `main` added the Project Pulse read-only contract and continuity operator doc grounding.
+- `main` now includes internal command-bus exposure for the Guardian Codex Runner JSON preflight adapter; it does not add a UI, new API route, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` now includes a controlled operator-proof packet for the Guardian Codex Runner command-bus bridge; it validates command-bus lifecycle wiring and boundary preservation only, and it does not prove live Codex Runner execution, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` added a live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` added a retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` added an opt-in local Docker container visibility contract for the Guardian Codex Runner bridge; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- `main` now includes a backend contract-only module for the Guardian Codex Runner preflight bridge; it does not implement adapter execution, routes, UI, Pi Loop invocation, Codexify ingestion, or durable mutation.
+- A docs-only Codexify-side Guardian/Codex Runner preflight bridge contract now exists in `docs/architecture/guardian-codex-runner-preflight-bridge-contract.md`; it does not add shipped runtime behavior, UI integration, a backend command adapter, Pi Loop invocation, or Codexify ingestion.
+- Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -45,6 +53,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
 - Do not assume the new document-RAG gating docs imply full retrieval-system maturity beyond the documented ready-document path.
+- Do not assume hosted rooms, participant node attachment, Shared Room KB, or cross-node document handoff are implemented from the Hosted Room and Sovereign Node Participation Contract; that contract is future docs-only architecture and does not widen the supported beta release surface.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.

@@ -1,0 +1,36 @@
+# ==============================================================================
+# Opt-in local-only Docker Compose override for the Guardian Codex Runner
+# command-bus bridge.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.codex-runner-bridge.yml up backend
+#
+# This override makes the host Codex Runner checkout visible to the Codexify
+# backend container at the exact path expected by the existing bridge adapter.
+#
+# ------------------------------------------------------------------------------
+# IMPORTANT: this override is:
+#   - local-only
+#   - opt-in (not applied by default unless explicitly included via -f)
+#   - for Guardian Codex Runner preflight validation only
+#
+# ------------------------------------------------------------------------------
+# BOUNDARY:
+#   PREFLIGHT ONLY
+#   NO WRITE FLAGS
+#   NO PI LOOP INVOCATION
+#   NO SOURCE MUTATION
+#   NO CODEXIFY INGESTION
+# ------------------------------------------------------------------------------
+#
+# Docker Desktop may require the host path to be shared before the bind mount
+# works.  On macOS go to Settings → Resources → File Sharing and ensure
+# /Volumes/Dev_SSD is in the shared-path list (or share the specific path).
+# ==============================================================================
+
+services:
+  backend:
+    volumes:
+      # Read-only bind mount of the host Codex Runner checkout into the backend
+      # container at the exact path the bridge adapter expects.
+      - ${CODEX_RUNNER_HOST_ROOT:-/Volumes/Dev_SSD/Codex-Runner}:${CODEX_RUNNER_CONTAINER_ROOT:-/Volumes/Dev_SSD/Codex-Runner}:ro

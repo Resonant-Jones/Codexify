@@ -21,6 +21,8 @@ Source anchors:
 Trigger:
 - Frontend posts `POST /api/chat/{thread_id}/complete` after a user message exists in the thread.
 - When the composer starts a brand-new conversation, the frontend first creates a backend thread with `POST /api/chat/threads`, resolves the durable thread id from the response, selects that id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages`.
+- On successful thread creation (excluding idempotent reuse of an existing empty thread), the route emits a best-effort `thread.created` domain event so active hosted-room clients can refresh their thread lists via the existing SSE outbox (see `docs/architecture/runtime-protocol-token-contract.md`).
+- The visible transcript is fetched via `GET /api/chat/{thread_id}/messages` and supports cursor-based pagination (`?before_message_id=<id>`) in addition to the existing offset-based path. The response includes a `has_more` boolean. The transcript pagination path is independent of completion-context assembly — model context remains bounded by `task.max_context` and is loaded through a separate call path in `chat_completion_service.py`.
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
@@ -41,6 +43,7 @@ Sequence:
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
+   - Uploaded documents are gated on `embedding_status == "ready"` before entering the context window. Documents in `pending`, `processing`, or `failed` state are silently excluded from retrieval. See `docs/architecture/rag-and-retrieval.md`.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes; proving reliable selection/injection in executed turns remains an active validation target.
    - Remote Recall Search-as-RAG is a narrow, gated web-evidence branch on this flow. Local retrieval remains the default. Remote Recall is invoked ONLY when the resolved retrieval posture is explicit `global_search`, `REMOTE_RECALL_ENABLED=true`, provider feature flags/credentials/egress are all enabled, and every candidate result passes the Web Evidence Intake Gate before any web content enters synthesis. It is off by default and never enables web search for ordinary local/conversation/workspace turns. Queue acceptance still means the work was accepted, not that web search succeeded.
    - Remote Recall evidence enters synthesis only as lower-authority bounded retrieval/context data. It is injected as a `user`-role message that is explicitly delimited and labeled as untrusted retrieved data; it MUST NOT be injected as `system` or `developer` authority, and must never be treated as executable instruction. Only Web Evidence Intake Gate-eligible envelopes are injected; blocked evidence remains trace/diagnostic-only.
@@ -230,6 +233,7 @@ Supported readback contract:
 - `GET /api/documents/{id}` is the supported document detail route for upload -> embed -> retrieve proof.
 - The detail route resolves document identity by `uploaded_documents.id` and preserves compatibility lookup by `asset_id`.
 - The detail payload is expected to include embedding lifecycle visibility (`embedding_status`, `embedding_error`, `embedding_started_at`, `embedding_completed_at`) without requiring direct DB inspection.
+- `docs/architecture/rag-and-retrieval.md` captures the ready-only retrieval gate: `pending`, `processing`, and `failed` stay visible for diagnosis, but only `ready` documents are eligible for broker retrieval.
 
 Failure modes:
 - Unsupported MIME/type returns `400`

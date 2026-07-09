@@ -56,7 +56,6 @@ export default function DiagnosticsPanel({
       <div className="flex items-center justify-between text-xs">
         <span style={{ color: "var(--muted)" }}>Save Status</span>
         <Badge
-          variant="outline"
           className="text-xs"
           style={{
             borderColor:

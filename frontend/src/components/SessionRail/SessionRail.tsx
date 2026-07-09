@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import React from "react";
 
 import type { SessionTab, TabId } from "@/state/session/types";

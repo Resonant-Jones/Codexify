@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchPersonaVoiceProviderVoices,
@@ -312,7 +311,6 @@ export default function PersonaVoicePanel({
           {currentProvider ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge
-                variant="outline"
                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                 style={{
                   borderColor: "var(--panel-border)",
@@ -321,7 +319,6 @@ export default function PersonaVoicePanel({
                 {currentProvider.classification}
               </Badge>
               <Badge
-                variant="outline"
                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                 style={badgeTone(currentProvider)}
               >
@@ -384,21 +381,18 @@ export default function PersonaVoicePanel({
               {currentProvider ? (
                 <>
                   <Badge
-                    variant="outline"
                     className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                     style={{ borderColor: "var(--panel-border)" }}
                   >
                     preset voices {currentProvider.capabilities.presetVoices ? "yes" : "no"}
                   </Badge>
                   <Badge
-                    variant="outline"
                     className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                     style={{ borderColor: "var(--panel-border)" }}
                   >
                     preview {currentProvider.capabilities.preview ? "yes" : "no"}
                   </Badge>
                   <Badge
-                    variant="outline"
                     className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                     style={{ borderColor: "var(--panel-border)" }}
                   >
@@ -407,7 +401,6 @@ export default function PersonaVoicePanel({
                 </>
               ) : (
                 <Badge
-                  variant="outline"
                   className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                   style={{ borderColor: "var(--panel-border)" }}
                 >
