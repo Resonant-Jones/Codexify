@@ -49,6 +49,8 @@ The template and guide are static authoring aids only. They do not implement pac
 
 The local validator toolchain fixture demonstrates the schema outside the bridge-proof domain. Multiple fixtures make future reducer design less likely to overfit to one evidence source. This does not implement reducer behavior or generator behavior.
 
+The [runtime reducer design contract](./guardian-evidence-packet-runtime-reducer-design-contract.md) defines the future reducer boundary. It is docs-only: it does not implement reducer code or packet generation, and it does not authorize ingestion, execution, UI, Execution Ledger adoption, or WorkOrder mutation.
+
 ## 3. Scope
 
 This contract defines:
