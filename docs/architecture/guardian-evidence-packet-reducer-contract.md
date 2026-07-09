@@ -437,6 +437,8 @@ A static validator contract for GuardianEvidencePacket shape and guardrail check
 
 A local static validator script exists at `scripts/guardian/validate_evidence_packet.py`. The script can check packet shape before future operator surfacing. Passing static validation is not evidence adoption. Passing static validation is not Execution Ledger truth. Passing static validation is not WorkOrder mutation.
 
+A local batch validator exists at `scripts/guardian/validate_evidence_packets.py`. It can check all current GuardianEvidencePacket fixtures before future operator surfacing. Passing batch validation is not evidence adoption. Passing batch validation is not Execution Ledger truth. Passing batch validation is not WorkOrder mutation. Passing batch validation is not runtime support.
+
 Future reducer implementations should produce packets that pass static validation before operator surfacing.
 
 ## 27. Failure Modes
