@@ -70,9 +70,11 @@ Implementation/proof-status note:
 - the adapter now supports explicit binary/module invocation modes (`CODEXRUN_INVOCATION_MODE`)
 - the opt-in compose override uses module mode (`python -m codex_runner ...`) for the local Docker backend
 - default adapter behavior remains binary mode (`codexrun` on PATH)
+- a module live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-module-proof.md`
+- the module proof produced a PASS result — the first successful live validate through the bridge
+- it does not prove live orchestration
 - it does not enable write flags
 - it does not prove live validation
-- it does not prove live orchestration
 - it does not add UI support
 - it does not add Codexify ingestion
 

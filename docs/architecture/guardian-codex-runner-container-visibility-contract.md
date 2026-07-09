@@ -329,6 +329,8 @@ NO CODEXIFY INGESTION
 
 It solves the filesystem visibility gap that blocked the live validate retry proof.
 
-A mounted live validate proof attempt was run using this override. Result: [`FAIL`](./guardian-codex-runner-command-bus-live-validate-mounted-proof.md) — the filesystem mount worked (Codex Runner is visible at `/Volumes/Dev_SSD/Codex-Runner` inside the backend container), but the `codexrun` binary is not available on the container PATH.
+A mounted live validate proof attempt was run using this override. Result: [`FAIL`](./guardian-codex-runner-command-bus-live-validate-mounted-proof.md) — the filesystem mount worked but the `codexrun` binary was not available on the container PATH.
+
+A module live validate proof was run using both the mount and module invocation. Result: [`PASS`](./guardian-codex-runner-command-bus-live-validate-module-proof.md) — `python -m codex_runner` through the mounted checkout produced a successful `validate-plan-pack` response with all authority locks false.
 
 It does not prove live validation, live orchestration, UI integration, or any broader runtime capability. A live validate pass remains a separate future proof slice.
