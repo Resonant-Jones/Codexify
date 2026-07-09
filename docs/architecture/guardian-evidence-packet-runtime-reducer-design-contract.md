@@ -36,6 +36,8 @@ What is true now:
 
 This contract does not widen the supported local-first beta release path.
 
+Pure backend contract constants now exist at `guardian/evidence_packets/contracts.py`. They define schema versions, required fields, allowed values, false authority locks, and pure shape helpers. They are not a reducer implementation, packet generator, or runtime wiring; they do not call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. Future reducer implementation should import these constants rather than re-invent packet literals.
+
 ## 6. Reducer Design Boundary
 
 A future reducer is a pure, bounded evidence-reduction boundary. It receives an explicitly bounded input set and produces only a `GuardianEvidencePacket` plus an associated static validation result and diagnostic summary where separately requested.

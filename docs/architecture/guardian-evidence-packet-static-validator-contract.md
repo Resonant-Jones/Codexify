@@ -315,6 +315,8 @@ The batch validator now validates multiple fixtures, including the bridge proof-
 
 Future reducer outputs must pass static validation before operator surfacing. Static validation remains shape and guardrail validation only; it does not prove reducer correctness or claim truth, and it does not authorize ingestion or execution.
 
+The existing script validators remain local tooling. Future backend reducer code should use `guardian/evidence_packets/contracts.py` for canonical packet constants; future work must not silently fork constants between scripts and backend reducer code. This task does not require refactoring the existing scripts to import the backend package unless explicitly chosen and tested.
+
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
 make guardian-evidence-packets-validate
