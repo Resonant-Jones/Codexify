@@ -330,6 +330,8 @@ A future live orchestration proof slice would require, at minimum:
 
 An operator receipt path availability check has been performed. See [`guardian-codex-runner-validation-receipt-availability-proof.md`](./guardian-codex-runner-validation-receipt-availability-proof.md).
 
+An operator-selected receipt path check was performed. See [`guardian-codex-runner-selected-validation-receipt-proof.md`](./guardian-codex-runner-selected-validation-receipt-proof.md) — the selected receipt was verified as `SELECTED_AVAILABLE`. Selected availability does not imply trust, ingestion, orchestration, dispatch, or execution authority.
+
 Live orchestration proof remains deferred.
 
 ## 19. Forbidden Interpretations
