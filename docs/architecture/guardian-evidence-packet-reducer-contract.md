@@ -57,6 +57,8 @@ Packet literals now have a code-level source under `guardian/evidence_packets/co
 
 Code-level reducer interface contracts now exist under `guardian/evidence_packets/reducer_contracts.py`. Future backend reducer work must use these interfaces and `guardian/evidence_packets/contracts.py`. This does not implement reducer behavior or generator behavior.
 
+A pure reducer dry-run skeleton exists under `guardian/evidence_packets/reducer.py`. It proves lifecycle stop behavior only; it is not a reducer implementation, packet generator, or runtime support.
+
 ## 3. Scope
 
 This contract defines:
