@@ -91,7 +91,7 @@ Backend started with compose override:
 docker compose -f docker-compose.yml -f docker-compose.whooshd-smoke.yml -f docker-compose.codex-runner-bridge.yml up -d --force-recreate backend
 ```
 
-Note: `GUARDIAN_AUTH_MODE=local`, `CODEXIFY_MULTI_USER_ENABLED=false`, and OAuth env cleared in the bridge override to ensure local auth works with the `.env` file's remote-mode defaults.
+Note: `GUARDIAN_AUTH_MODE=local`, `CODEXIFY_MULTI_USER_ENABLED=false`, and OAuth env cleared in the bridge override to ensure local auth works with the `.env` file's remote-mode defaults. This is governed by [`guardian-codex-runner-local-auth-override-contract.md`](./guardian-codex-runner-local-auth-override-contract.md). The orchestration proof remains preflight-only and does not imply production auth posture.
 
 ## 9. Preflight Checks
 

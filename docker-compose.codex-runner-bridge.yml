@@ -12,6 +12,11 @@
 # backend can invoke Codex Runner through the mounted source checkout without
 # requiring a global `codexrun` binary on the container PATH.
 #
+# It forces local auth (GUARDIAN_AUTH_MODE=local) and disables OAuth/multi-user
+# triggers so the bridge proof profile works with local .env files that carry
+# remote-auth defaults.  See docs/architecture/guardian-codex-runner-local-auth-override-contract.md
+# for the governance contract.
+#
 # ------------------------------------------------------------------------------
 # IMPORTANT: this override is:
 #   - local-only
