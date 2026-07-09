@@ -42,6 +42,8 @@ Future reducer implementation should use `guardian/evidence_packets/contracts.py
 
 Pure reducer interface contracts now exist at `guardian/evidence_packets/reducer_contracts.py`. They define input classes, output classes, reducer lifecycle constants, frozen dataclasses, and pure helper functions. They do not implement reduction, generate packets, validate packets, or call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. Future reducer implementation should use these interfaces instead of inventing a parallel reducer shape.
 
+A pure reducer dry-run skeleton now exists at `guardian/evidence_packets/reducer.py`. It accepts `ReducerInputBundle` and returns `ReducerResult`, stops after receive/classify/stop diagnostics, and returns `packet=None` and `validation_result=None`. It does not reduce evidence, generate packets, validate packets, call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not runtime wiring.
+
 ## 6. Reducer Design Boundary
 
 A future reducer is a pure, bounded evidence-reduction boundary. It receives an explicitly bounded input set and produces only a `GuardianEvidencePacket` plus an associated static validation result and diagnostic summary where separately requested.

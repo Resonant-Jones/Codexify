@@ -26,6 +26,7 @@ from .reducer_contracts import (
     reducer_limits,
     reducer_lifecycle_index,
 )
+from .reducer import DRY_RUN_STOP_REASON, DRY_RUN_WARNING, dry_run_reducer
 
 __all__ = [
     "ALLOWED_CLAIM_STATUSES",
@@ -50,4 +51,7 @@ __all__ = [
     "reducer_default_authority_state",
     "reducer_limits",
     "reducer_lifecycle_index",
+    "DRY_RUN_STOP_REASON",
+    "DRY_RUN_WARNING",
+    "dry_run_reducer",
 ]
