@@ -96,8 +96,12 @@ class ReducerDiagnosticsSummary:
 
     def __post_init__(self) -> None:
         steps = tuple(self.lifecycle_steps_completed)
-        if not lifecycle_is_prefix(steps):
-            raise ValueError("lifecycle_steps_completed must be an ordered lifecycle prefix")
+        early_stop_path = REDUCER_LIFECYCLE_STEPS[:2] + (REDUCER_STOP_STEP,)
+        if not lifecycle_is_prefix(steps) and steps != early_stop_path:
+            raise ValueError(
+                "lifecycle_steps_completed must be an ordered lifecycle prefix "
+                "or the bounded receive/classify/stop path"
+            )
         object.__setattr__(self, "lifecycle_steps_completed", steps)
         object.__setattr__(self, "warnings", tuple(self.warnings))
         object.__setattr__(self, "limits", tuple(self.limits))
