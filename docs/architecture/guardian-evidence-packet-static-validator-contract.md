@@ -309,6 +309,8 @@ python3 scripts/guardian/validate_evidence_packet.py docs/architecture/fixtures/
 
 A local batch validator script exists at `scripts/guardian/validate_evidence_packets.py`. It scans GuardianEvidencePacket fixtures under `docs/architecture/fixtures` by default and emits a `GuardianEvidencePacketBatchValidationResult`. It preserves individual packet warnings, does not convert warnings into failures, and does not prove claim truth.
 
+The authoring template at `templates/guardian-evidence-packet-template.v1.json` is intentionally outside `docs/architecture/fixtures`. The batch validator validates fixtures, not templates. Future generated or authored packets should be moved into `docs/architecture/fixtures` only after they represent real evidence. The [authoring guide](./guardian-evidence-packet-authoring-guide.md) defines the human or agent ritual before validation.
+
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
 make guardian-evidence-packets-validate
