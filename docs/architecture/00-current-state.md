@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-08
+2026-07-09
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,29 +13,15 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is still shipping incremental documentation and runtime-tightening work, not a new release phase.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is absorbing proof and documentation around the Guardian Codex Runner bridge, not expanding the supported beta runtime surface.
 
 ## What changed recently
-- `main` merged document-RAG retrieval gating for ready documents.
-- `main` added the Guardian orientation layer contract and related boundary docs.
-- `main` added the shared-presence protocol and hosted-room sovereign-node contract docs.
-- `main` added paginated chat transcript history and live thread-list sync.
-- `main` added the Project Pulse read-only contract and continuity operator doc grounding.
-- `main` now includes internal command-bus exposure for the Guardian Codex Runner JSON preflight adapter; it does not add a UI, new API route, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- `main` now includes a controlled operator-proof packet for the Guardian Codex Runner command-bus bridge; it validates command-bus lifecycle wiring and boundary preservation only, and it does not prove live Codex Runner execution, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-<<<<<<< HEAD
-- `main` added a live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- `main` added a retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- `main` added an opt-in local Docker container visibility contract for the Guardian Codex Runner bridge; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-=======
-- this branch adds a live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds a retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds an opt-in local Docker container visibility contract for the Guardian Codex Runner bridge; it exists to address the failed live validate retry proof where the backend container could not see `/Volumes/Dev_SSD/Codex-Runner`; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
-- this branch adds a mounted validate-only live proof packet for the Guardian Codex Runner command-bus bridge; it uses the opt-in read-only Codex Runner mount; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
->>>>>>> 6bd83da86dee8bfd42ee286b6e28c80fd1c51130
-- `main` now includes a backend contract-only module for the Guardian Codex Runner preflight bridge; it does not implement adapter execution, routes, UI, Pi Loop invocation, Codexify ingestion, or durable mutation.
-- A docs-only Codexify-side Guardian/Codex Runner preflight bridge contract now exists in `docs/architecture/guardian-codex-runner-preflight-bridge-contract.md`; it does not add shipped runtime behavior, UI integration, a backend command adapter, Pi Loop invocation, or Codexify ingestion.
-- Continuity remains quarantined behind `test-continuity`.
+- `main` added Guardian Codex Runner bridge proof packets for selected validation receipt, validation receipt availability, orchestration receipt prerequisite, and module live-validate coverage.
+- `main` added a mounted live-validate proof packet and an opt-in container visibility contract for the Guardian bridge.
+- `main` added an executable-availability seam for the Guardian bridge when `codexrun` is not on container PATH.
+- `main` added a backend contract-only module for the Guardian Codex Runner preflight bridge.
+- `main` added docs-only Codexify-side preflight bridge guidance; no shipped runtime behavior changed.
+- `main` did not add a new supported install path or widen the beta release promise.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -48,19 +34,17 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Graph writes remain default-off on the supported Compose path.
 - The Continuity operator surface remains test-only, API-key-gated, and profile-quarantined under `test-continuity`.
-- `main` now includes docs for Guardian orientation, shared presence, hosted-room topology, and Project Pulse, but those are not additional supported runtime promises by themselves.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume docs-only contracts mean shipped runtime support.
-- Do not assume shared presence, chat transport recovery, hosted rooms, or thread lenses are shipped runtime behavior.
-- Do not assume the Guardian orientation layer implies a new runtime delegation or federation surface on `main`.
+- Do not assume shared presence, hosted rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
+- Do not assume the Guardian delegation loop or Guardian Codex Runner bridge docs imply an end-to-end supported delegation/runtime path.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
-- Do not assume the new document-RAG gating docs imply full retrieval-system maturity beyond the documented ready-document path.
-- Do not assume hosted rooms, participant node attachment, Shared Room KB, or cross-node document handoff are implemented from the Hosted Room and Sovereign Node Participation Contract; that contract is future docs-only architecture and does not widen the supported beta release surface.
+- Do not assume hosted rooms, participant node attachment, Shared Room KB, or cross-node document handoff are implemented from planning docs alone.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
@@ -68,8 +52,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - End-to-end Guardian delegation is not yet a release-supported path.
 - Federation remains high-blast-radius and trust-policy sensitive.
 - Graph-write enablement stays outside the default release promise.
-- New docs-only contracts are guidance only until runtime proof lands on `main`.
-- The growing contract surface increases interpretation risk unless release claims stay pinned to `main` and `00-current-state.md`.
+- New docs-only contracts and bridge proofs are guidance only until runtime proof lands on `main`.
 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
@@ -85,9 +68,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - [x] OpenAI export import and Task Prompt Archive are documented as present on `main`.
 - [ ] Queue, config, delegation, and federation risks stay explicitly documented and rechecked when the supported path drifts.
 - [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
-- [ ] New docs-only contracts must stay out of the supported runtime claim set until proven on `main`.
+- [ ] New docs-only contracts and bridge proofs must stay out of the supported runtime claim set until proven on `main`.
 - [ ] Any new release claim needs fresh proof on `main`, not branch-local evidence.
-- [ ] Release-readiness language must continue to separate docs coverage from runtime proof.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
