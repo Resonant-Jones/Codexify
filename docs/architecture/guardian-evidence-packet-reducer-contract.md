@@ -47,6 +47,8 @@ Static authoring aids are available for future fixture authors:
 
 The template and guide are static authoring aids only. They do not implement packet generation, runtime reducer behavior, ingestion, execution, UI, Execution Ledger adoption, or WorkOrder mutation.
 
+The local validator toolchain fixture demonstrates the schema outside the bridge-proof domain. Multiple fixtures make future reducer design less likely to overfit to one evidence source. This does not implement reducer behavior or generator behavior.
+
 ## 3. Scope
 
 This contract defines:
