@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import api from "@/lib/api";
+import { WsClient } from "@/lib/wsClient";
 
 type PresenceUser = {
   user_id: string;
@@ -53,7 +54,7 @@ export function CollaborativeNote({
   const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
   const [showAuditTrail, setShowAuditTrail] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
-  const ws = useRef<WebSocket>();
+  const wsClientRef = useRef<WsClient | null>(null);
   const autosaveTimer = useRef<NodeJS.Timeout>();
   const auditRefreshTimer = useRef<NodeJS.Timeout>();
   const userColorMap = useRef<Map<string, string>>(new Map());
@@ -136,57 +137,49 @@ export function CollaborativeNote({
       wsUrl += `?token=${encodeURIComponent(authToken)}`;
     }
 
-    try {
-      ws.current = new WebSocket(wsUrl);
+    const client = new WsClient(wsUrl, {
+      onUnauthorized: () => {
+        setAccessDenied(true);
+      },
+    });
+    wsClientRef.current = client;
 
-      ws.current.onopen = () => {
+    client.onStatusChange = (status) => {
+      setIsConnected(status === "connected");
+    };
+
+    client.onConnectionChange = (connected) => {
+      if (connected) {
         console.log(`Connected to collaborative session for document ${documentId}`);
-        setIsConnected(true);
         setAccessDenied(false);
 
         // Send initial handshake with user_id and token
-        ws.current?.send(
-          JSON.stringify({
-            user_id: userId,
-            token: authToken,
-          })
-        );
+        client.send({
+          user_id: userId,
+          token: authToken,
+        });
 
         // Fetch initial audit trail
         fetchAuditTrail();
-      };
-
-      ws.current.onmessage = (event: any) => {
-        try {
-          const message = JSON.parse(event.data);
-          applyRemoteChange(message);
-        } catch (e) {
-          console.error("Failed to parse WebSocket message:", e);
-        }
-      };
-
-      ws.current.onerror = (error: any) => {
-        console.error("WebSocket error:", error);
-        setIsConnected(false);
-      };
-
-      ws.current.onclose = (event: any) => {
+      } else {
         console.log("Disconnected from collaborative session");
-        setIsConnected(false);
+      }
+    };
 
-        // Check if closed due to policy violation (access denied)
-        if (event.code === 1008) {
-          setAccessDenied(true);
-        }
-      };
+    client.on("message", (data) => {
+      applyRemoteChange(data);
+    });
 
-      return () => {
-        ws.current?.close();
-      };
-    } catch (error) {
-      console.error("Failed to connect WebSocket:", error);
-      setIsConnected(false);
-    }
+    client.on("error", (data: any) => {
+      console.error("WebSocket error:", data?.message ?? data);
+    });
+
+    client.connect();
+
+    return () => {
+      client.disconnect();
+      wsClientRef.current = null;
+    };
   }, [documentId, userId, authToken, applyRemoteChange, fetchAuditTrail]);
 
   // Auto-save every 15 seconds
@@ -232,15 +225,14 @@ export function CollaborativeNote({
     setContent(value);
 
     // Send to other clients (only if we have edit permission)
-    if (ws.current?.readyState === WebSocket.OPEN && permissions?.can_edit !== false) {
-      ws.current.send(
-        JSON.stringify({
-          type: "update",
-          content: value,
-          user_id: userId,
-          timestamp: new Date().toISOString(),
-        })
-      );
+    const client = wsClientRef.current;
+    if (client?.isConnected && permissions?.can_edit !== false) {
+      client.send({
+        type: "update",
+        content: value,
+        user_id: userId,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     if (onContentChange) {

@@ -40,6 +40,13 @@ This contract does not:
 
 This contract does not add ingestion. No evidence is ingested into Codexify by this contract.
 
+Static authoring aids are available for future fixture authors:
+
+- [Guardian Evidence Packet Template](./templates/guardian-evidence-packet-template.v1.json)
+- [Guardian Evidence Packet Authoring Guide](./guardian-evidence-packet-authoring-guide.md)
+
+The template and guide are static authoring aids only. They do not implement packet generation, runtime reducer behavior, ingestion, execution, UI, Execution Ledger adoption, or WorkOrder mutation.
+
 ## 3. Scope
 
 This contract defines:
