@@ -93,6 +93,8 @@ Implementation/proof-status note:
 
 Required boundary label for any future bridge surface:
 
+The full bridge proof chain is indexed at [`guardian-codex-runner-bridge-proof-chain-index.md`](./guardian-codex-runner-bridge-proof-chain-index.md). The index is the canonical reading-order surface for bridge proof artifacts. The bridge remains preflight-only. The index does not add bridge authority.
+
 ```txt
 PREFLIGHT ONLY
 NO PI LOOP INVOCATION
