@@ -313,6 +313,8 @@ The authoring template at `templates/guardian-evidence-packet-template.v1.json` 
 
 The batch validator now validates multiple fixtures, including the bridge proof-chain fixture and the local validator toolchain fixture. Warnings remain non-fatal. Validation remains shape and guardrail checking only; it does not prove claim truth or evidence sufficiency.
 
+Future reducer outputs must pass static validation before operator surfacing. Static validation remains shape and guardrail validation only; it does not prove reducer correctness or claim truth, and it does not authorize ingestion or execution.
+
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
 make guardian-evidence-packets-validate
