@@ -200,6 +200,22 @@ export function useDocumentCollaboration({
     client.on("message", (data: any) => {
       if (data?.type === "update") {
         const payload = data.payload ?? data;
+
+        // Typing events may arrive wrapped in an update envelope from the
+        // backend ws_collab handler. Route them before checking for content.
+        if (
+          (payload?.type === "typing.start" ||
+            payload?.type === "typing.stop") &&
+          typeof payload?.user_id === "string"
+        ) {
+          if (payload.type === "typing.start") {
+            handleRemoteTypingStart(payload.user_id);
+          } else {
+            handleRemoteTypingStop(payload.user_id);
+          }
+          return;
+        }
+
         if (payload?.content !== undefined) {
           onRemoteContentUpdate(payload.content);
         }

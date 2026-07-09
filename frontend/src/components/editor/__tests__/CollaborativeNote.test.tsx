@@ -495,6 +495,109 @@ describe("CollaborativeNote", () => {
     });
   });
 
+  it("wrapped backend typing event renders the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+  });
+
+  it("wrapped backend typing event expires and hides", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_100);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/user2 is typing/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("wrapped backend typing event does not overwrite editor content", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent="Existing text"
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+    // Content must not change — typing events have no 'content' field
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Existing text");
+  });
+
   // ── Cleanup ─────────────────────────────────────────────────────────────
 
   it("cleans up on unmount", async () => {
