@@ -218,3 +218,9 @@ NO PI LOOP INVOCATION
 NO SOURCE MUTATION
 NO CODEXIFY INGESTION
 ```
+
+## 16. Relationship to Guardian Evidence Reduction
+
+This bridge proof-chain index is an evidence source candidate for future [`GuardianEvidencePacket`](./guardian-evidence-packet-reducer-contract.md) production. The index itself is not a GuardianEvidencePacket. The index does not authorize ingestion, execution, UI, Pi Loop invocation, or source mutation.
+
+A future reducer implementation producing packets from bridge proof chain evidence must preserve the bridge boundary label and all false authority locks in every produced packet. See the evidence packet reducer contract for the schema family and reduction depth policies.
