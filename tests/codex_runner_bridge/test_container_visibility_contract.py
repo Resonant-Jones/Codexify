@@ -289,3 +289,73 @@ def test_compose_override_no_secrets() -> None:
         assert not re.search(pattern, text, re.IGNORECASE), (
             f"compose override must not contain secrets matching {pattern!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Executable availability / module invocation override tests
+# ---------------------------------------------------------------------------
+
+
+def test_compose_override_sets_module_invocation_mode() -> None:
+    text = COMPOSE_OVERRIDE.read_text()
+    assert 'CODEXRUN_INVOCATION_MODE: "${CODEXRUN_INVOCATION_MODE:-module}"' in text, (
+        "compose override must default CODEXRUN_INVOCATION_MODE to module"
+    )
+
+
+def test_compose_override_sets_module_default() -> None:
+    text = COMPOSE_OVERRIDE.read_text()
+    assert 'CODEXRUN_MODULE: "${CODEXRUN_MODULE:-codex_runner}"' in text, (
+        "compose override must default CODEXRUN_MODULE to codex_runner"
+    )
+
+
+def test_compose_override_includes_pythonpath() -> None:
+    text = COMPOSE_OVERRIDE.read_text()
+    assert "PYTHONPATH" in text and "Codex-Runner" in text and "src" in text, (
+        "compose override must include mounted Codex Runner src path in PYTHONPATH"
+    )
+
+
+def test_compose_override_still_readonly() -> None:
+    text = COMPOSE_OVERRIDE.read_text()
+    assert ":ro" in text, (
+        "compose override must still mount Codex Runner read-only"
+    )
+    # Check volume mount lines only (lines under "volumes:" that contain
+    # Codex-Runner).  Environment PYTHONPATH lines may also mention
+    # Codex-Runner but are not volume mounts.
+    in_volumes = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "volumes:":
+            in_volumes = True
+            continue
+        if in_volumes and stripped and not stripped.startswith("-"):
+            # No longer in the volumes block (next key like "environment:")
+            if not stripped.startswith("#"):
+                in_volumes = False
+            continue
+        if in_volumes and "Codex-Runner" in stripped:
+            assert ":ro" in stripped, (
+                f"Codex Runner volume mount must be read-only: {stripped!r}"
+            )
+
+
+def test_compose_override_states_module_invocation_boundary() -> None:
+    text = COMPOSE_OVERRIDE.read_text().lower()
+    assert "module invocation" in text, (
+        "compose override must mention module invocation"
+    )
+    assert "no write flags" in text, (
+        "compose override must state no write flags"
+    )
+    assert "no pi loop invocation" in text, (
+        "compose override must state no Pi Loop invocation"
+    )
+    assert "no source mutation" in text, (
+        "compose override must state no source mutation"
+    )
+    assert "no codexify ingestion" in text, (
+        "compose override must state no Codexify ingestion"
+    )
