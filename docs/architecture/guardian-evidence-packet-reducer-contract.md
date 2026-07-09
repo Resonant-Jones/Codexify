@@ -55,6 +55,8 @@ Code-level contract constants now exist under `guardian/evidence_packets/contrac
 
 Packet literals now have a code-level source under `guardian/evidence_packets/contracts.py`, and local validators are aligned to that package. Future backend reducer work must avoid re-inventing packet literals.
 
+Code-level reducer interface contracts now exist under `guardian/evidence_packets/reducer_contracts.py`. Future backend reducer work must use these interfaces and `guardian/evidence_packets/contracts.py`. This does not implement reducer behavior or generator behavior.
+
 ## 3. Scope
 
 This contract defines:
