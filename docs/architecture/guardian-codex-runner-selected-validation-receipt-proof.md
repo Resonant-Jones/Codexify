@@ -238,4 +238,6 @@ Status: **SELECTED_AVAILABLE**.
 
 The receipt at `/Volumes/Dev_SSD/Codex-Runner/.guardian/receipts/20260706T171742Z-plan-pack-validation-sample-dry-run-plan-pack.json` is available, visible on host and inside the backend container, valid JSON, and declares itself as evidence-not-authority with all nine authority locks false.
 
-Live orchestration proof remains deferred.
+**Follow-up:** This selected receipt path was used in the first live dry-run orchestration preflight proof. See [`guardian-codex-runner-command-bus-live-orchestration-proof.md`](./guardian-codex-runner-command-bus-live-orchestration-proof.md). Selected receipt availability does not imply trust, ingestion, dispatch, plan execution, Pi Loop invocation, or source mutation.
+
+Live orchestration proof was subsequently proven — see the orchestration proof document for the result.

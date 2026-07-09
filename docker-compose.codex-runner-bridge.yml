@@ -51,6 +51,15 @@ services:
       CODEXRUN_INVOCATION_MODE: "${CODEXRUN_INVOCATION_MODE:-module}"
       CODEXRUN_PYTHON_BINARY: "${CODEXRUN_PYTHON_BINARY:-python}"
       CODEXRUN_MODULE: "${CODEXRUN_MODULE:-codex_runner}"
+      # Ensure local auth mode so the X-API-Key flow works when the
+      # .env file sets GUARDIAN_AUTH_MODE=remote for development use.
+      GUARDIAN_AUTH_MODE: "local"
+      # Disable OAuth and multi-user triggers from .env.
+      GOOGLE_OAUTH_REDIRECT: ""
+      GOOGLE_OAUTH_CLIENT_ID: ""
+      GOOGLE_OAUTH_CLIENT_SECRET: ""
+      GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY: ""
+      CODEXIFY_MULTI_USER_ENABLED: "false"
       # Prepend the mounted Codex Runner src directory to PYTHONPATH so
       # python -m codex_runner resolves inside the mounted checkout.
       PYTHONPATH: "${CODEX_RUNNER_CONTAINER_ROOT:-/Volumes/Dev_SSD/Codex-Runner}/src:/app"
