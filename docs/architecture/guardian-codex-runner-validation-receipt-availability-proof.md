@@ -261,4 +261,6 @@ A valid Codex Runner validation receipt exists at `/Volumes/Dev_SSD/Codex-Runner
 
 Setting `CODEX_RUNNER_VALIDATION_RECEIPT_PATH` or creating `/tmp/guardian-bridge-validation-receipt-path.txt` would unblock the receipt selection gate.
 
+**Follow-up:** An operator-selected receipt path check was performed. See [`guardian-codex-runner-selected-validation-receipt-proof.md`](./guardian-codex-runner-selected-validation-receipt-proof.md) — the explicitly selected receipt path was verified as `SELECTED_AVAILABLE`. Selected availability does not imply trust, ingestion, orchestration, dispatch, or execution authority.
+
 Live orchestration proof remains deferred.
