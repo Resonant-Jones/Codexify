@@ -551,6 +551,200 @@ describe("useDocumentCollaboration", () => {
       );
       expect(typingMsgs.length).toBe(0);
     });
+
+    it("wrapped update envelope with typing.start adds a remote typing user", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.start",
+            user_id: "user2",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user2",
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+      expect(result.current.typingUsers[0].user_id).toBe("user2");
+    });
+
+    it("wrapped update envelope with typing.stop removes a remote typing user", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      // Add via direct typing.start first
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      // Remove via wrapped typing.stop
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.stop",
+            user_id: "user2",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user2",
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("wrapped typing event from the current user is ignored", async () => {
+      const { result } = render(defaultOptions({ userId: "user1" }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.start",
+            user_id: "user1",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user1",
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("wrapped typing event does not call onRemoteContentUpdate", async () => {
+      const onRemoteContentUpdate = vi.fn();
+      render(defaultOptions({ onRemoteContentUpdate }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.start",
+            user_id: "user2",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user2",
+        });
+      });
+
+      expect(onRemoteContentUpdate).not.toHaveBeenCalled();
+    });
+
+    it("wrapped typing user auto-expires after 3000ms", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.start",
+            user_id: "user2",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user2",
+        });
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(3_100);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("repeated wrapped typing.start resets the expiry timer", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "typing.start",
+            user_id: "user2",
+            timestamp: new Date().toISOString(),
+          },
+          user_id: "user2",
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+
+      // Another typing.start resets the timer
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_100);
+      });
+
+      expect(result.current.typingUsers).toHaveLength(0);
+    });
+
+    it("ordinary content update still calls onRemoteContentUpdate", async () => {
+      const onRemoteContentUpdate = vi.fn();
+      render(defaultOptions({ onRemoteContentUpdate }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { content: "normal update" },
+          user_id: "user2",
+        });
+      });
+
+      expect(onRemoteContentUpdate).toHaveBeenCalledWith("normal update");
+    });
   });
 
   describe("sendContentUpdate", () => {
