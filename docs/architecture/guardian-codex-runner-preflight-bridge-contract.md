@@ -78,9 +78,13 @@ Implementation/proof-status note:
 - the availability proof records whether an operator-selected receipt path is visible
 - a selected validation receipt proof exists at `docs/architecture/guardian-codex-runner-selected-validation-receipt-proof.md`
 - a live dry-run orchestration proof exists at `docs/architecture/guardian-codex-runner-command-bus-live-orchestration-proof.md`
+- a local-auth override contract exists at `docs/architecture/guardian-codex-runner-local-auth-override-contract.md`
+- the local-auth override contract governs docker-compose.codex-runner-bridge.yml only
 - it does not prove live orchestration
+- it does not change bridge authority
 - it does not prove Pi Loop invocation
 - it does not prove plan execution
+- it does not authorize plan execution
 - it does not create, trust, or ingest receipts
 - it does not enable write flags
 - it does not prove live validation

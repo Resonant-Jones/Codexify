@@ -117,6 +117,7 @@ Source anchors:
 
 - `/debug/rag-trace/{thread_id}/latest` is explicitly dev-only. It reads the latest completion trace from task events when available, falls back to in-memory cache, and is cleared by restart.
 - In the current supported profile, `command_bus` is marked internal-only. That route posture is an operator/runtime concern, not an end-user release surface.
+- `docker-compose.codex-runner-bridge.yml` is an opt-in local bridge proof profile for the Guardian Codex Runner command-bus bridge. It mounts Codex Runner read-only, enables module invocation, and may force local auth with OAuth/multi-user disabled for local proof execution. The default `docker-compose.yml` remains the supported baseline. This is not production auth guidance and not release support expansion.
 - Partial action-center style UI exists in the frontend codebase, but its backing data sources depend on routes and operational surfaces that are not the primary supported beta workflow.
 
 ### Expected source of truth during beta operation

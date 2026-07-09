@@ -33,6 +33,7 @@ const DEV_ALLOWED_HOSTS = Array.from(
   new Set([
     'axisnode',
     'vaultnode',
+    '100.100.42.37',
     ...ADDITIONAL_ALLOWED_HOSTS,
   ])
 );
