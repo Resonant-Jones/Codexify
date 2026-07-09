@@ -72,7 +72,10 @@ Implementation/proof-status note:
 - default adapter behavior remains binary mode (`codexrun` on PATH)
 - a module live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-module-proof.md`
 - the module proof produced a PASS result — the first successful live validate through the bridge
+- an orchestration receipt prerequisite contract exists at `docs/architecture/guardian-codex-runner-orchestration-receipt-prerequisite-contract.md`
+- the prerequisite contract defines receipt requirements for future dry-run orchestration proof
 - it does not prove live orchestration
+- it does not create or ingest receipts
 - it does not enable write flags
 - it does not prove live validation
 - it does not add UI support
