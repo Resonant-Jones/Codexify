@@ -55,6 +55,9 @@ def _settings(**overrides) -> Settings:
         "LLM_MODEL": _LLAMA,
         "OPENAI_API_KEY": None,
         "GROQ_API_KEY": None,
+        "DEEPSEEK_API_KEY": None,
+        "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+        "DEEPSEEK_CHAT_MODEL": "deepseek-v4-pro",
         "ALIBABA_API_KEY": None,
         "MINIMAX_API_KEY": None,
     }
@@ -115,3 +118,63 @@ def test_local_only_whooshd_mismatch_does_not_enable_cloud_fallback(
     local = _local_provider(payload)
     assert local["truth"]["cloud_capable_configuration_present"] is False
     assert local["truth"]["egress_allowed"] is True
+
+
+def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    payload = build_llm_catalog(settings=settings, include_all=False)
+    deepseek = next(
+        provider
+        for provider in payload["providers"]
+        if provider["id"] == "deepseek"
+    )
+
+    assert deepseek["enabled"] is True
+    assert deepseek["available"] is True
+    assert deepseek["authorized"] is True
+    assert [model["id"] for model in deepseek["models"]] == [
+        "deepseek-v4-pro"
+    ]
+    assert deepseek["models"][0]["displayName"] == "DeepSeek V4 Pro"
+    assert deepseek["truth"]["selectable"] is True
+    assert deepseek["truth"]["egress_allowed"] is True
+
+
+def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+    monkeypatch.setattr(llm_catalog.requests, "get", _whooshd_inventory)
+
+    settings = _settings(
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    payload = build_llm_catalog(settings=settings, include_all=False)
+    provider_ids = [provider["id"] for provider in payload["providers"]]
+    assert provider_ids == ["local"]
+
+    payload_all = build_llm_catalog(settings=settings, include_all=True)
+    deepseek = next(
+        provider
+        for provider in payload_all["providers"]
+        if provider["id"] == "deepseek"
+    )
+
+    assert deepseek["enabled"] is False
+    assert deepseek["available"] is False
+    assert deepseek["disabled_reason"] == "Cloud providers disabled by config"
+    assert deepseek["truth"]["supported_profile_approved"] is False

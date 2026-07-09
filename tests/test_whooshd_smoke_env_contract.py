@@ -228,7 +228,7 @@ class TestContractRequiresCorrectLocalBaseUrl:
         profile = _load_supported_profile()
         contract = profile["provider_contract"]
 
-        actual = "http://100.109.4.57:11434"
+        actual = "http://100.127.148.28:11434"
         assert actual != contract["LOCAL_BASE_URL"], (
             "Tailscale IP URL should not match blessed Whoosh'd gateway"
         )

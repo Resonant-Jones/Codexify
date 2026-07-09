@@ -48,14 +48,15 @@ Source anchors:
 | Variable | Current behavior | Anchors |
 |---|---|---|
 | `LLM_PROVIDER` | Canonical provider default in core settings; defaults to `local` | `guardian/core/config.py` |
-| `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `ALLOW_CLOUD_PROVIDERS` | Default `false`; used with egress policy to gate cloud providers such as OpenAI, Groq, DeepSeek, Alibaba, and MiniMax | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_LOCAL_ONLY_MODE` | Default `true`; keeps the system local-first unless explicitly relaxed | `guardian/core/config.py`, `guardian/core/egress.py` |
-| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted | `guardian/core/config.py`, `guardian/core/egress.py` |
+| `CODEXIFY_EGRESS_ALLOWLIST` | Explicit outbound allowlist when non-local access is permitted; cloud entries include `openai`, `groq`, `deepseek`, `alibaba`, and `minimax` | `guardian/core/config.py`, `guardian/core/egress.py` |
 | `CODEXIFY_SUPPORTED_PROFILE` | Names the supported-profile manifest to load at startup; supported Compose sets this explicitly for the local beta profile | `guardian/core/supported_profile.py`, `guardian/guardian_api.py`, `docker-compose.yml` |
 | `CODEXIFY_SUPPORTED_PROFILE_DIR` | Optional override for the manifest directory; default is `config/supported_profiles`, and the supported Compose backend mounts `./config:/app/config:ro` so the manifest is available | `guardian/core/supported_profile.py`, `docker-compose.yml` |
 | `LOCAL_RUNTIME_PRESET`, `LOCAL_BASE_URL`, `LOCAL_DOCKER_FALLBACK_BASE_URL`, `LOCAL_API_KEY`, `LOCAL_CHAT_MODEL`, `LOCAL_PROVIDER_DISPLAY_NAME`, `LOCAL_PROVIDER_VENDOR`, `LOCAL_COMPAT_FIRST`, `LOCAL_EMBED_MODEL` | Local runtime preset, connectivity, and model selection. Presets include `whooshd-mlx`, `ollama`, `lmstudio`, and `custom-openai-compatible`; all remain behind `LLM_PROVIDER=local` | `guardian/core/config.py`, `guardian/core/local_runtime_presets.py`, `guardian/core/ai_router.py`, `docker-compose.yml` |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `GROQ_API_KEY`, `GROQ_BASE_URL` | Groq execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
+| `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_CHAT_MODEL` | DeepSeek OpenAI-compatible execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL` | Minimax execution path | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Global timeout shaping for provider calls | `guardian/core/config.py`, `guardian/core/ai_router.py` |
 | `REMOTE_RECALL_ENABLED` | Default `false`. Master gate for the Remote Recall Search-as-RAG web-evidence lane. Off by default to preserve the local-only beta posture. | `guardian/core/config.py`, `guardian/web/remote_recall.py` |
