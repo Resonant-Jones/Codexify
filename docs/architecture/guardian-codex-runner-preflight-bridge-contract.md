@@ -31,9 +31,47 @@ This task is docs-only. It does not implement runtime behavior.
 Current status:
 
 - Codex Runner already implements local CLI Guardian preflight tools.
-- Codexify does not yet expose those tools through backend or UI.
+- Codexify now exposes those tools through an internal backend command-bus layer, but not through UI or a new API route.
 - This contract is architecture-impacting because it defines a future control-plane seam across the Codexify backend boundary.
 - This contract does not add shipped runtime behavior, release support, or operator authority.
+
+Implementation status note:
+
+- a backend contract module now exists at `guardian/codex_runner_bridge/contracts.py`
+- typed request/response/authority/path validation helpers now exist
+- a backend JSON-only adapter now exists for `validate-plan-pack` and `orchestrate-dry-run` preflight
+- internal command-bus command specs now exist for `internal::guardian.codex_runner.validate_plan_pack` and `internal::guardian.codex_runner.orchestrate_dry_run_preflight`
+- the bridge remains backend-owned, JSON-only, read-only, and preflight-only
+- the adapter forces JSON mode
+- the adapter does not support write flags yet
+- command-bus run/event persistence may record invocation metadata
+- no API route exists
+- no UI exists
+- no write flags exist
+- no Pi Loop invocation exists
+- no Codexify ingestion exists
+- no source mutation exists
+- no durable mutation exists beyond ordinary command-bus run/event records
+
+Controlled proof note:
+
+- the operator proof packet lives at `docs/architecture/guardian-codex-runner-command-bus-proof.md`
+- the proof packet is controlled and does not prove live Codex Runner execution
+- live proof remains a future separate slice
+
+Implementation/proof-status note:
+
+- a live validate-only command-bus proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`
+- a retry live validate-only proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-retry-proof.md`
+- an opt-in local Docker container visibility contract exists at `docs/architecture/guardian-codex-runner-container-visibility-contract.md`
+- the visibility contract mounts Codex Runner read-only via `docker-compose.codex-runner-bridge.yml` for backend preflight validation
+- a mounted live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-mounted-proof.md`
+- the visibility mount contract solved the filesystem visibility gap (Codex Runner is visible inside the backend container), but the `codexrun` binary is not available on the container PATH
+- it does not enable write flags
+- it does not prove live validation
+- it does not prove live orchestration
+- it does not add UI support
+- it does not add Codexify ingestion
 
 Required boundary label for any future bridge surface:
 
@@ -86,16 +124,16 @@ What is true now:
 - The supported path remains the local Docker Compose stack with local-only provider posture.
 - Docs-only contracts do not mean shipped runtime behavior.
 - Codex Runner already implements local CLI Guardian preflight tools.
-- Codexify does not yet expose those tools in the UI or backend.
-- Codexify already has a backend command/tooling layer, but this task does not add a new command.
+- Codexify now exposes those tools through an internal backend command-bus layer, but still not through UI or a new API route.
+- Codexify already has a backend command/tooling layer, and this task adds typed internal command-bus exposure for the JSON-only bridge.
 - Guardian evidence artifacts remain evidence, not approval or durable truth.
 
 What is not yet true:
 
 - No Codexify Guardian UI button exists for Codex Runner preflight.
-- No Codexify backend adapter exists for Codex Runner preflight.
 - No Codex Runner daemon/service is integrated with Codexify.
-- No Codexify route or command-bus command invokes `codexrun guardian` commands.
+- No Codexify HTTP route invokes `codexrun guardian` commands.
+- No public or UI surface exposes the internal command-bus bridge commands.
 - No Codexify durable record ingests Guardian receipts.
 - No Guardian path invokes Pi Loop from Codexify.
 

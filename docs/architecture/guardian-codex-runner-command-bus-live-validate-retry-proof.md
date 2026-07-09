@@ -32,6 +32,7 @@ Key points:
 
 - the retry proof failed because the backend container could not see the host Codex Runner checkout at `/Volumes/Dev_SSD/Codex-Runner`
 - the container visibility contract defines the next opt-in mount seam via `docker-compose.codex-runner-bridge.yml`
+- a mounted live validate proof attempt was run using that override: [`guardian-codex-runner-command-bus-live-validate-mounted-proof.md`](./guardian-codex-runner-command-bus-live-validate-mounted-proof.md) — **FAIL** because `codexrun` binary was not found on the container PATH
 - a live validate pass remains future proof, not implied by the mount contract
 
 ## 4. Scope
