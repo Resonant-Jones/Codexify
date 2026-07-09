@@ -23,6 +23,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `main` now includes a controlled operator-proof packet for the Guardian Codex Runner command-bus bridge; it validates command-bus lifecycle wiring and boundary preservation only, and it does not prove live Codex Runner execution, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
 - this branch adds a live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
 - this branch adds a retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge; it does not prove live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
+- this branch adds an opt-in local Docker container visibility contract for the Guardian Codex Runner bridge; it exists to address the failed live validate retry proof where the backend container could not see `/Volumes/Dev_SSD/Codex-Runner`; it does not prove live validation, live orchestration, UI integration, write flags, Pi Loop invocation, source mutation, Codexify ingestion, or durable mutation beyond command-bus run/event records.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality

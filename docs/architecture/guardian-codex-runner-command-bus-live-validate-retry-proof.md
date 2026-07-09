@@ -22,7 +22,19 @@ Live proof attempt timestamp: `2026-07-08T21:43:51+00:00`
 
 Reason: the Codex Runner bridge adapter failed because `/Volumes/Dev_SSD/Codex-Runner` does not exist inside the Docker container running the Codexify backend. The command-bus lifecycle completed a `run.failed` event with the adapter exception. This is a host-path accessibility gap, not a bridge contract or command-bus lifecycle failure.
 
-## 3. Scope
+## 3. Container Visibility Contract
+
+A separate opt-in local Docker container visibility contract exists to address the host-path accessibility gap that caused this proof to fail:
+
+- [`guardian-codex-runner-container-visibility-contract.md`](./guardian-codex-runner-container-visibility-contract.md)
+
+Key points:
+
+- the retry proof failed because the backend container could not see the host Codex Runner checkout at `/Volumes/Dev_SSD/Codex-Runner`
+- the container visibility contract defines the next opt-in mount seam via `docker-compose.codex-runner-bridge.yml`
+- a live validate pass remains future proof, not implied by the mount contract
+
+## 4. Scope
 
 This proof is validate-only.
 
@@ -38,19 +50,19 @@ This proof does not attempt:
 - source mutation
 - Codexify ingestion
 
-## 4. Proof Class
+## 5. Proof Class
 
 Proof class: live validate-only operator proof (retry).
 
 This proof is separate from the controlled automated proof packet and the first blocked live validate proof.
 
-## 5. Relation to Prior Blocked Proof
+## 6. Relation to Prior Blocked Proof
 
 The first live validate proof (`guardian-codex-runner-command-bus-live-validate-proof.md`) was BLOCKED because the local Codexify backend was unreachable on `http://localhost:8888`.
 
 This retry proof advances past that block: the backend is reachable, the command-bus route is available, and the internal command is found in the manifest. The new failure is a host-path accessibility gap inside Docker, not a route-availability block.
 
-## 6. Prerequisites Checked
+## 7. Prerequisites Checked
 
 Branch at proof time:
 
@@ -67,7 +79,7 @@ Prerequisite results:
 - Codex Runner path exists at `/Volumes/Dev_SSD/Codex-Runner` (inside Docker): no
 - sample Plan Pack exists at `/Volumes/Dev_SSD/Codex-Runner/docs/guardian/examples/sample-dry-run-plan-pack` (host): yes
 
-## 7. Current Truth
+## 8. Current Truth
 
 Current truth preserved during this attempt:
 
@@ -80,13 +92,13 @@ Current truth preserved during this attempt:
 - This slice does not prove Guardian UI integration.
 - This slice does not ingest evidence into Codexify as durable architectural truth.
 
-## 8. Backend Startup / Reachability
+## 9. Backend Startup / Reachability
 
 The local Codexify backend was initially reachable but the internal bridge commands were not visible in the manifest (137 commands, 0 internal). A `docker compose restart backend` resolved this; after restart the manifest returned 139 commands with 2 internal bridge commands present.
 
 Backend reachability at proof time: `http://localhost:8888/health` returned `200`.
 
-## 9. Live Command Invoked
+## 10. Live Command Invoked
 
 Live command ID invoked:
 
@@ -100,7 +112,7 @@ POST http://localhost:8888/api/guardian/commands/invoke
 
 The command was found in the manifest and dispatched to the internal bridge adapter. The command-bus lifecycle created a run, started execution, and then failed with an adapter exception.
 
-## 10. Payload Used
+## 11. Payload Used
 
 Plan Pack path used:
 
@@ -133,7 +145,7 @@ Payload used:
 
 Note: `actor.id` was changed from `operator` to `local` to match the auth subject of the local Docker Compose backend.
 
-## 11. Observed Response
+## 12. Observed Response
 
 Observed invoke response:
 
@@ -156,7 +168,7 @@ Key observations:
 - no `inline_result` was returned
 - error: `[Errno 2] No such file or directory: PosixPath('/Volumes/Dev_SSD/Codex-Runner')`
 
-## 12. Observed Run Record
+## 13. Observed Run Record
 
 Run record:
 
@@ -185,7 +197,7 @@ Key observations:
 - error_text confirms the file-not-found exception from the adapter
 - lifecycle timestamps show rapid fail (~30ms from start to end)
 
-## 13. Observed Events
+## 14. Observed Events
 
 The events endpoint is a Server-Sent Events (SSE) stream and was not inspected as a JSON body. The run record itself provides sufficient lifecycle evidence.
 
@@ -195,7 +207,7 @@ Expected lifecycle from the run status (`failed`):
 2. `run.started`
 3. `run.failed`
 
-## 14. Boundary Fields Observed
+## 15. Boundary Fields Observed
 
 No bridge boundary fields were observed in the live response because the adapter raised an exception before producing a `GuardianBridgeResponse`.
 
@@ -208,7 +220,7 @@ NO SOURCE MUTATION
 NO CODEXIFY INGESTION
 ```
 
-## 15. Authority Locks Observed
+## 16. Authority Locks Observed
 
 No live authority block was observed because the adapter failed before producing a response.
 
@@ -227,7 +239,7 @@ authority:
   merge_allowed: false
 ```
 
-## 16. What This Proof Establishes
+## 17. What This Proof Establishes
 
 This failed proof establishes that:
 
@@ -238,7 +250,7 @@ This failed proof establishes that:
 - the adapter attempted to execute but failed because `/Volumes/Dev_SSD/Codex-Runner` is not accessible from inside the Docker container
 - the error message is accurate and surfaced through the command-bus error field
 
-## 17. What This Proof Does Not Establish
+## 18. What This Proof Does Not Establish
 
 This proof does not establish:
 
@@ -251,7 +263,7 @@ This proof does not establish:
 - Codexify ingestion
 - durable truth beyond ordinary command-bus run/event records
 
-## 18. Failure or Blocked Interpretation
+## 19. Failure or Blocked Interpretation
 
 Interpretation: FAIL.
 
@@ -277,7 +289,7 @@ To fix this failure would require either:
 
 Both are outside the scope of this proof task.
 
-## 19. Future Orchestration Live-Proof Slice
+## 20. Future Orchestration Live-Proof Slice
 
 Live orchestration proof remains deferred.
 
@@ -288,7 +300,7 @@ A future orchestration slice would require, at minimum:
 - an explicit separate proof attempt for `internal::guardian.codex_runner.orchestrate_dry_run_preflight`
 - continued prohibition on write flags in this bridge slice unless separately approved
 
-## 20. Forbidden Interpretations
+## 21. Forbidden Interpretations
 
 Do not interpret this failed proof as:
 
@@ -304,7 +316,7 @@ Do not interpret this failed proof as:
 - permission to ingest evidence into Codexify
 - permission to create durable truth beyond command-bus run/event records
 
-## 21. Bottom Line
+## 22. Bottom Line
 
 This branch adds the retry live validate-only proof packet for the Guardian Codex Runner command-bus bridge.
 

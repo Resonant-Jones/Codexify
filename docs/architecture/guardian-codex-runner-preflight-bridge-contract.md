@@ -63,8 +63,11 @@ Implementation/proof-status note:
 
 - a live validate-only command-bus proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-proof.md`
 - a retry live validate-only proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-retry-proof.md`
-- it does not prove live orchestration
+- an opt-in local Docker container visibility contract exists at `docs/architecture/guardian-codex-runner-container-visibility-contract.md`
+- the visibility contract mounts Codex Runner read-only via `docker-compose.codex-runner-bridge.yml` for backend preflight validation
 - it does not enable write flags
+- it does not prove live validation
+- it does not prove live orchestration
 - it does not add UI support
 - it does not add Codexify ingestion
 
