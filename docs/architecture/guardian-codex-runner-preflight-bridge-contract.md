@@ -76,6 +76,7 @@ Implementation/proof-status note:
 - the prerequisite contract defines receipt requirements for future dry-run orchestration proof
 - a validation receipt availability proof exists at `docs/architecture/guardian-codex-runner-validation-receipt-availability-proof.md`
 - the availability proof records whether an operator-selected receipt path is visible
+- a selected validation receipt proof exists at `docs/architecture/guardian-codex-runner-selected-validation-receipt-proof.md`
 - it does not prove live orchestration
 - it does not create, trust, or ingest receipts
 - it does not enable write flags
