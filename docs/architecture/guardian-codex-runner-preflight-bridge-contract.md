@@ -74,8 +74,10 @@ Implementation/proof-status note:
 - the module proof produced a PASS result — the first successful live validate through the bridge
 - an orchestration receipt prerequisite contract exists at `docs/architecture/guardian-codex-runner-orchestration-receipt-prerequisite-contract.md`
 - the prerequisite contract defines receipt requirements for future dry-run orchestration proof
+- a validation receipt availability proof exists at `docs/architecture/guardian-codex-runner-validation-receipt-availability-proof.md`
+- the availability proof records whether an operator-selected receipt path is visible
 - it does not prove live orchestration
-- it does not create or ingest receipts
+- it does not create, trust, or ingest receipts
 - it does not enable write flags
 - it does not prove live validation
 - it does not add UI support

@@ -328,6 +328,8 @@ A future live orchestration proof slice would require, at minimum:
 7. All authority locks remaining false.
 8. The four-line boundary label present in the response.
 
+An operator receipt path availability check has been performed. See [`guardian-codex-runner-validation-receipt-availability-proof.md`](./guardian-codex-runner-validation-receipt-availability-proof.md).
+
 Live orchestration proof remains deferred.
 
 ## 19. Forbidden Interpretations
