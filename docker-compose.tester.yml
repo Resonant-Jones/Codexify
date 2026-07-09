@@ -1,0 +1,39 @@
+# docker-compose.tester.yml
+#
+# Friends & family tester override for the supported local Docker Compose path.
+# Use this file together with docker-compose.yml and a dedicated .env.tester:
+#
+#   cp .env.tester.example .env.tester
+#   # generate real secrets and populate .env.tester
+#   COMPOSE_PROJECT_NAME=codexify_tester \
+#     docker compose --env-file .env.tester \
+#     -f docker-compose.yml -f docker-compose.tester.yml up -d
+#
+# This override:
+#   - Exposes the backend on port 8889 (dev uses 8888).
+#   - Exposes the frontend on port 5174 (dev uses 5173).
+#   - Configures the backend to load the v1-friends-family-web supported profile.
+#   - Sets auth-mode and exposure-mode for session/JWT auth.
+#   - Points the frontend at the tester backend base URL.
+#   - All values that carry secrets are read from the .env.tester file.
+#
+# Do NOT commit .env.tester.  Only .env.tester.example is committed.
+
+services:
+  backend:
+    ports:
+      - "8889:8888"
+    environment:
+      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
+      GUARDIAN_AUTH_MODE: "${GUARDIAN_AUTH_MODE:-remote}"
+      GUARDIAN_EXPOSURE_MODE: "${GUARDIAN_EXPOSURE_MODE:-local_safe}"
+      GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?GUARDIAN_SESSION_SECRET must be set in .env.tester}"
+      GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?GUARDIAN_JWT_SECRET must be set in .env.tester}"
+      GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-http://localhost:5174}"
+
+  frontend:
+    ports:
+      - "5174:5173"
+    environment:
+      VITE_GUARDIAN_API_BASE: "${VITE_GUARDIAN_API_BASE:-http://localhost:8889}"
+      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-}"

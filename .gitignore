@@ -12,6 +12,7 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.tester.example
 !.env.template
 
 # Logs

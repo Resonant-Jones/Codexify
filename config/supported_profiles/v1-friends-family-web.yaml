@@ -1,0 +1,126 @@
+# v1-friends-family-web: Friends & family tester runtime profile.
+#
+# This profile enables the auth router (register/login/logout) on top of the
+# core local web surface so invited testers can create accounts and sign in.
+# It does NOT replace v1-local-core-web-mcp (the default beta profile) and
+# must be used with a separate Compose project name (codexify_tester), distinct
+# host ports, and an isolated .env.tester file.
+#
+# Classification: architecture-impact (new named profile, new route posture).
+# Governing ADRs: ADR-005 (Runtime Mode and Account Boundary Invariants).
+# This profile does not widen the default beta promise.
+
+name: v1-friends-family-web
+version: 1
+surface: local-docker-compose-webui
+required_services:
+  - frontend
+  - backend
+  - db
+  - redis
+  - worker-chat
+  - worker-document-embed
+  - migrator
+optional_services:
+  - worker-warmup
+  - neo4j
+  - graph-init
+extension_posture:
+  public:
+    - mcp
+  internal:
+    - command_bus_http
+    - plugin_sdk
+route_posture:
+  enabled:
+    - health
+    - admin
+    - chat
+    - simple_chat
+    - api_chat
+    - threads
+    - projects
+    - api_projects
+    - documents
+    - media
+    - personal_facts
+    - migration
+    - embeddings
+    - obsidian
+    - auth
+  internal_only:
+    - coding_work_orders
+    - command_bus
+  quarantined:
+    - neo
+    - imprint
+    - system_prompt
+    - system_docs
+    - iddb
+    - backfill
+    - memory
+    - agent
+    - research
+    - share
+    - federation
+    - collaboration
+    - connectors
+    - google_connect
+    - voice
+    - flows
+    - tools
+    - api_tools
+    - exports
+    - codex
+    - devtools
+    - websocket
+    - cron
+    - ui_session
+    - agent_orchestration
+    - agent_orchestration_chat
+    - user_profile
+provider_contract:
+  LLM_PROVIDER: local
+  ALLOW_CLOUD_PROVIDERS: false
+  CODEXIFY_LOCAL_ONLY_MODE: true
+  CODEXIFY_EGRESS_ALLOWLIST: ""
+  LOCAL_BASE_URL: http://host.docker.internal:8000/v1
+  LOCAL_API_KEY: local
+  # Model names are NOT enforced here — the system discovers available models
+  # at runtime. If no local models exist AND no cloud provider is configured,
+  # the /health/llm endpoint will report models_available: false.
+criticality:
+  tier0:
+    services:
+      - frontend
+      - backend
+      - db
+      - redis
+      - worker-chat
+      - worker-document-embed
+    routes:
+      - health
+      - chat
+      - api_chat
+      - threads
+      - media
+      - documents
+      - auth
+  tier1:
+    services:
+      - migrator
+      - worker-warmup
+    routes:
+      - embeddings
+  tier2:
+    services:
+      - command_bus_http
+      - tts
+      - cron
+      - federation
+    routes:
+      - command_bus
+      - tools
+      - api_tools
+      - websocket
+      - cron
