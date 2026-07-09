@@ -317,6 +317,8 @@ Future reducer outputs must pass static validation before operator surfacing. St
 
 The existing script validators remain local tooling. Future backend reducer code should use `guardian/evidence_packets/contracts.py` for canonical packet constants; future work must not silently fork constants between scripts and backend reducer code. This task does not require refactoring the existing scripts to import the backend package unless explicitly chosen and tested.
 
+The local validator scripts now consume `guardian/evidence_packets/contracts.py` for packet schema constants and shape helpers. Validator issue codes remain local candidate validator codes and are not runtime protocol tokens. This prevents drift without promoting validator behavior into runtime semantics. It does not implement a runtime validator service, reducer, or generator.
+
 ```bash
 python3 scripts/guardian/validate_evidence_packets.py --json
 make guardian-evidence-packets-validate
