@@ -267,3 +267,5 @@ The override exists so the opt-in bridge proof profile works with local `.env` f
 The override is opt-in, local-only, and proof-profile scoped. It does not change production auth policy, runtime code, default compose posture, or any bridge authority boundaries.
 
 Both bridge preflight commands remain live-proven with all authority locks false.
+
+The local-auth override is one proof-profile seam in the larger bridge proof chain. The full chain is indexed at [`guardian-codex-runner-bridge-proof-chain-index.md`](./guardian-codex-runner-bridge-proof-chain-index.md). The index does not make the local-auth override production auth policy.
