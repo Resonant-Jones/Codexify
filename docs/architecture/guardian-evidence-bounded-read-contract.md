@@ -32,6 +32,27 @@ This contract does not authorize Codexify ingestion.
 This contract states that a future bounded evidence reader may read only explicitly allowed local source references.
 The future bounded evidence reader must not follow network URLs; it must not read secrets; it must not call command bus; it must not call Codex Runner; it must not mutate WorkOrders; and it must not write Execution Ledger entries.
 
+### Implementation status
+
+Local bounded evidence-read tooling now exists at
+`scripts/guardian/read_bounded_evidence.py`. It accepts a validated
+`ReducerInputBundle` JSON file, validates the bundle before reading source refs,
+reads only explicitly referenced local allowlisted `source_ref` files, never
+follows network URLs, blocks secret-like paths, and returns bounded read
+artifacts with content hashes, bounded excerpts, provenance, warnings, errors,
+and limits. It does not generate `GuardianEvidencePacket` output, implement
+packet generation or runtime reducer behavior, ingest evidence, or call command
+bus, Codex Runner, live validation, orchestration, Pi Loop, provider
+execution, source mutation, WorkOrder mutation, or Execution Ledger writes. It
+is not CI/default release gating or release support expansion.
+The reader returns bounded read artifacts.
+
+Invocation:
+
+```bash
+python3 scripts/guardian/read_bounded_evidence.py docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json --json
+```
+
 ## 3. Scope
 
 The contract covers future local-only source-reference resolution, bounded

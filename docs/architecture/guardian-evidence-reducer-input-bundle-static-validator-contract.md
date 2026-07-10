@@ -37,6 +37,10 @@ defines a separate future read seam. Input-bundle validator success is not read
 approval, packet generation, evidence authority, or runtime reducer support.
 
 Validator success is not read approval.
+
+Input-bundle static validation can feed local bounded evidence-read tooling only
+after validation passes. Validator success is not read approval by itself, not
+packet generation, not evidence authority, and not runtime reducer support.
 validator success is not read approval.
 
 The local Make target now exists:

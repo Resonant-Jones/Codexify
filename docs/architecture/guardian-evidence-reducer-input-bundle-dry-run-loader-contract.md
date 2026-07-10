@@ -40,6 +40,11 @@ The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-c
 is another separate future seam. Dry-run loader success is not bounded reading,
 packet generation, evidence ingestion, or authority promotion.
 
+The dry-run input-bundle loader remains diagnostics-only and does not read
+`source_ref` targets. Bounded evidence-read tooling is a separate local script.
+Dry-run loader success is not bounded reading, packet generation, evidence
+ingestion, or authority promotion.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundle-dry-run`. It runs:
 
