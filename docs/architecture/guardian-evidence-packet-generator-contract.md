@@ -332,6 +332,13 @@ read evidence ref exists. Supported claims must never have empty
 `evidence_refs`; skipped-only bounded-read input is failure/not-generated, not
 a successful packet.
 
+The generator fails closed when `read_results` contains a non-object entry
+(e.g. `null`). Malformed bounded-read input must produce bounded diagnostics,
+not Python tracebacks. The generator emits a `malformed_read_result_entry`
+error code, exits 1, and does not emit a packet. Non-object `read_results`
+entries must never produce a successful packet. Supported claims must still
+never have empty `evidence_refs`.
+
 The static bounded-read result fixture
 `docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
 exists and may be used by future packet generator tests only through a separate
