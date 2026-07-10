@@ -309,6 +309,23 @@ source truth approval, not evidence ingestion, not execution, not WorkOrder
 mutation, and not an Execution Ledger write.
 Bounded read output may feed future packet generation only through a separate generator implementation.
 
+### Implementation status
+
+Local stdout-only packet generator tooling now exists at
+`scripts/guardian/generate_evidence_packet.py`. It accepts one bounded-read
+result JSON file, reads only that file, does not read `source_ref` targets, and
+generates `GuardianEvidencePacket` output in memory/stdout only. It validates
+the generated packet with static packet validation, does not write packet
+fixtures, ingest evidence, promote evidence to authority, implement runtime
+reducer behavior, or call command bus, Codex Runner, live validation,
+orchestration, Pi Loop, provider execution, source mutation, WorkOrder
+mutation, or Execution Ledger writes. It is not CI/default release gating or
+release support expansion.
+
+```bash
+python3 scripts/guardian/generate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json --json
+```
+
 The static bounded-read result fixture
 `docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
 exists and may be used by future packet generator tests only through a separate
