@@ -32,6 +32,13 @@ generation, evidence authority, or runtime reducer support.
 
 See the [Guardian Evidence Packet Generator Contract](./guardian-evidence-packet-generator-contract.md) for the separate future generator seam.
 
+The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
+defines a separate future read seam. Input-bundle validator success is not read
+approval, packet generation, evidence authority, or runtime reducer support.
+
+Validator success is not read approval.
+validator success is not read approval.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundles-validate`. It runs
 `python3 scripts/guardian/validate_reducer_input_bundles.py --json` and

@@ -36,6 +36,10 @@ promotion.
 
 See the [Guardian Evidence Packet Generator Contract](./guardian-evidence-packet-generator-contract.md) for that separate seam.
 
+The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
+is another separate future seam. Dry-run loader success is not bounded reading,
+packet generation, evidence ingestion, or authority promotion.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundle-dry-run`. It runs:
 
