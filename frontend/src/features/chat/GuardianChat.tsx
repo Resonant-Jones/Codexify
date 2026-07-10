@@ -138,7 +138,6 @@ const DEFAULT_SOURCE_MODE = "project";
 const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
-const CANONICAL_SINGLE_USER_ID = "local";
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -3083,7 +3082,6 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const normalizedUserId = CANONICAL_SINGLE_USER_ID;
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -3095,7 +3093,6 @@ export function GuardianChat({
       try {
         const resp = await api.post(createThreadEndpoint, {
           title: provisionalTitle,
-          user_id: normalizedUserId,
           metadata,
         });
         const response = resp ?? {};
@@ -3296,7 +3293,6 @@ export function GuardianChat({
      * container and establishes the temporal message flow. The provisional
      * title becomes the thread's identity in the distributed awareness network.
      */
-    const normalizedUserId = CANONICAL_SINGLE_USER_ID;
     const hydrationState = getRuntimeConfigHydrationState();
     if (hydrationState === "pending") {
       showToast("Local runtime is still hydrating. Try again in a moment.");
@@ -3366,7 +3362,6 @@ export function GuardianChat({
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "assistant",
             content: `Profile switched to ${label}. Next completion will use this profile.`,
-            user_id: normalizedUserId,
           });
           if (targetThreadId === effectiveThreadId) {
             await refreshSnapshot(targetThreadId, "profile-switch");
@@ -3403,7 +3398,6 @@ export function GuardianChat({
         await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
           content: contentForSend,
-          user_id: normalizedUserId,
           project_id: workspaceProjectId ?? undefined,
         });
 
@@ -3462,7 +3456,6 @@ export function GuardianChat({
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
             content: contentForSend,
-            user_id: normalizedUserId,
             project_id: workspaceProjectId ?? undefined,
           });
           emitThreadsRefresh("refresh", {
