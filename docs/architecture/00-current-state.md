@@ -22,6 +22,13 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Canonical evidence automation and trusted `latest` promotion are not implemented yet.
 - The current campaign remains in `NEXT_PROOF_NEEDED` posture until exact-head VaultNode proof exists.
 
+## Phase 2 canonical evidence model
+
+- ADR-042 and `schemas/audit/canonical-audit-evidence.schema.json` now define the intended canonical audit evidence model.
+- Canonical audit producers and consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
+- Existing artifacts remain historical or provisional until revalidated under the new model.
+- Campaign posture remains `HOLD / NEXT_PROOF_NEEDED`; the next implementation slice is VaultNode evidence identity collection or schema-validation integration, not feature expansion.
+
 ## What changed recently
 - No material `main`line changes since the prior weekly audit.
 - The release-truth docs and operator routing stayed stable.

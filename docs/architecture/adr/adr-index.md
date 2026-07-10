@@ -73,6 +73,7 @@ Use this note as the local map for all ADRs.
 33. [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]] — docs-only proposed boundary separating infrastructure operator authority from product user experience without implementing roles, hosted access, or release-support changes.
 34. [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]] — docs-only proposed topology profile contract for explicit operator-controlled access profiles without implementing settings, routing, provider, Vite, or hosted-support changes.
 35. [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]] — governing decision for VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and persistent-serving/audit isolation.
+36. [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]] — governing decision for canonical audit manifests, orthogonal proof classifications, artifact integrity, freshness, supersession, contradiction, and trusted `latest` eligibility.
 
 ---
 
@@ -87,6 +88,10 @@ Use this note as the local map for all ADRs.
 - [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]]
   - Governs VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and separation between persistent serving and clean audit runtimes.
   - Companion contract: [[../vaultnode-canonical-machine-and-audit-authority-contract|VaultNode Canonical Machine and Audit Authority Contract]].
+- [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]]
+  - Governs canonical audit evidence manifests, independent authority/proof/freshness/disposition/execution axes, artifact integrity, claim lineage, supersession, contradiction, and trusted `latest` eligibility.
+  - Governing authority: [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]].
+  - Companion contract: [[../canonical-audit-evidence-contract|Canonical Audit Evidence Contract]].
 
 ## Relationship to the main architecture docs
 
