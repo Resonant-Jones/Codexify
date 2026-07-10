@@ -66,6 +66,8 @@ The static ReducerInputBundle template and fixture — the [template](./template
 
 Static ReducerInputBundle validation doctrine now exists in the [input-bundle static validator contract](./guardian-evidence-reducer-input-bundle-static-validator-contract.md). It is docs-only and does not implement validator behavior, input-bundle loading, reducer behavior, packet generation, ingestion, UI, Execution Ledger adoption, or WorkOrder mutation.
 
+The local input-bundle static validator exists at `scripts/guardian/validate_reducer_input_bundle.py`. It validates bundle shape and guardrails only; it is not an input-bundle loader, reducer behavior, or packet generation.
+
 ## 3. Scope
 
 This contract defines:
