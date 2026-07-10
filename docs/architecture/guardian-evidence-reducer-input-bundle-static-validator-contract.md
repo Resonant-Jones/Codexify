@@ -21,6 +21,11 @@ The [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bun
 
 The local dry-run input-bundle loader consumes the single-file validator result before constructing dry-run inputs. Validator success remains not file-read approval, evidence ingestion, packet generation, or runtime reducer support.
 
+The input-bundle dry-run Make target consumes the loader path, which consumes
+single-file validator results before constructing dry-run inputs. Make target
+success remains not file-read approval, not evidence ingestion, not packet
+generation, and not runtime reducer support.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundles-validate`. It runs
 `python3 scripts/guardian/validate_reducer_input_bundles.py --json` and

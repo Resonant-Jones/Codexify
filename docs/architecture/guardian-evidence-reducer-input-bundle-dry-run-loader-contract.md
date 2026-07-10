@@ -30,6 +30,20 @@ bundle metadata to `ReducerInputBundle` / `ReducerInputRef` objects, and calls
 and remains diagnostics-only local tooling. It is not runtime reducer
 behavior, packet generation, evidence ingestion, or release support expansion.
 
+The local Make target now exists:
+`make guardian-evidence-reducer-input-bundle-dry-run`. It runs:
+
+```text
+python3 scripts/guardian/reducer_dry_run.py --json --input-bundle docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json
+```
+
+It validates the input-bundle JSON before constructing dry-run input objects,
+reads only the input-bundle JSON file, does not read source_ref targets, and
+returns `packet=null` and `validation_result=null` with all authority locks
+false. It is diagnostics-only local tooling, not runtime reducer behavior,
+packet generation, evidence ingestion, CI/default release gating, or release
+support expansion.
+
 ## 3. Scope
 
 The future seam covers one input-bundle JSON file passed explicitly to a local
