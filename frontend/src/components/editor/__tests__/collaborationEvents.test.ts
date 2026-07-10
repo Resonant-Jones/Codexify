@@ -135,6 +135,80 @@ describe("normalizeDocumentCollaborationEvent", () => {
     expect(event.kind).toBe("typing.start");
   });
 
+  // ── Cursor position ──────────────────────────────────────────────────────
+
+  it("normalizes a direct cursor.position", () => {
+    const input = { type: "cursor.position", user_id: "user2", position: 7 };
+    const event = normalizeDocumentCollaborationEvent(input);
+
+    expect(event.kind).toBe("cursor.position");
+    if (event.kind !== "cursor.position") return;
+    expect(event.userId).toBe("user2");
+    expect(event.position).toBe(7);
+    expect(event.raw).toBe(input);
+  });
+
+  it("normalizes a wrapped cursor.position", () => {
+    const input = {
+      type: "update",
+      payload: { type: "cursor.position", user_id: "user2", position: 12 },
+      user_id: "user2",
+    };
+    const event = normalizeDocumentCollaborationEvent(input);
+
+    expect(event.kind).toBe("cursor.position");
+    if (event.kind !== "cursor.position") return;
+    expect(event.userId).toBe("user2");
+    expect(event.position).toBe(12);
+    expect(event.raw).toBe(input);
+  });
+
+  it("does not normalize wrapped cursor as a content update", () => {
+    const event = normalizeDocumentCollaborationEvent({
+      type: "update",
+      payload: { type: "cursor.position", user_id: "user2", position: 3 },
+      user_id: "user2",
+    });
+
+    expect(event.kind).not.toBe("content.update");
+    expect(event.kind).toBe("cursor.position");
+  });
+
+  it("normalizes a cursor event missing user_id to unknown", () => {
+    const event = normalizeDocumentCollaborationEvent({
+      type: "cursor.position",
+      position: 3,
+    });
+    expect(event.kind).toBe("unknown");
+  });
+
+  it("normalizes a cursor event with negative position to unknown", () => {
+    const event = normalizeDocumentCollaborationEvent({
+      type: "cursor.position",
+      user_id: "user2",
+      position: -1,
+    });
+    expect(event.kind).toBe("unknown");
+  });
+
+  it("normalizes a cursor event with non-number position to unknown", () => {
+    const event = normalizeDocumentCollaborationEvent({
+      type: "cursor.position",
+      user_id: "user2",
+      position: "five",
+    });
+    expect(event.kind).toBe("unknown");
+  });
+
+  it("normalizes a wrapped cursor with invalid position to unknown", () => {
+    const event = normalizeDocumentCollaborationEvent({
+      type: "update",
+      payload: { type: "cursor.position", user_id: "user2", position: NaN },
+      user_id: "user2",
+    });
+    expect(event.kind).toBe("unknown");
+  });
+
   // ── Malformed / unknown shapes ───────────────────────────────────────────
 
   it("normalizes malformed messages to unknown", () => {

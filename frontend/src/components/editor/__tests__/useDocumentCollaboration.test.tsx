@@ -747,6 +747,275 @@ describe("useDocumentCollaboration", () => {
     });
   });
 
+  describe("cursor presence", () => {
+    it("sendCursorPosition() sends cursor.position with user_id, position, and timestamp", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+        result.current.sendCursorPosition(7);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      const last = cursorMsgs[cursorMsgs.length - 1];
+      expect(last.user_id).toBe("user1");
+      expect(last.position).toBe(7);
+      expect(last.timestamp).toBeDefined();
+    });
+
+    it("sendCursorPosition() does not send when disconnected", async () => {
+      const { result } = render(defaultOptions());
+
+      // Do not open — socket is still connecting
+      await act(async () => {
+        result.current.sendCursorPosition(7);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBe(0);
+    });
+
+    it("sendCursorPosition() does not send invalid positions", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        result.current.sendCursorPosition(-1);
+        result.current.sendCursorPosition(Number.NaN);
+        result.current.sendCursorPosition("five" as any);
+        result.current.sendCursorPosition(Number.POSITIVE_INFINITY);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBe(0);
+    });
+
+    it("direct incoming cursor.position adds a remote cursor user", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 4,
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+      expect(result.current.cursorUsers[0].user_id).toBe("user2");
+      expect(result.current.cursorUsers[0].position).toBe(4);
+    });
+
+    it("wrapped incoming cursor.position adds a remote cursor user", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: {
+            type: "cursor.position",
+            user_id: "user2",
+            position: 9,
+          },
+          user_id: "user2",
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+      expect(result.current.cursorUsers[0].user_id).toBe("user2");
+      expect(result.current.cursorUsers[0].position).toBe(9);
+    });
+
+    it("direct incoming cursor.position updates an existing cursor user's position", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 1,
+        });
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 8,
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+      expect(result.current.cursorUsers[0].position).toBe(8);
+    });
+
+    it("cursor events from the current user are ignored", async () => {
+      const { result } = render(defaultOptions({ userId: "user1" }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user1",
+          position: 3,
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(0);
+    });
+
+    it("cursor users auto-expire after 5000ms", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 2,
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_100);
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(0);
+    });
+
+    it("repeated cursor events reset the expiry timer", async () => {
+      const { result } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 1,
+        });
+      });
+
+      // Advance 4s — not past expiry yet
+      await act(async () => {
+        vi.advanceTimersByTime(4_000);
+      });
+
+      // Another cursor event resets the timer
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 5,
+        });
+      });
+
+      // Advance another 4s — still within the reset window
+      await act(async () => {
+        vi.advanceTimersByTime(4_000);
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+
+      // Advance past full expiry
+      await act(async () => {
+        vi.advanceTimersByTime(1_100);
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(0);
+    });
+
+    it("cleans up cursor timers on unmount", async () => {
+      const { result, unmount } = render(defaultOptions());
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 2,
+        });
+      });
+
+      expect(result.current.cursorUsers).toHaveLength(1);
+
+      // Unmount before expiry — should not throw
+      unmount();
+
+      // Advance past expiry — timers should have been cleared, no state updates
+      await act(async () => {
+        vi.advanceTimersByTime(6_000);
+      });
+    });
+
+    it("cursor presence does not interfere with typing or content updates", async () => {
+      const onRemoteContentUpdate = vi.fn();
+      const { result } = render(defaultOptions({ onRemoteContentUpdate }));
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { content: "content still flows" },
+          user_id: "user2",
+        });
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user3",
+          position: 6,
+        });
+        latestWs().simulateMessage({
+          type: "typing.start",
+          user_id: "user2",
+        });
+      });
+
+      expect(onRemoteContentUpdate).toHaveBeenCalledWith("content still flows");
+      expect(result.current.cursorUsers).toHaveLength(1);
+      expect(result.current.cursorUsers[0].user_id).toBe("user3");
+      expect(result.current.typingUsers).toHaveLength(1);
+    });
+  });
+
   describe("sendContentUpdate", () => {
     it("sends the update payload when connected and editable", async () => {
       const { result } = render(defaultOptions({ canEdit: true }));

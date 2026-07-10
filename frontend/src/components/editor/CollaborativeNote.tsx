@@ -80,9 +80,11 @@ export function CollaborativeNote({
     accessDenied,
     activeUsers,
     typingUsers,
+    cursorUsers,
     sendContentUpdate,
     notifyTyping,
     stopTyping,
+    sendCursorPosition,
   } = useDocumentCollaboration({
     documentId,
     userId,
@@ -239,6 +241,21 @@ export function CollaborativeNote({
             </span>
           )}
 
+          {/* Cursor presence indicator */}
+          {cursorUsers.length > 0 && (
+            <span
+              style={{
+                fontSize: 11,
+                color: "var(--text-subtle)",
+                fontStyle: "italic",
+              }}
+            >
+              {cursorUsers.length === 1
+                ? `User ${cursorUsers[0].user_id} cursor at ${cursorUsers[0].position}`
+                : `${cursorUsers.length} collaborator cursors active`}
+            </span>
+          )}
+
           {/* Permission lock indicator */}
           {!permissions?.can_edit && (
             <div
@@ -382,6 +399,15 @@ export function CollaborativeNote({
       <textarea
         value={content}
         onChange={(e: any) => handleChange(e.target.value)}
+        onSelect={(e: any) =>
+          sendCursorPosition(e.target.selectionStart as number)
+        }
+        onClick={(e: any) =>
+          sendCursorPosition(e.target.selectionStart as number)
+        }
+        onKeyUp={(e: any) =>
+          sendCursorPosition(e.target.selectionStart as number)
+        }
         disabled={permissions?.can_edit === false}
         placeholder={
           permissions?.can_edit === false
