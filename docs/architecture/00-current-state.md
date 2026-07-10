@@ -81,6 +81,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - static fixture path: `docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`; this is bounded-reader output shape only, not packet output or runtime truth.
 - this branch adds local stdout-only Guardian Evidence Packet generator tooling; the tool consumes bounded-read result JSON, emits generated packet output to stdout, and validates it statically; this does not implement runtime reducer behavior, evidence ingestion, persistence, UI, dev-build buttons, CI gating, release gating, Execution Ledger adoption, WorkOrder mutation, write flags, Pi Loop invocation, source mutation, provider execution, Codexify ingestion, or durable mutation.
 - local generator path: `scripts/guardian/generate_evidence_packet.py`; this is stdout-only local tooling, not runtime support.
+- this branch adds a local Make target for stdout-only Guardian Evidence Packet generator tooling; the target consumes bounded-read result JSON, emits generated packet output to stdout, and validates it statically; this does not write packet fixtures, implement runtime reducer behavior, evidence ingestion, persistence, UI, dev-build buttons, CI gating, release gating, Execution Ledger adoption, WorkOrder mutation, write flags, Pi Loop invocation, source mutation, provider execution, Codexify ingestion, or durable mutation.
 - Continuity remains quarantined behind `test-continuity`.
 
 ## Current supported reality

@@ -304,7 +304,12 @@ Local stdout-only packet generator tooling exists as an offline
 artifact-preparation seam. It consumes bounded-read result JSON and emits
 validated packet output to stdout; it does not authorize persistence, source
 mutation, ingestion, runtime reducer behavior, execution, UI, CI/default
-release gating, Execution Ledger writes, or WorkOrder mutation.
+release gating, Execution Ledger writes, or WorkOrder mutation. A local Make
+target now wraps this tooling: `make guardian-evidence-packet-generate`. It
+consumes bounded-read result JSON and emits validated packet output to stdout.
+It does not authorize persistence, source mutation, ingestion, runtime reducer
+behavior, execution, UI, CI/default release gating, Execution Ledger writes, or
+WorkOrder mutation.
 
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer

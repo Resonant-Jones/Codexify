@@ -81,6 +81,13 @@ separate local tool. Bounded-read output remains not source truth approval,
 authority promotion, evidence ingestion, WorkOrder mutation, or Execution
 Ledger write.
 
+Stdout-only packet generator tooling now has a local Make target:
+`make guardian-evidence-packet-generate`. The bounded-read fixture can feed
+this target through generator tooling. Bounded-read success remains not packet
+generation by itself. Packet generation remains stdout-only local tooling.
+Bounded-read output remains not source truth approval, not authority promotion,
+not evidence ingestion, not WorkOrder mutation, and not Execution Ledger write.
+
 ## 3. Scope
 
 The contract covers future local-only source-reference resolution, bounded
