@@ -329,6 +329,11 @@ def validate_bundle(bundle_path: Path) -> dict[str, Any]:
     return _result(bundle_path, issues)
 
 
+def validate_bundle_file(bundle_path: Path) -> dict[str, Any]:
+    """Reusable single-file validation entrypoint for local batch tooling."""
+    return validate_bundle(bundle_path)
+
+
 def _result(bundle_path: Path, issues: list[dict[str, Any]]) -> dict[str, Any]:
     has_error = any(issue["severity"] == "error" for issue in issues)
     result = "fail" if has_error else "pass_with_warnings" if issues else "pass"

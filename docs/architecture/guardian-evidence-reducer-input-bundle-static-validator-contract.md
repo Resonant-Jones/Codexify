@@ -15,11 +15,14 @@ This is a docs-only architecture contract. It defines static validation doctrine
 
 A local static validator now exists at `scripts/guardian/validate_reducer_input_bundle.py`. It validates ReducerInputBundle templates and fixtures for shape and guardrails. It reads only the bundle JSON file under validation and does not read source_ref targets, implement input-bundle loading, implement reducer behavior, or generate `GuardianEvidencePacket` output. It does not call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation.
 
+A local batch validator now exists at `scripts/guardian/validate_reducer_input_bundles.py`. It validates reducer input-bundle templates and fixtures by invoking the single-file validator logic. It reads only bundle JSON files under validation, does not read source_ref targets, implement input-bundle loading, implement reducer behavior, or generate `GuardianEvidencePacket` output, and does not call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not CI/default release gating.
+
 Examples:
 
 ```text
 python3 scripts/guardian/validate_reducer_input_bundle.py docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json --json
 python3 scripts/guardian/validate_reducer_input_bundle.py docs/architecture/templates/guardian-evidence-reducer-input-bundle-template.v1.json --json
+python3 scripts/guardian/validate_reducer_input_bundles.py --json
 ```
 
 It does not add persistence, ingestion, UI, or CI/default release gating. It
