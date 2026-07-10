@@ -20,6 +20,15 @@
 # Do NOT commit .env.tester.  Only .env.tester.example is committed.
 
 services:
+  db:
+    ports:
+      - "5434:5432"
+
+  neo4j:
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+
   backend:
     ports:
       - "8889:8888"
