@@ -17,6 +17,8 @@ A local static validator now exists at `scripts/guardian/validate_reducer_input_
 
 A local batch validator now exists at `scripts/guardian/validate_reducer_input_bundles.py`. It validates reducer input-bundle templates and fixtures by invoking the single-file validator logic. It reads only bundle JSON files under validation, does not read source_ref targets, implement input-bundle loading, implement reducer behavior, or generate `GuardianEvidencePacket` output, and does not call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not CI/default release gating.
 
+The [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md) depends on single-file static validation before any future dry-run bundle loading. Validator success is not file-read approval, evidence ingestion, packet generation, or runtime reducer support.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundles-validate`. It runs
 `python3 scripts/guardian/validate_reducer_input_bundles.py --json` and

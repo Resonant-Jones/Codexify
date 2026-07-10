@@ -261,6 +261,8 @@ Local input-bundle static validator tooling now exists. Future reducer input pre
 
 Input-bundle batch validator tooling now exists as local tooling. Future reducer input preparation can validate all known static bundle templates and fixtures before any loader exists. Batch validator success is not file-read approval, evidence ingestion, packet generation, runtime reducer support, or CI/default release gating.
 
+The [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md) exists as a docs-only future seam. It defines how a later dry-run loader may validate a bundle file, construct `ReducerInputBundle` objects, and call `dry_run_reducer`. It does not implement loader behavior or authorize source_ref reads, ingestion, packet generation, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
+
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer
 input preparation can validate all known static bundle templates and fixtures

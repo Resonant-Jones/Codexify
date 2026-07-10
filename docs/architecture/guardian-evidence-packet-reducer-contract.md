@@ -75,6 +75,8 @@ Local input-bundle batch validation is available through Make with
 bundle shape and guardrails across templates and fixtures only; it is not an
 input-bundle loader, reducer behavior, packet generation, or release gating.
 
+The docs-only [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md) prepares a future loader seam for diagnostics-only dry-run execution. It is not an input-bundle loader implementation, reducer behavior, packet generation, or release gating.
+
 ## 3. Scope
 
 This contract defines:
