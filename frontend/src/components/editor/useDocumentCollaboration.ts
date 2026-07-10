@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WsClient } from "@/lib/wsClient";
+import { normalizeDocumentCollaborationEvent } from "./collaborationEvents";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -198,35 +199,25 @@ export function useDocumentCollaboration({
     };
 
     client.on("message", (data: any) => {
-      if (data?.type === "update") {
-        const payload = data.payload ?? data;
+      const event = normalizeDocumentCollaborationEvent(data);
 
-        // Typing events may arrive wrapped in an update envelope from the
-        // backend ws_collab handler. Route them before checking for content.
-        if (
-          (payload?.type === "typing.start" ||
-            payload?.type === "typing.stop") &&
-          typeof payload?.user_id === "string"
-        ) {
-          if (payload.type === "typing.start") {
-            handleRemoteTypingStart(payload.user_id);
-          } else {
-            handleRemoteTypingStop(payload.user_id);
-          }
-          return;
-        }
-
-        if (payload?.content !== undefined) {
-          onRemoteContentUpdate(payload.content);
-        }
-      } else if (data?.type === "presence.join" && Array.isArray(data?.active_users)) {
-        rebuildPresence(data.active_users);
-      } else if (data?.type === "presence.leave" && Array.isArray(data?.active_users)) {
-        rebuildPresence(data.active_users);
-      } else if (data?.type === "typing.start" && typeof data?.user_id === "string") {
-        handleRemoteTypingStart(data.user_id);
-      } else if (data?.type === "typing.stop" && typeof data?.user_id === "string") {
-        handleRemoteTypingStop(data.user_id);
+      switch (event.kind) {
+        case "content.update":
+          onRemoteContentUpdate(event.content);
+          break;
+        case "presence.join":
+        case "presence.leave":
+          rebuildPresence(event.activeUserIds);
+          break;
+        case "typing.start":
+          handleRemoteTypingStart(event.userId);
+          break;
+        case "typing.stop":
+          handleRemoteTypingStop(event.userId);
+          break;
+        case "unknown":
+        default:
+          break;
       }
     });
 
