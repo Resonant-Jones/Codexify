@@ -64,6 +64,8 @@ The local Makefile target `guardian-evidence-reducer-dry-run` proves dry-run dia
 
 The static ReducerInputBundle template and fixture — the [template](./templates/guardian-evidence-reducer-input-bundle-template.v1.json) and [local tooling fixture](./fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json) — prepare future reducer input shape only. They do not implement reducer behavior, packet generation, ingestion, UI, Execution Ledger adoption, or WorkOrder mutation.
 
+Static ReducerInputBundle validation doctrine now exists in the [input-bundle static validator contract](./guardian-evidence-reducer-input-bundle-static-validator-contract.md). It is docs-only and does not implement validator behavior, input-bundle loading, reducer behavior, packet generation, ingestion, UI, Execution Ledger adoption, or WorkOrder mutation.
+
 ## 3. Scope
 
 This contract defines:
