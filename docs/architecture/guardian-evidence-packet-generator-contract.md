@@ -326,6 +326,12 @@ release support expansion.
 python3 scripts/guardian/generate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json --json
 ```
 
+The generator fails closed when bounded-read input contains no usable read
+evidence refs. `pass_with_warnings` is insufficient unless at least one usable
+read evidence ref exists. Supported claims must never have empty
+`evidence_refs`; skipped-only bounded-read input is failure/not-generated, not
+a successful packet.
+
 The static bounded-read result fixture
 `docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
 exists and may be used by future packet generator tests only through a separate
