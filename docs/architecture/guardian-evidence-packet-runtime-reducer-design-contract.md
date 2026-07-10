@@ -248,6 +248,13 @@ The packet plus validation result must be returned for human/operator review and
 
 Manual authoring remains valid before runtime reducer implementation. The template and authoring guide are static aids. Future reducer output must preserve the same authoring invariants: evidence refs, uncertainty, forbidden interpretations, and false authority locks unless separately authorized.
 
+Static ReducerInputBundle authoring aids also exist:
+
+- [Guardian Evidence Reducer Input Bundle Template](./templates/guardian-evidence-reducer-input-bundle-template.v1.json)
+- [Guardian Evidence Reducer Input Bundle Local Tooling Fixture](./fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json)
+
+These files define bounded input-set shape for future reducer work. They are not evidence ingestion, packet generation, or runtime reducer output. They do not authorize file reads or command execution. Future input-bundle file loading requires a separate explicit task.
+
 ## 26. Relationship to Existing Fixtures
 
 The bridge proof-chain fixture and local validator toolchain fixture are static examples. They demonstrate two evidence domains and must not be treated as runtime reducer output. A future reducer must not overfit to either fixture.
