@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-08
+2026-07-10
 
 ## Interpretation rule
 This file is authoritative for:
@@ -14,6 +14,13 @@ This file is authoritative for:
 
 ## Current phase
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is stable at the current release-truth point; the last week added no new shipped runtime surface that changes the supported beta story.
+
+## Current canonical authority decision
+- VaultNode has been selected as the canonical runtime and audit authority.
+- GitHub `main` remains the canonical code authority for accepted code, documentation, schemas, and contracts.
+- Existing audit artifacts from other machines remain historical or provisional until revalidated on VaultNode.
+- Canonical evidence automation and trusted `latest` promotion are not implemented yet.
+- The current campaign remains in `NEXT_PROOF_NEEDED` posture until exact-head VaultNode proof exists.
 
 ## What changed recently
 - No material `main`line changes since the prior weekly audit.
