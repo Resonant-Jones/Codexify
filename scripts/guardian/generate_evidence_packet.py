@@ -79,6 +79,14 @@ def main(argv: list[str] | None = None) -> int:
         data = json.loads(args.bounded_read_result.read_text(encoding="utf-8"))
         if data.get("schema_version") != "guardian_evidence_bounded_read_batch_result.v1" or data.get("result") == "fail" or not isinstance(data.get("read_results"), list):
             raise ValueError("bounded-read result is invalid or failed")
+        for i, item in enumerate(data["read_results"]):
+            if not isinstance(item, dict):
+                output = {"schema_version": RESULT_SCHEMA, "generator_contract_version": CONTRACT_VERSION, "bounded_read_result_ref": str(args.bounded_read_result), "result": "fail", "errors": [{"code": "malformed_read_result_entry", "message": "bounded-read input contains a non-object read_results entry"}], "authority_state": false_authority_state(), "limits": list(LIMITS)}
+                if args.as_json:
+                    print(json.dumps(output, indent=2))
+                else:
+                    print(output["errors"][0]["message"], file=sys.stderr)
+                return 1
         usable_evidence_refs = [item for item in data["read_results"] if item.get("read_status") == "read" and isinstance(item.get("source_ref"), str) and item["source_ref"].strip()]
         if not usable_evidence_refs:
             output = {"schema_version": RESULT_SCHEMA, "generator_contract_version": CONTRACT_VERSION, "bounded_read_result_ref": str(args.bounded_read_result), "result": "fail", "errors": [{"code": "no_usable_evidence_refs", "message": "bounded-read input contains no usable read evidence refs"}], "authority_state": false_authority_state(), "limits": list(LIMITS)}
@@ -89,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         packet = _packet(data, args.packet_id)
         validation = _validate(packet)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f"generator error: {exc}", file=sys.stderr)
         return 1
     output = {"schema_version": RESULT_SCHEMA, "generator_contract_version": CONTRACT_VERSION, "bounded_read_result_ref": str(args.bounded_read_result), "packet": packet, "packet_validation_result": validation, "authority_state": false_authority_state(), "diagnostics": {"source_ref_read_policy": "reads bounded-read result only; does not read source_ref targets", "evidence_ref_count": len(packet["raw_evidence_refs"]), "claim_count": len(packet["claim_ledger"]), "uncertainty_count": len(packet["uncertainty"]), "forbidden_interpretation_count": len(packet["forbidden_interpretations"]), "contradiction_count": 0, "omitted_source_count": len(packet["uncertainty"]), "bounded_read_result": data["result"]}, "limits": list(LIMITS)}
