@@ -108,6 +108,11 @@ The static bounded-read result fixture
 exists for future generator test input. It is not packet generation, runtime
 reducer behavior, evidence ingestion, execution, or release gating.
 
+Local stdout-only packet generator tooling exists. It converts bounded-read
+result artifacts into generated `GuardianEvidencePacket` output in stdout only;
+it is not runtime reducer behavior, evidence ingestion, execution, or release
+gating.
+
 ## 3. Scope
 
 This contract defines:
