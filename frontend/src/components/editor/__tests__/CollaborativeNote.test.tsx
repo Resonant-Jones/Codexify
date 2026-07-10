@@ -591,14 +591,228 @@ describe("CollaborativeNote", () => {
       });
     });
 
-    // Content must not change — typing events have no 'content' field
-    const textarea = screen.getByPlaceholderText(
-      /Start typing/i
-    ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("Existing text");
-  });
+      // Content must not change — typing events have no 'content' field
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("Existing text");
+    });
 
-  // ── Cleanup ─────────────────────────────────────────────────────────────
+    // ── Cursor presence ────────────────────────────────────────────────────
+
+    it("textarea selection sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.select(textarea);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+      expect(typeof cursorMsgs[cursorMsgs.length - 1].position).toBe("number");
+    });
+
+    it("textarea click sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.click(textarea);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+    });
+
+    it("textarea key-up sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.keyUp(textarea, { key: "a" });
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+    });
+
+    it("wrapped backend cursor event renders the cursor-presence indicator", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 5 },
+          user_id: "user2",
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/User user2 cursor at 5/)).toBeInTheDocument();
+      });
+    });
+
+    it("cursor presence expires and hides", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 5 },
+          user_id: "user2",
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/User user2 cursor at 5/)).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_100);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText(/cursor/)).not.toBeInTheDocument();
+      });
+    });
+
+    it("wrapped cursor event does not overwrite editor content", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent="Existing text"
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 3 },
+          user_id: "user2",
+        });
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("Existing text");
+    });
+
+    it("multiple remote cursor users show collaborators count", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 1,
+        });
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user3",
+          position: 2,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/2 collaborator cursors active/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    // ── Cleanup ─────────────────────────────────────────────────────────────
 
   it("cleans up on unmount", async () => {
     const { unmount } = render(

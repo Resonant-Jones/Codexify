@@ -47,6 +47,12 @@ export type NormalizedDocumentCollaborationEvent =
       raw: unknown;
     }
   | {
+      kind: "cursor.position";
+      userId: string;
+      position: number;
+      raw: unknown;
+    }
+  | {
       kind: "unknown";
       raw: unknown;
     };
@@ -61,6 +67,10 @@ function isStringArray(value: unknown): value is string[] {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function isFiniteNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 export function normalizeDocumentCollaborationEvent(
@@ -83,6 +93,21 @@ export function normalizeDocumentCollaborationEvent(
     if (payloadType === "typing.start" || payloadType === "typing.stop") {
       if (typeof payload.user_id === "string") {
         return { kind: payloadType, userId: payload.user_id, raw: message };
+      }
+      return { kind: "unknown", raw: message };
+    }
+
+    if (payloadType === "cursor.position") {
+      if (
+        typeof payload.user_id === "string" &&
+        isFiniteNonNegativeNumber(payload.position)
+      ) {
+        return {
+          kind: "cursor.position",
+          userId: payload.user_id,
+          position: payload.position,
+          raw: message,
+        };
       }
       return { kind: "unknown", raw: message };
     }
@@ -125,6 +150,22 @@ export function normalizeDocumentCollaborationEvent(
   if (type === "typing.start" || type === "typing.stop") {
     if (typeof message.user_id === "string") {
       return { kind: type, userId: message.user_id, raw: message };
+    }
+    return { kind: "unknown", raw: message };
+  }
+
+  // Direct (unwrapped) cursor events.
+  if (type === "cursor.position") {
+    if (
+      typeof message.user_id === "string" &&
+      isFiniteNonNegativeNumber(message.position)
+    ) {
+      return {
+        kind: "cursor.position",
+        userId: message.user_id,
+        position: message.position,
+        raw: message,
+      };
     }
     return { kind: "unknown", raw: message };
   }
