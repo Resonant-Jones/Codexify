@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-09
+2026-07-10
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,14 +13,13 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is absorbing proof and documentation around the Guardian Codex Runner bridge, not expanding the supported beta runtime surface.
+Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. `main` is absorbing Guardian Codex Runner bridge proof and contract work, not expanding the supported beta runtime surface.
 
 ## What changed recently
-- `main` added Guardian Codex Runner bridge proof packets for selected validation receipt, validation receipt availability, orchestration receipt prerequisite, and module live-validate coverage.
-- `main` added a mounted live-validate proof packet and an opt-in container visibility contract for the Guardian bridge.
-- `main` added an executable-availability seam for the Guardian bridge when `codexrun` is not on container PATH.
-- `main` added a backend contract-only module for the Guardian Codex Runner preflight bridge.
-- `main` added docs-only Codexify-side preflight bridge guidance; no shipped runtime behavior changed.
+- `main` added Guardian bridge proof and contract work for selected validation receipt, validation receipt availability, orchestration receipt prerequisite, and module live-validate coverage.
+- `main` added a mounted live-validate proof packet plus an opt-in container visibility contract.
+- `main` added an executable-availability seam for the bridge when `codexrun` is not on container PATH.
+- `main` added backend bridge contracts and a JSON adapter for the Guardian Codex Runner seam.
 - `main` did not add a new supported install path or widen the beta release promise.
 
 ## Current supported reality
@@ -34,6 +33,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Graph writes remain default-off on the supported Compose path.
 - The Continuity operator surface remains test-only, API-key-gated, and profile-quarantined under `test-continuity`.
+- Guardian bridge work on `main` is proof/contract only and does not widen the supported runtime promise.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -42,6 +42,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume shared presence, hosted rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
 - Do not assume the Guardian delegation loop or Guardian Codex Runner bridge docs imply an end-to-end supported delegation/runtime path.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
+- Do not assume the new Guardian bridge proof chain means live orchestration support.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint/model inventory proof.
 - Do not assume hosted rooms, participant node attachment, Shared Room KB, or cross-node document handoff are implemented from planning docs alone.
@@ -57,7 +58,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 ## This week’s priorities
 1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
 2. Preserve proof for chat, upload, retrieval, and OpenAI import paths.
-3. Keep docs-only contracts clearly separated from shipped runtime claims.
+3. Keep Guardian bridge proof separated from shipped runtime claims.
 4. Keep legacy config compatibility narrow and clearly labeled.
 5. Recheck blocker status only when `main` moves.
 
