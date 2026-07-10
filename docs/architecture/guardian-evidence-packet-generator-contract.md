@@ -309,6 +309,13 @@ source truth approval, not evidence ingestion, not execution, not WorkOrder
 mutation, and not an Execution Ledger write.
 Bounded read output may feed future packet generation only through a separate generator implementation.
 
+The static bounded-read result fixture
+`docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
+exists and may be used by future packet generator tests only through a separate
+generator implementation. Fixture presence is not packet generation, source
+truth approval, evidence ingestion, WorkOrder mutation, or an Execution Ledger
+write.
+
 Local bounded evidence-read tooling is now available through
 `make guardian-evidence-bounded-read`. Future packet generator implementation
 may consume bounded read results only through a separate generator

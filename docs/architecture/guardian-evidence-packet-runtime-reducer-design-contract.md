@@ -293,6 +293,13 @@ results only. It does not authorize packet generation, source mutation,
 ingestion, runtime reducer behavior, execution, UI, CI/default release gating,
 Execution Ledger writes, or WorkOrder mutation.
 
+The static bounded-read result fixture
+`docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
+captures bounded reader output for the local-tooling input only. It does not
+authorize packet generation, source mutation, ingestion, runtime reducer
+behavior, execution, UI, CI/default release gating, Execution Ledger writes, or
+WorkOrder mutation.
+
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer
 input preparation can validate all known static bundle templates and fixtures
