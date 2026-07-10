@@ -65,6 +65,16 @@ artifacts only. It does not generate `GuardianEvidencePacket` output, implement
 packet generation or runtime reducer behavior, ingest evidence, or become CI/
 default release gating or release support expansion.
 
+### Static result fixture
+
+The static bounded-read result fixture now exists at
+`docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`.
+It records the current local-tooling bounded-read output shape as a static proof
+fixture only. It is not packet generation, packet output, evidence ingestion,
+source truth approval, authority promotion, runtime reducer support,
+CI/default release gating, or release support expansion.
+This is a static proof fixture only.
+
 ## 3. Scope
 
 The contract covers future local-only source-reference resolution, bounded
