@@ -53,6 +53,18 @@ Invocation:
 python3 scripts/guardian/read_bounded_evidence.py docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json --json
 ```
 
+The local Make target `make guardian-evidence-bounded-read` now runs:
+
+```bash
+python3 scripts/guardian/read_bounded_evidence.py docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json --json
+```
+
+It validates the input bundle before bounded reading, reads only explicitly
+referenced local allowlisted `source_ref` files, and returns bounded read
+artifacts only. It does not generate `GuardianEvidencePacket` output, implement
+packet generation or runtime reducer behavior, ingest evidence, or become CI/
+default release gating or release support expansion.
+
 ## 3. Scope
 
 The contract covers future local-only source-reference resolution, bounded

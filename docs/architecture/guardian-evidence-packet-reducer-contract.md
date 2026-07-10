@@ -97,6 +97,12 @@ local seam between validated reducer inputs and future packet-generation
 evidence preparation. It is not packet generation, runtime reducer behavior,
 evidence ingestion, execution, or release gating.
 
+Local bounded evidence-read tooling is available through
+`make guardian-evidence-bounded-read`. It provides local bounded evidence
+preparation output for future packet-generation work. It is not packet
+generation, runtime reducer behavior, evidence ingestion, execution, or release
+gating.
+
 ## 3. Scope
 
 This contract defines:
