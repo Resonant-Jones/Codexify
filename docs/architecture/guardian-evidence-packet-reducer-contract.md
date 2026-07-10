@@ -79,6 +79,12 @@ The docs-only [input-bundle dry-run loader contract](./guardian-evidence-reducer
 
 The local dry-run input-bundle loader exists through `reducer_dry_run.py --input-bundle`. It prepares `ReducerInputBundle` objects from validated bundle JSON for diagnostics-only dry-run. It is not runtime reducer behavior, packet generation, or release gating.
 
+The local dry-run input-bundle loader is available through Make with
+`make guardian-evidence-reducer-input-bundle-dry-run`. It prepares
+`ReducerInputBundle` objects from validated bundle JSON for diagnostics-only
+dry-run. It is not runtime reducer behavior, packet generation, or release
+gating.
+
 ## 3. Scope
 
 This contract defines:

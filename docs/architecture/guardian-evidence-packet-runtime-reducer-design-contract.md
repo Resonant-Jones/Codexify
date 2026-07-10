@@ -265,6 +265,13 @@ The [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bun
 
 The dry-run input-bundle loader now exists as local tooling. It validates bundle shape, maps metadata into dry-run input objects, and calls the existing diagnostics-only dry-run reducer. It does not read source_ref targets or authorize ingestion, packet generation, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
+The dry-run input-bundle loader now has a local Make target,
+`make guardian-evidence-reducer-input-bundle-dry-run`. It validates bundle
+shape, maps metadata into dry-run input objects, and calls the existing
+diagnostics-only dry-run reducer. It does not read source_ref targets or
+authorize ingestion, packet generation, runtime reducer behavior, execution,
+UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
+
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer
 input preparation can validate all known static bundle templates and fixtures
