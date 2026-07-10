@@ -62,6 +62,8 @@ A pure reducer dry-run skeleton exists under `guardian/evidence_packets/reducer.
 A local reducer dry-run CLI exists under `scripts/guardian/reducer_dry_run.py`. It proves dry-run diagnostics and stop behavior only; it is not a reducer implementation, packet generator, validation behavior, or runtime support.
 The local Makefile target `guardian-evidence-reducer-dry-run` proves dry-run diagnostics and stop behavior only. It is not a reducer implementation, packet generator, validation behavior, runtime support, CI/default release gate, or release support expansion.
 
+The static ReducerInputBundle template and fixture — the [template](./templates/guardian-evidence-reducer-input-bundle-template.v1.json) and [local tooling fixture](./fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json) — prepare future reducer input shape only. They do not implement reducer behavior, packet generation, ingestion, UI, Execution Ledger adoption, or WorkOrder mutation.
+
 ## 3. Scope
 
 This contract defines:
