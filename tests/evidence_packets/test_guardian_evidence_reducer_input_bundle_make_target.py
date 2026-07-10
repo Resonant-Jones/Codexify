@@ -64,7 +64,7 @@ def test_target_is_not_a_dependency_of_broad_targets() -> None:
 def test_make_target_runs_batch_validator() -> None:
     proc = _run_make(TARGET)
     assert proc.returncode == 0, proc.stderr
-    result = json.loads(proc.stdout[proc.stdout.index("{"):])
+    result = json.loads(proc.stdout)
     assert result["schema_version"] == "guardian_evidence_reducer_input_bundle_batch_validation_result.v1"
     assert result["matched_count"] >= 2
     paths = [Path(entry["path"]).resolve() for entry in result["files"]]

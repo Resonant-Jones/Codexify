@@ -77,7 +77,10 @@ import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
-import { getRuntimeConfigHydrationState } from "@/lib/runtimeConfig";
+import {
+  getRuntimeConfigHydrationState,
+  getRuntimeConfigSync,
+} from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
   isChatSelectableModel,
@@ -3101,6 +3104,7 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
+      const runtimeConfig = getRuntimeConfigSync();
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -3110,10 +3114,14 @@ export function GuardianChat({
       const createThreadEndpoint = buildChatThreadsPath();
 
       try {
-        const resp = await api.post(createThreadEndpoint, {
+        const createThreadPayload = {
           title: provisionalTitle,
           metadata,
-        });
+          ...(runtimeConfig.authMode === "remote"
+            ? {}
+            : { user_id: CANONICAL_SINGLE_USER_ID }),
+        };
+        const resp = await api.post(createThreadEndpoint, createThreadPayload);
         const response = resp ?? {};
         const resolution = resolveBackendThreadIdFromResponse(response, {
           endpoint: `POST ${createThreadEndpoint}`,

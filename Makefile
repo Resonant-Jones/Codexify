@@ -218,7 +218,6 @@ guardian-evidence-reducer-dry-run:
 
 # Validate Guardian Evidence Reducer input-bundle templates and fixtures locally.
 guardian-evidence-reducer-input-bundles-validate:
-	@echo "Validating Guardian Evidence Reducer input bundles..."
 	@python3 scripts/guardian/validate_reducer_input_bundles.py --json
 
 # Generate the Unity Audit coherence scaffold
