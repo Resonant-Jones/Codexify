@@ -301,3 +301,10 @@ depend on bounded evidence-read output before turning source references into
 packet evidence. Bounded read success is not authority, source truth approval,
 evidence ingestion, execution, WorkOrder mutation, or an Execution Ledger
 write. This generator contract still does not implement packet generation.
+
+Local bounded evidence-read tooling now exists. Future packet generator
+implementation may consume its bounded read results only through a separate
+generator implementation. Bounded read success remains not authority, not
+source truth approval, not evidence ingestion, not execution, not WorkOrder
+mutation, and not an Execution Ledger write.
+Bounded read output may feed future packet generation only through a separate generator implementation.

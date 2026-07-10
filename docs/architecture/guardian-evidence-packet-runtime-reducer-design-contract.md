@@ -280,6 +280,12 @@ references before packet generation. It does not implement reading or
 authorize source mutation, ingestion, runtime reducer behavior, execution, UI,
 CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
+Bounded evidence-read tooling now exists as local tooling. It can read
+explicitly allowed local evidence references from validated input bundles and
+returns bounded read results only. It does not authorize packet generation,
+source mutation, ingestion, runtime reducer behavior, execution, UI,
+CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
+
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer
 input preparation can validate all known static bundle templates and fixtures

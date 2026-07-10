@@ -92,6 +92,11 @@ is a docs-only future seam between validated reducer inputs and packet-generatio
 evidence preparation. It is not reader implementation, packet generation,
 runtime reducer behavior, evidence ingestion, execution, or release gating.
 
+Local bounded evidence-read tooling now exists. It defines and implements the
+local seam between validated reducer inputs and future packet-generation
+evidence preparation. It is not packet generation, runtime reducer behavior,
+evidence ingestion, execution, or release gating.
+
 ## 3. Scope
 
 This contract defines:
