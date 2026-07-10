@@ -111,7 +111,9 @@ reducer behavior, evidence ingestion, execution, or release gating.
 Local stdout-only packet generator tooling exists. It converts bounded-read
 result artifacts into generated `GuardianEvidencePacket` output in stdout only;
 it is not runtime reducer behavior, evidence ingestion, execution, or release
-gating.
+gating. The tooling is available through a local Make target:
+`make guardian-evidence-packet-generate`. It is not runtime reducer behavior,
+not evidence ingestion, not execution, and not release gating.
 
 ## 3. Scope
 
