@@ -103,6 +103,11 @@ preparation output for future packet-generation work. It is not packet
 generation, runtime reducer behavior, evidence ingestion, execution, or release
 gating.
 
+The static bounded-read result fixture
+`docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json`
+exists for future generator test input. It is not packet generation, runtime
+reducer behavior, evidence ingestion, execution, or release gating.
+
 ## 3. Scope
 
 This contract defines:
