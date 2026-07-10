@@ -274,6 +274,12 @@ UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
 The [packet generator contract](./guardian-evidence-packet-generator-contract.md) exists as a docs-only future seam. It defines how future reducer output may become GuardianEvidencePacket artifacts after explicit evidence preparation and validation. It does not implement packet generation or authorize source_ref reads, ingestion, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
+The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
+exists as a docs-only future seam for explicitly allowed local evidence
+references before packet generation. It does not implement reading or
+authorize source mutation, ingestion, runtime reducer behavior, execution, UI,
+CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
+
 Input-bundle batch validation now has a local Make target,
 `make guardian-evidence-reducer-input-bundles-validate`, so future reducer
 input preparation can validate all known static bundle templates and fixtures

@@ -87,6 +87,11 @@ gating.
 
 The docs-only [Guardian Evidence Packet generator contract](./guardian-evidence-packet-generator-contract.md) defines the future seam from validated reducer input to `GuardianEvidencePacket` output. It is not generator implementation, runtime reducer behavior, evidence ingestion, execution, packet output on main, or release gating.
 
+The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
+is a docs-only future seam between validated reducer inputs and packet-generation
+evidence preparation. It is not reader implementation, packet generation,
+runtime reducer behavior, evidence ingestion, execution, or release gating.
+
 ## 3. Scope
 
 This contract defines:
