@@ -294,3 +294,10 @@ packet generation is not release approval.
 packet generation is not execution; packet generation is not evidence authority; packet generation is not source truth; packet generation is not receipt trust; packet generation is not WorkOrder mutation; packet generation is not Execution Ledger write; packet generation is not release approval.
 
 Packet generation is not execution; packet generation is not evidence authority; packet generation is not source truth; packet generation is not receipt trust; packet generation is not WorkOrder mutation; packet generation is not Execution Ledger write; packet generation is not release approval.
+
+The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
+is a separate docs-only seam. A future packet generator implementation must
+depend on bounded evidence-read output before turning source references into
+packet evidence. Bounded read success is not authority, source truth approval,
+evidence ingestion, execution, WorkOrder mutation, or an Execution Ledger
+write. This generator contract still does not implement packet generation.
