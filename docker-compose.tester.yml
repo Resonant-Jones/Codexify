@@ -45,4 +45,5 @@ services:
       - "5174:5173"
     environment:
       VITE_GUARDIAN_API_BASE: "${VITE_GUARDIAN_API_BASE:-http://localhost:8889}"
-      VITE_GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-}"
+      VITE_GUARDIAN_AUTH_MODE: "remote"
+      VITE_GUARDIAN_API_KEY: ""
