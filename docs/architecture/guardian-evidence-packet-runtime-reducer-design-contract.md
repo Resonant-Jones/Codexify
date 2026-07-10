@@ -257,6 +257,8 @@ These files define bounded input-set shape for future reducer work. They are not
 
 The [Guardian Evidence Reducer Input-Bundle Static Validator Contract](./guardian-evidence-reducer-input-bundle-static-validator-contract.md) defines future validation rules for ReducerInputBundle templates and fixtures. It does not implement validation or input-bundle loading, and it does not authorize file reads, ingestion, packet generation, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
+Local input-bundle static validator tooling now exists. Future reducer input preparation can validate bundle shape before any loader exists. Validator success is not file-read approval, evidence ingestion, packet generation, or runtime reducer support.
+
 ## 26. Relationship to Existing Fixtures
 
 The bridge proof-chain fixture and local validator toolchain fixture are static examples. They demonstrate two evidence domains and must not be treated as runtime reducer output. A future reducer must not overfit to either fixture.
