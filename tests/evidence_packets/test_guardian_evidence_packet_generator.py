@@ -64,6 +64,20 @@ def test_generator_fails_closed_when_all_bounded_reads_are_skipped(tmp_path: Pat
     assert "packet" not in output
 
 
+def test_generator_fails_closed_on_non_object_read_results_entry(tmp_path: Path) -> None:
+    data = json.loads((ROOT / INPUT).read_text())
+    data["read_results"].insert(1, None)
+    path = tmp_path / "malformed-entry.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    proc = subprocess.run(["python3", str(SCRIPT), str(path), "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert proc.returncode == 1
+    output = json.loads(proc.stdout)
+    assert output["result"] == "fail"
+    assert output["errors"][0]["code"] == "malformed_read_result_entry"
+    assert "packet" not in output
+    assert "Traceback" not in proc.stderr
+
+
 def test_generator_docs_are_linked() -> None:
     for path in ("docs/architecture/guardian-evidence-packet-generator-contract.md", "docs/architecture/README.md", "docs/architecture/00-current-state.md"):
         assert "generate_evidence_packet.py" in (ROOT / path).read_text()
