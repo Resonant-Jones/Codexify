@@ -75,6 +75,12 @@ source truth approval, authority promotion, runtime reducer support,
 CI/default release gating, or release support expansion.
 This is a static proof fixture only.
 
+The bounded-read fixture can feed local stdout-only packet generator tooling.
+Bounded-read success is not packet generation by itself; packet generation is a
+separate local tool. Bounded-read output remains not source truth approval,
+authority promotion, evidence ingestion, WorkOrder mutation, or Execution
+Ledger write.
+
 ## 3. Scope
 
 The contract covers future local-only source-reference resolution, bounded
