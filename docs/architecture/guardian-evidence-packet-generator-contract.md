@@ -332,6 +332,21 @@ read evidence ref exists. Supported claims must never have empty
 `evidence_refs`; skipped-only bounded-read input is failure/not-generated, not
 a successful packet.
 
+A local Make target now exists:
+```bash
+make guardian-evidence-packet-generate
+```
+It runs:
+```bash
+python3 scripts/guardian/generate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json --json
+```
+It consumes bounded-read result JSON only. It emits generated
+GuardianEvidencePacket output inside the generator result to stdout only. It
+validates generated packet output with static packet validation. It does not
+write packet fixtures. It does not implement runtime reducer behavior. It does
+not ingest evidence. It is not CI/default release gating. It is not release
+support expansion.
+
 The generator fails closed when `read_results` contains a non-object entry
 (e.g. `null`). Malformed bounded-read input must produce bounded diagnostics,
 not Python tracebacks. The generator emits a `malformed_read_result_entry`
