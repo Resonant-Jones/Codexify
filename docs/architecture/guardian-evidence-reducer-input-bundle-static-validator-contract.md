@@ -26,6 +26,12 @@ single-file validator results before constructing dry-run inputs. Make target
 success remains not file-read approval, not evidence ingestion, not packet
 generation, and not runtime reducer support.
 
+Input-bundle static validation can feed future generator prerequisites only
+through a separate generator implementation. Validator success is not packet
+generation, evidence authority, or runtime reducer support.
+
+See the [Guardian Evidence Packet Generator Contract](./guardian-evidence-packet-generator-contract.md) for the separate future generator seam.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundles-validate`. It runs
 `python3 scripts/guardian/validate_reducer_input_bundles.py --json` and
