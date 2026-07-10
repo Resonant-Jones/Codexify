@@ -30,6 +30,12 @@ bundle metadata to `ReducerInputBundle` / `ReducerInputRef` objects, and calls
 and remains diagnostics-only local tooling. It is not runtime reducer
 behavior, packet generation, evidence ingestion, or release support expansion.
 
+The packet generator contract is a separate future seam. Dry-run input-bundle
+loader success is not packet generation, evidence ingestion, or authority
+promotion.
+
+See the [Guardian Evidence Packet Generator Contract](./guardian-evidence-packet-generator-contract.md) for that separate seam.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundle-dry-run`. It runs:
 

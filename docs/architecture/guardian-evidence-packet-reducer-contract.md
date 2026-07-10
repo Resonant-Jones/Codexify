@@ -85,6 +85,8 @@ The local dry-run input-bundle loader is available through Make with
 dry-run. It is not runtime reducer behavior, packet generation, or release
 gating.
 
+The docs-only [Guardian Evidence Packet generator contract](./guardian-evidence-packet-generator-contract.md) defines the future seam from validated reducer input to `GuardianEvidencePacket` output. It is not generator implementation, runtime reducer behavior, evidence ingestion, execution, packet output on main, or release gating.
+
 ## 3. Scope
 
 This contract defines:
