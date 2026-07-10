@@ -48,6 +48,22 @@ def test_generator_rejects_invalid_inputs(tmp_path: Path) -> None:
     assert proc.returncode == 1
 
 
+def test_generator_fails_closed_when_all_bounded_reads_are_skipped(tmp_path: Path) -> None:
+    data = json.loads((ROOT / INPUT).read_text())
+    for item in data["read_results"]:
+        item["read_status"] = "skipped"
+        item["content_hash"] = None
+        item["content_excerpt"] = None
+    path = tmp_path / "skipped-only.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    proc = subprocess.run(["python3", str(SCRIPT), str(path), "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert proc.returncode == 1
+    output = json.loads(proc.stdout)
+    assert output["result"] == "fail"
+    assert output["errors"][0] == {"code": "no_usable_evidence_refs", "message": "bounded-read input contains no usable read evidence refs"}
+    assert "packet" not in output
+
+
 def test_generator_docs_are_linked() -> None:
     for path in ("docs/architecture/guardian-evidence-packet-generator-contract.md", "docs/architecture/README.md", "docs/architecture/00-current-state.md"):
         assert "generate_evidence_packet.py" in (ROOT / path).read_text()

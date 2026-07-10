@@ -79,6 +79,14 @@ def main(argv: list[str] | None = None) -> int:
         data = json.loads(args.bounded_read_result.read_text(encoding="utf-8"))
         if data.get("schema_version") != "guardian_evidence_bounded_read_batch_result.v1" or data.get("result") == "fail" or not isinstance(data.get("read_results"), list):
             raise ValueError("bounded-read result is invalid or failed")
+        usable_evidence_refs = [item for item in data["read_results"] if item.get("read_status") == "read" and isinstance(item.get("source_ref"), str) and item["source_ref"].strip()]
+        if not usable_evidence_refs:
+            output = {"schema_version": RESULT_SCHEMA, "generator_contract_version": CONTRACT_VERSION, "bounded_read_result_ref": str(args.bounded_read_result), "result": "fail", "errors": [{"code": "no_usable_evidence_refs", "message": "bounded-read input contains no usable read evidence refs"}], "authority_state": false_authority_state(), "limits": list(LIMITS)}
+            if args.as_json:
+                print(json.dumps(output, indent=2))
+            else:
+                print(output["errors"][0]["message"], file=sys.stderr)
+            return 1
         packet = _packet(data, args.packet_id)
         validation = _validate(packet)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
