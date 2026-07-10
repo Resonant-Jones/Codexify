@@ -261,6 +261,13 @@ Local input-bundle static validator tooling now exists. Future reducer input pre
 
 Input-bundle batch validator tooling now exists as local tooling. Future reducer input preparation can validate all known static bundle templates and fixtures before any loader exists. Batch validator success is not file-read approval, evidence ingestion, packet generation, runtime reducer support, or CI/default release gating.
 
+Input-bundle batch validation now has a local Make target,
+`make guardian-evidence-reducer-input-bundles-validate`, so future reducer
+input preparation can validate all known static bundle templates and fixtures
+through one local operator command. Make target success is not file-read
+approval, evidence ingestion, packet generation, runtime reducer support, or
+CI/default release gating.
+
 ## 26. Relationship to Existing Fixtures
 
 The bridge proof-chain fixture and local validator toolchain fixture are static examples. They demonstrate two evidence domains and must not be treated as runtime reducer output. A future reducer must not overfit to either fixture.
