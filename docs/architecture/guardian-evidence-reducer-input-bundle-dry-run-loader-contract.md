@@ -14,6 +14,22 @@ change `reducer_dry_run.py`, or make the reducer CLI read bundle files.
 
 Boundary summary: this contract is docs-only; it does not implement an input-bundle loader; it does not change `reducer_dry_run.py`; it does not make the reducer CLI read bundle files; it does not implement runtime reducer behavior; it does not implement packet generation; it does not add persistence; it does not add ingestion; it does not add UI; it does not add CI/default release gating; it does not authorize execution; it does not authorize source mutation; it does not authorize Pi Loop invocation; it does not authorize provider execution; it does not authorize Codexify ingestion.
 
+### Implementation status
+
+Local dry-run input-bundle loader behavior now exists through:
+
+```text
+python3 scripts/guardian/reducer_dry_run.py --json --input-bundle docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json
+```
+
+It validates the input-bundle JSON before constructing dry-run input objects,
+reads only the input-bundle JSON file, does not read source_ref targets, maps
+bundle metadata to `ReducerInputBundle` / `ReducerInputRef` objects, and calls
+`dry_run_reducer` only after bundle validation passes or warns. It returns
+`packet=null` and `validation_result=null`, keeps all authority locks false,
+and remains diagnostics-only local tooling. It is not runtime reducer
+behavior, packet generation, evidence ingestion, or release support expansion.
+
 ## 3. Scope
 
 The future seam covers one input-bundle JSON file passed explicitly to a local

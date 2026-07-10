@@ -77,6 +77,8 @@ input-bundle loader, reducer behavior, packet generation, or release gating.
 
 The docs-only [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md) prepares a future loader seam for diagnostics-only dry-run execution. It is not an input-bundle loader implementation, reducer behavior, packet generation, or release gating.
 
+The local dry-run input-bundle loader exists through `reducer_dry_run.py --input-bundle`. It prepares `ReducerInputBundle` objects from validated bundle JSON for diagnostics-only dry-run. It is not runtime reducer behavior, packet generation, or release gating.
+
 ## 3. Scope
 
 This contract defines:

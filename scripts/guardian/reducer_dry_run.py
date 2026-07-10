@@ -25,8 +25,26 @@ from guardian.evidence_packets.reducer_contracts import (
     ReducerInputRef,
     reducer_limits,
 )
+from scripts.guardian.validate_reducer_input_bundle import validate_bundle_file
 
 DRY_RUN_RESULT_SCHEMA_VERSION = "guardian_evidence_packet_reducer_dry_run_result.v1"
+INPUT_BUNDLE_DRY_RUN_RESULT_SCHEMA_VERSION = (
+    "guardian_evidence_reducer_input_bundle_dry_run_result.v1"
+)
+INPUT_BUNDLE_DRY_RUN_LIMITS = (
+    "no_source_ref_reads",
+    "no_evidence_ingestion",
+    "no_packet_generation",
+    "no_runtime_reducer_behavior",
+    "no_command_bus",
+    "no_codex_runner",
+    "no_pi_loop",
+    "no_provider_execution",
+    "no_source_mutation",
+    "no_workorder_mutation",
+    "no_execution_ledger_write",
+    "no_release_support_expansion",
+)
 
 
 def _parse_input(value: str) -> tuple[str, str, str]:
@@ -62,6 +80,11 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         metavar="INPUT_ID:INPUT_CLASS:SOURCE_REF",
     )
+    parser.add_argument(
+        "--input-bundle",
+        type=Path,
+        help="Load one validated ReducerInputBundle JSON file for diagnostics-only dry-run",
+    )
     return parser
 
 
@@ -95,8 +118,77 @@ def _run(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _run_input_bundle(args: argparse.Namespace) -> tuple[dict[str, object], int]:
+    """Validate, map metadata, and run the diagnostics-only bundle dry-run."""
+    bundle_path = args.input_bundle
+    validation_result = validate_bundle_file(bundle_path)
+    if validation_result["result"] == "fail":
+        return (
+            {
+                "schema_version": INPUT_BUNDLE_DRY_RUN_RESULT_SCHEMA_VERSION,
+                "input_bundle_ref": str(bundle_path),
+                "input_bundle_validation_result": validation_result,
+                "reducer_result": None,
+                "packet": None,
+                "validation_result": None,
+                "authority_state": false_authority_state(),
+                "limits": list(INPUT_BUNDLE_DRY_RUN_LIMITS),
+            },
+            1,
+        )
+
+    bundle_data = json.loads(bundle_path.read_text(encoding="utf-8"))
+    refs = tuple(
+        ReducerInputRef(
+            input_id=item["input_id"],
+            input_class=item["input_class"],
+            source_ref=item["source_ref"],
+            evidence_posture=item["evidence_posture"],
+            notes=tuple(item["notes"]),
+        )
+        for item in bundle_data["inputs"]
+    )
+    bundle = ReducerInputBundle(
+        bundle_id=bundle_data["bundle_id"],
+        review_depth=bundle_data["review_depth"],
+        inputs=refs,
+        operator_context=tuple(bundle_data["operator_context"]),
+    )
+    result = dry_run_reducer(bundle)
+    reducer_result = {
+        "packet": result.packet,
+        "validation_result": result.validation_result,
+        "diagnostics": asdict(result.diagnostics),
+    }
+    return (
+        {
+            "schema_version": INPUT_BUNDLE_DRY_RUN_RESULT_SCHEMA_VERSION,
+            "input_bundle_ref": str(bundle_path),
+            "input_bundle_validation_result": validation_result,
+            "reducer_result": reducer_result,
+            "packet": None,
+            "validation_result": None,
+            "authority_state": false_authority_state(),
+            "limits": list(INPUT_BUNDLE_DRY_RUN_LIMITS),
+        },
+        0,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.input_bundle is not None and args.input:
+        _parser().error("--input-bundle cannot be combined with --input")
+    if args.input_bundle is not None:
+        output, exit_code = _run_input_bundle(args)
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(
+                f"Reducer input-bundle dry-run stopped: bundle={output['input_bundle_ref']} "
+                f"validation={output['input_bundle_validation_result']['result']}"
+            )
+        return exit_code
     output = _run(args)
     if args.json:
         print(json.dumps(output, indent=2))
