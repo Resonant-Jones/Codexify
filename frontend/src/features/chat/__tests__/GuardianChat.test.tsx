@@ -45,6 +45,9 @@ const authState = vi.hoisted(() => ({
   status: "authenticated" as const,
   token: "test-token",
 }));
+const runtimeConfigState = vi.hoisted(() => ({
+  authMode: "local" as "local" | "remote",
+}));
 
 type MockGuardianEventSource = EventTarget & {
   url: string;
@@ -262,6 +265,21 @@ vi.mock("@/lib/authState", () => ({
   useAuthState: () => authState,
 }));
 
+vi.mock("@/lib/runtimeConfig", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/runtimeConfig")>(
+    "@/lib/runtimeConfig"
+  );
+
+  return {
+    ...actual,
+    getRuntimeConfigHydrationState: () => "ready",
+    getRuntimeConfigSync: () => ({
+      ...actual.getRuntimeConfigSync(),
+      authMode: runtimeConfigState.authMode,
+    }),
+  };
+});
+
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: any) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children, asChild, ...props }: any) => {
@@ -446,6 +464,7 @@ describe("GuardianChat inference rail", () => {
     authState.ready = true;
     authState.status = "authenticated";
     authState.token = "test-token";
+    runtimeConfigState.authMode = "local";
     try {
       window.localStorage.setItem("cfy.voice.playbackEnabled", "");
       window.localStorage.setItem("cfy.voice.turnEnabled", "");
@@ -822,6 +841,63 @@ describe("GuardianChat inference rail", () => {
       ).not.toBeInTheDocument();
     }
   );
+
+  it("omits the local user id when creating a thread in remote auth mode", async () => {
+    runtimeConfigState.authMode = "remote";
+    renderChat("draft-thread", {
+      userName: "Resonant Jones",
+    });
+
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/chat/threads") {
+        expect(body).toEqual(
+          expect.objectContaining({
+            title: "hello",
+            metadata: expect.any(Object),
+          })
+        );
+        expect(body).not.toHaveProperty("user_id");
+        return createApiResponse(
+          { thread_id: 2, thread: { id: 2, title: "New Thread" } },
+          201
+        );
+      }
+      if (url === "/chat/2/messages") {
+        return createApiResponse(
+          {
+            ok: true,
+            thread: { id: 2, title: "New Thread" },
+            message: { id: 456, thread_id: 2 },
+          },
+          200
+        );
+      }
+      if (url === "/chat/2/complete") {
+        return createApiResponse({ task_id: "task-123" }, 200);
+      }
+      return createApiResponse({}, 200);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+    await advanceTimers(100);
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/api/chat/threads",
+        expect.objectContaining({
+          title: "hello",
+          metadata: expect.any(Object),
+        })
+      );
+    });
+
+    const createThreadCall = apiMock.post.mock.calls.find(
+      ([url]) => url === "/api/chat/threads"
+    );
+    expect(createThreadCall?.[1]).not.toHaveProperty("user_id");
+  });
 
   it("surfaces sanitized diagnostics when the create-thread response lacks a thread id", async () => {
     renderChat("draft-thread", {
