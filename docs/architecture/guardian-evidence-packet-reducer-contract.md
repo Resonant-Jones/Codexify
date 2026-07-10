@@ -68,6 +68,8 @@ Static ReducerInputBundle validation doctrine now exists in the [input-bundle st
 
 The local input-bundle static validator exists at `scripts/guardian/validate_reducer_input_bundle.py`. It validates bundle shape and guardrails only; it is not an input-bundle loader, reducer behavior, or packet generation.
 
+The local input-bundle batch validator exists at `scripts/guardian/validate_reducer_input_bundles.py`. It validates static bundle shape and guardrails across templates and fixtures only; it is not an input-bundle loader, reducer behavior, packet generation, or release gating.
+
 ## 3. Scope
 
 This contract defines:
