@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -29,14 +30,26 @@ def _run(*args: str) -> subprocess.CompletedProcess:
 
 def test_cli_exists_and_has_only_allowed_imports() -> None:
     assert CLI.exists()
-    source = CLI.read_text().lower()
-    for token in (
-        "fastapi", "sqlalchemy", "psycopg", "command_bus", "codex_runner_bridge",
-        "scripts.guardian.validate", "subprocess", "requests", "httpx", "docker",
-    ):
-        assert token not in source
-    assert "guardian.evidence_packets.reducer" in source
-    assert "guardian.evidence_packets.reducer_contracts" in source
+    tree = ast.parse(CLI.read_text())
+    allowed = {
+        "guardian.evidence_packets.contracts",
+        "guardian.evidence_packets.reducer_contracts",
+        "guardian.evidence_packets.reducer",
+        "scripts.guardian.validate_reducer_input_bundle",
+    }
+    forbidden = (
+        "fastapi", "database", "command_bus", "codex_runner", "validate_evidence",
+        "validate_reducer_input_bundles", "subprocess", "requests", "httpx", "docker",
+    )
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imports.append(node.module or "")
+    for name in imports:
+        assert not any(fragment in name.lower() for fragment in forbidden)
+        assert not name.startswith(("guardian.", "scripts.")) or name in allowed
 
 
 def test_cli_json_defaults_to_diagnostics_only() -> None:

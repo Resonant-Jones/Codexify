@@ -19,6 +19,8 @@ A local batch validator now exists at `scripts/guardian/validate_reducer_input_b
 
 The [input-bundle dry-run loader contract](./guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md) depends on single-file static validation before any future dry-run bundle loading. Validator success is not file-read approval, evidence ingestion, packet generation, or runtime reducer support.
 
+The local dry-run input-bundle loader consumes the single-file validator result before constructing dry-run inputs. Validator success remains not file-read approval, evidence ingestion, packet generation, or runtime reducer support.
+
 The local Make target now exists:
 `make guardian-evidence-reducer-input-bundles-validate`. It runs
 `python3 scripts/guardian/validate_reducer_input_bundles.py --json` and
