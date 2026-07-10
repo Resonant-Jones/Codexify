@@ -7,6 +7,8 @@ import { normalizeDocumentCollaborationEvent } from "./collaborationEvents";
 export type PresenceUser = {
   user_id: string;
   color: string;
+  /** Cursor offset for cursor-presence users; undefined for active/typing users. */
+  position?: number;
 };
 
 export type UseDocumentCollaborationOptions = {
@@ -33,12 +35,16 @@ export type UseDocumentCollaborationResult = {
   activeUsers: PresenceUser[];
   /** Users who are currently typing (remote only, never includes current user). */
   typingUsers: PresenceUser[];
+  /** Remote users with an active cursor position (auto-expires after 5s). */
+  cursorUsers: PresenceUser[];
   /** Send a local content update to all other clients in the session. */
   sendContentUpdate: (content: string) => void;
   /** Signal that the current user is actively typing. */
   notifyTyping: () => void;
   /** Signal that the current user has stopped typing. */
   stopTyping: () => void;
+  /** Broadcast the current user's cursor position to the session. */
+  sendCursorPosition: (position: number) => void;
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -53,6 +59,9 @@ const USER_COLORS = [
 
 /** Typing indicator auto-expires after this many milliseconds. */
 const TYPING_EXPIRY_MS = 3_000;
+
+/** Cursor presence auto-expires after this many milliseconds. */
+const CURSOR_EXPIRY_MS = 5_000;
 
 // ─── URL construction ────────────────────────────────────────────────────────
 
@@ -87,10 +96,12 @@ export function useDocumentCollaboration({
   const [accessDenied, setAccessDenied] = useState(false);
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
   const [typingUsers, setTypingUsers] = useState<PresenceUser[]>([]);
+  const [cursorUsers, setCursorUsers] = useState<PresenceUser[]>([]);
 
   const clientRef = useRef<WsClient | null>(null);
   const userColorMapRef = useRef<Map<string, string>>(new Map());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const cursorTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Assign stable colours to user IDs
   const assignColor = useCallback((uid: string): string => {
@@ -166,6 +177,51 @@ export function useDocumentCollaboration({
     [removeTypingUser],
   );
 
+  // ── Cursor handlers ────────────────────────────────────────────────────
+
+  const removeCursorUser = useCallback((uid: string) => {
+    const timers = cursorTimersRef.current;
+    const timer = timers.get(uid);
+    if (timer) {
+      clearTimeout(timer);
+      timers.delete(uid);
+    }
+
+    setCursorUsers((prev) => prev.filter((u) => u.user_id !== uid));
+  }, []);
+
+  const addCursorUser = useCallback(
+    (uid: string, position: number) => {
+      if (uid === userId) return;
+
+      // Clear any existing expiry timer for this user
+      const timers = cursorTimersRef.current;
+      const existing = timers.get(uid);
+      if (existing) clearTimeout(existing);
+
+      setCursorUsers((prev) => {
+        const others = prev.filter((u) => u.user_id !== uid);
+        return [...others, { user_id: uid, color: assignColor(uid), position }];
+      });
+
+      // Auto-expire after CURSOR_EXPIRY_MS
+      timers.set(
+        uid,
+        setTimeout(() => {
+          removeCursorUser(uid);
+        }, CURSOR_EXPIRY_MS)
+      );
+    },
+    [assignColor, userId],
+  );
+
+  const handleRemoteCursorPosition = useCallback(
+    (uid: string, position: number) => {
+      addCursorUser(uid, position);
+    },
+    [addCursorUser],
+  );
+
   // Connect / reconnect when dependencies change
   useEffect(() => {
     const wsUrl = buildCollabWsUrl(documentId, authToken);
@@ -215,6 +271,9 @@ export function useDocumentCollaboration({
         case "typing.stop":
           handleRemoteTypingStop(event.userId);
           break;
+        case "cursor.position":
+          handleRemoteCursorPosition(event.userId, event.position);
+          break;
         case "unknown":
         default:
           break;
@@ -232,6 +291,11 @@ export function useDocumentCollaboration({
       const timers = typingTimersRef.current;
       timers.forEach((timer) => clearTimeout(timer));
       timers.clear();
+
+      // Clean up cursor timers
+      const cursorTimers = cursorTimersRef.current;
+      cursorTimers.forEach((timer) => clearTimeout(timer));
+      cursorTimers.clear();
 
       client.disconnect();
       clientRef.current = null;
@@ -272,13 +336,31 @@ export function useDocumentCollaboration({
     });
   };
 
+  const sendCursorPosition = (position: number) => {
+    if (
+      typeof position !== "number" ||
+      !Number.isFinite(position) ||
+      position < 0
+    ) {
+      return;
+    }
+    clientRef.current?.send({
+      type: "cursor.position",
+      user_id: userId,
+      position,
+      timestamp: new Date().toISOString(),
+    });
+  };
+
   return {
     isConnected,
     accessDenied,
     activeUsers,
     typingUsers,
+    cursorUsers,
     sendContentUpdate,
     notifyTyping,
     stopTyping,
+    sendCursorPosition,
   };
 }
