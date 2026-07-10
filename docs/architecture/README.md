@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: begin with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture. It is the highest-priority entry for release-truth questions.
-Last updated: 2026-07-08
+Last updated: 2026-07-10
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -40,6 +40,8 @@ Start here first when you need current-state interpretation rather than structur
 If you are working on delegation, start with [`delegation-operator-manual.md`](./delegation-operator-manual.md) first. That manual is the operator-facing front door for the delegation slice; use this KB page immediately after to anchor the manual back to the current runtime truth.
 
 If you are working on operator/user access topology, Self Operator vs Host Operator language, or future Network Profile planning, start with [`ADR-039: Operator / User Access Boundary`](./adr/039-operator-user-access-boundary.md) and [`ADR-040: Network Profile Topology Resolution Contract`](./adr/040-network-profile-topology-resolution-contract.md). These are docs-only proposed contracts for discoverability and future planning; they do not implement Settings UI, network profile persistence, topology resolution, Vite configuration, provider routing, hosted access, or any wider release support.
+
+If you are working on audit automation, proof generation, Guardian Work Briefs, beta release sentinel behavior, evidence freshness, `latest` pointers, VaultNode schedules, canonical runtime proof, or multi-machine audit behavior, start with [`ADR-041: VaultNode Canonical Machine and Audit Authority`](./adr/041-vaultnode-canonical-machine-and-audit-authority.md) and the [`VaultNode Canonical Machine and Audit Authority Contract`](./vaultnode-canonical-machine-and-audit-authority-contract.md). These are documentation-only authority contracts; they do not claim that canonical evidence automation or trusted `latest` promotion is implemented.
 
 If you are working on self-build doctrine, coding-worker execution, Codex Runner substrate questions, Guardian delegation overlap, or Pi-style execution planning, start with [`guardian-build-loop-doctrine.md`](./guardian-build-loop-doctrine.md) first. That doctrine is the canonical umbrella for the governed build/change loop; use [`build-proposal-artifact-contract.md`](./build-proposal-artifact-contract.md) for the canonical review artifact between diagnosis and execution, and use [`../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md`](../Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md) for current coding-worker operational detail.
 
