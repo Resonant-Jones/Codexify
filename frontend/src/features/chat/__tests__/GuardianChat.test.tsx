@@ -763,9 +763,9 @@ describe("GuardianChat inference rail", () => {
           expect(body).toEqual(
             expect.objectContaining({
               title: "hello",
-              user_id: "local",
             })
           );
+          expect(body).not.toHaveProperty("user_id");
           return createApiResponse(threadResponse as Record<string, unknown>, 201);
         }
         if (url === "/chat/2/messages") {
@@ -773,9 +773,9 @@ describe("GuardianChat inference rail", () => {
             expect.objectContaining({
               role: "user",
               content: "hello",
-              user_id: "local",
             })
           );
+          expect(body).not.toHaveProperty("user_id");
           return createApiResponse(
             {
               ok: true,
@@ -833,9 +833,9 @@ describe("GuardianChat inference rail", () => {
         expect(body).toEqual(
           expect.objectContaining({
             title: "hello",
-            user_id: "local",
           })
         );
+        expect(body).not.toHaveProperty("user_id");
         return createApiResponse(
           {
             ok: true,
@@ -904,9 +904,9 @@ describe("GuardianChat inference rail", () => {
         expect(body).toEqual(
           expect.objectContaining({
             title: "hello",
-            user_id: "local",
           })
         );
+        expect(body).not.toHaveProperty("user_id");
         return {
           data: "<html>Guardian shell</html>",
           status: 200,
