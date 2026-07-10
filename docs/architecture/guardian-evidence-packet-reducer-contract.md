@@ -70,6 +70,11 @@ The local input-bundle static validator exists at `scripts/guardian/validate_red
 
 The local input-bundle batch validator exists at `scripts/guardian/validate_reducer_input_bundles.py`. It validates static bundle shape and guardrails across templates and fixtures only; it is not an input-bundle loader, reducer behavior, packet generation, or release gating.
 
+Local input-bundle batch validation is available through Make with
+`make guardian-evidence-reducer-input-bundles-validate`. It validates static
+bundle shape and guardrails across templates and fixtures only; it is not an
+input-bundle loader, reducer behavior, packet generation, or release gating.
+
 ## 3. Scope
 
 This contract defines:
