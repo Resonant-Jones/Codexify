@@ -35,11 +35,12 @@ def test_cli_exists_and_has_only_allowed_imports() -> None:
         "guardian.evidence_packets.contracts",
         "guardian.evidence_packets.reducer_contracts",
         "guardian.evidence_packets.reducer",
+        "scripts.guardian.validate_evidence_packet",
         "scripts.guardian.validate_reducer_input_bundle",
     }
     forbidden = (
-        "fastapi", "database", "command_bus", "codex_runner", "validate_evidence",
-        "validate_reducer_input_bundles", "subprocess", "requests", "httpx", "docker",
+        "fastapi", "database", "command_bus", "codex_runner", "validate_reducer_input_bundles",
+        "subprocess", "requests", "httpx", "docker",
     )
     imports = []
     for node in ast.walk(tree):
@@ -102,4 +103,9 @@ def test_cli_does_not_write_files_or_call_validator_scripts() -> None:
     after = {str(path.relative_to(ROOT)) for path in ROOT.glob("scripts/guardian/reducer_dry_run*")}
     assert proc.returncode == 0
     assert before == after
-    assert "validate_evidence" not in CLI.read_text()
+    source = CLI.read_text()
+    # The only allowed validate_evidence reference is the static packet validator.
+    assert "from scripts.guardian.validate_evidence_packet" in source
+    # No other validator scripts should be referenced.
+    for forbidden_pattern in ("validate_reducer_input_bundles",):
+        assert forbidden_pattern not in source

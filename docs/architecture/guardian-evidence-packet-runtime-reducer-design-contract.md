@@ -272,6 +272,13 @@ diagnostics-only dry-run reducer. It does not read source_ref targets or
 authorize ingestion, packet generation, runtime reducer behavior, execution,
 UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
+A local diagnostics-only evidence-packet inspection CLI option now exists through
+`reducer_dry_run.py --evidence-packet`. It loads a GuardianEvidencePacket fixture,
+validates it with the static packet validator, and returns diagnostics output.
+It is not runtime reducer behavior, packet generation, evidence ingestion, execution,
+or release gating. This is local diagnostic-only tooling; it does not implement
+runtime reducer behavior or widen release support.
+
 The [packet generator contract](./guardian-evidence-packet-generator-contract.md) exists as a docs-only future seam. It defines how future reducer output may become GuardianEvidencePacket artifacts after explicit evidence preparation and validation. It does not implement packet generation or authorize source_ref reads, ingestion, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
 The [Guardian Evidence Bounded Read Contract](./guardian-evidence-bounded-read-contract.md)
