@@ -424,7 +424,7 @@ These implications follow the account export contract's requirements for explici
 
 The following ADRs are required before runtime work:
 
-- Contact and Circle storage model ADR.
+- [Contact and Circle storage model ADR](./adr/043-contact-and-circle-storage-model.md).
 - Invite and trust lifecycle ADR.
 - Space participant resolution ADR.
 - Discovery and directory policy ADR.
