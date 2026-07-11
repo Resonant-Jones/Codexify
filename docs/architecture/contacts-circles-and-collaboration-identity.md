@@ -426,7 +426,7 @@ The following ADRs are required before runtime work:
 
 - [Contact and Circle storage model ADR](./adr/043-contact-and-circle-storage-model.md).
 - [Invite and trust lifecycle ADR](./adr/044-invite-lifecycle-and-storage-model.md).
-- Space participant resolution ADR.
+- [Space participant resolution ADR](./adr/045-space-participant-resolution-model.md).
 - Discovery and directory policy ADR.
 - Contact export/restore privacy ADR.
 - Presence scope and ambient visibility ADR.
