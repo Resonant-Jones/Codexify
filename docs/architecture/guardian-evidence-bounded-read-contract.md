@@ -344,12 +344,23 @@ The following are future tasks only and are not implemented here:
 - Generated read-result fixture.
 - Packet generator implementation.
 - Packet generator focused tests.
-- Generated packet fixture.
 - Packet static validation integration.
 - Read-only operator surface contract.
 - Execution Ledger adoption contract.
 - WorkOrder mapping contract.
 - CI opt-in validation contract.
+
+### Generated packet fixture
+
+A static generated GuardianEvidencePacket fixture now exists at
+`docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json`.
+It was produced by the local stdout-only generator
+(`scripts/guardian/generate_evidence_packet.py`) using this bounded-read fixture as
+input. The fixture is a static packet object derived from bounded-read output. It is
+not packet generation by itself, not runtime reducer output, not evidence ingestion,
+not WorkOrder mutation, not an Execution Ledger write, and not release support
+expansion. The fixture preserves evidence refs with content hashes, the skipped
+entry as uncertainty, all forbidden interpretations, and all authority locks false.
 
 ## 29. Bottom Line
 

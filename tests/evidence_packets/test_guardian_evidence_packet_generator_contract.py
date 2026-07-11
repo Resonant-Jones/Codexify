@@ -119,7 +119,7 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
         assert proc.returncode == 0, proc.stderr
     packet = subprocess.run(["python3", "scripts/guardian/validate_evidence_packets.py", "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
     bundles = subprocess.run(["python3", "scripts/guardian/validate_reducer_input_bundles.py", "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
-    assert packet.returncode == 0 and json.loads(packet.stdout)["matched_count"] == 2
+    assert packet.returncode == 0 and json.loads(packet.stdout)["matched_count"] == 3
     bundle_result = json.loads(bundles.stdout)
     assert bundles.returncode == 0
     assert bundle_result["matched_count"] >= 2

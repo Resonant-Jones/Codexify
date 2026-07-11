@@ -156,6 +156,7 @@ def test_existing_fixtures_use_contract_values() -> None:
     for name in (
         "guardian-evidence-packet.codex-runner-bridge-proof-chain.v1.json",
         "guardian-evidence-packet.local-validator-toolchain.v1.json",
+        "guardian-evidence-packet.generated-local-tooling.v1.json",
     ):
         packet = _load_fixture(name)
         assert set(packet["authority_state"]) == set(contracts.REQUIRED_AUTHORITY_LOCKS)

@@ -115,6 +115,16 @@ gating. The tooling is available through a local Make target:
 `make guardian-evidence-packet-generate`. It is not runtime reducer behavior,
 not evidence ingestion, not execution, and not release gating.
 
+A static generated GuardianEvidencePacket fixture now exists at
+`docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json`.
+It was produced by the local stdout-only generator using the bounded-read fixture
+as input. The packet object was extracted from the generator result and checked in
+as a static fixture. It is not runtime reducer output, not evidence ingestion,
+not execution, not release gating, and not release support expansion. The fixture
+preserves all authority locks false, evidence refs with content hashes, uncertainty
+with the skipped source, forbidden interpretations with the boundary label, and no
+absolute paths or secrets.
+
 ## 3. Scope
 
 This contract defines:
