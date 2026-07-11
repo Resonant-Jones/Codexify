@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json"
 INPUT_BUNDLE_REF = "docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json"
-FIXED_TIMESTAMP = "2026-07-10T00:00:00+00:00"
+FIXED_TIMESTAMP = "2026-07-11T00:00:00+00:00"
 REQUIRED_RESULT_FIELDS = {
     "schema_version",
     "read_contract_version",
@@ -158,7 +158,7 @@ def test_fixture_documents_static_only_boundaries_and_tools_remain_green() -> No
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert packets.returncode == 0
-    assert json.loads(packets.stdout)["matched_count"] == 2
+    assert json.loads(packets.stdout)["matched_count"] == 3
     assert bundles.returncode == 0
     bundle_paths = [entry["path"] for entry in json.loads(bundles.stdout)["files"]]
     assert any("guardian-evidence-reducer-input-bundle-template" in path for path in bundle_paths)

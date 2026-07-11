@@ -156,7 +156,7 @@ def test_generated_fixture_matches_live_generator_output() -> None:
     assert proc.returncode == 0, proc.stderr
     live = json.loads(proc.stdout)["packet"]
     static_fixture = _load()
-    live["created_at"] = "2026-07-10T00:00:00Z"
+    live["created_at"] = "2026-07-11T00:00:00Z"
     assert live == static_fixture
 
 
