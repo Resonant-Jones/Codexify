@@ -1,0 +1,51 @@
+# Private browser-preview overlay.  Start only with docker-compose.yml:
+# docker compose --env-file .env.private-preview -f docker-compose.yml -f docker-compose.private-preview.yml up -d
+#
+# The host exposes exactly one HTTP origin on loopback.  `cloudflared` runs on
+# the operator machine and tunnels to it; no Cloudflare credentials live here.
+services:
+  db:
+    ports: !reset []
+
+  neo4j:
+    ports: !reset []
+
+  tts:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
+      GUARDIAN_EXPOSURE_MODE: "private_preview"
+      GUARDIAN_AUTH_MODE: "remote"
+      CODEXIFY_MULTI_USER_ENABLED: "true"
+      GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?set GUARDIAN_SESSION_SECRET in .env.private-preview}"
+      GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?set GUARDIAN_JWT_SECRET in .env.private-preview}"
+      CODEXIFY_PREVIEW_APPROVED_EMAILS: "${CODEXIFY_PREVIEW_APPROVED_EMAILS:?set approved preview emails}"
+      CODEXIFY_PREVIEW_ADMIN_EMAILS: "${CODEXIFY_PREVIEW_ADMIN_EMAILS:?set preview admin emails}"
+      # Same-origin traffic has no browser CORS dependency.
+      GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-}"
+
+  frontend:
+    ports: !reset []
+    environment:
+      VITE_GUARDIAN_API_BASE: ""
+      VITE_GUARDIAN_AUTH_MODE: "remote"
+      VITE_GUARDIAN_API_KEY: ""
+      VITE_GUARDIAN_DEV_API_KEY: ""
+      VITE_PRIVATE_PREVIEW: "true"
+      VITE_PREVIEW_FEEDBACK_EMAIL: "${CODEXIFY_PREVIEW_FEEDBACK_EMAIL:-}"
+
+  private-preview-origin:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:${CODEXIFY_PREVIEW_PORT:-8080}:8080"
+    volumes:
+      - ./docker/private-preview/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped

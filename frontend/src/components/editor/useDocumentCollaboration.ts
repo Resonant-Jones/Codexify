@@ -69,11 +69,10 @@ function buildCollabWsUrl(documentId: string, authToken?: string): string {
   const env = (import.meta as any).env;
   const apiBase: string =
     env?.VITE_GUARDIAN_API_BASE ??
-    (typeof window !== "undefined" ? window.location.origin : "") ??
-    "http://localhost:8000";
+    (typeof window !== "undefined" ? window.location.origin : "");
 
   const wsProtocol = apiBase.startsWith("https") ? "wss" : "ws";
-  let url = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/api/collab/ws/${documentId}`;
+  let url = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/ws/collab/${documentId}`;
 
   if (authToken) {
     url += `?token=${encodeURIComponent(authToken)}`;
