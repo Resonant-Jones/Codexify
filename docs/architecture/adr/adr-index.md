@@ -75,6 +75,7 @@ Use this note as the local map for all ADRs.
 35. [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]] — governing decision for VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and persistent-serving/audit isolation.
 36. [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]] — governing decision for canonical audit manifests, orthogonal proof classifications, artifact integrity, freshness, supersession, contradiction, and trusted `latest` eligibility.
 37. [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]] — governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
+38. [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]] — governs future invite lifecycle, invite storage posture, token boundary, invite-to-contact mapping, and invite-to-permission bridge for Contacts, Circles, and future Spaces.
 
 ---
 
@@ -96,6 +97,9 @@ Use this note as the local map for all ADRs.
 - [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]]
   - Governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
   - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
+- [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]]
+  - Governs future invite lifecycle, invite storage posture, token boundary, invite-to-contact mapping, and invite-to-permission bridge for Contacts, Circles, and future Spaces.
+  - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../adr/043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
 
 ## Relationship to the main architecture docs
 

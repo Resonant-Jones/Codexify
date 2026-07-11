@@ -201,7 +201,7 @@ These boundaries must not collapse. A Contact is not necessarily an account. A n
 
 - Contact and Circle schema ADR or implementation task
 - Contact export/restore privacy ADR
-- Invite lifecycle and storage ADR
+- [Invite lifecycle and storage ADR](./044-invite-lifecycle-and-storage-model.md)
 - Space participant resolution ADR
 - Contact sync topology ADR
 - Presence scope and ambient visibility ADR
