@@ -115,12 +115,15 @@ def _require_media_feature(flag_name: str, feature_label: str) -> None:
 
 
 def _require_media_api_key(
+    request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> str:
     if _is_pytest() and not x_api_key and not authorization:
         return "test-bypass"
-    return verify_api_key(x_api_key=x_api_key, authorization=authorization)
+    return verify_api_key(
+        request=request, x_api_key=x_api_key, authorization=authorization
+    )
 
 
 router = APIRouter(dependencies=[Depends(_require_media_api_key)])

@@ -17,6 +17,11 @@ from guardian.core.session_store import (
     get_session_store,
 )
 from guardian.db.models import User
+from guardian.core.preview_access import (
+    is_private_preview,
+    normalize_preview_email,
+    role_for_preview_email,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 api_router = APIRouter(prefix="/api/auth", tags=["Auth"])
@@ -82,6 +87,9 @@ def _resolve_token_from_request(
 @router.post("/register")
 @api_router.post("/register")
 def register_user(body: AuthRegisterRequest) -> dict[str, Any]:
+    if is_private_preview():
+        # Preview users are provisioned by the operator, never self-registered.
+        raise HTTPException(status_code=404, detail="Not found")
     username = _normalize_username(body.username)
     password = _normalize_password(body.password)
 
@@ -117,6 +125,13 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
     username = _normalize_username(body.username)
     password = _normalize_password(body.password)
 
+    preview_role = None
+    if is_private_preview():
+        username = normalize_preview_email(username)
+        preview_role = role_for_preview_email(username)
+        if not username or preview_role is None:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
     db = _auth_db()
     with db.get_session() as session:
         user = _get_user_by_username(session, username)
@@ -125,6 +140,10 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
                 status_code=401,
                 detail="Invalid username or password",
             )
+
+        if preview_role is not None and user.role != preview_role:
+            user.role = preview_role
+            session.commit()
 
         token, expires_at = issue_session_token(
             subject=user.id, ttl_seconds=DEFAULT_SESSION_TTL_SECONDS

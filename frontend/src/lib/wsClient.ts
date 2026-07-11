@@ -84,8 +84,9 @@ export class WsClient {
     if (this.ws?.readyState === WebSocket.OPEN) return;
     this.manualClose = false;
 
+    const privatePreview = import.meta.env.VITE_PRIVATE_PREVIEW === "true";
     let fullUrl = this.url;
-    if (this.options.token) {
+    if (this.options.token && !privatePreview) {
       const separator = fullUrl.includes("?") ? "&" : "?";
       fullUrl = `${fullUrl}${separator}token=${encodeURIComponent(this.options.token)}`;
     }
@@ -94,6 +95,11 @@ export class WsClient {
     this.ws = new WebSocket(fullUrl);
 
     this.ws.onopen = () => {
+      // Authenticate in the first protocol frame instead of exposing the
+      // session token in a URL, where it would reach proxy and browser logs.
+      if (this.options.token && privatePreview) {
+        this.ws?.send(JSON.stringify({ type: "auth", token: this.options.token }));
+      }
       this.reconnectAttempts = 0;
       this.setConnected(true);
     };

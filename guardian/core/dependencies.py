@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
-from fastapi import Cookie, Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 from fastapi.security.api_key import APIKeyHeader
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -41,6 +41,10 @@ from guardian.core.config import get_settings as get_core_settings
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.db.models import AuthenticatedPrincipal
+from guardian.core.preview_access import (
+    is_private_preview,
+    require_preview_principal,
+)
 from guardian.memory.query_memory import memory_store as _memory_store
 from guardian.sensors.state import Sensors
 from guardian.vector.store import VectorStore
@@ -341,6 +345,7 @@ def _resolve_account_id_for_subject(subject_id: str) -> str | None:
 
 
 def get_request_user_id(
+    request: Request = None,
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
@@ -355,6 +360,16 @@ def get_request_user_id(
     When CODEXIFY_MULTI_USER_ENABLED=true, the request must carry an
     authenticated subject from the existing session/JWT path.
     """
+    if is_private_preview():
+        # The preview never honors caller-controlled X-User-Id values.
+        # Its account id is the approved email bound to the signed session.
+        if request is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Private preview identity must be resolved from the request scope",
+            )
+        return require_preview_principal(request).email
+
     session_token = extract_session_token(authorization, gc_session)
     session_user_id = (
         resolve_session_user_id(authorization, gc_session)
@@ -393,6 +408,7 @@ def get_request_user_id(
 
 
 def get_request_user_scope(
+    request: Request = None,
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
@@ -403,6 +419,15 @@ def get_request_user_scope(
     Single-user mode preserves the legacy `user_id` fallback behavior.
     Multi-user mode exposes the authenticated subject and stable account id.
     """
+    if is_private_preview():
+        principal = require_preview_principal(request)
+        return RequestUserScope(
+            user_id=principal.email,
+            subject_id=principal.email,
+            account_id=principal.email,
+            multi_user_enabled=True,
+        )
+
     session_token = extract_session_token(authorization, gc_session)
     session_user_id = (
         resolve_session_user_id(authorization, gc_session)
@@ -451,7 +476,7 @@ def get_request_user_scope(
         )
 
     return RequestUserScope(
-        user_id=get_request_user_id(x_user_id, authorization, gc_session),
+        user_id=get_request_user_id(request, x_user_id, authorization, gc_session),
         subject_id=None,
         account_id=None,
         multi_user_enabled=False,
@@ -551,6 +576,7 @@ def _verify_session_token_fallback(token: str) -> bool:
 
 
 def verify_api_key(
+    request: Request = None,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
@@ -567,6 +593,11 @@ def verify_api_key(
 
     Note: GUARDIAN_EXPOSURE_MODE=public_allowlist always forces remote mode.
     """
+    if is_private_preview():
+        # No static browser/API keys in a tunnelled preview.  The caller must
+        # present a signed session for an allowlisted email.
+        return require_preview_principal(request).email
+
     session_token = extract_session_token(authorization, gc_session)
     if session_token:
         session_user_id = resolve_session_user_id(authorization, gc_session)
@@ -678,6 +709,7 @@ def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
 
 def get_current_user(
     api_key: str = Depends(require_api_key),
+    request: Request = None,
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
     gc_session: Optional[str] = Cookie(None, alias="gc_session"),
@@ -686,7 +718,7 @@ def get_current_user(
     Resolve current user from the effective request scope.
     """
     _ = api_key
-    return get_request_user_id(x_user_id, authorization, gc_session)
+    return get_request_user_id(request, x_user_id, authorization, gc_session)
 
 
 # =========================

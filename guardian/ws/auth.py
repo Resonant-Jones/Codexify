@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from fastapi import HTTPException, WebSocket
 
 from guardian.core.dependencies import verify_api_key
+from guardian.core.auth_dependencies import resolve_session_user_id
+from guardian.core.preview_access import is_private_preview, role_for_preview_email
 from guardian.ws.protocol import enforce_payload_size
 
 AUTH_FAILURE_CLOSE_CODE = 4401
@@ -24,6 +26,11 @@ class WSAuthError(Exception):
 
 
 def _validate_api_key(token: str) -> str:
+    if is_private_preview():
+        user_id = resolve_session_user_id(f"Bearer {token}", None)
+        if user_id and role_for_preview_email(user_id):
+            return token
+        raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
     try:
         return verify_api_key(x_api_key=token, authorization=None)
     except HTTPException as exc:
