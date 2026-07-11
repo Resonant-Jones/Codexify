@@ -138,7 +138,25 @@ Future UI surfacing requires a separate explicit contract. This guide does not a
 
 Future Execution Ledger adoption requires a separate explicit contract. Future WorkOrder mutation requires a separate explicit contract. A packet and its validation result do not create either durable truth or mutation authority.
 
-## 22. Failure Modes
+## 22. Generated Fixture Policy
+
+A static generated GuardianEvidencePacket fixture exists at
+`docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json`.
+It was produced by the local stdout-only packet generator
+(`scripts/guardian/generate_evidence_packet.py`) and checked in as a fixture. The
+fixture must preserve the generator output shape, evidence refs with content hashes,
+uncertainty with skipped-source representation, forbidden interpretations including
+the boundary label, and all authority locks false. It must contain no absolute paths
+or secrets. The focused test
+`tests/evidence_packets/test_guardian_evidence_packet_generated_fixture.py` asserts
+structural equivalence between the static fixture and fresh generator output. This
+fixture is a static artifact, not runtime reducer output, not packet generation by
+itself, not evidence ingestion, not WorkOrder mutation, not an Execution Ledger
+write, and not release support expansion. Authoring a new generated fixture requires
+a separate task, generator invocation, and fixture extraction. Do not hand-edit the
+generated fixture; regenerate it from the generator and re-extract the packet object.
+
+## 23. Failure Modes
 
 | Failure | Cause | Response |
 |---|---|---|

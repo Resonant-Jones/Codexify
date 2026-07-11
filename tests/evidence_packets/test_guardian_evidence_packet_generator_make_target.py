@@ -112,14 +112,14 @@ def test_existing_make_targets_exit_zero() -> None:
         assert proc.returncode == 0, f"{target} exited {proc.returncode}"
 
 
-def test_batch_validator_discovers_two_packet_fixtures() -> None:
+def test_batch_validator_discovers_three_packet_fixtures() -> None:
     proc = subprocess.run(
         ["python3", "scripts/guardian/validate_evidence_packets.py", "--json"],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0
     result = json.loads(proc.stdout)
-    assert result["matched_count"] == 2
+    assert result["matched_count"] == 3
 
 
 def test_input_bundle_validator_discovers_template_and_fixture() -> None:

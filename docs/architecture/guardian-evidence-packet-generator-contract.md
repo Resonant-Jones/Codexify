@@ -361,6 +361,19 @@ generator implementation. Fixture presence is not packet generation, source
 truth approval, evidence ingestion, WorkOrder mutation, or an Execution Ledger
 write.
 
+A static generated GuardianEvidencePacket fixture now exists at
+`docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json`.
+It was produced by running the local stdout-only generator against the bounded-read
+fixture and checking in only the top-level `packet` object from the generator result.
+It is a static fixture, not runtime reducer output, not evidence ingestion, not
+WorkOrder mutation, not an Execution Ledger write, and not release support
+expansion. The fixture preserves all provenance, evidence refs with content hashes,
+uncertainty with the skipped-source representation, forbidden interpretations with
+the boundary label, and all authority locks false. It must be kept in sync with
+the live generator output; the focused test
+`tests/evidence_packets/test_guardian_evidence_packet_generated_fixture.py`
+asserts structural equivalence between the static fixture and fresh generator output.
+
 Local bounded evidence-read tooling is now available through
 `make guardian-evidence-bounded-read`. Future packet generator implementation
 may consume bounded read results only through a separate generator
