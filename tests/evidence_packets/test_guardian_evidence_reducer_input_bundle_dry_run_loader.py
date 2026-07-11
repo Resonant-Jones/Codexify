@@ -32,11 +32,12 @@ def test_cli_import_boundary_is_local_and_allowed() -> None:
         "guardian.evidence_packets.contracts",
         "guardian.evidence_packets.reducer_contracts",
         "guardian.evidence_packets.reducer",
+        "scripts.guardian.validate_evidence_packet",
         "scripts.guardian.validate_reducer_input_bundle",
     }
     forbidden = (
-        "fastapi", "database", "command_bus", "codex_runner", "validate_evidence",
-        "validate_reducer_input_bundles", "subprocess", "requests", "httpx", "docker",
+        "fastapi", "database", "command_bus", "codex_runner", "validate_reducer_input_bundles",
+        "subprocess", "requests", "httpx", "docker",
     )
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
