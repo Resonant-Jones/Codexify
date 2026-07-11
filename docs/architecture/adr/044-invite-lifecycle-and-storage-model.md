@@ -324,7 +324,7 @@ Rules:
 - Invite export/restore privacy ADR
 - Contact promotion from invite ADR or task
 - Circle-derived invite batch ADR or task
-- Space participant resolution ADR
+- [Space participant resolution ADR](./045-space-participant-resolution-model.md)
 - Delivery method policy ADR
 - Presence scope and ambient visibility ADR
 - Manual invite UI MVP task
