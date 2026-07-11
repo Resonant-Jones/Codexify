@@ -146,7 +146,7 @@ def test_existing_batch_validation_still_discovers_both_fixtures() -> None:
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert '"matched_count": 2' in proc.stdout
+    assert '"matched_count": 3' in proc.stdout
     data = json.loads("\n".join(proc.stdout.splitlines()[1:]))
     assert data["matched_count"] >= 2
     assert data["result"] in {"pass", "pass_with_warnings"}

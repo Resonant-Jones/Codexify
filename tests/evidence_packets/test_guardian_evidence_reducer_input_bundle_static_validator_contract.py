@@ -129,4 +129,4 @@ def test_existing_local_make_targets_and_packet_batch_validation_remain_green() 
     )
     assert proc.returncode == 0, proc.stderr
     result = json.loads(proc.stdout)
-    assert result["matched_count"] == 2
+    assert result["matched_count"] == 3

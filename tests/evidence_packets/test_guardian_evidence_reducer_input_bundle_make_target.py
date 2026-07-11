@@ -83,4 +83,4 @@ def test_existing_local_validation_targets_remain_green() -> None:
         check=False,
     )
     assert proc.returncode == 0
-    assert json.loads(proc.stdout)["matched_count"] == 2
+    assert json.loads(proc.stdout)["matched_count"] == 3

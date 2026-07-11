@@ -187,4 +187,4 @@ def test_issue_codes_stay_local_and_existing_targets_remain_green() -> None:
         assert proc.returncode == 0, proc.stderr
     proc = subprocess.run(["python3", "scripts/guardian/validate_evidence_packets.py", "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
     assert proc.returncode == 0
-    assert json.loads(proc.stdout)["matched_count"] == 2
+    assert json.loads(proc.stdout)["matched_count"] == 3

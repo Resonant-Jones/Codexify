@@ -132,7 +132,7 @@ def test_existing_tools_remain_unchanged_and_green() -> None:
     )
     assert packet_proc.returncode == 0
     assert bundle_proc.returncode == 0
-    assert json.loads(packet_proc.stdout)["matched_count"] == 2
+    assert json.loads(packet_proc.stdout)["matched_count"] == 3
     bundle_result = json.loads(bundle_proc.stdout)
     assert bundle_result["matched_count"] >= 2
     assert any("guardian-evidence-reducer-input-bundle-template" in entry["path"] for entry in bundle_result["files"])
