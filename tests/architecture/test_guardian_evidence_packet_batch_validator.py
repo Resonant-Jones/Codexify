@@ -140,13 +140,14 @@ def test_batch_includes_bridge_fixture() -> None:
     assert any("guardian-evidence-packet.codex-runner-bridge-proof-chain" in r for r in refs)
 
 
-def test_batch_includes_both_current_fixtures() -> None:
+def test_batch_includes_all_current_fixtures() -> None:
     proc = _run("--json")
     data = json.loads(proc.stdout)
-    assert data["matched_count"] == 2
+    assert data["matched_count"] == 3
     refs = [r.get("validated_packet_ref", "") for r in data["packet_results"]]
     assert any("guardian-evidence-packet.codex-runner-bridge-proof-chain" in r for r in refs)
     assert any("guardian-evidence-packet.local-validator-toolchain" in r for r in refs)
+    assert any("guardian-evidence-packet.generated-local-tooling" in r for r in refs)
 
 
 def test_batch_has_no_runtime_service_imports() -> None:

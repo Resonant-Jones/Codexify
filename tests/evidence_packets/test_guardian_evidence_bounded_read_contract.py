@@ -136,7 +136,7 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert packet.returncode == 0
-    assert json.loads(packet.stdout)["matched_count"] == 2
+    assert json.loads(packet.stdout)["matched_count"] == 3
     assert bundles.returncode == 0
     assert json.loads(bundles.stdout)["matched_count"] >= 2
 
