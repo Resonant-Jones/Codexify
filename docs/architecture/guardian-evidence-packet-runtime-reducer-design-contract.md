@@ -322,6 +322,17 @@ CI/default release gating.
 
 The bridge proof-chain fixture and local validator toolchain fixture are static examples. They demonstrate two evidence domains and must not be treated as runtime reducer output. A future reducer must not overfit to either fixture.
 
+A third static fixture now exists at
+`docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json`.
+It was produced by the local stdout-only generator
+(`scripts/guardian/generate_evidence_packet.py`) from the bounded-read fixture,
+then the top-level `packet` object was extracted and checked in. It is a static
+fixture, not runtime reducer output, not packet generation by itself, not evidence
+ingestion, not WorkOrder mutation, not an Execution Ledger write, and not release
+support expansion. It preserves evidence refs with content hashes, the skipped
+entry as uncertainty, forbidden interpretations with the boundary label, all
+authority locks false, and no absolute paths or secrets.
+
 ## 27. Relationship to Command Bus
 
 The future reducer does not call command bus. Command-bus run/event records may be supplied as bounded evidence snapshots, but they do not authorize command execution, dispatch, ingestion, or mutation.
