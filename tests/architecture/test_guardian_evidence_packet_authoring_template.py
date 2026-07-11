@@ -128,4 +128,4 @@ def test_batch_target_validates_fixtures_not_template() -> None:
     assert proc.returncode == 0, proc.stderr
     assert "guardian_evidence_packet_batch_validation_result.v1" in proc.stdout
     assert str(TEMPLATE) not in proc.stdout
-    assert '"matched_count": 2' in proc.stdout
+    assert '"matched_count": 3' in proc.stdout

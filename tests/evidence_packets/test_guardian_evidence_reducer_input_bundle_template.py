@@ -88,7 +88,7 @@ def test_existing_validation_and_dry_run_surfaces_remain_unchanged() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     data = json.loads(proc.stdout)
-    assert data["matched_count"] == 2
+    assert data["matched_count"] == 3
     assert all(
         "guardian-evidence-reducer-input-bundle" not in item["validated_packet_ref"]
         for item in data["packet_results"]

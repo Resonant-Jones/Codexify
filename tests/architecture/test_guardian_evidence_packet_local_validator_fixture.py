@@ -137,7 +137,7 @@ def test_make_target_validates_both_fixtures() -> None:
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert '"matched_count": 2' in proc.stdout
+    assert '"matched_count": 3' in proc.stdout
 
 
 def test_docs_name_second_fixture_and_boundary() -> None:
