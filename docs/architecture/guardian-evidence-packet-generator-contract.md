@@ -86,6 +86,15 @@ packet generation, evidence ingestion, or authority promotion. A future
 generator is a separate seam and must not be added implicitly to
 `reducer_dry_run.py`.
 
+A local diagnostics-only evidence-packet inspection CLI option now exists through
+`reducer_dry_run.py --evidence-packet`. It loads a GuardianEvidencePacket fixture,
+validates it statically, and returns diagnostics output with bounded lifecycle
+stop semantics. It does not produce reducer output, generate packets, read
+source_ref targets, ingest evidence, or widen release support. It is mutually
+exclusive with `--input-bundle` and `--input`. This inspection seam remains
+diagnostics-only; it does not implement packet generation, runtime reducer
+behavior, or authority promotion.
+
 ## 13. Relationship to Static Packet Validation
 
 A future packet generator must hand generated output to the existing packet

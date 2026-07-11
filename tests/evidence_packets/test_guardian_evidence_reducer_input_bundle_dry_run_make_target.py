@@ -83,7 +83,7 @@ def test_existing_local_targets_and_validators_remain_green() -> None:
     )
     assert packet.returncode == 0
     assert bundles.returncode == 0
-    assert json.loads(packet.stdout)["matched_count"] == 2
+    assert json.loads(packet.stdout)["matched_count"] == 3
     paths = [entry["path"] for entry in json.loads(bundles.stdout)["files"]]
     assert any("guardian-evidence-reducer-input-bundle-template" in path for path in paths)
     assert any("guardian-evidence-reducer-input-bundle.local-tooling" in path for path in paths)

@@ -26,7 +26,7 @@ Codexify currently generates many evidence surfaces — proof documents, command
 
 ## 2. Status
 
-Status: docs-only schema definition.
+Status: docs-only schema definition; local diagnostics-only evidence-packet inspection exists.
 
 This contract does not:
 
@@ -124,6 +124,15 @@ not execution, not release gating, and not release support expansion. The fixtur
 preserves all authority locks false, evidence refs with content hashes, uncertainty
 with the skipped source, forbidden interpretations with the boundary label, and no
 absolute paths or secrets.
+
+A local diagnostics-only evidence-packet inspection CLI option now exists through
+`reducer_dry_run.py --evidence-packet`. It loads a GuardianEvidencePacket fixture,
+validates it with the static packet validator, and returns diagnostics output with
+packet metadata, all-false authority state, and bounded lifecycle stop semantics.
+It does not produce reducer output, generate packets, read source_ref targets,
+ingest evidence, or widen release support. The option is mutually exclusive with
+`--input-bundle` and `--input`. It is not runtime reducer behavior, packet
+generation, validation behavior beyond static packet validation, or release gating.
 
 ## 3. Scope
 
