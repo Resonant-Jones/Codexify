@@ -2043,11 +2043,12 @@ export default function AppShell({
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery, setGallery] = useState<GalleryItem[]>(() => {
+    // The local tester exposes Vite static assets on 5173 while the guest
+    // shell is served through the 5174 sidecar entrypoint.
     const def: GalleryItem[] = [
-      { src: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop", prompt: "vibrant color gradient, smooth texture, abstract art, minimalist, 4k", mock: true },
-      { src: "https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=600&auto=format&fit=crop", prompt: "dramatic light, deep shadows, cinematic, moody, purple and blue tones", mock: true },
-      { src: "https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?q=80&w=600&auto=format&fit=crop", prompt: "ethereal smoke, liquid metal, iridescent, holographic, studio lighting, 8k", mock: true },
-      { src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=600&auto=format&fit=crop", prompt: "soft gradient, warm horizon fade, subtle grain, minimal", mock: true },
+      { src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study" },
+      { src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard" },
+      { src: "http://localhost:5173/peekaboo-demo/field-notes-map.png", prompt: "Field notes map" },
     ];
     if (typeof window === "undefined") return def;
     try {
@@ -2058,9 +2059,12 @@ export default function AppShell({
       }
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return def;
-      return parsed
+      const normalized = parsed
         .map((item) => normalizeGalleryItem(item))
         .filter((item): item is GalleryItem => !!item);
+      return normalized.length > 0 && normalized.every((item) => item.mock)
+        ? def
+        : normalized;
     } catch { return def; }
   });
   useEffect(() => {

@@ -242,6 +242,6 @@ def test_docs_and_existing_local_tools_remain_aligned() -> None:
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert packets.returncode == 0
-    assert json.loads(packets.stdout)["matched_count"] == 2
+    assert json.loads(packets.stdout)["matched_count"] == 3
     assert bundles.returncode == 0
     assert json.loads(bundles.stdout)["matched_count"] >= 2

@@ -2431,6 +2431,7 @@ async def list_images(
                 "images": [
                     {
                         "id": img.id,
+                        "project_id": img.project_id,
                         "src_url": _signed_src_url(img.src_url),
                         "filename": img.prompt or "Generated image",
                         "mime_type": None,
@@ -2477,6 +2478,7 @@ async def list_images(
             "images": [
                 {
                     "id": img.id,
+                    "project_id": img.project_id,
                     "src_url": _signed_src_url(img.src_url),
                     "filename": img.filename,
                     "mime_type": img.mime_type,

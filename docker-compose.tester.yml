@@ -10,8 +10,9 @@
 #     -f docker-compose.yml -f docker-compose.tester.yml up -d
 #
 # This override:
-#   - Exposes the backend on port 8889 (dev uses 8888).
-#   - Exposes the frontend on port 5174 (dev uses 5173).
+#   - Binds operator-only health and database ports to loopback.
+#   - Gives the frontend a dedicated `codexify-test` Tailscale sidecar.
+#   - Serves the frontend over tailnet-only HTTPS on TCP 443.
 #   - Configures the backend to load the v1-friends-family-web supported profile.
 #   - Sets auth-mode and exposure-mode for session/JWT auth.
 #   - Points the frontend at the tester backend base URL.
@@ -21,17 +22,17 @@
 
 services:
   db:
-    ports:
-      - "5434:5432"
+    ports: !override
+      - "127.0.0.1:5434:5432"
 
   neo4j:
-    ports:
-      - "7475:7474"
-      - "7688:7687"
+    ports: !override
+      - "127.0.0.1:7475:7474"
+      - "127.0.0.1:7688:7687"
 
   backend:
-    ports:
-      - "8889:8888"
+    ports: !override
+      - "127.0.0.1:8889:8888"
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
       GUARDIAN_AUTH_MODE: "${GUARDIAN_AUTH_MODE:-remote}"
@@ -40,10 +41,48 @@ services:
       GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?GUARDIAN_JWT_SECRET must be set in .env.tester}"
       GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-http://localhost:5174}"
 
-  frontend:
-    ports:
-      - "5174:5173"
+  tailscale-codexify-test:
+    image: "${TAILSCALE_TEST_IMAGE:-tailscale/tailscale:latest}"
+    hostname: "${TAILSCALE_TEST_HOSTNAME:-codexify-test}"
     environment:
-      VITE_GUARDIAN_API_BASE: "${VITE_GUARDIAN_API_BASE:-http://localhost:8889}"
+      # Use a reusable, non-ephemeral key already tagged as tag:codexify-test.
+      # The key stays in .env.tester, never in this Compose file.
+      TS_AUTHKEY: "${TAILSCALE_TEST_AUTHKEY:?TAILSCALE_TEST_AUTHKEY must be set in .env.tester}"
+      TS_AUTH_ONCE: "true"
+      TS_HOSTNAME: "${TAILSCALE_TEST_HOSTNAME:-codexify-test}"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/codexify-test-serve.json
+      # Explicitly assign the node's least-privilege server identity.
+      TS_EXTRA_ARGS: "--advertise-tags=tag:codexify-test"
+    volumes:
+      - codexify_tailscale_test_state:/var/lib/tailscale
+      # TS_SERVE_CONFIG watches the containing directory, not an individual file.
+      - ./config/tailscale:/config:ro
+    ports:
+      # Operator-only local browser access; remote testers use Tailscale Serve
+      # on TCP 443 and never receive a route to a VaultNode host port.
+      - "127.0.0.1:${CODEXIFY_TESTER_LOCAL_PORT:-5174}:5173"
+    restart: unless-stopped
+
+  frontend:
+    # The frontend shares only this sidecar's network namespace. It does not
+    # receive the VaultNode host network, a subnet route, or an exit-node role.
+    network_mode: "service:tailscale-codexify-test"
+    ports: !reset []
+    depends_on:
+      backend:
+        condition: service_healthy
+      tailscale-codexify-test:
+        condition: service_started
+    environment:
+      # Keep browser API requests same-origin so the Vite proxy reaches the
+      # backend from inside the sidecar namespace rather than exposing it.
+      VITE_GUARDIAN_API_BASE: ""
       VITE_GUARDIAN_AUTH_MODE: "remote"
       VITE_GUARDIAN_API_KEY: ""
+      # Vite rejects unknown Host headers. Pin this to the one Tailscale FQDN
+      # in .env.tester instead of broadly allowing all *.ts.net hosts.
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: "${TAILSCALE_TEST_FQDN:?TAILSCALE_TEST_FQDN must be set in .env.tester}"
+
+volumes:
+  codexify_tailscale_test_state:

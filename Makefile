@@ -514,6 +514,28 @@ PROD_ENV  ?= .env.prod
 .PHONY: up down restart ps dlogs cfg cfgredact cfgsec \
 	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgredact-prod cfgsec-prod
 
+# Peekaboo demo account and capture preparation. The real credentials stay in
+# the gitignored .env.demo file; the scripts never accept a user scope other
+# than the authenticated demo account.
+.PHONY: demo-reset demo-seed demo-verify demo-reset-and-seed demo-render
+
+DEMO_PYTHON ?= .venv/bin/python
+
+demo-reset:
+	$(DEMO_PYTHON) scripts/demo/reset_demo_workspace.py
+
+demo-seed:
+	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py seed
+
+demo-verify:
+	$(DEMO_PYTHON) scripts/demo/verify_demo_workspace.py
+
+demo-reset-and-seed:
+	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py reset-and-seed
+
+demo-render:
+	@bash scripts/demo/render_peekaboo.sh
+
 # Dev (defaults to .env)
 up:
 	$(COMPOSE) --env-file $(DEV_ENV) up -d --build
