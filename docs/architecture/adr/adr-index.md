@@ -74,6 +74,7 @@ Use this note as the local map for all ADRs.
 34. [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]] — docs-only proposed topology profile contract for explicit operator-controlled access profiles without implementing settings, routing, provider, Vite, or hosted-support changes.
 35. [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]] — governing decision for VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and persistent-serving/audit isolation.
 36. [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]] — governing decision for canonical audit manifests, orthogonal proof classifications, artifact integrity, freshness, supersession, contradiction, and trusted `latest` eligibility.
+37. [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]] — governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
 
 ---
 
@@ -92,6 +93,9 @@ Use this note as the local map for all ADRs.
   - Governs canonical audit evidence manifests, independent authority/proof/freshness/disposition/execution axes, artifact integrity, claim lineage, supersession, contradiction, and trusted `latest` eligibility.
   - Governing authority: [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]].
   - Companion contract: [[../canonical-audit-evidence-contract|Canonical Audit Evidence Contract]].
+- [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]]
+  - Governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
+  - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
 
 ## Relationship to the main architecture docs
 
