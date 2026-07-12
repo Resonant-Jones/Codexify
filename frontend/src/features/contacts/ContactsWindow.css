@@ -1,0 +1,384 @@
+.contacts-window-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--shell-overlay-z, 250);
+  display: grid;
+  place-items: center;
+  padding: clamp(0.75rem, 3vw, 2rem);
+  background: color-mix(in srgb, var(--surface-soft, rgba(0, 0, 0, 0.35)) 76%, transparent);
+  overscroll-behavior: contain;
+}
+
+.contacts-window-window {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, 100%);
+  max-height: min(760px, calc(100dvh - 1.5rem));
+  overflow: hidden;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-bg) 92%, var(--panel-sheet, #1f1f22) 8%);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card, 24px);
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--text) 22%, transparent), inset 0 1px 0 color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.contacts-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--panel-sheet, var(--panel-bg)) 68%, transparent);
+}
+
+.contacts-window-title,
+.contacts-window-card h3,
+.contacts-window-empty h3 {
+  margin: 0;
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  letter-spacing: -0.02em;
+}
+
+.contacts-window-subcopy,
+.contacts-window-card p,
+.contacts-window-empty p {
+  margin: 0.3rem 0 0;
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.contacts-window-header-actions,
+.contacts-window-statuses {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.contacts-window-count,
+.contacts-window-eyebrow {
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.contacts-window-close,
+.contacts-window-filter,
+.contacts-window-list-row,
+.contacts-window-primary-action {
+  font: inherit;
+}
+
+.contacts-window-close {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  color: var(--text);
+  cursor: pointer;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border, var(--panel-border));
+  border-radius: 999px;
+}
+
+.contacts-window-body {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.82fr) minmax(0, 1.18fr);
+  min-height: 0;
+  flex: 1;
+}
+
+.contacts-window-list,
+.contacts-window-card {
+  min-height: 0;
+  overflow: auto;
+}
+
+.contacts-window-list {
+  padding: 1rem;
+  border-right: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--surface-soft, transparent) 70%, transparent);
+}
+
+.contacts-window-list-toolbar {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.contacts-window-search-label {
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.contacts-window-search {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  color: var(--text);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border, var(--panel-border));
+  border-radius: var(--radius-input, 12px);
+  outline: none;
+}
+
+.contacts-window-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-strong, var(--accent)) 26%, transparent);
+}
+
+.contacts-window-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.contacts-window-filter,
+.contacts-window-chip {
+  padding: 0.3rem 0.55rem;
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.7rem;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border, var(--panel-border));
+  border-radius: 999px;
+}
+
+.contacts-window-filter {
+  cursor: pointer;
+}
+
+.contacts-window-filter.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-strong, var(--accent)) 62%, var(--panel-border));
+  background: color-mix(in srgb, var(--accent) 18%, var(--chip-bg));
+}
+
+.contacts-window-list-items {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.contacts-window-list-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-tile, 16px);
+}
+
+.contacts-window-list-row:hover,
+.contacts-window-list-row.is-selected {
+  background: var(--surface-hover, var(--chip-bg));
+  border-color: var(--panel-border);
+}
+
+.contacts-window-avatar {
+  display: inline-grid;
+  width: 2.3rem;
+  height: 2.3rem;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--accent-strong, var(--accent));
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 15%, var(--chip-bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--panel-border));
+  border-radius: 50%;
+}
+
+.contacts-window-avatar-large {
+  width: 3.6rem;
+  height: 3.6rem;
+  font-size: 1rem;
+}
+
+.contacts-window-row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.contacts-window-row-name {
+  overflow: hidden;
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-window-row-alias,
+.contacts-window-row-method {
+  overflow: hidden;
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-window-card {
+  display: grid;
+  align-content: start;
+  gap: 1.1rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
+}
+
+.contacts-window-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.contacts-window-card-alias {
+  margin-top: 0.15rem !important;
+}
+
+.contacts-window-details {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+}
+
+.contacts-window-details > div {
+  display: grid;
+  gap: 0.2rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 72%, transparent);
+}
+
+.contacts-window-details dt {
+  color: var(--text-subtle, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.contacts-window-details dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.contacts-window-private-note {
+  white-space: pre-wrap;
+}
+
+.contacts-window-boundary {
+  padding: 0.9rem;
+  background: var(--surface-soft, var(--chip-bg));
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-tile, 16px);
+}
+
+.contacts-window-boundary strong {
+  font-size: 0.82rem;
+}
+
+.contacts-window-boundary p {
+  margin-top: 0.35rem;
+}
+
+.contacts-window-card-empty,
+.contacts-window-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 360px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: clamp(2rem, 8vw, 5rem) 1.5rem;
+  text-align: center;
+}
+
+.contacts-window-empty-mark {
+  display: grid;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 1rem;
+  place-items: center;
+  color: var(--accent-strong, var(--accent));
+  font-size: 2rem;
+  background: color-mix(in srgb, var(--accent) 14%, var(--chip-bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--panel-border));
+  border-radius: 1.2rem;
+}
+
+.contacts-window-empty p {
+  max-width: 460px;
+}
+
+.contacts-window-primary-action {
+  margin-top: 1.2rem;
+  padding: 0.65rem 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  background: var(--accent);
+  border: 1px solid var(--accent-strong, var(--accent));
+  border-radius: 999px;
+}
+
+.contacts-window-close:focus-visible,
+.contacts-window-filter:focus-visible,
+.contacts-window-list-row:focus-visible,
+.contacts-window-primary-action:focus-visible {
+  outline: 2px solid var(--accent-strong, var(--accent));
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .contacts-window-overlay {
+    padding: 0.5rem;
+  }
+
+  .contacts-window-window {
+    max-height: calc(100dvh - 1rem);
+    border-radius: var(--radius-tile, 16px);
+  }
+
+  .contacts-window-header {
+    align-items: flex-start;
+  }
+
+  .contacts-window-header-actions {
+    justify-content: flex-end;
+  }
+
+  .contacts-window-count {
+    display: none;
+  }
+
+  .contacts-window-body {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .contacts-window-list {
+    flex: 0 1 auto;
+    max-height: 43dvh;
+    border-right: 0;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .contacts-window-card {
+    overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contacts-window-window,
+  .contacts-window-list-row,
+  .contacts-window-filter {
+    transition: none;
+  }
+}

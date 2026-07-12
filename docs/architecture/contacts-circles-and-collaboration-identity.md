@@ -21,10 +21,22 @@ The social vessel is a user-owned Contact, a reusable Circle of Contacts, or a b
 - Status: Proposal / architecture contract.
 - Runtime implementation: Not implemented.
 - Schema implementation: Not implemented.
-- UI implementation: Not implemented.
+- UI implementation: A presentational Private Contact List module shell exists; no runtime Contact data source exists.
 - ADR: Required before runtime adoption.
 
 This contract requires a new ADR before adding storage, routes, sync behavior, hosted rooms, remote identity, public discovery, cross-node trust, or production collaboration Spaces.
+
+## Initial Contact UI surface posture
+
+- The full Private Contact List is initially represented as a detached module window above the Codexify shell.
+- This first UI is a private single-owner home container for Contacts.
+- It is not a public directory or social graph.
+- It is not a Dashboard-owned card.
+- Dashboard quick-contact widgets may be introduced later.
+- Apple-style widget stacks and rearrangeable Dashboard modules remain future interaction design.
+- Guardian may eventually navigate to and act upon Contacts, but Guardian access requires a separate explicit tool, capability, and authority contract.
+- The presentational shell does not imply Contact persistence or runtime support.
+- Draggable, resizable, modeless DAW-style module management remains future shell work.
 
 ## Core thesis
 
