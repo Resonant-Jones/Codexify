@@ -414,6 +414,27 @@ def _append_tool_result_message(
     return next_messages
 
 
+def _append_deepseek_tool_result_messages(
+    messages: list[dict[str, Any]],
+    *,
+    assistant_message: dict[str, Any],
+    tool_call_id: str,
+    command_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    next_messages = [
+        dict(message) for message in messages if isinstance(message, dict)
+    ]
+    next_messages.append(dict(assistant_message))
+    next_messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": json.dumps(command_result, ensure_ascii=False, default=str),
+        }
+    )
+    return next_messages
+
+
 def _tool_turn_completion_result(
     *,
     task: ChatCompletionTask,
@@ -517,6 +538,7 @@ def _execute_completion_attempt(
         provider=provider,
         reasoning_mode=reasoning_mode,
         temperature=temperature,
+        tools=getattr(task, "tools", None) if provider == "deepseek" else None,
         settings=settings,
         prompt_meta=(bundle or {}).get("_prompt_meta")
         if isinstance(bundle, dict)
@@ -3812,6 +3834,23 @@ async def build_messages_for_llm(
                 }
         if _should_skip_history_message_for_image_turn(msg, latest_user_meta):
             continue
+        if provider == "deepseek" and role == "assistant":
+            replay_meta = msg.get("extra_meta")
+            replay_state = (
+                replay_meta.get("provider_replay_state")
+                if isinstance(replay_meta, dict)
+                else None
+            )
+            replay_messages = (
+                replay_state.get("messages")
+                if isinstance(replay_state, dict)
+                and replay_state.get("provider") == "deepseek"
+                else None
+            )
+            if isinstance(replay_messages, list):
+                context.extend(
+                    [dict(item) for item in replay_messages if isinstance(item, dict)]
+                )
         content = render_content_for_inference(msg.get("content"))
         if content and content.strip() and content.strip().lower() != "null":
             context.append({"role": role, "content": content})
@@ -4458,6 +4497,18 @@ def _execute_bounded_tool_turn_completion(
         )
 
     tool_turn_id = str(uuid.uuid4())
+    if provider == "deepseek" and normalized_first_output.tool_call_count != 1:
+        raise ToolLoopExecutionError(
+            "tool_turn_limit_reached",
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.LIMIT_REACHED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_TURN_LIMIT_REACHED.value,
+                command_run_id=None,
+            )
+            | {"tool_call_count": normalized_first_output.tool_call_count},
+        )
     if not normalized_first_output.command_id:
         raise ToolLoopExecutionError(
             "tool_decision_missing_command_id",
@@ -4540,15 +4591,23 @@ def _execute_bounded_tool_turn_completion(
         loop_stop_reason = ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
     tool_turn_state = ToolTurnState.COMMAND_DISPATCHED.value
 
-    current_messages = _append_tool_result_message(
-        current_messages,
-        tool_turn_id=tool_turn_id,
-        decision={
-            "command_id": normalized_first_output.command_id,
-            "arguments": normalized_first_output.arguments or {},
-        },
-        command_result=command_result,
-    )
+    if provider == "deepseek":
+        current_messages = _append_deepseek_tool_result_messages(
+            current_messages,
+            assistant_message=normalized_first_output.raw_assistant_message or {},
+            tool_call_id=normalized_first_output.tool_call_id or "",
+            command_result=command_result,
+        )
+    else:
+        current_messages = _append_tool_result_message(
+            current_messages,
+            tool_turn_id=tool_turn_id,
+            decision={
+                "command_id": normalized_first_output.command_id,
+                "arguments": normalized_first_output.arguments or {},
+            },
+            command_result=command_result,
+        )
     tool_turn_state = ToolTurnState.RESULT_REINJECTED.value
     second_output = _execute_completion_attempt(
         task=task,
@@ -4589,11 +4648,24 @@ def _execute_bounded_tool_turn_completion(
         "fallback_triggered": False,
         "tool_turn_used": True,
     }
-    return _build_result(
+    result = _build_result(
         assistant_text=assistant_text,
         tool_turn_state_value=tool_turn_state,
         loop_stop_reason_value=loop_stop_reason,
     )
+    if provider == "deepseek":
+        result["_provider_replay_state"] = {
+            "provider": "deepseek",
+            "messages": [
+                dict(normalized_first_output.raw_assistant_message or {}),
+                {
+                    "role": "tool",
+                    "tool_call_id": normalized_first_output.tool_call_id or "",
+                    "content": json.dumps(command_result, ensure_ascii=False, default=str),
+                },
+            ],
+        }
+    return result
 
 
 def run_chat_completion_task(
@@ -4996,6 +5068,8 @@ def run_chat_completion_task(
         chunk_callback=chunk_callback,
         cancel_check=cancel_check,
     )
+    provider_replay_state = result.get("_provider_replay_state")
+    result.pop("_provider_replay_state", None)
     assistant_text = str(result.get("assistant_text") or "")
     _log_completion_diagnostics(
         task=task,
@@ -5241,6 +5315,11 @@ def run_chat_completion_task(
         task.thread_id,
         "assistant",
         assistant_text,
+        extra_meta=(
+            {"provider_replay_state": provider_replay_state}
+            if provider == "deepseek" and isinstance(provider_replay_state, dict)
+            else None
+        ),
     )
     result["message_id"] = message_id
 

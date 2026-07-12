@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import inspect
 import json
 import logging
@@ -26,6 +27,13 @@ from guardian.core.provider_registry import (
     validate_provider_model_selection,
 )
 from guardian.core.whooshd_model_profiles import whooshd_runtime_model_id
+from guardian.providers.deepseek_adapter import (
+    DeepSeekResponse,
+    build_tool_definitions,
+    build_payload as build_deepseek_payload,
+    normalize_tool_calls as normalize_deepseek_tool_calls,
+    parse_response as parse_deepseek_response,
+)
 from guardian.protocol_tokens import (
     ErrorCode,
     GuardianProviderFailureKind,
@@ -266,6 +274,9 @@ class NormalizedCompletionOutput:
     raw_payload: Any | None = None
     content_blocks: Any | None = None
     provider: str | None = None
+    tool_call_id: str | None = None
+    tool_call_count: int = 0
+    raw_assistant_message: dict[str, Any] | None = None
 
 
 def _coerce_tool_arguments(raw: Any) -> dict[str, Any]:
@@ -398,6 +409,38 @@ def normalize_completion_output(
     output: Any,
 ) -> NormalizedCompletionOutput:
     """Normalize assistant output into a plain-answer or tool-decision result."""
+
+    if isinstance(output, DeepSeekResponse):
+        calls = normalize_deepseek_tool_calls(output)
+        if len(calls) == 1:
+            call = calls[0]
+            return NormalizedCompletionOutput(
+                kind="tool_decision",
+                command_id=call.get("command_id") or None,
+                arguments=_coerce_tool_arguments(call.get("arguments")),
+                reason=("unknown_tool_alias" if not call.get("command_id") else None),
+                raw_payload=output.raw_payload,
+                provider="deepseek",
+                tool_call_id=call.get("tool_call_id") or None,
+                tool_call_count=1,
+                raw_assistant_message=output.raw_assistant_message,
+            )
+        if len(calls) > 1:
+            return NormalizedCompletionOutput(
+                kind="tool_decision",
+                reason="multiple_tool_calls",
+                raw_payload=output.raw_payload,
+                provider="deepseek",
+                tool_call_count=len(calls),
+                raw_assistant_message=output.raw_assistant_message,
+            )
+        return NormalizedCompletionOutput(
+            kind="assistant",
+            text=output.content,
+            raw_payload=output.raw_payload,
+            provider="deepseek",
+            raw_assistant_message=output.raw_assistant_message,
+        )
 
     if isinstance(output, ProviderResponse):
         provider = getattr(output, "provider", None)
@@ -1520,6 +1563,7 @@ def chat_with_ai(
     reasoning_mode: Optional[str] = None,
     temperature: Optional[float] = None,
     prompt_meta: Optional[dict[str, Any]] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
@@ -1638,7 +1682,9 @@ def chat_with_ai(
             **_filter_callable_kwargs(
                 call_deepseek,
                 {
+                    "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
+                    "tools": tools,
                     "settings": settings,
                 },
             ),
@@ -2976,23 +3022,57 @@ def call_deepseek(
     model: str,
     *,
     temperature: Optional[float] = None,
+    reasoning_mode: Optional[str] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
 ):
     settings = _resolve_settings(settings)
-    return _call_openai_compatible_chat(
-        provider_name="deepseek",
-        provider_display_name="DeepSeek",
-        egress_target="deepseek",
-        api_key=settings.DEEPSEEK_API_KEY,
-        base_url=settings.DEEPSEEK_BASE_URL,
-        default_base_url=_DEFAULT_DEEPSEEK_BASE,
-        base_path="/v1/chat/completions",
-        messages=messages,
+    try:
+        assert_egress_allowed("deepseek", settings=settings)
+    except EgressDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    api_key = str(settings.DEEPSEEK_API_KEY or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="DEEPSEEK_API_KEY is not configured")
+    base = str(settings.DEEPSEEK_BASE_URL or _DEFAULT_DEEPSEEK_BASE).strip().rstrip("/")
+    request_tools = tools
+    if tools and any(isinstance(item, dict) and item.get("command_id") for item in tools):
+        request_tools, _aliases = build_tool_definitions(tools)
+    payload = build_deepseek_payload(
         model=model,
+        messages=messages,
+        reasoning_mode=reasoning_mode,
         temperature=temperature,
-        timeout=30.0,
-        settings=settings,
+        tools=request_tools,
     )
+    url = f"{base}/v1/chat/completions"
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=30.0,
+        )
+    except req_exc.RequestException as exc:
+        detail = _sanitize_provider_error(str(exc), secret=api_key)
+        raise HTTPException(status_code=502, detail=f"DeepSeek request failed: {detail}") from exc
+    if not (200 <= response.status_code < 300):
+        detail = _extract_provider_error_message(response, secret=api_key)
+        raise HTTPException(status_code=502, detail=f"DeepSeek request failed ({response.status_code}): {detail}")
+    try:
+        raw_payload = response.json()
+        parsed = parse_deepseek_response(raw_payload)
+        aliases: dict[str, str] = {}
+        if tools and any(isinstance(item, dict) and item.get("command_id") for item in tools):
+            _definitions, aliases = build_tool_definitions(tools)
+        if aliases:
+            parsed = dataclasses.replace(
+                parsed,
+                tool_calls=normalize_deepseek_tool_calls(parsed, aliases),
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="DeepSeek response parse failed") from exc
+    return parsed
 
 
 def call_alibaba(

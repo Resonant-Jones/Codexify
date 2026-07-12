@@ -52,6 +52,21 @@ describe("buildChatCompletionPayload", () => {
     });
   });
 
+  it("retains DeepSeek provider and reasoning mode in the request payload", () => {
+    expect(
+      buildChatCompletionPayload("normal", {
+        providerId: "deepseek",
+        modelId: "deepseek-v4-pro",
+        reasoningMode: "think",
+      })
+    ).toEqual({
+      depth_mode: "normal",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      reasoning_mode: "think",
+    });
+  });
+
   it("includes identity fields when provided", () => {
     expect(
       buildChatCompletionPayload("normal", {
