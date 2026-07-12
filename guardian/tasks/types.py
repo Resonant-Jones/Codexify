@@ -92,6 +92,13 @@ def _coerce_structured_messages(raw: Any) -> list[dict[str, Any]] | None:
     return None
 
 
+def _coerce_list_of_mappings(raw: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(raw, list):
+        return None
+    values = [dict(item) for item in raw if isinstance(item, dict)]
+    return values or None
+
+
 def _coerce_optional_raw_text(raw: Any) -> str | None:
     if raw is None:
         return None
@@ -661,6 +668,7 @@ class ChatCompletionTask(BaseTask):
     selection_source: str | None = None
     provider_pinned: bool = False
     reasoning_mode: str | None = None
+    tools: list[dict[str, Any]] | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
     requested_source_mode: str | None = None
@@ -705,6 +713,7 @@ class ChatCompletionTask(BaseTask):
             selection_source=payload.get("selection_source"),
             provider_pinned=bool(payload.get("provider_pinned", False)),
             reasoning_mode=payload.get("reasoning_mode"),
+            tools=_coerce_list_of_mappings(payload.get("tools")),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
             requested_source_mode=(
