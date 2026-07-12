@@ -174,6 +174,16 @@ failure/blockage and lineage, surface stale coverage, distinguish latest
 observation from latest proven baseline, and never promote evidence merely from
 timestamp, location, or generated prose.
 
+## Implementation status
+
+A repository-local validator now validates one manifest against the existing
+Draft 2020-12 schema, applies bounded single-manifest authority and repository
+consistency checks, verifies repository-relative artifact hashes, and reports
+canonical eligibility. It is local tooling only: it does not accept or promote
+evidence, collect host identity, compare declared values with live Git or
+runtime state, resolve cross-record supersession or contradiction, migrate
+producers or consumers, or implement trusted `latest`.
+
 ## Deferred implementation work
 
 VaultNode identity capture, semantic validation, producer emission, hashing,
