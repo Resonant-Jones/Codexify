@@ -218,6 +218,7 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
     assert captured["json"] == {
         "model": "deepseek-v4-pro",
         "messages": messages,
+        "thinking": {"type": "disabled"},
         "temperature": 0.7,
     }
     assert captured["headers"] == {
