@@ -517,7 +517,7 @@ PROD_ENV  ?= .env.prod
 # Peekaboo demo account and capture preparation. The real credentials stay in
 # the gitignored .env.demo file; the scripts never accept a user scope other
 # than the authenticated demo account.
-.PHONY: demo-reset demo-seed demo-verify demo-reset-and-seed demo-render
+.PHONY: demo-reset demo-seed demo-style demo-verify demo-capture demo-reset-and-seed demo-render demo-render-cinematic demo-cinematic-all
 
 DEMO_PYTHON ?= .venv/bin/python
 
@@ -527,14 +527,32 @@ demo-reset:
 demo-seed:
 	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py seed
 
+demo-style:
+	node scripts/demo/style_demo.mjs
+
 demo-verify:
 	$(DEMO_PYTHON) scripts/demo/verify_demo_workspace.py
+
+demo-capture:
+	@echo "Capture 1920x1080 proof frames in Demo-Assets/peekaboo-demo/work/ using the tester UI at http://localhost:5174"
+	@test -s Demo-Assets/peekaboo-demo/captures/appearance-proof.png || (echo "Run make demo-style first" >&2; exit 1)
 
 demo-reset-and-seed:
 	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py reset-and-seed
 
 demo-render:
 	@bash scripts/demo/render_peekaboo.sh
+
+demo-render-cinematic:
+	$(DEMO_PYTHON) scripts/demo/render_cinematic.py
+
+demo-cinematic-all:
+	$(MAKE) demo-verify
+	$(MAKE) demo-style
+	$(MAKE) demo-capture
+	$(DEMO_PYTHON) scripts/demo/validate_cinematic_manifest.py
+	$(MAKE) demo-render-cinematic
+	@ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate:format=duration -of default=noprint_wrappers=1 Demo-Assets/peekaboo-demo/renders/codexify-peekaboo-cinematic-16x9.mp4
 
 # Dev (defaults to .env)
 up:
