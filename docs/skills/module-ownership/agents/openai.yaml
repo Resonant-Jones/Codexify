@@ -1,0 +1,4 @@
+interface:
+  display_name: "Module Ownership"
+  short_description: "Module ownership and boundary audits"
+  default_prompt: "Use $module-ownership to identify the owning module, shared contracts, and smallest safe boundary change."
