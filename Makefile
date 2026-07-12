@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-packet-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -225,6 +225,11 @@ guardian-evidence-bounded-read:
 # Run local GuardianEvidencePacket reducer dry-run diagnostics.
 guardian-evidence-reducer-dry-run:
 	python3 scripts/guardian/reducer_dry_run.py --json
+
+# Inspect a checked-in Guardian Evidence packet with bounded dry-run diagnostics.
+guardian-evidence-packet-dry-run:
+	@echo "Running Guardian Evidence packet dry-run diagnostics..."
+	python3 scripts/guardian/reducer_dry_run.py --evidence-packet docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json --json
 
 # Validate Guardian Evidence Reducer input-bundle templates and fixtures locally.
 guardian-evidence-reducer-input-bundles-validate:

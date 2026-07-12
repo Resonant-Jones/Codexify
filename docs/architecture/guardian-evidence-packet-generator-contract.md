@@ -394,3 +394,9 @@ implementation. Make target success remains not authority, not source truth
 approval, not evidence ingestion, not execution, not WorkOrder mutation, and
 not an Execution Ledger write. This generator contract still does not implement
 packet generation.
+
+The generated packet fixture can be inspected through
+`make guardian-evidence-packet-dry-run`. This inspection is diagnostics-only and
+does not change generator behavior. It is not runtime reduction, evidence
+ingestion, authority promotion, receipt trust, WorkOrder mutation, or Execution
+Ledger write.
