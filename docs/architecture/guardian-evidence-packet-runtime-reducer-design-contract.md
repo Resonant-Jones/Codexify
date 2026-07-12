@@ -278,6 +278,11 @@ validates it with the static packet validator, and returns diagnostics output.
 It is not runtime reducer behavior, packet generation, evidence ingestion, execution,
 or release gating. This is local diagnostic-only tooling; it does not implement
 runtime reducer behavior or widen release support.
+Packet fixture diagnostics expose bounded counts for evidence refs, claims,
+uncertainty entries, and forbidden interpretations for reducer-design proof.
+These counts are local proof metadata only; they do not implement runtime reducer
+behavior, persistence, source mutation, ingestion, UI, execution, CI/default
+release gating, Execution Ledger writes, or WorkOrder mutation.
 
 The [packet generator contract](./guardian-evidence-packet-generator-contract.md) exists as a docs-only future seam. It defines how future reducer output may become GuardianEvidencePacket artifacts after explicit evidence preparation and validation. It does not implement packet generation or authorize source_ref reads, ingestion, runtime reducer behavior, execution, UI, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
 
