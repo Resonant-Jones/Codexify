@@ -54,7 +54,21 @@ def test_evidence_packet_loader_returns_diagnostics_only() -> None:
     data = json.loads(proc.stdout)
     assert data["schema_version"] == "guardian_evidence_packet_dry_run_diagnostics.v1"
     assert data["evidence_packet_ref"].endswith("guardian-evidence-packet.generated-local-tooling.v1.json")
+    assert data["packet_ref"] == data["evidence_packet_ref"]
     assert data["packet_loaded"] is True
+    fixture = json.loads(FIXTURE.read_text())
+    assert data["packet_id"] == fixture["packet_id"]
+    assert data["packet_schema_version"] == fixture["schema_version"]
+    assert data["packet_validation_result"] == data["validation_result"]
+    expected_counts = {
+        "raw_evidence_ref_count": len(fixture.get("raw_evidence_refs") or []),
+        "claim_count": len(fixture.get("claim_ledger") or []),
+        "uncertainty_count": len(fixture.get("uncertainty") or []),
+        "forbidden_interpretation_count": len(fixture.get("forbidden_interpretations") or []),
+    }
+    for field, expected in expected_counts.items():
+        assert isinstance(data[field], int)
+        assert data[field] == expected
     assert data["packet_metadata"]["schema_version"] == "guardian_evidence_packet.v1"
     assert data["packet_metadata"]["packet_id"] is not None
     assert data["packet_metadata"]["created_at"] is not None

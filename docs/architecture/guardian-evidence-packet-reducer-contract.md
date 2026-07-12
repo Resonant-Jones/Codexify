@@ -133,6 +133,11 @@ It does not produce reducer output, generate packets, read source_ref targets,
 ingest evidence, or widen release support. The option is mutually exclusive with
 `--input-bundle` and `--input`. It is not runtime reducer behavior, packet
 generation, validation behavior beyond static packet validation, or release gating.
+Successful `--evidence-packet` diagnostics also expose bounded counts for raw
+evidence refs, claims, uncertainty entries, and forbidden interpretations. These
+counts are packet diagnostics only; they do not imply source truth approval,
+evidence ingestion, authority promotion, receipt trust, WorkOrder mutation, or
+Execution Ledger write.
 
 ## 3. Scope
 

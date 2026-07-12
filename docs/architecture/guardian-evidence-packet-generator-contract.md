@@ -94,6 +94,10 @@ source_ref targets, ingest evidence, or widen release support. It is mutually
 exclusive with `--input-bundle` and `--input`. This inspection seam remains
 diagnostics-only; it does not implement packet generation, runtime reducer
 behavior, or authority promotion.
+Generated packet fixture inspection through `--evidence-packet` reports bounded
+count diagnostics for evidence refs, claims, uncertainty, and forbidden
+interpretations. This inspection is diagnostics-only and does not change
+generator behavior.
 
 ## 13. Relationship to Static Packet Validation
 
