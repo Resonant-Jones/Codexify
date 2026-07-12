@@ -46,6 +46,8 @@ A pure reducer dry-run skeleton now exists at `guardian/evidence_packets/reducer
 
 A local reducer dry-run CLI now exists at `scripts/guardian/reducer_dry_run.py`. It wraps the pure dry-run skeleton and returns diagnostics JSON only, with `packet=null` and `validation_result=null`. It does not reduce evidence, generate packets, validate packets, read evidence source files, write files, call command bus, Codex Runner, live validation, orchestration, Pi Loop, provider execution, or source mutation. It is not runtime wiring.
 
+Diagnostics-only packet fixture inspection is available through `make guardian-evidence-packet-dry-run`. This remains a local proof surface only; it does not implement runtime reducer behavior, persistence, source mutation, ingestion, UI, execution, CI/default release gating, Execution Ledger writes, or WorkOrder mutation.
+
 ```bash
 python3 scripts/guardian/reducer_dry_run.py --json
 python3 scripts/guardian/reducer_dry_run.py --json --review-depth high --input readme:static_docs:docs/architecture/README.md

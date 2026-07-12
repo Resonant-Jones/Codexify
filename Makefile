@@ -231,6 +231,11 @@ guardian-evidence-bounded-read:
 guardian-evidence-reducer-dry-run:
 	python3 scripts/guardian/reducer_dry_run.py --json
 
+# Inspect a checked-in Guardian Evidence packet with bounded dry-run diagnostics.
+guardian-evidence-packet-dry-run:
+	@echo "Running Guardian Evidence packet dry-run diagnostics..."
+	python3 scripts/guardian/reducer_dry_run.py --evidence-packet docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json --json
+
 # Validate Guardian Evidence Reducer input-bundle templates and fixtures locally.
 guardian-evidence-reducer-input-bundles-validate:
 	@python3 scripts/guardian/validate_reducer_input_bundles.py --json
