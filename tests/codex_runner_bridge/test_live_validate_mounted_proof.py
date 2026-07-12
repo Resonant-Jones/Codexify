@@ -220,7 +220,6 @@ def test_readme_links_mounted_proof() -> None:
 # Invariant checks
 # ---------------------------------------------------------------------------
 
-
 def test_no_frontend_files_changed() -> None:
     """No frontend files should be modified by this task."""
     frontend_dir = ROOT / "frontend"
@@ -230,13 +229,13 @@ def test_no_frontend_files_changed() -> None:
 def test_no_new_route_file() -> None:
     """No new route file should be added by this task."""
     routes_dir = ROOT / "guardian" / "routes"
-    existing = {p.name for p in routes_dir.glob("*.py")}
+    existing = set(p.name for p in routes_dir.glob("*.py"))
     forbidden = {
         "bridge.py",
         "codex_runner.py",
         "codex_runner_bridge.py",
         "guardian_bridge.py",
     }
-    assert existing.isdisjoint(
-        forbidden
-    ), f"No new route file should be added: found {existing & forbidden}"
+    assert existing.isdisjoint(forbidden), (
+        f"No new route file should be added: found {existing & forbidden}"
+    )

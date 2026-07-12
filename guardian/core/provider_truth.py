@@ -21,6 +21,10 @@ def provider_configured(provider_id: str | None, settings: Settings) -> bool:
         return bool(str(getattr(settings, "OPENAI_API_KEY", "") or "").strip())
     if provider == "groq":
         return bool(str(getattr(settings, "GROQ_API_KEY", "") or "").strip())
+    if provider == "deepseek":
+        return bool(
+            str(getattr(settings, "DEEPSEEK_API_KEY", "") or "").strip()
+        )
     if provider == "alibaba":
         return bool(
             str(getattr(settings, "ALIBABA_API_KEY", "") or "").strip()
@@ -49,7 +53,7 @@ def _cloud_capable_configuration_present(settings: Settings) -> bool:
 
     return any(
         provider_configured(provider_id, settings)
-        for provider_id in ("openai", "groq", "alibaba", "minimax")
+        for provider_id in ("openai", "groq", "deepseek", "alibaba", "minimax")
     )
 
 

@@ -15,7 +15,7 @@ import os
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ def _session_cookie_secure_flag() -> bool:
 
 
 def require_admin(
+    request: Request = None,
     x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
 ) -> str:
@@ -142,6 +143,11 @@ def require_admin(
         - Info: Successful admin access with method used
         - Warning: Failed admin access attempts
     """
+    from guardian.core.preview_access import is_private_preview, require_preview_admin
+
+    if is_private_preview():
+        return require_preview_admin(request).role
+
     admin_token = (os.getenv("GUARDIAN_ADMIN_TOKEN") or "").strip()
     debug_mode = _env_bool("DEBUG", default=False)
     dev_mode = _env_bool("GUARDIAN_DEV_MODE", default=False)

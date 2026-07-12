@@ -11,6 +11,7 @@ const KNOWN_PROVIDER_IDS = new Set([
   "anthropic",
   "gemini",
   "groq",
+  "deepseek",
 ]);
 
 function normalizeValue(value: unknown): string | undefined {

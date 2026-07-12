@@ -103,25 +103,21 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        {/* ── Divider ── */}
-        <div className="my-6 flex items-center gap-3">
-          <div className="h-px flex-1 bg-[var(--panel-border)]" />
-          <span className="text-xs text-[var(--text-subtle)]">or</span>
-          <div className="h-px flex-1 bg-[var(--panel-border)]" />
-        </div>
-
-        {/* ── Register callout ── */}
-        <div className="rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--surface-soft)] p-4 text-center">
-          <p className="text-sm text-[var(--text-subtle)]">
-            New to Codexify?
-          </p>
-          <a
-            className="mt-1.5 inline-block text-sm font-semibold text-[var(--accent)] underline underline-offset-4 hover:text-[var(--accent-strong)] transition-colors"
-            href="/register"
-          >
-            Create a user profile →
-          </a>
-        </div>
+        {import.meta.env.VITE_PRIVATE_PREVIEW !== "true" && (
+          <>
+            <div className="my-6 flex items-center gap-3">
+              <div className="h-px flex-1 bg-[var(--panel-border)]" />
+              <span className="text-xs text-[var(--text-subtle)]">or</span>
+              <div className="h-px flex-1 bg-[var(--panel-border)]" />
+            </div>
+            <div className="rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--surface-soft)] p-4 text-center">
+              <p className="text-sm text-[var(--text-subtle)]">New to Codexify?</p>
+              <a className="mt-1.5 inline-block text-sm font-semibold text-[var(--accent)] underline underline-offset-4 hover:text-[var(--accent-strong)] transition-colors" href="/register">
+                Create a user profile →
+              </a>
+            </div>
+          </>
+        )}
 
         {auth.ready && auth.isAuthenticated ? (
           <div className="mt-4 text-xs text-emerald-300">

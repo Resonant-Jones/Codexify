@@ -67,13 +67,33 @@ Implementation/proof-status note:
 - the visibility contract mounts Codex Runner read-only via `docker-compose.codex-runner-bridge.yml` for backend preflight validation
 - a mounted live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-mounted-proof.md`
 - the visibility mount contract solved the filesystem visibility gap (Codex Runner is visible inside the backend container), but the `codexrun` binary is not available on the container PATH
+- the adapter now supports explicit binary/module invocation modes (`CODEXRUN_INVOCATION_MODE`)
+- the opt-in compose override uses module mode (`python -m codex_runner ...`) for the local Docker backend
+- default adapter behavior remains binary mode (`codexrun` on PATH)
+- a module live validate proof document exists at `docs/architecture/guardian-codex-runner-command-bus-live-validate-module-proof.md`
+- the module proof produced a PASS result — the first successful live validate through the bridge
+- an orchestration receipt prerequisite contract exists at `docs/architecture/guardian-codex-runner-orchestration-receipt-prerequisite-contract.md`
+- the prerequisite contract defines receipt requirements for future dry-run orchestration proof
+- a validation receipt availability proof exists at `docs/architecture/guardian-codex-runner-validation-receipt-availability-proof.md`
+- the availability proof records whether an operator-selected receipt path is visible
+- a selected validation receipt proof exists at `docs/architecture/guardian-codex-runner-selected-validation-receipt-proof.md`
+- a live dry-run orchestration proof exists at `docs/architecture/guardian-codex-runner-command-bus-live-orchestration-proof.md`
+- a local-auth override contract exists at `docs/architecture/guardian-codex-runner-local-auth-override-contract.md`
+- the local-auth override contract governs docker-compose.codex-runner-bridge.yml only
+- it does not prove live orchestration
+- it does not change bridge authority
+- it does not prove Pi Loop invocation
+- it does not prove plan execution
+- it does not authorize plan execution
+- it does not create, trust, or ingest receipts
 - it does not enable write flags
 - it does not prove live validation
-- it does not prove live orchestration
 - it does not add UI support
 - it does not add Codexify ingestion
 
 Required boundary label for any future bridge surface:
+
+The full bridge proof chain is indexed at [`guardian-codex-runner-bridge-proof-chain-index.md`](./guardian-codex-runner-bridge-proof-chain-index.md). The index is the canonical reading-order surface for bridge proof artifacts. The bridge remains preflight-only. The index does not add bridge authority.
 
 ```txt
 PREFLIGHT ONLY

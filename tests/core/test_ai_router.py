@@ -11,7 +11,6 @@ import guardian.core.ai_router as ai_router
 from guardian.core.ai_router import (
     LOCAL_MODEL_MISSING_FAILURE_KIND,
     LOCAL_MODEL_RESOLUTION_ERROR,
-    LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
     call_alibaba,
     call_local,
     call_minimax,
@@ -182,6 +181,52 @@ def test_chat_with_ai_dispatches_to_alibaba_provider(monkeypatch):
     assert captured["settings"] is settings
 
 
+def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return _MockResponse(
+            {"choices": [{"message": {"content": "DeepSeek routed"}}]}
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+
+    settings = Settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_BASE_URL="https://api.deepseek.com",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-pro",
+    )
+    messages = [{"role": "user", "content": "Ping"}]
+
+    result = chat_with_ai(
+        messages,
+        provider="deepseek",
+        settings=settings,
+    )
+
+    assert result == "DeepSeek routed"
+    assert captured["url"] == "https://api.deepseek.com/v1/chat/completions"
+    assert captured["json"] == {
+        "model": "deepseek-v4-pro",
+        "messages": messages,
+        "thinking": {"type": "disabled"},
+        "temperature": 0.7,
+    }
+    assert captured["headers"] == {
+        "Authorization": "Bearer test-deepseek-key",
+        "Content-Type": "application/json",
+    }
+
+
 def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
     monkeypatch,
 ):
@@ -225,6 +270,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
 def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, stream, timeout):
@@ -258,9 +304,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
     )
 
     assert tokens == ["Whoosh", "d"]
-    assert captured["json"]["model"] == (
-        "mlx-community/gemma-4-12B-it-OptiQ-4bit"
-    )
+    assert captured["json"]["model"] == "gemma-4-12b-it-optiq-4bit"
     assert captured["url"] == (
         "http://host.docker.internal:8000/v1/chat/completions"
     )
@@ -269,6 +313,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
 def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selection(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, stream, timeout):
@@ -301,9 +346,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selectio
     )
 
     assert tokens == ["QAT"]
-    assert captured["json"]["model"] == (
-        "mlx-community/gemma-4-12B-it-qat-4bit"
-    )
+    assert captured["json"]["model"] == "gemma-4-12b-it-qat-4bit"
     assert captured["url"] == (
         "http://host.docker.internal:8000/v1/chat/completions"
     )
@@ -485,6 +528,7 @@ def test_chat_with_ai_local_only_blank_local_chat_model_fails_clearly():
 def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
     monkeypatch,
 ):
+    _disable_supported_profile(monkeypatch)
     monkeypatch.setattr(
         ai_router.requests,
         "get",
@@ -509,12 +553,12 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
             provider="local",
             model="library2/ministral-3:8b",
             settings=settings,
-        )
+    )
 
     assert exc.value.status_code == 400
     assert exc.value.detail["error"] == LOCAL_MODEL_RESOLUTION_ERROR
-    assert (
-        exc.value.detail["failure_kind"] == LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND
+    assert exc.value.detail["failure_kind"] == (
+        ai_router.WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON
     )
     assert exc.value.detail["model"] == "qwen3.5:0.8b"
 

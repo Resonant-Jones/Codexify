@@ -9,7 +9,14 @@ from fastapi import HTTPException
 
 from guardian.core.config import Settings
 
-CLOUD_EGRESS_TARGETS = {"openai", "anthropic", "gemini", "groq", "minimax"}
+CLOUD_EGRESS_TARGETS = {
+    "openai",
+    "anthropic",
+    "gemini",
+    "groq",
+    "deepseek",
+    "minimax",
+}
 
 
 class EgressDeniedError(RuntimeError):

@@ -240,7 +240,41 @@ authority:
   merge_allowed: false
 ```
 
-## 15. Future Live Validate Pass Slice
+## 15. Codex Runner Executable Availability
+
+The mounted live validate proof (`guardian-codex-runner-command-bus-live-validate-mounted-proof.md`) showed that path visibility is solved (Codex Runner is visible at `/Volumes/Dev_SSD/Codex-Runner` inside the backend container) but `codexrun` was missing on the container PATH.
+
+This task adds an opt-in executable availability seam in the bridge adapter (`guardian/codex_runner_bridge/adapter.py`) that supports explicit binary/module invocation modes:
+
+- **binary mode** (default): invokes `codexrun` on PATH — preserves original behavior
+- **module mode** (opt-in): invokes `python -m codex_runner ...` — uses the mounted source checkout without requiring a global `codexrun` binary
+
+The opt-in compose override (`docker-compose.codex-runner-bridge.yml`) selects module mode for the local Docker backend:
+
+```yaml
+environment:
+  CODEXRUN_INVOCATION_MODE: "module"
+  CODEXRUN_PYTHON_BINARY: "python"
+  CODEXRUN_MODULE: "codex_runner"
+  PYTHONPATH: "/Volumes/Dev_SSD/Codex-Runner/src:/app"
+```
+
+Module mode uses argv-list command construction only:
+
+```
+python -m codex_runner guardian validate-plan-pack --path <plan_pack_path> --json
+python -m codex_runner guardian orchestrate-dry-run --plan-pack <plan_pack_path> --require-receipt <receipt_path> --json
+```
+
+Invariants preserved:
+
+- no shell execution is allowed (no `shell=True`, no whitespace in config tokens)
+- no write flags are enabled
+- no orchestration is authorized
+- no live validation pass is claimed by this configuration alone
+- a separate mounted live validate retry proof is still required
+
+## 16. Future Live Validate Pass Slice
 
 A live validate pass remains a future proof slice, not implied by this mount contract.
 
@@ -253,7 +287,7 @@ To prove live validation would require, at minimum:
 
 A separate retry proof document should record that attempt and its result.
 
-## 16. Future Orchestration Slice
+## 17. Future Orchestration Slice
 
 Live orchestration proof remains deferred.
 
@@ -264,7 +298,7 @@ A future orchestration slice would require, at minimum:
 - an explicit separate proof attempt for `internal::guardian.codex_runner.orchestrate_dry_run_preflight`
 - continued prohibition on write flags in this bridge slice unless separately approved
 
-## 17. Forbidden Interpretations
+## 18. Forbidden Interpretations
 
 Do not interpret this contract as meaning:
 
@@ -280,7 +314,7 @@ Do not interpret this contract as meaning:
 - a validation receipt is execution authority
 - an orchestration receipt is dispatch authority
 
-## 18. Bottom Line
+## 19. Bottom Line
 
 This contract adds an opt-in, read-only Docker Compose override that makes the host Codex Runner checkout visible to the Codexify backend container at `/Volumes/Dev_SSD/Codex-Runner`.
 
@@ -295,6 +329,8 @@ NO CODEXIFY INGESTION
 
 It solves the filesystem visibility gap that blocked the live validate retry proof.
 
-A mounted live validate proof attempt was run using this override. Result: [`FAIL`](./guardian-codex-runner-command-bus-live-validate-mounted-proof.md) — the filesystem mount worked (Codex Runner is visible at `/Volumes/Dev_SSD/Codex-Runner` inside the backend container), but the `codexrun` binary is not available on the container PATH.
+A mounted live validate proof attempt was run using this override. Result: [`FAIL`](./guardian-codex-runner-command-bus-live-validate-mounted-proof.md) — the filesystem mount worked but the `codexrun` binary was not available on the container PATH.
+
+A module live validate proof was run using both the mount and module invocation. Result: [`PASS`](./guardian-codex-runner-command-bus-live-validate-module-proof.md) — `python -m codex_runner` through the mounted checkout produced a successful `validate-plan-pack` response with all authority locks false.
 
 It does not prove live validation, live orchestration, UI integration, or any broader runtime capability. A live validate pass remains a separate future proof slice.

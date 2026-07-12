@@ -309,6 +309,14 @@ To fix this failure would require either:
 
 These are outside the scope of this proof task.
 
+**Follow-up:** The executable availability gap is now addressed by an opt-in module invocation seam in the bridge adapter (`guardian/codex_runner_bridge/adapter.py`). The adapter supports `CODEXRUN_INVOCATION_MODE=module` which uses `python -m codex_runner` through the mounted source checkout instead of requiring a global `codexrun` binary.
+
+A module live validate proof was run combining all three resolved seams. Result: [`PASS`](./guardian-codex-runner-command-bus-live-validate-module-proof.md) — `python -m codex_runner` through the mounted checkout produced a successful `validate-plan-pack` response.
+
+This mounted proof remains FAIL and must not be retroactively reclassified. The module proof is a separate, forward evidence artifact.
+
+See [`guardian-codex-runner-container-visibility-contract.md`](./guardian-codex-runner-container-visibility-contract.md), section 15 for the executable availability contract.
+
 ## 20. Future Orchestration Live-Proof Slice
 
 Live orchestration proof remains deferred.

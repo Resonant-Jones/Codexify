@@ -37,6 +37,7 @@ import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
+import ContactsLauncher from "@/features/contacts/ContactsLauncher";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -1937,6 +1938,7 @@ export default function AppShell({
     "--radius-tile": "20px",                  // cards, tiles, panels
     "--card-radius": "20px",    // pointer used by components (explicit for clarity)
     "--shell-viewport-height": `${viewportInsets.visualViewportHeight}px`,
+    "--shell-viewport-offset-top": `${viewportInsets.visualViewportOffsetTop}px`,
     "--shell-layout-viewport-height": `${viewportInsets.layoutViewportHeight}px`,
     "--shell-keyboard-inset": `${viewportInsets.keyboardInset}px`,
     "--edge-chrome": shellViewportProfile.shellEdgeChrome,                     // Outer padding (PWA safe zone)
@@ -2042,11 +2044,12 @@ export default function AppShell({
   });
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.extColors", JSON.stringify(extColors)); }, [extColors]);
   const [gallery, setGallery] = useState<GalleryItem[]>(() => {
+    // The local tester exposes Vite static assets on 5173 while the guest
+    // shell is served through the 5174 sidecar entrypoint.
     const def: GalleryItem[] = [
-      { src: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop", prompt: "vibrant color gradient, smooth texture, abstract art, minimalist, 4k", mock: true },
-      { src: "https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=600&auto=format&fit=crop", prompt: "dramatic light, deep shadows, cinematic, moody, purple and blue tones", mock: true },
-      { src: "https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?q=80&w=600&auto=format&fit=crop", prompt: "ethereal smoke, liquid metal, iridescent, holographic, studio lighting, 8k", mock: true },
-      { src: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=600&auto=format&fit=crop", prompt: "soft gradient, warm horizon fade, subtle grain, minimal", mock: true },
+      { src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study" },
+      { src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard" },
+      { src: "http://localhost:5173/peekaboo-demo/field-notes-map.png", prompt: "Field notes map" },
     ];
     if (typeof window === "undefined") return def;
     try {
@@ -2057,9 +2060,12 @@ export default function AppShell({
       }
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return def;
-      return parsed
+      const normalized = parsed
         .map((item) => normalizeGalleryItem(item))
         .filter((item): item is GalleryItem => !!item);
+      return normalized.length > 0 && normalized.every((item) => item.mock)
+        ? def
+        : normalized;
     } catch { return def; }
   });
   useEffect(() => {
@@ -2809,6 +2815,9 @@ export default function AppShell({
   const ttsConsoleUtilityAction = (
     <TtsConsoleLauncher className="pill-tab h-9 w-9 shrink-0 p-0" />
   );
+  const contactsUtilityAction = (
+    <ContactsLauncher className="pill-tab h-9 w-9 shrink-0 p-0" />
+  );
   const shareUtilityAction = activeRouteThreadId != null ? (
     <ShareButton
       targetType="thread"
@@ -2870,6 +2879,7 @@ export default function AppShell({
     <>
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
+      {contactsUtilityAction}
       {workspaceDrawerToggle}
       {documentsSidebarToggle}
       {shareUtilityAction}
@@ -2881,6 +2891,7 @@ export default function AppShell({
       {documentsSidebarToggle}
       {settingsUtilityAction}
       {ttsConsoleUtilityAction}
+      {contactsUtilityAction}
       {shareUtilityAction}
     </>
   );
@@ -2914,10 +2925,12 @@ export default function AppShell({
       style={{
         /* baseline viewport guardrails */
         minWidth: shellViewportProfile.shellMinWidth,
+        position: isPhoneShell ? "fixed" : undefined,
         height: isPhoneShell ? "var(--shell-viewport-height, 100vh)" : undefined,
         minHeight: isPhoneShell
           ? "var(--shell-viewport-height, 100vh)"
           : shellViewportProfile.shellMinHeight,
+        top: isPhoneShell ? "var(--shell-viewport-offset-top, 0px)" : undefined,
         padding: "var(--edge-chrome)",
         alignItems: "center",
         color: "var(--text)",
