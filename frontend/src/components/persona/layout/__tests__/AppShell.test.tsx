@@ -923,7 +923,7 @@ describe("AppShell gallery demo content", () => {
     vi.clearAllMocks();
   });
 
-  it("renders gallery demo items when no real gallery items exist", async () => {
+  it("replaces an all-mock cached gallery with the seeded AppShell defaults", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
     localStorage.setItem(
       "cfy.gallery",
@@ -939,8 +939,11 @@ describe("AppShell gallery demo content", () => {
     render(<AppShell />);
 
     expect(
-      await screen.findByRole("img", { name: "Demo gallery item" })
+      await screen.findByRole("img", { name: "Abstract signal study" })
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Interface moodboard" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Field notes map" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Demo gallery item" })).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
