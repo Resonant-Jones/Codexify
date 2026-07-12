@@ -220,6 +220,7 @@ def _run_evidence_packet(args: argparse.Namespace) -> tuple[dict[str, object], i
         )
 
     packet_data = json.loads(packet_path.read_text(encoding="utf-8"))
+    packet_ref = str(packet_path)
     packet_metadata = {
         "schema_version": packet_data.get("schema_version"),
         "packet_id": packet_data.get("packet_id"),
@@ -229,6 +230,14 @@ def _run_evidence_packet(args: argparse.Namespace) -> tuple[dict[str, object], i
         "review_depth": packet_data.get("review_depth"),
         "subject": packet_data.get("subject"),
         "reducer_profile_ref": packet_data.get("reducer_profile_ref"),
+    }
+    packet_counts = {
+        "raw_evidence_ref_count": len(packet_data.get("raw_evidence_refs") or []),
+        "claim_count": len(packet_data.get("claim_ledger") or []),
+        "uncertainty_count": len(packet_data.get("uncertainty") or []),
+        "forbidden_interpretation_count": len(
+            packet_data.get("forbidden_interpretations") or []
+        ),
     }
     diagnostics = {
         "lifecycle_steps_completed": (
@@ -245,10 +254,15 @@ def _run_evidence_packet(args: argparse.Namespace) -> tuple[dict[str, object], i
     return (
         {
             "schema_version": EVIDENCE_PACKET_DRY_RUN_DIAGNOSTICS_SCHEMA_VERSION,
-            "evidence_packet_ref": str(packet_path),
+            "evidence_packet_ref": packet_ref,
+            "packet_ref": packet_ref,
             "packet_loaded": True,
+            "packet_id": packet_data.get("packet_id"),
+            "packet_schema_version": packet_data.get("schema_version"),
             "packet_metadata": packet_metadata,
             "validation_result": validation_result,
+            "packet_validation_result": validation_result,
+            **packet_counts,
             "authority_state": false_authority_state(),
             "diagnostics": diagnostics,
             "limits": list(EVIDENCE_PACKET_DRY_RUN_LIMITS),
