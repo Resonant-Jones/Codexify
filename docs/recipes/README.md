@@ -50,3 +50,7 @@ Creating or executing a recipe does not create new authority. A recipe may descr
 | Recipe | Domain | Status | Related work |
 |---|---|---|---|
 | [Tailscale tester isolation](./networking/tailscale-tester-isolation.md) | Networking | Draft | Issue #536 |
+
+# Media
+
+- [Codexify demo video production](media/codexify-demo-video-production.md)
