@@ -103,6 +103,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - `LOCAL_RUNTIME_PRESET` still selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` under the local provider boundary.
 - Whoosh'd remains the supported Apple Silicon local runtime preset.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
+- The current `main` tip includes docs-first operator routing for current-state interpretation and release readiness.
 - OpenAI export import and Task Prompt Archive are present on `main`.
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
 - Graph writes remain default-off on the supported Compose path.
