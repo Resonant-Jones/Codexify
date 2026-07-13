@@ -252,6 +252,9 @@ def _migration_identity(repo_root: Path, migration_dir: str | Path | None) -> tu
     if not revisions:
         return None, {"path": directory.relative_to(repo_root).as_posix(), "head": None}, ["migration_head_missing"]
     referenced = {item for values in down_revisions.values() for item in values}
+    missing_parents = sorted(referenced - set(revisions))
+    if missing_parents:
+        return None, {"path": directory.relative_to(repo_root).as_posix(), "head": None}, ["migration_identity_incomplete"]
     heads = sorted(set(revisions) - referenced)
     if len(heads) == 0:
         return None, {"path": directory.relative_to(repo_root).as_posix(), "head": None}, ["migration_head_missing"]
