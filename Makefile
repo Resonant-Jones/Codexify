@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -219,11 +219,6 @@ canonical-audit-evidence-validate:
 
 canonical-audit-evidence-identity:
 	$(PYTHON) scripts/audit/collect_canonical_evidence_identity.py $(if $(repo),--repo "$(repo)",) $(if $(machine_id),--machine-id "$(machine_id)",) $(if $(machine_role),--machine-role "$(machine_role)",) $(if $(authority_basis),--authority-basis "$(authority_basis)",) $(if $(assert_canonical_machine),--assert-canonical-machine,) $(if $(diagnostic_working_path),--diagnostic-working-path,)
-
-canonical-audit-runtime-identity:
-	@test -n "$(compose_file)" || { echo "Usage: make canonical-audit-runtime-identity compose_file=docker-compose.yml audit_project=codexify-audit [serving_project=codexify]" >&2; exit 2; }
-	@test -n "$(audit_project)" || { echo "Usage: make canonical-audit-runtime-identity compose_file=docker-compose.yml audit_project=codexify-audit [serving_project=codexify]" >&2; exit 2; }
-	$(PYTHON) scripts/audit/collect_canonical_runtime_identity.py $(if $(repo),--repo "$(repo)",) --compose-file "$(compose_file)" --audit-project "$(audit_project)" $(if $(serving_project),--serving-project "$(serving_project)",) $(if $(profile_name),--profile-name "$(profile_name)",) $(if $(profiles_dir),--profiles-dir "$(profiles_dir)",) $(if $(migration_dir),--migration-dir "$(migration_dir)",)
 
 # Run local stdout-only Guardian Evidence Packet generator.
 guardian-evidence-packet-generate:

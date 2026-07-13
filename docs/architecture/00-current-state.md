@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-13
+2026-07-10
 
 ## Interpretation rule
 This file is authoritative for:
@@ -28,7 +28,6 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - A test-backed repository-local canonical evidence validator now validates one manifest's schema, bounded semantics, artifact hashes, and eligibility; it is local tooling, not runtime proof.
 - Canonical audit producers and consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
 - A bounded repository-local identity collector now observes machine and Git identity; it is not runtime proof, does not establish VaultNode authority from hostname, and does not produce or promote canonical evidence. Historical artifacts are not automatically canonical.
-- A bounded repository-local runtime identity collector now observes the accepted supported profile, explicitly selected Compose definitions, static migration-head identity, and a secret-safe effective configuration hash. It does not inspect Docker, prove service health or execution, establish VaultNode runtime authority, produce a complete manifest, or promote evidence.
 - Existing artifacts remain historical or provisional until revalidated under the new model.
 - Campaign posture remains `HOLD / NEXT_PROOF_NEEDED`; the next implementation slice is VaultNode evidence identity collection or schema-validation integration, not feature expansion.
 
