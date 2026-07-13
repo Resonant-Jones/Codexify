@@ -176,19 +176,28 @@ timestamp, location, or generated prose.
 
 ## Implementation status
 
+A bounded repository-local identity collector now observes normalized machine
+facts and Git repository identity for a later manifest producer. It accepts
+the existing `machine_role` vocabulary, keeps explicit authority inputs
+separate from observed hostname facts, emits portable repository/worktree
+identities, and reports bounded repository eligibility reason codes. It is
+observation tooling only: a successful run is not VaultNode proof, canonical
+authority, evidence storage, or promotion approval.
+
 A repository-local validator now validates one manifest against the existing
 Draft 2020-12 schema, applies bounded single-manifest authority and repository
 consistency checks, verifies repository-relative artifact hashes, and reports
-canonical eligibility. It is local tooling only: it does not accept or promote
-evidence, collect host identity, compare declared values with live Git or
-runtime state, resolve cross-record supersession or contradiction, migrate
-producers or consumers, or implement trusted `latest`.
+canonical eligibility. It remains local tooling only: it does not accept or
+promote evidence, produce a complete manifest, collect runtime or Compose
+identity, execute proof, store evidence, compare records, migrate producers or
+consumers, or implement trusted `latest`.
 
 ## Deferred implementation work
 
-VaultNode identity capture, semantic validation, producer emission, hashing,
-freshness evaluation, pointer storage/promotion receipts, migration of existing
-artifacts, and consumer integration remain separately scoped work.
+Runtime and Compose identity, complete manifest production, artifact
+collection/hashing, freshness evaluation, evidence storage, cross-record
+resolution, pointer storage, promotion receipts, trusted pointers, consumer
+migration, and live VaultNode proof remain separately scoped work.
 
 ## Non-goals
 
