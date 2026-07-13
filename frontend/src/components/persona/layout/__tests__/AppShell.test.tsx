@@ -84,6 +84,20 @@ const routeCapabilityState = {
   state: "available" as const,
 };
 const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
+const authTestState = vi.hoisted(() => ({
+  auth: { ready: true, status: "authenticated" as const, token: "test-token" },
+  gateAllowed: true,
+}));
+
+function setAuthenticatedAuthState() {
+  authTestState.auth = { ready: true, status: "authenticated", token: "test-token" };
+  authTestState.gateAllowed = true;
+}
+
+function setUnauthenticatedAuthState() {
+  authTestState.auth = { ready: true, status: "unauthenticated" };
+  authTestState.gateAllowed = false;
+}
 
 const uploaderState = vi.hoisted(() => ({
   configs: [] as Array<{
@@ -143,12 +157,8 @@ vi.mock("@/hooks/useBreakpoint", () => ({
 }));
 
 vi.mock("@/lib/authState", () => ({
-  useAuthState: () => ({
-    ready: true,
-    status: "authenticated",
-    token: "test-token",
-  }),
-  checkAuthGate: () => true,
+  useAuthState: () => authTestState.auth,
+  checkAuthGate: () => authTestState.gateAllowed,
 }));
 
 vi.mock("@/state/session/SessionSpine", () => ({
@@ -257,6 +267,7 @@ vi.mock("@/features/workspace/WorkspacePane", () => ({
 
 vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
+    onRequestNewThread,
     onRequestNewProject,
     gallery,
   }: {
@@ -264,6 +275,9 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
     gallery?: Array<{ src: string; prompt: string }>;
   }) => (
     <div data-testid="dashboard-view-mock">
+      <button type="button" onClick={onRequestNewThread}>
+        New Thread
+      </button>
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
@@ -426,10 +440,12 @@ function setViewportWidth(width: number) {
 
 beforeEach(() => {
   setViewportWidth(1280);
+  setAuthenticatedAuthState();
 });
 
 describe("AppShell logo wordmark color contract", () => {
   beforeEach(() => {
+    setAuthenticatedAuthState();
     localStorage.clear();
     uploaderState.configs = [];
     installMatchMedia(false);
@@ -586,6 +602,8 @@ describe("AppShell settings utility trigger", () => {
   });
 
   afterEach(() => {
+    authTestState.auth = { ready: true, status: "authenticated", token: "test-token" };
+    authTestState.gateAllowed = true;
     cleanup();
     vi.clearAllMocks();
   });
@@ -800,6 +818,41 @@ describe("AppShell dashboard create project flow", () => {
       expect(screen.queryByLabelText(/project name/i)).not.toBeInTheDocument();
     });
   });
+
+  it("routes an unauthenticated dashboard New Thread action to login without creating a draft", async () => {
+    setUnauthenticatedAuthState();
+    const draftListener = vi.fn();
+    window.addEventListener("cfy:chat:new-draft", draftListener);
+    setRoutePath("/");
+
+    render(<AppShell />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New Thread" }));
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/login"));
+    expect(draftListener).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("guardian-chat-with-sidebar-mock")).not.toBeInTheDocument();
+    expect(mockApi.post).not.toHaveBeenCalled();
+    window.removeEventListener("cfy:chat:new-draft", draftListener);
+  });
+
+  it("opens an authenticated dashboard New Thread draft in Guardian", async () => {
+    setAuthenticatedAuthState();
+    setRoutePath("/");
+    const draftListener = vi.fn();
+    window.addEventListener("cfy:chat:new-draft", draftListener);
+
+    render(<AppShell />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New Thread" }));
+    });
+
+    await waitFor(() => expect(draftListener).toHaveBeenCalledTimes(1));
+    expect(window.location.pathname).not.toBe("/login");
+    expect(draftListener.mock.calls[0][0].detail).toEqual({ source: "dashboard" });
+    window.removeEventListener("cfy:chat:new-draft", draftListener);
+  });
 });
 
 describe("AppShell shared gallery persistence truth", () => {
@@ -923,7 +976,7 @@ describe("AppShell gallery demo content", () => {
     vi.clearAllMocks();
   });
 
-  it("renders gallery demo items when no real gallery items exist", async () => {
+  it("replaces an all-mock cached gallery with the seeded AppShell defaults", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
     localStorage.setItem(
       "cfy.gallery",
@@ -939,8 +992,11 @@ describe("AppShell gallery demo content", () => {
     render(<AppShell />);
 
     expect(
-      await screen.findByRole("img", { name: "Demo gallery item" })
+      await screen.findByRole("img", { name: "Abstract signal study" })
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Interface moodboard" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Field notes map" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Demo gallery item" })).not.toBeInTheDocument();
     expect(screen.queryByText("Hide Mock Items")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
