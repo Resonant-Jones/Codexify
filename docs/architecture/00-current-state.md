@@ -19,18 +19,19 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - VaultNode has been selected as the canonical runtime and audit authority.
 - GitHub `main` remains the canonical code authority for accepted code, documentation, schemas, and contracts.
 - Existing audit artifacts from other machines remain historical or provisional until revalidated on VaultNode.
-- Canonical evidence automation and trusted `latest` promotion are not implemented yet.
+- Complete canonical evidence automation and trusted `latest` promotion are not implemented yet.
 - The current campaign remains in `NEXT_PROOF_NEEDED` posture until exact-head VaultNode proof exists.
 
 ## Phase 2 canonical evidence model
 
 - ADR-042 and `schemas/audit/canonical-audit-evidence.schema.json` now define the intended canonical audit evidence model.
 - A test-backed repository-local canonical evidence validator now validates one manifest's schema, bounded semantics, artifact hashes, and eligibility; it is local tooling, not runtime proof.
-- Canonical audit producers and consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
+- A bounded repository-local canonical evidence manifest producer now composes explicit metadata with the existing machine/Git and static runtime identity collectors, computes a deterministic evidence ID, and hands the manifest to the existing validator. It is repository tooling only; it does not execute proof, inspect live services, persist evidence, establish live VaultNode proof, or promote trusted `latest`.
+- Canonical evidence consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
 - A bounded repository-local identity collector now observes machine and Git identity; it is not runtime proof, does not establish VaultNode authority from hostname, and does not produce or promote canonical evidence. Historical artifacts are not automatically canonical.
 - A bounded repository-local runtime identity collector now observes the accepted supported profile, explicitly selected Compose definitions, static migration-head identity, and a secret-safe effective configuration hash. It does not inspect Docker, prove service health or execution, establish VaultNode runtime authority, produce a complete manifest, or promote evidence.
 - Existing artifacts remain historical or provisional until revalidated under the new model.
-- Campaign posture remains `HOLD / NEXT_PROOF_NEEDED`; the next implementation slice is VaultNode evidence identity collection or schema-validation integration, not feature expansion.
+- Campaign posture remains `HOLD / NEXT_PROOF_NEEDED`; the manifest producer is a bounded assembly and validation seam, not canonical runtime proof or trusted promotion.
 
 ## What changed recently
 - `main` added Guardian bridge proof and contract work for selected validation receipt, validation receipt availability, orchestration receipt prerequisite, and module live-validate coverage.

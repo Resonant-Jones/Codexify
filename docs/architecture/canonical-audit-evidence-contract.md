@@ -201,20 +201,37 @@ A repository-local validator now validates one manifest against the existing
 Draft 2020-12 schema, applies bounded single-manifest authority and repository
 consistency checks, verifies repository-relative artifact hashes, and reports
 canonical eligibility. It remains local tooling only: it does not accept or
-promote evidence, produce a complete manifest, collect runtime or Compose
-identity, execute proof, store evidence, compare records, migrate producers or
-consumers, or implement trusted `latest`.
+promote evidence, execute proof, store evidence, compare records, migrate
+producers or consumers, or implement trusted `latest`.
+
+A bounded repository-local manifest producer now composes the machine/Git and
+static runtime collector outputs with explicit operator metadata, hashes
+explicit repository-relative artifact descriptors, derives `authority_status`
+from collector eligibility, computes `evidence-sha256-<digest>` from a stable
+manifest projection, and validates the resulting manifest through the existing
+validator. It preserves ordered commands and selected Compose files while
+normalizing unordered claims, relationships, and artifact descriptors. It
+rejects caller-supplied evidence IDs, secret-bearing metadata, unsafe artifact
+paths, inconsistent execution outcomes, unresolved claim references, and
+unsupported live-proof requests. The CLI is stdout-first; an optional output
+path is repository-local, atomic, and non-overwriting unless `--replace` is
+explicit. The producer never executes commands, inspects Docker or services,
+persists evidence, mutates Git, or promotes authority.
 
 ## Deferred implementation work
 
-Live service and Compose runtime inspection, runtime health, complete manifest
-production, artifact collection/hashing, freshness evaluation, evidence
-storage, cross-record resolution, pointer storage, promotion receipts, trusted
-pointers, consumer migration, and live VaultNode proof remain separately
-scoped work.
+Live service and Compose runtime inspection, runtime health, artifact collection
+from proof runs, complete canonical manifest production beyond this bounded
+validated assembly, freshness evaluation, evidence storage, cross-record
+resolution, pointer storage, promotion receipts, trusted pointers, consumer
+migration, and live VaultNode proof remain separately scoped work.
+`CURRENT_LIVE_PROOF` is rejected by this producer; other supported proof classes
+may carry nullable runtime fields when static runtime identity is not requested.
+A requested static runtime identity must be complete, but it is still not live
+proof.
 
 ## Non-goals
 
-This contract does not implement any producer or consumer migration, registry,
-pointer, schedule, audit run, proof run, Compose project, release approval, or
-feature expansion.
+This contract does not implement producer or consumer migration, a registry,
+pointer, schedule, audit run, proof run, live Compose inspection, release
+approval, or feature expansion.
