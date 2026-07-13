@@ -91,8 +91,15 @@ def test_explicit_canonical_machine_inputs_are_required(tmp_path: Path) -> None:
     repo, _ = make_repo(tmp_path)
     provisional = collect(repo, machine_id="vaultnode", machine_role="provisional_development_host")
     assert provisional["eligibility"]["canonical_machine_candidate"] is False
+    unasserted = collect(repo, machine_id="vaultnode", machine_role="canonical_evidence_host")
+    assert unasserted["machine"]["authority_assertion_complete"] is False
+    assert unasserted["eligibility"]["canonical_machine_candidate"] is False
+    assert "canonical_machine_authority_not_asserted" in unasserted["eligibility"]["reason_codes"]
     with pytest.raises(CollectorError) as error:
         collect(repo, machine_id="vaultnode", machine_role="provisional_development_host", assert_canonical_machine=True)
+    assert error.value.code == "canonical_machine_authority_inconsistent"
+    with pytest.raises(CollectorError) as error:
+        collect(repo, machine_id="vaultnode", machine_role="canonical_evidence_host", assert_canonical_machine=True)
     assert error.value.code == "canonical_machine_authority_inconsistent"
     canonical = collect(repo, machine_id="vaultnode", machine_role="canonical_evidence_host", authority_basis="operator-confirmed", assert_canonical_machine=True)
     assert canonical["eligibility"]["canonical_machine_candidate"] is True

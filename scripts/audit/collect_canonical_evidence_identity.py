@@ -125,7 +125,8 @@ def collect_identity(
         machine_id != "vaultnode"
         or machine_role != "canonical_evidence_host"
         or not authority_basis.strip()
-        ):
+        or authority_basis.strip() == "operator_not_asserted"
+    ):
         raise CollectorError(
             "canonical_machine_authority_inconsistent",
             "Canonical machine assertion requires compatible explicit authority inputs.",
@@ -181,7 +182,11 @@ def collect_identity(
         "hostname": (hostname.strip().lower().rstrip(".") if hostname is not None else _hostname()),
         "authority_basis": safe_authority_basis,
         "authority_assertion_complete": (
-            machine_id == "vaultnode" and machine_role == "canonical_evidence_host" and bool(authority_basis.strip())
+            assert_canonical_machine
+            and machine_id == "vaultnode"
+            and machine_role == "canonical_evidence_host"
+            and bool(authority_basis.strip())
+            and authority_basis.strip() != "operator_not_asserted"
         ),
     }
     repository: dict[str, Any] = {
