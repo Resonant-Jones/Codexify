@@ -8,6 +8,13 @@
 **Branch:** `main`
 **HEAD:** `1832d87647`
 
+## Follow-through
+
+`docs/architecture/project-pulse-contract-follow-through.md` now maps the safe
+next slices. The recommended next slice is **Inspect Project Pulse
+implementation targets**. This follow-through does not implement Project Pulse
+or widen the release promise.
+
 ## Purpose
 
 Project Pulse is the first interpretive surface above the proven Continuity substrate. Its job is to define how Codexify may eventually answer "where was I?" or "what is the current project reality?" from governed Continuity records — without writing new Continuity state, mutating memory, activating chat-runtime continuity, expanding supported beta behavior, or collapsing operator diagnostics into narrative summaries.
