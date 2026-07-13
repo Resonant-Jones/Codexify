@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.audit.generate_canonical_evidence_manifest as producer_module
 from scripts.audit.generate_canonical_evidence_manifest import generate_manifest
 
 
@@ -205,6 +206,29 @@ def test_artifacts_are_hashed_and_claim_references_are_resolved(tmp_path: Path) 
     assert result["manifest"]["claims"]["supported"][0]["evidence_refs"] == ["execution:fixture-suite", "proof-a"]
 
 
+def test_generated_evidence_ids_are_valid_lineage_references(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    first = collect(fixture)
+    first_id = first["manifest"]["evidence_id"]
+    second_metadata = base_metadata(runtime_requested=False)
+    second_metadata["relationships"] = {"supersedes": [], "contradicts": [], "derived_from": [first_id]}
+    second = generate_manifest(fixture["root"], hostname="fixture-host", metadata=second_metadata)
+    assert second["result"] == "pass"
+    assert second["manifest"]["relationships"]["derived_from"] == [first_id]
+    assert second["manifest"]["evidence_id"] != first_id
+
+
+def test_only_the_newly_generated_id_is_rejected_as_self_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture = make_fixture(tmp_path)
+    generated_id = "evidence-sha256-" + "a" * 64
+    monkeypatch.setattr(producer_module, "_evidence_id", lambda manifest: generated_id)
+    metadata = base_metadata(runtime_requested=False)
+    metadata["relationships"] = {"supersedes": [], "contradicts": [], "derived_from": [generated_id]}
+    result = generate_manifest(fixture["root"], hostname="fixture-host", metadata=metadata)
+    assert result["result"] == "error"
+    assert result["reason_codes"] == ["relationship_self_reference"]
+
+
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [
@@ -223,18 +247,48 @@ def test_invalid_metadata_fails_closed(tmp_path: Path, field: str, value: object
     assert result["reason_codes"] == [reason]
 
 
-def test_caller_evidence_id_and_secret_input_are_not_echoed(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "secret_value",
+    [
+        "postgresql://user:password@db.example.invalid/audit",
+        "redis://user:password@cache.example.invalid/0",
+        "mysql://user:password@db.example.invalid/audit",
+    ],
+)
+def test_secret_input_is_rejected_and_not_echoed(tmp_path: Path, secret_value: str) -> None:
     fixture = make_fixture(tmp_path)
     metadata = base_metadata(runtime_requested=False)
-    metadata["evidence_id"] = "caller-selected"
-    result = generate_manifest(fixture["root"], metadata=metadata)
-    assert result["reason_codes"] == ["caller_evidence_id_forbidden"]
-    secret = "super-secret-value"
-    metadata = base_metadata(runtime_requested=False)
-    metadata["secret"] = secret
+    metadata["execution"]["summary"] = f"Observed {secret_value} during a test."
     result = generate_manifest(fixture["root"], metadata=metadata)
     assert result["reason_codes"] == ["forbidden_secret_input"]
-    assert secret not in json.dumps(result)
+    assert secret_value not in json.dumps(result)
+
+
+def test_secret_database_url_in_claim_is_rejected_and_not_echoed(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    secret_value = "postgresql://user:password@db.example.invalid/audit"
+    metadata = base_metadata(runtime_requested=False)
+    metadata["claims"] = {
+        "supported": [{"claim_id": "secret", "statement": secret_value, "scope": "fixture", "evidence_refs": ["execution:fixture-suite"], "reason": "not accepted"}],
+        "disproved": [],
+        "unresolved": [],
+    }
+    result = generate_manifest(fixture["root"], metadata=metadata)
+    assert result["reason_codes"] == ["forbidden_secret_input"]
+    assert secret_value not in json.dumps(result)
+
+
+def test_diagnostic_working_path_is_rejected_as_nonportable(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    result = collect(fixture, diagnostic_working_path=True)
+    assert result["result"] == "error"
+    assert result["reason_codes"] == ["nonportable_absolute_path"]
+
+
+def test_caller_evidence_id_is_rejected(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    result = generate_manifest(fixture["root"], metadata=base_metadata(runtime_requested=False), evidence_id="caller-selected")
+    assert result["reason_codes"] == ["caller_evidence_id_forbidden"]
 
 
 def test_repository_identity_incompleteness_is_fail_closed(tmp_path: Path) -> None:

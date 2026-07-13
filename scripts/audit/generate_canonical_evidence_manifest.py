@@ -57,9 +57,10 @@ CLAIM_BUCKETS = ("supported", "disproved", "unresolved")
 RELATIONSHIP_BUCKETS = ("supersedes", "contradicts", "derived_from")
 SECRET_KEY_RE = re.compile(r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|credential)")
 SECRET_VALUE_RE = re.compile(
-    r"(?i)(https?://[^\s/@]+:[^\s/@]+@|(?:password|secret|token|api[_-]?key|private[_-]?key)\s*[=:])"
+    r"(?i)([a-z][a-z0-9+.-]*://[^\s/@]+:[^\s/@]+@|"
+    r"(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|sqlite|mssql|oracle|amqp|nats)://|"
+    r"(?:password|secret|token|api[_-]?key|private[_-]?key)\s*[=:])"
 )
-GENERATED_EVIDENCE_ID_RE = re.compile(r"^evidence-sha256-[0-9a-f]{64}$")
 
 
 class ProducerError(Exception):
@@ -265,8 +266,6 @@ def _normalize_relationships(value: Any) -> dict[str, list[str]]:
             if not isinstance(entry, str) or not entry.strip():
                 raise ProducerError("relationship_invalid", "relationship references must be non-empty strings.")
             reference = entry.strip()
-            if GENERATED_EVIDENCE_ID_RE.fullmatch(reference):
-                raise ProducerError("relationship_self_reference", "Generated evidence IDs cannot be relationship inputs.")
             if reference in seen:
                 if seen[reference] == bucket:
                     raise ProducerError("relationship_duplicate", "relationship references must be unique within a bucket.")
@@ -464,6 +463,8 @@ def generate_manifest(
             raise ProducerError("repository_path_invalid", "Repository path is unavailable.")
         if isinstance(machine_timeout, bool) or not isinstance(machine_timeout, (int, float)) or machine_timeout <= 0:
             raise ProducerError("machine_timeout_invalid", "machine_timeout must be positive.")
+        if diagnostic_working_path:
+            raise ProducerError("nonportable_absolute_path", "Diagnostic absolute paths are not emitted in manifests.")
         supplied = dict(metadata or {})
         _check_secret_values(supplied)
         if evidence_id is not None or "evidence_id" in supplied:
@@ -498,7 +499,6 @@ def generate_manifest(
             machine_role=machine_role,
             authority_basis=authority_basis,
             assert_canonical_machine=assert_canonical_machine,
-            diagnostic_working_path=diagnostic_working_path,
             timeout=machine_timeout,
             hostname=hostname,
         )
@@ -581,9 +581,13 @@ def generate_manifest(
             "artifacts": normalized_artifacts,
             "relationships": normalized_relationships,
         }
-        if diagnostic_working_path and repository_data.get("diagnostic_working_path"):
-            manifest["repository"]["diagnostic_working_path"] = repository_data["diagnostic_working_path"]
         manifest["evidence_id"] = _evidence_id(manifest)
+        if any(
+            reference == manifest["evidence_id"]
+            for references in normalized_relationships.values()
+            for reference in references
+        ):
+            raise ProducerError("relationship_self_reference", "A manifest cannot reference its newly generated evidence ID.")
         validation = _validate_generated_manifest(manifest, schema_path, root)
         if validation["result"] != "pass":
             reason_codes.add("manifest_validation_failed")
