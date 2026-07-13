@@ -184,6 +184,19 @@ def test_multiple_migration_heads_fail_closed(tmp_path: Path) -> None:
     assert result["observation_complete"] is False
 
 
+def test_dangling_migration_parent_fails_closed(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    (fixture["migration_dir"] / "a_revision.py").write_text(
+        _migration("head-a", "missing-parent"), encoding="utf-8"
+    )
+    result = collect(fixture)
+    assert "migration_identity_incomplete" in result["eligibility"]["reason_codes"]
+    assert result["eligibility"]["migration_identity_complete"] is False
+    assert result["eligibility"]["runtime_identity_complete"] is False
+    assert result["eligibility"]["canonical_runtime_candidate"] is False
+    assert result["runtime"]["migration_head"] is None
+
+
 def test_profile_and_service_identity_fail_closed(tmp_path: Path) -> None:
     fixture = make_fixture(tmp_path)
     (fixture["profile_dir"] / "v1-local-core-web-mcp.yaml").write_text("name: broken\n", encoding="utf-8")
