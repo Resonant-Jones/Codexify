@@ -1,3 +1,164 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:38f2afaeb983e6268376eede40bc36ef3390abf9dce207c6f19df5f48295bef3
-size 6998
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/audit/canonical-audit-evidence.schema.json",
+  "title": "Canonical Audit Evidence Manifest",
+  "description": "Shape and vocabulary contract for immutable Codexify audit and proof observations. Semantic promotion checks require future implementation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "authority_status",
+    "proof_class",
+    "freshness_status",
+    "disposition",
+    "execution_outcome",
+    "created_at",
+    "machine",
+    "repository",
+    "runtime",
+    "execution",
+    "claims",
+    "artifacts",
+    "relationships"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "authority_status": { "type": "string", "enum": ["CANONICAL", "PROVISIONAL"] },
+    "proof_class": { "type": "string", "enum": ["CURRENT_LIVE_PROOF", "CURRENT_TEST_PROOF", "HISTORICAL_LIVE_PROOF", "IMPLEMENTED_UNPROVEN", "PARTIAL_VERTICAL_SLICE", "DOCS_ONLY", "BLOCKED", "UNKNOWN"] },
+    "freshness_status": { "type": "string", "enum": ["CURRENT", "STALE"] },
+    "disposition": { "type": "string", "enum": ["ACCEPTED", "SUPERSEDED", "CONTRADICTED", "REJECTED"] },
+    "execution_outcome": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "ERROR", "NOT_APPLICABLE"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "machine": { "$ref": "#/$defs/machine" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supported", "disproved", "unresolved"],
+      "properties": {
+        "supported": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "disproved": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "unresolved": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "relationships": { "$ref": "#/$defs/relationships" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "authority_status": { "const": "CANONICAL" }
+        },
+        "required": ["authority_status"]
+      },
+      "then": {
+        "properties": {
+          "machine": {
+            "properties": {
+              "machine_id": { "const": "vaultnode" },
+              "machine_role": { "const": "canonical_evidence_host" }
+            }
+          },
+          "repository": {
+            "properties": {
+              "branch": { "const": "main" },
+              "dirty": { "const": false }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_id", "machine_role", "hostname", "authority_basis"],
+      "properties": {
+        "machine_id": { "type": "string", "minLength": 1 },
+        "machine_role": { "type": "string", "enum": ["canonical_evidence_host", "provisional_development_host"] },
+        "hostname": { "type": "string", "minLength": 1 },
+        "authority_basis": { "type": "string", "minLength": 1 }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_root_identity", "branch", "commit_sha", "upstream_sha", "dirty", "worktree_identity"],
+      "properties": {
+        "repository_root_identity": { "type": "string", "minLength": 1, "pattern": "^(?!/).+" },
+        "branch": { "type": "string", "minLength": 1 },
+        "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "upstream_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "dirty": { "type": "boolean" },
+        "worktree_identity": { "type": "string", "minLength": 1 },
+        "diagnostic_working_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supported_profile", "effective_config_hash", "compose_project", "compose_files", "migration_head", "service_identities"],
+      "properties": {
+        "supported_profile": { "type": ["string", "null"], "minLength": 1 },
+        "effective_config_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "compose_project": { "type": ["string", "null"], "minLength": 1 },
+        "compose_files": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
+        "migration_head": { "type": ["string", "null"], "minLength": 1 },
+        "service_identities": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite_id", "commands", "started_at", "completed_at", "exit_code", "summary"],
+      "properties": {
+        "suite_id": { "type": "string", "minLength": 1 },
+        "commands": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "exit_code": { "type": ["integer", "null"], "minimum": 0 },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "statement", "scope", "evidence_refs", "reason"],
+      "properties": {
+        "claim_id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "path", "sha256", "media_type", "artifact_role"],
+      "properties": {
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1, "pattern": "^(?!/).+" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "media_type": { "type": "string", "minLength": 1 },
+        "artifact_role": { "type": "string", "minLength": 1 }
+      }
+    },
+    "relationships": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supersedes", "contradicts", "derived_from"],
+      "properties": {
+        "supersedes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "contradicts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "derived_from": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}
