@@ -184,6 +184,19 @@ identities, and reports bounded repository eligibility reason codes. It is
 observation tooling only: a successful run is not VaultNode proof, canonical
 authority, evidence storage, or promotion approval.
 
+A bounded repository-local runtime identity collector now loads the accepted
+supported profile through `guardian/core/supported_profile.py`, hashes selected
+Compose definitions and the exact profile bytes, resolves the static migration
+head, and emits the canonical runtime identity fields for a later manifest
+producer. Its `effective_config_hash` is SHA-256 over a deterministic JSON
+projection containing only: profile name/version/surface/path/hash and required
+and optional services; ordered selected Compose file paths/hashes/declared
+names/services; explicit audit and optional serving project identifiers;
+normalized service sets; and the migration head. It excludes environment
+values, interpolation output, credentials, database URLs, arbitrary absolute
+paths, and container inspection. It is static observation tooling only: it
+does not establish that Docker or any service is running or healthy.
+
 A repository-local validator now validates one manifest against the existing
 Draft 2020-12 schema, applies bounded single-manifest authority and repository
 consistency checks, verifies repository-relative artifact hashes, and reports
@@ -194,10 +207,11 @@ consumers, or implement trusted `latest`.
 
 ## Deferred implementation work
 
-Runtime and Compose identity, complete manifest production, artifact
-collection/hashing, freshness evaluation, evidence storage, cross-record
-resolution, pointer storage, promotion receipts, trusted pointers, consumer
-migration, and live VaultNode proof remain separately scoped work.
+Live service and Compose runtime inspection, runtime health, complete manifest
+production, artifact collection/hashing, freshness evaluation, evidence
+storage, cross-record resolution, pointer storage, promotion receipts, trusted
+pointers, consumer migration, and live VaultNode proof remain separately
+scoped work.
 
 ## Non-goals
 
