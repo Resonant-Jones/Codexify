@@ -28,8 +28,8 @@ services:
       # ── Blessed Whoosh'd local gateway contract ──
       LLM_PROVIDER: "local"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_BASE_URL: "http://100.109.4.57:8000/v1"
-      WHOOSHD_HEALTH_BASE_URL: "http://100.109.4.57:8000"
+      LOCAL_BASE_URL: "http://100.127.148.28:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://100.127.148.28:8000"
       LOCAL_API_KEY: "local"
 
       # ── Model aliases (must exist in Whoosh'd registry) ──
@@ -56,8 +56,8 @@ services:
       # ── Blessed Whoosh'd local gateway contract ──
       LLM_PROVIDER: "local"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_BASE_URL: "http://100.109.4.57:8000/v1"
-      WHOOSHD_HEALTH_BASE_URL: "http://100.109.4.57:8000"
+      LOCAL_BASE_URL: "http://100.127.148.28:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://100.127.148.28:8000"
       LOCAL_API_KEY: "local"
 
       # ── Model aliases ──
@@ -83,7 +83,7 @@ services:
     environment:
       LLM_PROVIDER: "local"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_BASE_URL: "http://100.109.4.57:8000/v1"
+      LOCAL_BASE_URL: "http://100.127.148.28:8000/v1"
       ALLOW_CLOUD_PROVIDERS: "false"
       CODEXIFY_EGRESS_ALLOWLIST: ""
       CODEXIFY_LOCAL_ONLY_MODE: "true"
@@ -96,7 +96,7 @@ services:
     environment:
       LLM_PROVIDER: "local"
       LOCAL_PROVIDER_VENDOR: "whooshd"
-      LOCAL_BASE_URL: "http://100.109.4.57:8000/v1"
+      LOCAL_BASE_URL: "http://100.127.148.28:8000/v1"
       ALLOW_CLOUD_PROVIDERS: "false"
       CODEXIFY_EGRESS_ALLOWLIST: ""
       CODEXIFY_LOCAL_ONLY_MODE: "true"

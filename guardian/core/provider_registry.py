@@ -105,6 +105,15 @@ _PROVIDER_GOVERNANCE_RULES: tuple[ProviderGovernanceRule, ...] = (
         local_only=False,
     ),
     ProviderGovernanceRule(
+        provider="deepseek",
+        label="DeepSeek",
+        governance_classification="static_authorized",
+        live_discovery_expected=False,
+        routing_validate_discovered_inventory=False,
+        configured_defaults_allowed_during_degraded_discovery=False,
+        local_only=False,
+    ),
+    ProviderGovernanceRule(
         provider="alibaba",
         label="Alibaba / DashScope",
         governance_classification="discovery_backed",
@@ -340,6 +349,24 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
             "model_kind": "chat",
         },
     ),
+    "deepseek": (
+        {
+            "id": "deepseek-v4-pro",
+            "displayName": "DeepSeek V4 Pro",
+            "contextWindow": 128000,
+            "capabilities": {
+                "chat": True,
+                "vision": False,
+                "text_input": True,
+                "tools": True,
+                "streaming": True,
+            },
+            "supports_chat": True,
+            "supports_vision": False,
+            "supports_text_input": True,
+            "model_kind": "chat",
+        },
+    ),
 }
 
 _MINIMAX_DOCUMENTED_MODELS: tuple[dict[str, Any], ...] = (
@@ -509,6 +536,11 @@ def default_model_for_provider(provider_id: str, settings: Settings) -> str:
         candidates = (
             getattr(settings, "GROQ_MODEL", None),
             getattr(settings, "DEFAULT_GROQ_MODEL", None),
+        )
+    elif provider == "deepseek":
+        candidates = (
+            getattr(settings, "DEEPSEEK_CHAT_MODEL", None),
+            "deepseek-v4-pro",
         )
     elif provider == "openai":
         candidates = (
@@ -1237,6 +1269,10 @@ def provider_authorized(provider_id: str, settings: Settings) -> bool:
         return _has_real_api_key(
             str(getattr(settings, "GROQ_API_KEY", "") or "")
         )
+    if provider == "deepseek":
+        return _has_real_api_key(
+            str(getattr(settings, "DEEPSEEK_API_KEY", "") or "")
+        )
     if provider == "alibaba":
         has_key = _has_real_api_key(
             str(getattr(settings, "ALIBABA_API_KEY", "") or "")
@@ -1355,6 +1391,9 @@ def _cloud_capable_configuration_present(settings: Settings) -> bool:
     groq_configured = bool(
         str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
     )
+    deepseek_configured = bool(
+        str(getattr(settings, "DEEPSEEK_API_KEY", "") or "").strip()
+    )
     alibaba_configured = bool(
         str(getattr(settings, "ALIBABA_API_KEY", "") or "").strip()
         and str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
@@ -1367,6 +1406,7 @@ def _cloud_capable_configuration_present(settings: Settings) -> bool:
         (
             openai_configured,
             groq_configured,
+            deepseek_configured,
             alibaba_configured,
             minimax_configured,
         )

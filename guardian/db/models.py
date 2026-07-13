@@ -88,8 +88,15 @@ class User(Base):
         String(255), unique=True, nullable=False
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="guest", server_default="guest"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'guest')", name="users_role_check"),
     )
 
 

@@ -69,8 +69,41 @@ Use this note as the local map for all ADRs.
 29. [[031-continuity-phase-a-storage-migration-gate|ADR-031 Continuity Phase A Storage Migration Gate]] — migration gate for Phase A continuity storage; gates Alembic/SQLAlchemy work behind explicit proof requirements (clean-start, existing-instance upgrade, downgrade, graph-off baseline, token constraint alignment, provenance preservation, and runtime write gate). Accepts four-phase-A-table boundary; defers Phase B normalization. Docs-only; does not implement migrations, models, or runtime writes.
 30. [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] — defines provider-adapter boundaries for Campaign Runner and forbids direct Codex/Claude dependency coupling in this module.
 31. [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] — defines Pi as the preferred lightweight provider-broker seam for Campaign Runner when available.
+32. [[038-Chat-Transport-Visibility-and-Adaptive-Stream-Recovery-Contract|ADR-038 Chat Transport Visibility and Adaptive Stream Recovery Contract]] — docs-only third-plane contract for stalled-stream interpretation, observation-only recovery, and transcript-safe boundaries.
+33. [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]] — docs-only proposed boundary separating infrastructure operator authority from product user experience without implementing roles, hosted access, or release-support changes.
+34. [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]] — docs-only proposed topology profile contract for explicit operator-controlled access profiles without implementing settings, routing, provider, Vite, or hosted-support changes.
+35. [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]] — governing decision for VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and persistent-serving/audit isolation.
+36. [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]] — governing decision for canonical audit manifests, orthogonal proof classifications, artifact integrity, freshness, supersession, contradiction, and trusted `latest` eligibility.
+37. [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]] — governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
+38. [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]] — governs future invite lifecycle, invite storage posture, token boundary, invite-to-contact mapping, and invite-to-permission bridge for Contacts, Circles, and future Spaces.
+39. [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]] — governs future Space participant resolution, roster semantics, participant source mapping, role/capability posture, mixed-trust handling, and bounded presence for Contacts, Circles, accepted Invites, local accounts, remote nodes, and AI-mediated actors.
 
 ---
+
+## ADR Graph
+
+- [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]]
+  - Governs future role language for operator/user topology, self-operator and host-operator access postures, and authority-safe Settings/onboarding work.
+  - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[../system-overview|System Overview]], [[../config-and-ops|Config and Ops]], [[../modules-and-ownership|Modules and Ownership]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../persona-studio-spec|Persona Studio Spec]], and [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]].
+- [[040-network-profile-topology-resolution-contract|ADR-040 Network Profile Topology Resolution Contract]]
+  - Governs future explicit Network Profile topology records, active profile resolution, operator-visible switching doctrine, and provider-capability-aware profile health surfaces.
+  - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[../config-and-ops|Config and Ops]], [[../system-overview|System Overview]], [[../modules-and-ownership|Modules and Ownership]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../tech-debt-and-risks|Tech Debt and Risks]], and [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]].
+- [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]]
+  - Governs VaultNode canonical runtime and audit authority, noncanonical machine evidence, trusted `latest`, evidence promotion rights, and separation between persistent serving and clean audit runtimes.
+  - Companion contract: [[../vaultnode-canonical-machine-and-audit-authority-contract|VaultNode Canonical Machine and Audit Authority Contract]].
+- [[042-canonical-audit-evidence-contract|ADR-042 Canonical Audit Evidence Contract]]
+  - Governs canonical audit evidence manifests, independent authority/proof/freshness/disposition/execution axes, artifact integrity, claim lineage, supersession, contradiction, and trusted `latest` eligibility.
+  - Governing authority: [[041-vaultnode-canonical-machine-and-audit-authority|ADR-041 VaultNode Canonical Machine and Audit Authority]].
+  - Companion contract: [[../canonical-audit-evidence-contract|Canonical Audit Evidence Contract]].
+- [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]]
+  - Governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
+  - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
+- [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]]
+  - Governs future invite lifecycle, invite storage posture, token boundary, invite-to-contact mapping, and invite-to-permission bridge for Contacts, Circles, and future Spaces.
+  - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../adr/043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
+- [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]]
+  - Governs future Space participant resolution, roster semantics, participant source mapping, role/capability posture, mixed-trust handling, and bounded presence for Contacts, Circles, accepted Invites, local accounts, remote nodes, and AI-mediated actors.
+  - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../adr/043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]], [[../adr/044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
 
 ## Relationship to the main architecture docs
 
@@ -78,367 +111,7 @@ These ADRs sit beside, not above, the main architecture corpus.
 
 Use the broader corpus for:
 
-* current runtime topology
-* supported-path truth
-* flow sequencing
-* storage and invariants
-* operational risk
-
-Primary companion notes:
-
-* [[00-current-state]]
-* [[system-overview|System Overview]]
-* [[flows|Critical Flows]]
-* [[completion_pipeline|Completion Request Pipeline]]
-* [[chat-runtime-contract|Chat Runtime Contract]]
-* [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-* [[router-decision-table|Retrieval Router Decision Table]]
-* [[architecture-atlas|Architecture Atlas]]
-* [[tech-debt-and-risks|Tech Debt and Risks]]
-
----
-
-## ADR graph
-
-* [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]] links to:
-
-  * [[flows|Critical Flows]]
-  * [[completion_pipeline|Completion Request Pipeline]]
-  * [[00-current-state]]
-
-* [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[00-current-state]]
-  * [[tech-debt-and-risks|Tech Debt and Risks]]
-
-* [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[completion_pipeline|Completion Request Pipeline]]
-  * [[flows|Critical Flows]]
-
-* [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]] links to:
-
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[flows|Critical Flows]]
-  * [[system-overview|System Overview]]
-  * [[00-current-state]]
-
-* [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]] links to:
-
-  * [[identity-and-runtime-mode|Identity and Runtime Mode]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[00-current-state]]
-
-* [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] links to:
-
-  * [[system-overview|System Overview]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[00-current-state]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-
-* [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] links to:
-
-  * [[system-overview|System Overview]]
-  * [[flows|Critical Flows]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[delegation-runtime|Delegation Runtime Contract]]
-  * [[00-current-state]]
-
-* [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] links to:
-
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[flows|Critical Flows]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[completion_pipeline|Completion Request Pipeline]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[009-Candidate-Trace-Ingest-Worker|ADR-009 Candidate Trace Ingest Worker Scaffold]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[candidate-trace-surface|Candidate Trace Surface]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|ADR-011 Graph Write Task Seam and Worker Scaffold]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] links to:
-
-  * [[system-overview|System Overview]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[persona-studio|Persona Studio Architecture]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-
-* [[013-Verified-Personal-Facts-Context-Injection|ADR-013 Verified Personal Facts Context Injection]] links to:
-
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[imprint-ui-deprecation-and-identity-ownership|Imprint UI Deprecation and Identity Ownership]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[data-and-storage|Data and Storage]]
-  * [[flows|Critical Flows]]
-  * [[00-current-state]]
-
-* [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]] links to:
-
-  * [[006-flow-builder-elicitation-lane|Flow Builder Elicitation Lane]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[data-and-storage|Data and Storage]]
-  * [[flows|Critical Flows]]
-  * [[system-overview|System Overview]]
-  * [[00-current-state]]
-
-
-* [[027-flow-builder-typed-surface-and-run-receipt-contract|ADR-027 Flow Builder Typed Surface and Run Receipt Contract]] links to:
-
-
-  * [[006-flow-builder-elicitation-lane|Flow Builder Elicitation Lane]]
-  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|Flow Builder Thread, Draft, and Receipts Contract]]
-  * [[flow-builder-surface-research-application|Flow Builder Surface Research Application]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[canonical-token-philosophy|Canonical Token Philosophy]]
-  * [[agent-tool-loop-contract|Agent Tool Loop Contract]]
-  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[flows|Critical Flows]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]] links to:
-
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[system-overview|System Overview]]
-  * [[tech-debt-and-risks|Tech Debt and Risks]]
-  * [[00-current-state]]
-
-* [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]] links to:
-
-  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|Continuity Engine Working Set and Decay Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[persona-studio|Persona Studio Architecture]]
-  * [[system-overview|System Overview]]
-  * [[data-and-storage|Data and Storage]]
-  * [[tech-debt-and-risks|Tech Debt and Risks]]
-  * [[00-current-state]]
-
-* [[017-Graph-Write-Idempotency-and-Receipt-Semantics|ADR-017 Graph Write Idempotency and Receipt Semantics]] links to:
-
-  * [[007-Memory-Graph-Derived-Write-Hook|Memory Graph Derived Write Hook]]
-  * [[008-Candidate-Trace-Surface|Candidate Trace Surface]]
-  * [[009-Candidate-Trace-Ingest-Worker|Candidate Trace Ingest Worker Scaffold]]
-  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[023-Workspace-E2E-Proof-Harness-Contract|ADR-023 Workspace E2E Proof Harness Contract]] links to:
-
-  * [[016-workspace-retrieval-source-for-local-knowledge|ADR-016 Workspace Retrieval Source for Local Knowledge]]
-  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
-  * [[flows|Critical Flows]]
-  * [[config-and-ops|Config and Ops]]
-  * [[00-current-state]]
-  * [[scripts/proofs/README.md Proof Harness README]]
-
-* [[025-neo4j-graph-backend-adapter-flagged-off-by-default|ADR-025 Neo4j Graph Backend Adapter Flagged Off By Default]] links to:
-
-  * [[007-Memory-Graph-Derived-Write-Hook|Memory Graph Derived Write Hook]]
-  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
-  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-  * [[config-and-ops|Config and Ops]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-* [[018-Graph-Write-Inspection-Surface|ADR-018 Graph Write Inspection Surface]] links to:
-
-  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
-  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[019-Graph-Backend-Adapter-Contract|ADR-019 Graph Backend Adapter Contract]] links to:
-
-  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
-  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
-  * [[018-Graph-Write-Inspection-Surface|Graph Write Inspection Surface]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-
-* [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]] links to:
-
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-  * [[flows|Critical Flows]]
-  * [[data-and-storage|Data and Storage]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[00-current-state]]
-
-* [[021-Web-Agent-Boundary-and-Retrieval-Contract|ADR-021 Web Agent Boundary and Retrieval Contract]] links to:
-
-  * [[web-agent-spec|Web Agent Spec v1]]
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[config-and-ops|Config and Ops]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[canonical-token-philosophy|Canonical Token Philosophy]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-
-* [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]] links to:
-
-  * [[003-Message-Identity-vs-Request-Identity|Message Identity vs Request Identity]]
-  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
-  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|Flow Builder Thread, Draft, and Receipts Contract]]
-  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|Guardian Mediated Coding Agent Execution Contract]]
-  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
-  * [[00-current-state]]
-  * [[system-overview|System Overview]]
-  * [[flows|Critical Flows]]
-  * [[command-bus-auth-cli-automations|Command Bus, Auth, Tool Calls, and Automations]]
-  * [[delegation-runtime|Delegation Runtime Contract]]
-  * [[persona-studio|Persona Studio Architecture]]
-
-* [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]] links to:
-
-  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|Guardian Intent Spine and Cross-Surface Control Plane]]
-  * [[021-Web-Agent-Boundary-and-Retrieval-Contract|Web Agent Boundary and Retrieval Contract]]
-  * [[010-Self-Extending-Agent-Plugin-System|Self-Extending Agent Plugin System]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[flows|Critical Flows]]
-  * [[config-and-ops|Config and Ops]]
-
-* [[026-graph-write-runtime-flag-boundary-on-supported-compose-path|ADR-026 Graph Write Runtime Flag Boundary on Supported Compose Path]] links to:
-
-  * [[019-Graph-Backend-Adapter-Contract|Graph Backend Adapter Contract]]
-  * [[011-Graph-Write-Task-Seam-and-Worker-Scaffold|Graph Write Task Seam and Worker Scaffold]]
-  * [[017-Graph-Write-Idempotency-and-Receipt-Semantics|Graph Write Idempotency and Receipt Semantics]]
-  * [[018-Graph-Write-Inspection-Surface|Graph Write Inspection Surface]]
-  * [[candidate-ingest-pipeline|Candidate Trace Ingestion Pipeline]]
-  * [[memory-graph-indexing-plan|Memory Graph Indexing Plan]]
-  * [[data-and-storage|Data and Storage]]
-  * [[config-and-ops|Config and Ops]]
-  * [[00-current-state]]
-
-* [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]] links to:
-
-  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
-  * [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
-  * [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]]
-  * [[014-Flow-Builder-Thread-Draft-and-Receipts-Contract|ADR-014 Flow Builder Thread, Draft, and Receipts Contract]]
-  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
-  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
-  * [[024-Context-Command-and-Active-Connector-Semantics|ADR-024 Context Command and Active Connector Semantics]]
-  * [[027-flow-builder-typed-surface-and-run-receipt-contract|ADR-027 Flow Builder Typed Surface and Run Receipt Contract]]
-  * [[execution-ledger-phase-1-repo-aware-recon|Execution Ledger Phase 1 Repo-Aware Recon]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-  * [[flows|Critical Flows]]
-  * [[data-and-storage|Data and Storage]]
-  * [[00-current-state]]
-
-* [[029-codex-entry-command-first-draft-flow|ADR-029 Codex Entry Command-First Draft Flow]] links to:
-
-  * [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
-  * [[022-Guardian-Intent-Spine-and-Cross-Surface-Control-Plane|ADR-022 Guardian Intent Spine and Cross-Surface Control Plane]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[00-current-state]]
-
-* [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]] links to:
-
-  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]]
-  * [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]]
-  * [[continuity-protocol-suite|Continuity Protocol Suite]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[canonical-token-philosophy|Canonical Token Philosophy]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[router-decision-table|Retrieval Router Decision Table]]
-  * [[data-and-storage|Data and Storage]]
-  * [[self-extending-agent-plugin-system|Self-Extending Agent Plugin System]]
-  * [[codexify-workspace-surface-spec-v1|Workspace Surface Spec v1]]
-  * [[00-current-state]]
-
-* [[031-continuity-phase-a-storage-migration-gate|ADR-031 Continuity Phase A Storage Migration Gate]] links to:
-
-  * [[015-Continuity-Engine-Working-Set-and-Decay-Contract|ADR-015 Continuity Engine Working Set and Decay Contract]]
-  * [[016-Continuity-Governance-Surface-Contract|ADR-016 Continuity Governance Surface Contract]]
-  * [[030-continuity-protocol-suite-runtime-gate|ADR-030 Continuity Protocol Suite Runtime Gate]]
-  * [[continuity-protocol-suite|Continuity Protocol Suite]]
-  * [[continuity-token-domain-proposal|Continuity Token Domain Proposal]]
-  * [[continuity-storage-schema-proposal|Continuity Storage Schema Proposal]]
-  * [[canonical-token-philosophy|Canonical Token Philosophy]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[account-export-restore-contract|Account Export + Restore Contract]]
-  * [[data-and-storage|Data and Storage]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[config-and-ops|Config and Ops]]
-  * [[00-current-state]]
-
-* [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]] links to:
-
-  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
-  * [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]]
-  * [[pi-invocation-boundary-contract|Pi Invocation Boundary Contract]]
-  * [[runtime-protocol-token-contract|Runtime Protocol Token Contract]]
-  * [[chat-runtime-contract|Chat Runtime Contract]]
-  * [[config-and-ops|Config and Ops]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[00-current-state]]
-
-* [[037-campaign-runner-pi-provider-broker|ADR-037 Campaign Runner Pi Provider Broker]] links to:
-
-  * [[036-campaign-runner-provider-adapter-contract|ADR-036 Campaign Runner Provider Adapter Contract]]
-  * [[020-Guardian-Mediated-Coding-Agent-Execution-Contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]]
-  * [[028-execution-ledger-campaign-runner-contract|ADR-028 Execution Ledger Campaign Runner Contract]]
-  * [[pi-invocation-boundary-contract|Pi Invocation Boundary Contract]]
-  * [[config-and-ops|Config and Ops]]
-  * [[modules-and-ownership|Modules and Ownership]]
-  * [[00-current-state]]
----
-
-## Maintenance rule
-
-When a new architectural decision changes:
-
-* acceptance semantics
-* runtime state vocabulary
-* retrieval doctrine
-* message/attempt identity
-* control-plane boundaries
-
-…add a new ADR instead of silently editing history.
-
-If a previous ADR becomes obsolete, supersede it with a new ADR and link both notes.
+* system maps
+* runtime contracts
+* API-level specifications
+* implementation guides

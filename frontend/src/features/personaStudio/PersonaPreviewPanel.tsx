@@ -43,6 +43,98 @@ type PreviewTurn = {
   draftSnapshot: PreviewDraftSnapshot;
 };
 
+export type PersonaStudioActionMaterialTier =
+  | "selector"
+  | "primary"
+  | "secondary"
+  | "reset";
+
+const PERSONA_STUDIO_ACTION_CHIP_CSS = `
+.ps-action-chip{
+  border-radius:var(--radius-micro);
+  border:1px solid color-mix(in oklab, var(--panel-border) 85%, transparent);
+  background:var(--chip-bg);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--panel-bezel) 55%, transparent),
+    inset 0 -1px 1px color-mix(in oklab, var(--bg) 38%, transparent);
+  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .1s ease;
+}
+.ps-action-chip:hover{
+  background:color-mix(in oklab, var(--surface-hover) 60%, var(--chip-bg));
+  border-color:var(--panel-border);
+}
+.ps-action-chip:active{
+  transform:translateY(1px);
+  box-shadow:inset 0 1px 2px color-mix(in oklab, var(--bg) 52%, transparent);
+}
+.ps-action-chip:focus-visible{
+  outline:2px solid var(--accent-weak);
+  outline-offset:1px;
+}
+.ps-action-chip:disabled{
+  box-shadow:inset 0 1px 0 color-mix(in oklab, var(--panel-bezel) 24%, transparent);
+}
+
+/* Tier 1 — Utility / selector chip: compact inline pill, text-first. */
+.ps-action-chip[data-ps-material="selector"]{
+  background:color-mix(in oklab, var(--chip-bg) 80%, var(--panel-bg));
+}
+.ps-action-chip[data-ps-material="selector"]:hover{
+  background:color-mix(in oklab, var(--surface-hover) 55%, var(--chip-bg));
+}
+
+/* Tier 2 — Primary action chip: restrained accent presence, quieter than nav pills. */
+.ps-action-chip[data-ps-material="primary"]{
+  border-color:color-mix(in oklab, var(--accent-weak) 42%, var(--panel-border));
+  background:color-mix(in oklab, var(--accent-weak) 20%, var(--chip-bg));
+}
+.ps-action-chip[data-ps-material="primary"]:hover{
+  background:color-mix(in oklab, var(--accent-weak) 34%, var(--chip-bg));
+  border-color:color-mix(in oklab, var(--accent-weak) 60%, var(--panel-border));
+}
+.ps-action-chip[data-ps-material="primary"]:disabled{
+  background:color-mix(in oklab, var(--panel-bg) 30%, var(--chip-bg));
+  border-color:color-mix(in oklab, var(--panel-border) 70%, transparent);
+}
+
+/* Tier 3 — Secondary action chip: polished but quieter than primary. */
+.ps-action-chip[data-ps-material="secondary"]{
+  background:color-mix(in oklab, var(--panel-bg) 30%, var(--chip-bg));
+}
+
+/* Tier 4 — Reset / danger chip: quiet and muted, never alarm red.
+   No warm/reset token exists in the allowed canon, so this stays token-muted;
+   richer reset material needs a future token task. */
+.ps-action-chip[data-ps-material="reset"]{
+  border-color:color-mix(in oklab, var(--panel-border) 95%, transparent);
+  background:color-mix(in oklab, var(--chip-bg) 70%, transparent);
+  color:var(--muted);
+}
+.ps-action-chip[data-ps-material="reset"]:hover{
+  background:color-mix(in oklab, var(--surface-hover) 50%, var(--chip-bg));
+  border-color:var(--panel-border);
+}
+`;
+
+export function PersonaStudioActionChipStyles() {
+  return <style data-ps-action-chip-styles>{PERSONA_STUDIO_ACTION_CHIP_CSS}</style>;
+}
+
+export function personaStudioActionChip(
+  tier: PersonaStudioActionMaterialTier,
+  className?: string
+): {
+  className: string;
+  "data-ps-material": PersonaStudioActionMaterialTier;
+  "data-ps-action-tier": PersonaStudioActionMaterialTier;
+} {
+  return {
+    className: ["ps-action-chip", className].filter(Boolean).join(" "),
+    "data-ps-material": tier,
+    "data-ps-action-tier": tier,
+  };
+}
+
 function formatList(values: string[]) {
   return values.length > 0 ? values.join(", ") : "None";
 }
@@ -254,9 +346,7 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
       <CardHeader className="space-y-2 pb-3" data-testid="persona-preview-panel-header">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1.5">
-            <CardTitle className="text-lg font-semibold">
-              Draft Preview
-            </CardTitle>
+            <CardTitle className="text-lg font-semibold">Draft Preview</CardTitle>
             <p className="text-xs leading-5" style={{ color: "var(--muted)" }}>
               Test before saving.
             </p>
@@ -304,7 +394,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
-                            variant="outline"
                             className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                             style={{ borderColor: "var(--panel-border)" }}
                           >
@@ -341,7 +430,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge
-                                  variant="outline"
                                   className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                                   style={{ borderColor: "var(--panel-border)" }}
                                 >
@@ -355,7 +443,6 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                                 </div>
                               </div>
                               <Badge
-                                variant="outline"
                                 className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
                                 style={{ borderColor: "var(--panel-border)" }}
                               >
@@ -536,10 +623,9 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <Badge
-                                    variant="outline"
-                                    className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
-                                    style={{ borderColor: "var(--panel-border)" }}
+                                    <Badge
+                                      className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]"
+                                      style={{ borderColor: "var(--panel-border)" }}
                                   >
                                     Turn {turnNumber}
                                   </Badge>
@@ -599,13 +685,12 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 Test prompt
               </div>
               <Button
+                {...personaStudioActionChip("secondary", "shrink-0")}
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={clearPreviewSession}
                 disabled={!hasTurns && !previewPrompt.trim()}
-                className="shrink-0"
-                style={{ borderColor: "var(--panel-border)" }}
               >
                 Clear preview session
               </Button>
@@ -633,7 +718,12 @@ export default function PersonaPreviewPanel({ profile }: PersonaPreviewPanelProp
                 }}
               />
               <div className="flex justify-end">
-                <Button type="submit" disabled={!previewPrompt.trim() || isResponding}>
+                <Button
+                  {...personaStudioActionChip("primary")}
+                  type="submit"
+                  variant="ghost"
+                  disabled={!previewPrompt.trim() || isResponding}
+                >
                   Send
                 </Button>
               </div>

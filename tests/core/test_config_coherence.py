@@ -137,6 +137,7 @@ def test_config_coherence_core_mode_allows_mismatch_and_logs_source(
 def test_config_coherence_core_mode_accepts_local_smoke_path_without_groq_key(
     monkeypatch,
 ):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
     core = core_config.Settings(
         LLM_PROVIDER="local",
         CODEXIFY_CONFIG_SOURCE="core",
@@ -228,11 +229,47 @@ def test_validate_llm_config_rejects_alibaba_with_blank_base():
         core_config.validate_llm_config(settings)
 
 
-def test_validate_llm_config_accepts_alibaba_with_default_base():
+def test_validate_llm_config_accepts_alibaba_with_default_base(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
     settings = core_config.Settings(
         LLM_PROVIDER="alibaba",
         ALLOW_CLOUD_PROVIDERS=True,
         ALIBABA_API_KEY="test-alibaba-key",
+    )
+
+    core_config.validate_llm_config(settings)
+
+
+def test_deepseek_config_defaults_are_normalized():
+    settings = core_config.Settings(
+        DEEPSEEK_BASE_URL="",
+        DEEPSEEK_CHAT_MODEL="",
+    )
+
+    assert settings.DEEPSEEK_BASE_URL == "https://api.deepseek.com"
+    assert settings.DEEPSEEK_CHAT_MODEL == "deepseek-v4-pro"
+
+
+def test_validate_llm_config_rejects_deepseek_without_api_key(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+
+    settings = core_config.Settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        DEEPSEEK_API_KEY="",
+    )
+
+    with pytest.raises(core_config.LLMConfigError, match="DEEPSEEK_API_KEY"):
+        core_config.validate_llm_config(settings)
+
+
+def test_validate_llm_config_accepts_deepseek_with_default_base(monkeypatch):
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+
+    settings = core_config.Settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        DEEPSEEK_API_KEY="test-deepseek-key",
     )
 
     core_config.validate_llm_config(settings)

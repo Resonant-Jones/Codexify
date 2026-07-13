@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -207,6 +207,46 @@ evening-audit:
 # Generate a solo-builder Guardian Work Brief for Axis and the next Codex task
 guardian-brief:
 	python3 scripts/guardian/generate_work_brief.py
+
+# Validate GuardianEvidencePacket fixtures locally.
+guardian-evidence-packets-validate:
+	python3 scripts/guardian/validate_evidence_packets.py --json
+
+# Validate one canonical audit evidence manifest without generating or promoting it.
+canonical-audit-evidence-validate:
+	@test -n "$(manifest)" || { echo "Usage: make canonical-audit-evidence-validate manifest=path/to/manifest.json" >&2; exit 2; }
+	$(PYTHON) scripts/audit/validate_canonical_evidence.py "$(manifest)" --json
+
+canonical-audit-evidence-identity:
+	$(PYTHON) scripts/audit/collect_canonical_evidence_identity.py $(if $(repo),--repo "$(repo)",) $(if $(machine_id),--machine-id "$(machine_id)",) $(if $(machine_role),--machine-role "$(machine_role)",) $(if $(authority_basis),--authority-basis "$(authority_basis)",) $(if $(assert_canonical_machine),--assert-canonical-machine,) $(if $(diagnostic_working_path),--diagnostic-working-path,)
+
+# Run local stdout-only Guardian Evidence Packet generator.
+guardian-evidence-packet-generate:
+	@echo "Running Guardian Evidence packet generator..."
+	python3 scripts/guardian/generate_evidence_packet.py docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json --json
+
+# Run local Guardian Evidence bounded-read tooling.
+guardian-evidence-bounded-read:
+	@echo "Running Guardian Evidence bounded read..."
+	python3 scripts/guardian/read_bounded_evidence.py docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json --json
+
+# Run local GuardianEvidencePacket reducer dry-run diagnostics.
+guardian-evidence-reducer-dry-run:
+	python3 scripts/guardian/reducer_dry_run.py --json
+
+# Inspect a checked-in Guardian Evidence packet with bounded dry-run diagnostics.
+guardian-evidence-packet-dry-run:
+	@echo "Running Guardian Evidence packet dry-run diagnostics..."
+	python3 scripts/guardian/reducer_dry_run.py --evidence-packet docs/architecture/fixtures/guardian-evidence-packet.generated-local-tooling.v1.json --json
+
+# Validate Guardian Evidence Reducer input-bundle templates and fixtures locally.
+guardian-evidence-reducer-input-bundles-validate:
+	@python3 scripts/guardian/validate_reducer_input_bundles.py --json
+
+# Validate and dry-run the local Guardian Evidence Reducer input bundle.
+guardian-evidence-reducer-input-bundle-dry-run:
+	@echo "Validating and dry-running Guardian Evidence Reducer input bundle..."
+	@python3 scripts/guardian/reducer_dry_run.py --json --input-bundle docs/architecture/fixtures/guardian-evidence-reducer-input-bundle.local-tooling.v1.json
 
 # Generate the Unity Audit coherence scaffold
 audit-unity:
@@ -486,6 +526,46 @@ PROD_ENV  ?= .env.prod
 
 .PHONY: up down restart ps dlogs cfg cfgredact cfgsec \
 	up-prod down-prod restart-prod ps-prod dlogs-prod cfg-prod cfgredact-prod cfgsec-prod
+
+# Peekaboo demo account and capture preparation. The real credentials stay in
+# the gitignored .env.demo file; the scripts never accept a user scope other
+# than the authenticated demo account.
+.PHONY: demo-reset demo-seed demo-style demo-verify demo-capture demo-reset-and-seed demo-render demo-render-cinematic demo-cinematic-all
+
+DEMO_PYTHON ?= .venv/bin/python
+
+demo-reset:
+	$(DEMO_PYTHON) scripts/demo/reset_demo_workspace.py
+
+demo-seed:
+	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py seed
+
+demo-style:
+	node scripts/demo/style_demo.mjs
+
+demo-verify:
+	$(DEMO_PYTHON) scripts/demo/verify_demo_workspace.py
+
+demo-capture:
+	@echo "Capture 1920x1080 proof frames in Demo-Assets/peekaboo-demo/work/ using the tester UI at http://localhost:5174"
+	@test -s Demo-Assets/peekaboo-demo/captures/appearance-proof.png || (echo "Run make demo-style first" >&2; exit 1)
+
+demo-reset-and-seed:
+	$(DEMO_PYTHON) scripts/demo/seed_demo_workspace.py reset-and-seed
+
+demo-render:
+	@bash scripts/demo/render_peekaboo.sh
+
+demo-render-cinematic:
+	$(DEMO_PYTHON) scripts/demo/render_cinematic.py
+
+demo-cinematic-all:
+	$(MAKE) demo-verify
+	$(MAKE) demo-style
+	$(MAKE) demo-capture
+	$(DEMO_PYTHON) scripts/demo/validate_cinematic_manifest.py
+	$(MAKE) demo-render-cinematic
+	@ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate:format=duration -of default=noprint_wrappers=1 Demo-Assets/peekaboo-demo/renders/codexify-peekaboo-cinematic-16x9.mp4
 
 # Dev (defaults to .env)
 up:

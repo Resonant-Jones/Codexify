@@ -59,6 +59,7 @@ import {
 import EventsConsole from "./pages/EventsConsole";
 import LoginPage from "./pages/login/LoginPage";
 import RegisterPage from "./pages/login/RegisterPage";
+import { PrivatePreviewBanner } from "./components/PrivatePreviewBanner";
 import UserProfilePage from "./pages/userProfile/UserProfilePage";
 import { SharePage } from "./pages/SharePage";
 import {
@@ -604,8 +605,7 @@ export default function App() {
   const [desktopStartupRouting, setDesktopStartupRouting] = React.useState<
     DesktopStartupRoutingDecision | null | undefined
   >(() => (desktopRuntime ? undefined : null));
-  const [desktopRecoveryRequested, setDesktopRecoveryRequested] =
-    React.useState(false);
+  const [desktopRecoveryRequested] = React.useState(false);
 
   React.useEffect(() => {
     if (!desktopRuntime) return;
@@ -1404,7 +1404,7 @@ export default function App() {
   if (loginRoute) {
     return <LoginPage />;
   }
-  if (registerRoute) {
+  if (registerRoute && import.meta.env.VITE_PRIVATE_PREVIEW !== "true") {
     return <RegisterPage />;
   }
   if (profileRoute) {
@@ -1501,6 +1501,7 @@ export default function App() {
 
   return (
     <WebRuntimeStartupGate enabled={webRuntimeGateEnabled}>
+      <PrivatePreviewBanner />
       {mainContent}
     </WebRuntimeStartupGate>
   );

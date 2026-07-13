@@ -49,6 +49,11 @@ const baseProfile: TtsVoiceProfile = {
 };
 
 beforeEach(() => {
+  document.body.innerHTML = "";
+  const portalRoot = document.createElement("div");
+  portalRoot.id = "cfy-portal-root";
+  document.body.appendChild(portalRoot);
+
   mockedApi.fetchTtsBackends.mockResolvedValue({
     active_backend_id: "qwen3_tts",
     local_only: true,
@@ -150,6 +155,19 @@ describe("TTS Console", () => {
     expect(screen.getByTestId("tts-preview-output")).toHaveTextContent(
       "/tmp/preview.generated.wav"
     );
+  });
+
+  it("renders into the app portal root and closes on Escape", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<TtsConsoleWindow open onClose={onClose} />);
+
+    const consoleWindow = await screen.findByTestId("tts-console-window");
+    expect(document.getElementById("cfy-portal-root")).toContainElement(consoleWindow);
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("keeps tuning controls out of the launcher surface until opened", () => {

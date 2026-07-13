@@ -81,6 +81,7 @@ from guardian.services.media_identity import (
     resolve_asset as resolve_asset_from_aliases,
 )
 from guardian.services.media_identity import source_label_from_filename, utcnow
+from guardian.protocol_tokens import EmbeddingLifecycleStatus
 
 logger = logging.getLogger(__name__)
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
@@ -114,12 +115,15 @@ def _require_media_feature(flag_name: str, feature_label: str) -> None:
 
 
 def _require_media_api_key(
+    request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> str:
     if _is_pytest() and not x_api_key and not authorization:
         return "test-bypass"
-    return verify_api_key(x_api_key=x_api_key, authorization=authorization)
+    return verify_api_key(
+        request=request, x_api_key=x_api_key, authorization=authorization
+    )
 
 
 router = APIRouter(dependencies=[Depends(_require_media_api_key)])
@@ -1589,12 +1593,12 @@ async def upload_document(
                     "DOCX extraction errored for %s: %s", file.filename, exc
                 )
 
-        embedding_status = "pending"
+        embedding_status = EmbeddingLifecycleStatus.PENDING.value
         embedding_error = None
         embedding_started_at = None
         embedding_completed_at = None
         if not parsed_text:
-            embedding_status = "failed"
+            embedding_status = EmbeddingLifecycleStatus.FAILED.value
             embedding_error = "parsed_text_missing"
             embedding_completed_at = datetime.now(timezone.utc)
 
@@ -1892,7 +1896,7 @@ async def upload_document(
                     file.filename,
                     e,
                 )
-                embedding_status = "failed"
+                embedding_status = EmbeddingLifecycleStatus.FAILED.value
                 embedding_error = str(e)
                 embedding_completed_at = datetime.now(timezone.utc)
                 with db.get_session() as session:
@@ -2430,6 +2434,7 @@ async def list_images(
                 "images": [
                     {
                         "id": img.id,
+                        "project_id": img.project_id,
                         "src_url": _signed_src_url(img.src_url),
                         "filename": img.prompt or "Generated image",
                         "mime_type": None,
@@ -2476,6 +2481,7 @@ async def list_images(
             "images": [
                 {
                     "id": img.id,
+                    "project_id": img.project_id,
                     "src_url": _signed_src_url(img.src_url),
                     "filename": img.filename,
                     "mime_type": img.mime_type,

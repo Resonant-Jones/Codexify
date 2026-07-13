@@ -13,6 +13,16 @@ import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 
 export type SidebarProjectRecord = Project & Record<string, unknown>;
 
+export type SidebarProjectLike = {
+  id?: Project["id"];
+  name?: string;
+  project_id?: Project["id"];
+  project_name?: string;
+  icon?: string;
+  color?: string;
+  metadata?: unknown;
+};
+
 const GENERAL_PROJECT_ALIASES = new Set(["general", "loose threads"]);
 
 const IMPORTED_PROVIDER_PREFIXES = [
@@ -32,22 +42,23 @@ export function isSidebarGeneralProjectName(value: unknown): boolean {
   return GENERAL_PROJECT_ALIASES.has(normalizeText(value).toLowerCase());
 }
 
-function hasImportedProvenance(project: Record<string, unknown>): boolean {
+function hasImportedProvenance(project: SidebarProjectLike): boolean {
+  const record = project as Record<string, unknown>;
   const directMarkers = [
-    project.import_source,
-    project.importSource,
-    project.imported_at,
-    project.importedAt,
-    project.imported_from,
-    project.importedFrom,
-    project.restored_at,
-    project.restoredAt,
-    project.restored_from,
-    project.restoredFrom,
-    project.import_profile,
-    project.importProfile,
-    project.source_thread_id,
-    project.sourceThreadId,
+    record.import_source,
+    record.importSource,
+    record.imported_at,
+    record.importedAt,
+    record.imported_from,
+    record.importedFrom,
+    record.restored_at,
+    record.restoredAt,
+    record.restored_from,
+    record.restoredFrom,
+    record.import_profile,
+    record.importProfile,
+    record.source_thread_id,
+    record.sourceThreadId,
   ];
 
   for (const marker of directMarkers) {
@@ -55,10 +66,9 @@ function hasImportedProvenance(project: Record<string, unknown>): boolean {
     if (typeof marker === "number" && Number.isFinite(marker)) return true;
   }
 
-  const metadata = project.metadata;
+  const metadata = record.metadata;
   if (metadata && typeof metadata === "object") {
-    const meta = metadata as Record<string, unknown>;
-    if (hasImportedProvenance(meta)) return true;
+    if (hasImportedProvenance(metadata as SidebarProjectLike)) return true;
   }
 
   return false;
@@ -76,7 +86,7 @@ function stripImportedProviderPrefix(name: string): string {
 }
 
 export function cleanSidebarProjectTitle(
-  project: Partial<SidebarProjectRecord> & Record<string, unknown>
+  project: SidebarProjectLike
 ): string {
   const rawName = normalizeText(project.name ?? project.project_name ?? "Untitled");
 
@@ -88,21 +98,21 @@ export function cleanSidebarProjectTitle(
   return cleaned || rawName;
 }
 
-export function normalizeSidebarProject<T extends SidebarProjectRecord>(project: T): T {
+export function normalizeSidebarProject<T extends SidebarProjectLike>(project: T): SidebarProjectRecord {
   return {
     ...project,
     id: String(project.id ?? project.project_id ?? ""),
     name: cleanSidebarProjectTitle(project),
-  } as T;
+  };
 }
 
-export function normalizeSidebarProjects<T extends SidebarProjectRecord>(
+export function normalizeSidebarProjects<T extends SidebarProjectLike>(
   projects: readonly T[]
-): T[] {
+): SidebarProjectRecord[] {
   return projects.map(normalizeSidebarProject);
 }
 
-export function selectSidebarGeneralProject<T extends SidebarProjectRecord>(
+export function selectSidebarGeneralProject<T extends SidebarProjectLike>(
   projects: readonly T[]
 ): T | null {
   const candidates = projects.filter((project) => isSidebarGeneralProjectName(project.name));
@@ -110,14 +120,16 @@ export function selectSidebarGeneralProject<T extends SidebarProjectRecord>(
   return candidates[0] ?? null;
 }
 
-export function resolveSidebarGeneralProjectId<T extends SidebarProjectRecord>(
+export function resolveSidebarGeneralProjectId<T extends SidebarProjectLike>(
   projects: readonly T[],
   fallback: string | null = null
 ): string | null {
-  return selectSidebarGeneralProject(projects)?.id ?? fallback;
+  const selected = selectSidebarGeneralProject(projects);
+  const id = selected?.id;
+  return id == null ? fallback : String(id);
 }
 
-export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectRecord>(
+export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectLike>(
   projects: readonly T[]
 ): T[] {
   const seen = new Set<string>();

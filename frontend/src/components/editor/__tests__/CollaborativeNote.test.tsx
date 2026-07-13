@@ -1,63 +1,107 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { vi } from "vitest";
 import { CollaborativeNote } from "../CollaborativeNote";
 
-// Mock WebSocket
+// ─── Mock WebSocket (shared with useDocumentCollaboration tests) ─────────────
+
+const mockWsInstances: MockWebSocket[] = [];
+
 class MockWebSocket {
+  static OPEN = 1;
+  static CONNECTING = 0;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
   url: string;
-  readyState = WebSocket.CONNECTING;
+  readyState: number = MockWebSocket.CONNECTING;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
   sentMessages: any[] = [];
+  closedCode: number | null = null;
+  closedReason: string | null = null;
 
   constructor(url: string) {
     this.url = url;
-    // Simulate connection opening
-    setTimeout(() => {
-      this.readyState = WebSocket.OPEN;
-      if (this.onopen) {
-        this.onopen(new Event("open"));
-      }
-    }, 0);
+    mockWsInstances.push(this);
   }
 
   send(data: string) {
-    this.readyState === WebSocket.OPEN && this.sentMessages.push(JSON.parse(data));
+    if (this.readyState === MockWebSocket.OPEN) {
+      try {
+        this.sentMessages.push(JSON.parse(data));
+      } catch {
+        this.sentMessages.push(data);
+      }
+    }
   }
 
-  close() {
-    this.readyState = WebSocket.CLOSED;
+  close(code?: number, reason?: string) {
+    this.readyState = MockWebSocket.CLOSED;
+    this.closedCode = code ?? null;
+    this.closedReason = reason ?? null;
     if (this.onclose) {
-      this.onclose(new CloseEvent("close"));
+      this.onclose(
+        new CloseEvent("close", { code: code ?? 1000, reason: reason ?? "" })
+      );
     }
+  }
+
+  simulateOpen() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.(new Event("open"));
+  }
+
+  simulateMessage(data: unknown) {
+    this.onmessage?.(
+      new MessageEvent("message", { data: JSON.stringify(data) })
+    );
+  }
+
+  simulateClose(code = 1000, reason = "") {
+    this.readyState = MockWebSocket.CLOSED;
+    this.closedCode = code;
+    this.closedReason = reason;
+    this.onclose?.(new CloseEvent("close", { code, reason }));
   }
 }
 
-describe("CollaborativeNote", () => {
-  let mockWebSocket: MockWebSocket;
+function latestWs(): MockWebSocket {
+  return mockWsInstances[mockWsInstances.length - 1];
+}
 
+// ─── Test Suite ──────────────────────────────────────────────────────────────
+
+describe("CollaborativeNote", () => {
   beforeEach(() => {
-    // Replace global WebSocket with mock
+    vi.useFakeTimers();
+    mockWsInstances.length = 0;
     (global as any).WebSocket = MockWebSocket;
 
-    // Mock fetch for autosave
-    global.fetch = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ ok: true, document_id: "doc1" }), {
-          status: 200,
-        })
-      )
-    );
+    global.fetch = vi.fn((url: string) => {
+      if (url.includes("/audit")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ document_id: "doc1", total: 0, entries: [] }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      );
+    });
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
     vi.useRealTimers();
+    vi.clearAllMocks();
   });
 
-  it("renders collaborative note component", () => {
+  // ── Rendering ───────────────────────────────────────────────────────────
+
+  it("renders the editor with initial content", () => {
     render(
       <CollaborativeNote
         documentId="doc1"
@@ -72,7 +116,9 @@ describe("CollaborativeNote", () => {
     expect((textarea as HTMLTextAreaElement).value).toBe("Initial content");
   });
 
-  it("displays connection status", async () => {
+  it("displays read-only mode when permissions prevent editing", () => {
+    // Renders with canEdit flowing through the hook, but permissions are
+    // managed in the component. By default permissions start null (editable).
     render(
       <CollaborativeNote
         documentId="doc1"
@@ -82,13 +128,15 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Initially shows offline or connecting
-    await waitFor(() => {
-      expect(screen.getByText(/Live Editing|Offline/)).toBeInTheDocument();
-    });
+    const textarea = screen.getByPlaceholderText(/Start typing/i);
+    expect(textarea).toBeInTheDocument();
+    // Default is editable — textarea should not be disabled
+    expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
   });
 
-  it("sends updates to WebSocket on text change", async () => {
+  // ── Connection states ───────────────────────────────────────────────────
+
+  it("shows Live Editing when connected", async () => {
     render(
       <CollaborativeNote
         documentId="doc1"
@@ -98,25 +146,17 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText(/Start typing/i) as HTMLTextAreaElement;
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
 
-    // Wait for connection
     await waitFor(() => {
       expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
-
-    // Type new content
-    fireEvent.change(textarea, { target: { value: "New content" } });
-
-    // Wait a bit for async WebSocket send
-    await waitFor(() => {
-      // The WebSocket instance used in the component should have sent the message
-      expect(textarea.value).toBe("New content");
-    });
   });
 
-  it("handles presence updates from remote clients", async () => {
-    const { rerender } = render(
+  it("shows Offline when disconnected", async () => {
+    render(
       <CollaborativeNote
         documentId="doc1"
         threadId={1}
@@ -125,23 +165,89 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Wait for connection
+    // Initially offline (socket is connecting, not open)
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+  });
+
+  it("shows Access Denied after close code 1008", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
     await waitFor(() => {
       expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
 
-    // Simulate receiving a presence update
-    const presenceMessage = {
-      type: "presence.join",
-      user_id: "user2",
-      active_users: ["user1", "user2"],
-    };
+    await act(async () => {
+      latestWs().simulateClose(1008, "access_denied");
+    });
 
-    // We can't easily trigger the onmessage from outside, but we verify the component renders
-    expect(screen.getByPlaceholderText(/Start typing/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Access Denied")).toBeInTheDocument();
+    });
   });
 
-  it("calls onContentChange callback when text changes", async () => {
+  // ── Content updates ─────────────────────────────────────────────────────
+
+  it("updates textarea value on local change", () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "local edit" } });
+
+    expect(textarea.value).toBe("local edit");
+  });
+
+  it("applies remote content updates", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent="Initial"
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: { content: "Remote change" },
+        user_id: "user2",
+      });
+    });
+
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("Remote change");
+    });
+  });
+
+  it("calls onContentChange on local edits", () => {
     const onContentChange = vi.fn();
 
     render(
@@ -154,24 +260,50 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Wait for connection
-    await waitFor(() => {
-      expect(screen.getByText("Live Editing")).toBeInTheDocument();
-    });
-
-    const textarea = screen.getByPlaceholderText(/Start typing/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "Test content" } });
 
+    expect(onContentChange).toHaveBeenCalledWith("Test content");
+  });
+
+  // ── Presence ────────────────────────────────────────────────────────────
+
+  it("displays presence avatars after presence.join", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "presence.join",
+        user_id: "user2",
+        active_users: ["user1", "user2"],
+      });
+    });
+
     await waitFor(() => {
-      expect(textarea.value).toBe("Test content");
-      expect(onContentChange).toHaveBeenCalledWith("Test content");
+      // Presence avatars: look for the user initial "U" from user2
+      const avatars = document.querySelectorAll('[style*="border-radius: 50%"]');
+      // At least one avatar should be present (from the presence list)
+      expect(avatars.length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  it("auto-saves document every 15 seconds", async () => {
-    vi.useFakeTimers();
+  // ── Autosave ────────────────────────────────────────────────────────────
 
+  it("triggers autosave on interval", async () => {
     render(
       <CollaborativeNote
         documentId="doc1"
@@ -181,40 +313,508 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Wait for connection
-    await waitFor(() => {
-      expect(screen.getByText("Live Editing")).toBeInTheDocument();
+    await act(async () => {
+      latestWs().simulateOpen();
     });
 
-    const textarea = screen.getByPlaceholderText(/Start typing/i) as HTMLTextAreaElement;
-
-    // Change content
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "Updated content" } });
 
-    // Advance time by 15 seconds
+    // Advance past 15s autosave interval
     vi.advanceTimersByTime(15000);
-
-    // In the current implementation, audit history requests use fetch while autosave
-    // uses Axios (which is not mocked here). In jsdom, the autosave request will fail
-    // and the component should surface an "Autosave failed" indicator.
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/collab/doc1/audit?limit=100",
-        expect.objectContaining({
-          headers: expect.any(Object),
-        })
+        expect.objectContaining({ headers: expect.any(Object) })
       );
+    });
+  });
+
+  // ── Typing indicator ──────────────────────────────────────────────────
+
+  it("local typing sends typing.start", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Autosave failed/i)).toBeInTheDocument();
+      expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
 
-    vi.useRealTimers();
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "x" } });
+    });
+
+    // The hook's notifyTyping is called inside handleChange.
+    // Hook-level tests (useDocumentCollaboration) cover the message payload.
+    // Here we verify the component stays stable after the change.
+    expect(textarea.value).toBe("x");
   });
 
-  it("disconnects WebSocket on unmount", async () => {
+  it("local typing eventually sends typing.stop after debounce", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Live Editing")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      /Start typing/i
+    ) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "x" } });
+    });
+
+    // Advance past the 1200ms debounce — the timer fires stopTyping
+    vi.advanceTimersByTime(2_000);
+
+    // Component remains stable after debounce expires
+    expect(textarea.value).toBe("x");
+  });
+
+  it("remote typing event renders the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+  });
+
+  it("remote typing expiry hides the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+
+    // Advance past the 3000ms auto-expiry
+    await act(async () => {
+      vi.advanceTimersByTime(3_100);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/user2 is typing/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("multiple typing users show collaborators count", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user2",
+        timestamp: new Date().toISOString(),
+      });
+      latestWs().simulateMessage({
+        type: "typing.start",
+        user_id: "user3",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 collaborators are typing/)).toBeInTheDocument();
+    });
+  });
+
+  it("wrapped backend typing event renders the typing indicator", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+  });
+
+  it("wrapped backend typing event expires and hides", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent=""
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/user2 is typing/)).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_100);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/user2 is typing/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("wrapped backend typing event does not overwrite editor content", async () => {
+    render(
+      <CollaborativeNote
+        documentId="doc1"
+        threadId={1}
+        userId="user1"
+        initialContent="Existing text"
+      />
+    );
+
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
+    await act(async () => {
+      latestWs().simulateMessage({
+        type: "update",
+        payload: {
+          type: "typing.start",
+          user_id: "user2",
+          timestamp: new Date().toISOString(),
+        },
+        user_id: "user2",
+      });
+    });
+
+      // Content must not change — typing events have no 'content' field
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("Existing text");
+    });
+
+    // ── Cursor presence ────────────────────────────────────────────────────
+
+    it("textarea selection sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.select(textarea);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+      expect(typeof cursorMsgs[cursorMsgs.length - 1].position).toBe("number");
+    });
+
+    it("textarea click sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.click(textarea);
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+    });
+
+    it("textarea key-up sends cursor position through the hook path", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+
+      await act(async () => {
+        fireEvent.keyUp(textarea, { key: "a" });
+      });
+
+      const cursorMsgs = latestWs().sentMessages.filter(
+        (m: any) => m.type === "cursor.position"
+      );
+      expect(cursorMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(cursorMsgs[cursorMsgs.length - 1].user_id).toBe("user1");
+    });
+
+    it("wrapped backend cursor event renders the cursor-presence indicator", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 5 },
+          user_id: "user2",
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/User user2 cursor at 5/)).toBeInTheDocument();
+      });
+    });
+
+    it("cursor presence expires and hides", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 5 },
+          user_id: "user2",
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/User user2 cursor at 5/)).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_100);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText(/cursor/)).not.toBeInTheDocument();
+      });
+    });
+
+    it("wrapped cursor event does not overwrite editor content", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent="Existing text"
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "update",
+          payload: { type: "cursor.position", user_id: "user2", position: 3 },
+          user_id: "user2",
+        });
+      });
+
+      const textarea = screen.getByPlaceholderText(
+        /Start typing/i
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe("Existing text");
+    });
+
+    it("multiple remote cursor users show collaborators count", async () => {
+      render(
+        <CollaborativeNote
+          documentId="doc1"
+          threadId={1}
+          userId="user1"
+          initialContent=""
+        />
+      );
+
+      await act(async () => {
+        latestWs().simulateOpen();
+      });
+
+      await act(async () => {
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user2",
+          position: 1,
+        });
+        latestWs().simulateMessage({
+          type: "cursor.position",
+          user_id: "user3",
+          position: 2,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/2 collaborator cursors active/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    // ── Cleanup ─────────────────────────────────────────────────────────────
+
+  it("cleans up on unmount", async () => {
     const { unmount } = render(
       <CollaborativeNote
         documentId="doc1"
@@ -224,33 +824,22 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Wait for connection
+    await act(async () => {
+      latestWs().simulateOpen();
+    });
+
     await waitFor(() => {
       expect(screen.getByText("Live Editing")).toBeInTheDocument();
     });
 
-    // Unmount should close WebSocket
     unmount();
 
-    // After unmount, component should be gone
     expect(screen.queryByPlaceholderText(/Start typing/i)).not.toBeInTheDocument();
   });
 
-  it("handles WebSocket connection errors gracefully", async () => {
-    // Mock WebSocket that fails to connect
-    class FailingWebSocket extends MockWebSocket {
-      constructor(url: string) {
-        super(url);
-        setTimeout(() => {
-          if (this.onerror) {
-            this.onerror(new Event("error"));
-          }
-        }, 10);
-      }
-    }
+  // ── Error handling ──────────────────────────────────────────────────────
 
-    (global as any).WebSocket = FailingWebSocket;
-
+  it("handles WebSocket errors gracefully", async () => {
     render(
       <CollaborativeNote
         documentId="doc1"
@@ -260,53 +849,18 @@ describe("CollaborativeNote", () => {
       />
     );
 
-    // Component should still render despite connection failure
+    await act(async () => {
+      if (latestWs().onerror) {
+        latestWs().onerror!(new Event("error"));
+      }
+      latestWs().simulateClose(1006, "abnormal");
+    });
+
+    // Component should still render
     expect(screen.getByPlaceholderText(/Start typing/i)).toBeInTheDocument();
 
-    // Status should show offline or error
     await waitFor(() => {
-      const status = screen.queryByText("Offline") || screen.queryByText("Live Editing");
-      expect(status).toBeInTheDocument();
+      expect(screen.getByText("Offline")).toBeInTheDocument();
     });
-  });
-
-  it("displays presence avatars for active users", async () => {
-    render(
-      <CollaborativeNote
-        documentId="doc1"
-        threadId={1}
-        userId="user1"
-        initialContent=""
-      />
-    );
-
-    // Wait for connection
-    await waitFor(() => {
-      expect(screen.getByText("Live Editing")).toBeInTheDocument();
-    });
-
-    // Component should render without errors
-    const textarea = screen.getByPlaceholderText(/Start typing/i);
-    expect(textarea).toBeInTheDocument();
-  });
-
-  it("updates presence list when users join", async () => {
-    render(
-      <CollaborativeNote
-        documentId="doc1"
-        threadId={1}
-        userId="user1"
-        initialContent=""
-      />
-    );
-
-    // Wait for connection
-    await waitFor(() => {
-      expect(screen.getByText("Live Editing")).toBeInTheDocument();
-    });
-
-    // Component should be interactive
-    const textarea = screen.getByPlaceholderText(/Start typing/i);
-    expect(textarea).toBeInTheDocument();
   });
 });

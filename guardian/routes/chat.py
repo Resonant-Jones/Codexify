@@ -45,9 +45,6 @@ from pydantic import (
 from starlette.responses import StreamingResponse
 
 from guardian.cognition.identity_policy import can_run_deep_identity_modeling
-from guardian.fact_candidate_pipeline import (
-    process_user_message as _process_fact_candidates,
-)
 from guardian.context.context_directive_resolver import (
     resolve_context_request_plans,
     serialize_context_request_plans,
@@ -87,6 +84,9 @@ from guardian.depth import (
     resolve_depth,
 )
 from guardian.evals.spine import get_latest_eval_diagnostics
+from guardian.fact_candidate_pipeline import (
+    process_user_message as _process_fact_candidates,
+)
 from guardian.protocol_tokens import (
     AcceptanceStatus,
     ChatEventType,
@@ -873,7 +873,9 @@ class ChatMessageCreateRequest(BaseModel):
     thread_id: Optional[int] = None
     draft_tab_id: Optional[str] = None
     role: str
-    content: str | list[dict[str, Any]]  # plain text or structured multimodal content
+    content: str | list[
+        dict[str, Any]
+    ]  # plain text or structured multimodal content
     user_id: Optional[str] = "default"
     title: Optional[str] = None
     summary: Optional[str] = None
@@ -1310,16 +1312,28 @@ def _detect_structured_latest_turn(
         return None
     extra_meta = latest_turn.get("extra_meta")
     if not isinstance(extra_meta, dict):
-        logger.debug("structured_turn_detect: extra_meta missing type=%s", type(extra_meta).__name__)
+        logger.debug(
+            "structured_turn_detect: extra_meta missing type=%s",
+            type(extra_meta).__name__,
+        )
         return None
     original = extra_meta.get("original_content")
     if isinstance(original, list) and len(original) > 0:
         # Verify it looks like structured content (has text or image_url parts)
         for part in original:
-            if isinstance(part, dict) and part.get("type") in ("text", "image_url"):
-                logger.info("structured_turn_detect: found structured content with %d parts", len(original))
+            if isinstance(part, dict) and part.get("type") in (
+                "text",
+                "image_url",
+            ):
+                logger.info(
+                    "structured_turn_detect: found structured content with %d parts",
+                    len(original),
+                )
                 return original
-    logger.debug("structured_turn_detect: no structured content found, original type=%s", type(original).__name__)
+    logger.debug(
+        "structured_turn_detect: no structured content found, original type=%s",
+        type(original).__name__,
+    )
     return None
 
 
@@ -1361,7 +1375,9 @@ def _persist_message_to_thread(
     message_metadata: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     # Normalize content: flatten structured arrays for DB, preserve original for worker
-    db_content, original_content = _normalize_message_content_for_persistence(content)
+    db_content, original_content = _normalize_message_content_for_persistence(
+        content
+    )
     merged_meta = dict(message_metadata or {})
     if original_content is not None:
         merged_meta["original_content"] = original_content
@@ -1458,7 +1474,9 @@ def _persist_message_to_thread(
             else None
         )
         _persona_id_for_facts = (
-            str(refreshed_thread_for_facts.get("active_profile_id") or "").strip()
+            str(
+                refreshed_thread_for_facts.get("active_profile_id") or ""
+            ).strip()
             if isinstance(refreshed_thread_for_facts, dict)
             else None
         ) or None
@@ -2579,6 +2597,24 @@ def chat_create_thread(
         chatlog_db.write_audit_log(
             "create", "chat_thread", str(record["id"]), user_id=user_id
         )
+
+        # Best-effort: notify active clients of new thread.
+        try:
+            event_bus.emit_event(
+                ChatEventType.THREAD_CREATED.value,
+                {
+                    "thread_id": int(record["id"]),
+                    "title": title,
+                    "user_id": user_id,
+                    "project_id": normalized_project,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Failed to emit thread.created event for thread %s",
+                record.get("id"),
+            )
+
         return {"ok": True, "id": record["id"], "thread": record}
     except Exception as exc:
         logger.exception("Failed to create chat thread: %s", exc)
@@ -2671,12 +2707,14 @@ def chat_list_tasks(
     receipts: list[dict[str, Any]] = []
     if task_id:
         state = task_events.describe_terminal_state(task_id)
-        receipts.append({
-            "task_id": task_id,
-            "state": state.get("state"),
-            "event_type": state.get("event_type"),
-            "reason": state.get("reason"),
-        })
+        receipts.append(
+            {
+                "task_id": task_id,
+                "state": state.get("state"),
+                "event_type": state.get("event_type"),
+                "reason": state.get("reason"),
+            }
+        )
 
     return {
         "ok": True,
@@ -2702,8 +2740,15 @@ def chat_post_message(
     """Post a new message to a chat thread."""
     role = body.get("role")
     raw_content = body.get("content", "")
-    content = raw_content.strip() if isinstance(raw_content, str) else raw_content
-    if not role or not (isinstance(content, str) and content.strip() or isinstance(content, list) and len(content) > 0):
+    content = (
+        raw_content.strip() if isinstance(raw_content, str) else raw_content
+    )
+    if not role or not (
+        isinstance(content, str)
+        and content.strip()
+        or isinstance(content, list)
+        and len(content) > 0
+    ):
         return JSONResponse(
             status_code=400,
             content={"ok": False, "error": "role and content required"},
@@ -2752,7 +2797,11 @@ def chat_post_message_create_on_send(
     """
     role = (body.role or "").strip()
     raw_body_content = body.content or ""
-    content = raw_body_content.strip() if isinstance(raw_body_content, str) else raw_body_content
+    content = (
+        raw_body_content.strip()
+        if isinstance(raw_body_content, str)
+        else raw_body_content
+    )
     if not role or not (
         (isinstance(content, str) and content.strip())
         or (isinstance(content, list) and len(content) > 0)
@@ -2877,19 +2926,32 @@ def chat_list_messages(
     thread_id: int,
     limit: int = 50,
     offset: int = 0,
+    before_message_id: Optional[int] = None,
     include_fact_evidence: bool = False,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
-    """List messages for a chat thread."""
+    """List messages for a chat thread.
+
+    Supports both offset-based and cursor-based pagination:
+
+    - ``offset=0`` returns the *latest* page (last ``limit`` messages).
+    - ``before_message_id=<id>`` returns messages with id < ``<id>``
+      ascending, for loading older pages without offset drift.
+    - ``has_more`` in the response indicates whether additional older
+      messages exist beyond the returned window.
+    """
     _require_thread_account_scope(thread_id, request_user_scope)
     exclude_kinds = None if include_fact_evidence else ["fact_evidence"]
-    items = chatlog_db.list_messages(
-        thread_id,
+    list_kwargs: dict[str, Any] = dict(
+        thread_id=thread_id,
         limit=limit,
         offset=offset,
         exclude_kinds=exclude_kinds,
     )
+    if before_message_id is not None:
+        list_kwargs["before_message_id"] = before_message_id
+    items = chatlog_db.list_messages(**list_kwargs)
     normalized_items: list[dict[str, Any]] = []
     missing_meta_ids: list[int] = []
     for raw_item in items:
@@ -2941,7 +3003,13 @@ def chat_list_messages(
 
     normalized_items = _attach_message_audio_metadata(normalized_items)
     total = chatlog_db.count_messages(thread_id)
-    return {"ok": True, "total": total, "messages": normalized_items}
+    has_more = len(normalized_items) >= limit
+    return {
+        "ok": True,
+        "total": total,
+        "has_more": has_more,
+        "messages": normalized_items,
+    }
 
 
 @router.post("/{thread_id}/complete")
@@ -3968,7 +4036,9 @@ async def simple_chat_entrypoint(
     elif body.prompt:
         messages = [{"role": "user", "content": body.prompt}]
     else:
-        raise HTTPException(status_code=400, detail="prompt or messages required")
+        raise HTTPException(
+            status_code=400, detail="prompt or messages required"
+        )
 
     # Detect image content for vision model selection.
     has_image = _messages_have_image(messages)
@@ -3983,11 +4053,19 @@ async def simple_chat_entrypoint(
         model = body.model
         model_source = "explicit"
     elif has_image:
-        vision_model = getattr(llm_settings, "LOCAL_VISION_MODEL", None) if llm_settings else None
+        vision_model = (
+            getattr(llm_settings, "LOCAL_VISION_MODEL", None)
+            if llm_settings
+            else None
+        )
         model = vision_model or "qwen2-vl-2b-mlx"
         model_source = "local_vision_env" if vision_model else "fallback"
     elif provider == "local":
-        chat_model = getattr(llm_settings, "LOCAL_CHAT_MODEL", None) if llm_settings else None
+        chat_model = (
+            getattr(llm_settings, "LOCAL_CHAT_MODEL", None)
+            if llm_settings
+            else None
+        )
         model = chat_model or DEFAULT_MODEL
         model_source = "local_chat_env" if chat_model else "fallback"
     else:
@@ -3996,7 +4074,10 @@ async def simple_chat_entrypoint(
 
     logger.info(
         "whooshd_chat model=%s source=%s has_image=%s provider=%s",
-        model, model_source, has_image, provider,
+        model,
+        model_source,
+        has_image,
+        provider,
     )
 
     reply_text: str
@@ -4012,7 +4093,9 @@ async def simple_chat_entrypoint(
         else:
             reply_text = f"Echo: {str(messages)[:100]}"
     except HTTPException as exc:
-        logger.warning("/chat backend HTTPException, using echo fallback: %s", exc)
+        logger.warning(
+            "/chat backend HTTPException, using echo fallback: %s", exc
+        )
         reply_text = f"Echo: {str(messages)[:100]}"
     except Exception as exc:
         logger.warning("/chat backend failed, using echo fallback: %s", exc)
@@ -4042,23 +4125,31 @@ def _messages_have_image(messages: list[dict]) -> bool:
 async def _whooshd_chat(messages: list[dict], model: str) -> str:
     """Call Whoosh'd /v1/chat/completions for a multimodal request."""
     import os
+
     import httpx
 
-    base_url = os.environ.get("LOCAL_BASE_URL", "http://host.docker.internal:8000/v1")
+    base_url = os.environ.get(
+        "LOCAL_BASE_URL", "http://host.docker.internal:8000/v1"
+    )
     url = f"{base_url.rstrip('/')}/chat/completions"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(url, json={
-            "model": model,
-            "messages": messages,
-            "stream": False,
-        })
+        resp = await client.post(
+            url,
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": False,
+            },
+        )
         if resp.status_code == 200:
             data = resp.json()
             choices = data.get("choices", [])
             if choices:
                 return choices[0].get("message", {}).get("content", "")
-        raise RuntimeError(f"Whoosh'd returned {resp.status_code}: {resp.text[:200]}")
+        raise RuntimeError(
+            f"Whoosh'd returned {resp.status_code}: {resp.text[:200]}"
+        )
 
 
 def _get_task_completed_payload(
@@ -5465,6 +5556,7 @@ def api_chat_list_messages(
     thread_id: int,
     limit: int = 50,
     offset: int = 0,
+    before_message_id: int | None = None,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -5473,6 +5565,7 @@ def api_chat_list_messages(
         thread_id,
         limit,
         offset,
+        before_message_id=before_message_id,
         include_fact_evidence=False,
         api_key=api_key,
         request_user_scope=request_user_scope,

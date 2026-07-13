@@ -1,6 +1,7 @@
 import * as React from "react";
 import { BookOpen, ChevronRight, FileText, ImagePlus } from "lucide-react";
 import DocumentTile, { type DocumentFile } from "@/components/documents/DocumentTile";
+import { DocumentEmbeddingStatusBadge } from "@/components/documents/documentEmbeddingStatus";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
 import { ExtColors, GalleryItem } from "@/types/ui";
@@ -86,7 +87,6 @@ function MobileRecentDocumentRow({
   const rowTestId = String(doc.id ?? doc.name).trim().replace(/\s+/g, "-");
   const subtitleParts = [
     doc.ext ? `.${String(doc.ext).replace(/^\./, "").toUpperCase()}` : null,
-    doc.embeddingStatus ? String(doc.embeddingStatus).trim() : null,
   ].filter(Boolean);
 
   return (
@@ -130,6 +130,10 @@ function MobileRecentDocumentRow({
             <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5">
               Open in Workspace
             </span>
+            <DocumentEmbeddingStatusBadge
+              status={doc.embeddingStatus}
+              embeddingError={doc.embeddingError}
+            />
             {subtitleParts.length > 0 ? (
               <span className="truncate">{subtitleParts.join(" • ")}</span>
             ) : null}

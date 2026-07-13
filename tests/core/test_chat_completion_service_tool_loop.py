@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.providers.deepseek_adapter import DeepSeekResponse
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -243,6 +244,77 @@ def test_second_tool_decision_hard_stops_after_one_bounded_turn(
     assert exc.value.metadata["loopStopReason"] == "tool_turn_limit_reached"
     assert exc.value.metadata["toolTurnState"] == "limit_reached"
     assert exc.value.metadata["commandRunId"] == "run-456"
+
+
+def test_deepseek_native_tool_call_replays_losslessly_and_runs_once(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(monkeypatch, provider="deepseek")
+    task = _build_task(task_id="task-deepseek-native")
+    task.provider = "deepseek"
+    task.tools = [{"command_id": "op::echo", "description": "echo"}]
+
+    command_calls: list[Any] = []
+
+    def _execute_invoke(*, payload, **_kwargs):
+        command_calls.append(payload)
+        return {
+            "run_id": "run-deepseek",
+            "status": "completed",
+            "invoke_version": "1.0",
+            "manifest_version": "1.0",
+            "events_url": "/events/run-deepseek",
+            "inline_result": {"value": "ok"},
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _execute_invoke)
+    assistant_message = {
+        "role": "assistant",
+        "content": None,
+        "reasoning_content": "opaque reasoning",
+        "tool_calls": [{"id": "call-1", "type": "function"}],
+    }
+    calls: list[list[dict[str, Any]]] = []
+
+    def _chat_with_ai(messages, **_kwargs):
+        calls.append([dict(message) for message in messages])
+        if len(calls) == 1:
+            return DeepSeekResponse(
+                content="",
+                reasoning_content="opaque reasoning",
+                tool_calls=[
+                    {
+                        "command_id": "op::echo",
+                        "tool_call_id": "call-1",
+                        "arguments": {"body": {"value": "alpha"}},
+                    }
+                ],
+                raw_assistant_message=assistant_message,
+                raw_payload={"choices": [{"message": assistant_message}]},
+            )
+        return DeepSeekResponse(
+            content="final answer",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={"role": "assistant", "content": "final answer"},
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert len(command_calls) == 1
+    assert command_calls[0].command_id == "op::echo"
+    assert result["assistant_text"] == "final answer"
+    assert calls[1][-2] == assistant_message
+    assert calls[1][-1] == {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "content": '{"run_id": "run-deepseek", "status": "completed", "invoke_version": "1.0", "manifest_version": "1.0", "events_url": "/events/run-deepseek", "inline_result": {"value": "ok"}}',
+    }
 
 
 def test_tool_execution_failure_surfaces_bounded_stop_reason(

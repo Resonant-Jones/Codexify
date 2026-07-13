@@ -278,6 +278,7 @@ export function ChatView({
   const initialScrollAppliedRef = useRef(false);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [voiceUnavailableMessageIds, setVoiceUnavailableMessageIds] = useState<
@@ -792,6 +793,19 @@ export function ChatView({
     lastAutoReadMessageIdRef.current = latestId;
   }, [autoReadEnabled, messages, voiceReadAloudEnabled]);
 
+  const handleLoadOlder = useCallback(async () => {
+    if (!hasMore || !onLoadOlderMessages || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    try {
+      await onLoadOlderMessages();
+    } catch {
+      // Errors are surfaced via the error prop from useChat; handleLoadOlder
+      // only manages local UI loading state.
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [hasMore, isLoadingOlder, onLoadOlderMessages]);
+
   const onScroll = useCallback(async () => {
     const el = containerRef.current;
     if (!el) return;
@@ -807,7 +821,7 @@ export function ChatView({
     }
 
     if (loading || !hasMore || !onLoadOlderMessages) return;
-    if (el.scrollTop === 0) {
+    if (el.scrollTop <= 1) {
       const previousHeight = el.scrollHeight;
       await onLoadOlderMessages();
       requestAnimationFrame(() => {
@@ -900,6 +914,29 @@ export function ChatView({
           style={{ maxWidth: CHAT_LANE_MAX_WIDTH }}
         >
           {surfaceState ? <ChatSurfaceStateCard state={surfaceState} /> : null}
+          {hasMore && onLoadOlderMessages ? (
+            <div className="flex justify-center py-1">
+              <button
+                type="button"
+                data-testid="load-older-messages"
+                disabled={isLoadingOlder}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleLoadOlder();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                {isLoadingOlder ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    Loading older messages…
+                  </>
+                ) : (
+                  "Load older messages"
+                )}
+              </button>
+            </div>
+          ) : null}
           {messages.map((message, index) => {
             const audioState = resolveMessageAudioState(message);
             const messageId = audioState.messageId;

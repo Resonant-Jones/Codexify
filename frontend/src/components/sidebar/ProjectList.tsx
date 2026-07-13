@@ -37,7 +37,7 @@ export default function ProjectList({
     async (project: Project) => {
       if (!onDeleteProject) return;
       const projectId = String(project.id);
-      const projectName = cleanSidebarProjectTitle(project as any) || "this project";
+      const projectName = cleanSidebarProjectTitle(project) || "this project";
       const confirmed = window.confirm(
         `Delete project "${projectName}"? This will remove the project and unassign its threads.`
       );
@@ -58,7 +58,7 @@ export default function ProjectList({
         {filtered.map((p) => (
           <ProjectTileCard
             key={p.id}
-            label={cleanSidebarProjectTitle(p as any)}
+            label={cleanSidebarProjectTitle(p)}
             icon={p.icon}
             active={currentId === String(p.id)}
             onClick={() => onPick(String(p.id))}
@@ -98,9 +98,12 @@ function ProjectTileCard({
   const baseIcon = typeof icon === "string" && icon.trim().length <= 2
     ? icon.trim()
     : icon || <FolderOpen className="h-6 w-6" />;
-  const iconNode = React.isValidElement(baseIcon)
-    ? React.cloneElement(baseIcon as React.ReactElement, {
-        className: clsx("project-tile__icon", ((baseIcon as React.ReactElement).props as any)?.className),
+  const iconElement = React.isValidElement(baseIcon)
+    ? (baseIcon as React.ReactElement<{ className?: string }>)
+    : null;
+  const iconNode = iconElement
+    ? React.cloneElement(iconElement, {
+        className: clsx("project-tile__icon", iconElement.props.className),
       })
     : <span className="project-tile__icon">{baseIcon}</span>;
   return (

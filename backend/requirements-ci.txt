@@ -33,3 +33,4 @@ neomodel
 # Lightweight retrieval helpers used by deterministic tests.
 markdownify
 rank-bm25
+jsonschema==4.25.0

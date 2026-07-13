@@ -10,12 +10,17 @@ import {
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
+import type {
+  PersonaVoicePreviewRequest,
+  PersonaVoicePreviewResponse,
+  PersonaVoiceProviderRecord,
+  PersonaVoiceSelectableVoiceEnvelope,
+} from "@/features/personaStudio/types";
 import {
   clearRuntimeApiKey as clearRuntimeApiKeyState,
   getRuntimeApiKey,
   setRuntimeApiKey as setRuntimeApiKeyState,
 } from "@/lib/runtimeAuth";
-import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 
 export type { SlashCommandIntentPayload };
 
@@ -294,6 +299,70 @@ export function buildThreadDocumentsPath(threadId: string | number): string {
 
 export function buildLlmCatalogPath(): string {
   return "/llm/catalog";
+}
+
+export function buildVoiceProvidersPath(): string {
+  return "/api/voice/providers";
+}
+
+export function buildVoiceProviderPath(providerId: string | number): string {
+  return `${buildVoiceProvidersPath()}/${normalizePathSegment(providerId)}`;
+}
+
+export function buildVoiceProviderVoicesPath(
+  providerId: string | number
+): string {
+  return `${buildVoiceProviderPath(providerId)}/voices`;
+}
+
+export function buildVoicePreviewPath(): string {
+  return "/api/voice/preview";
+}
+
+export async function fetchPersonaVoiceProviders(): Promise<
+  PersonaVoiceProviderRecord[]
+> {
+  try {
+    const response = await api.get<{ providers?: PersonaVoiceProviderRecord[] }>(
+      buildVoiceProvidersPath()
+    );
+    return response.data?.providers ?? [];
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
+}
+
+export async function fetchPersonaVoiceProviderVoices(
+  providerId: string
+): Promise<PersonaVoiceSelectableVoiceEnvelope> {
+  try {
+    const response = await api.get<PersonaVoiceSelectableVoiceEnvelope>(
+      buildVoiceProviderVoicesPath(providerId)
+    );
+    return response.data;
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
+}
+
+export async function previewPersonaVoice(
+  payload: PersonaVoicePreviewRequest
+): Promise<PersonaVoicePreviewResponse> {
+  try {
+    const response = await api.post<PersonaVoicePreviewResponse>(
+      buildVoicePreviewPath(),
+      payload
+    );
+    return response.data;
+  } catch (error) {
+    const optional = classifyOptionalSurfaceError(error);
+    if (optional) throw optional;
+    throw error;
+  }
 }
 
 export function buildLlmModelOverridesPath(): string {
@@ -637,16 +706,17 @@ export function resolveBackendThreadIdFromResponse(
   responseLike: unknown,
   context: ThreadIdResolutionContext
 ): ThreadIdResolution {
-  const response = isPlainObject(responseLike) ? responseLike : null;
+  const response: Record<string, unknown> | null = isPlainObject(responseLike) ? responseLike : null;
   const responseHasDataProp =
     Boolean(response) && Object.prototype.hasOwnProperty.call(response, "data");
   const responseDataValue = responseHasDataProp ? response?.data : undefined;
   const responseData = isPlainObject(responseDataValue) ? responseDataValue : null;
+  const responseDataThread = responseData && isPlainObject(responseData.thread)
+    ? responseData.thread
+    : null;
   const responseThread = response && isPlainObject(response.thread)
     ? response.thread
-    : responseData && isPlainObject(responseData.thread)
-      ? responseData.thread
-      : null;
+    : responseDataThread;
   const parserFailureReason: ThreadIdParserFailureReason =
     response != null &&
     responseHasDataProp &&
@@ -670,12 +740,12 @@ export function resolveBackendThreadIdFromResponse(
   const candidates: Array<[string, unknown]> = [
     ["response.thread_id", response?.thread_id],
     ["response.threadId", response?.threadId],
-    ["response.id", response?.id],
+    ["response.id", response?.["id"]],
     ["response.thread.id", responseThread?.id],
     ["response.data.thread_id", responseData?.thread_id],
     ["response.data.threadId", responseData?.threadId],
     ["response.data.id", responseData?.id],
-    ["response.data.thread.id", responseData?.thread?.id],
+    ["response.data.thread.id", responseDataThread?.id],
   ];
 
   for (const [branch, rawValue] of candidates) {
@@ -995,21 +1065,6 @@ function readCompletionMeta(config: unknown): {
     threadId,
     turnId: normalizeCompletionTurnId(candidate?.__cfyCompletionTurnId),
   };
-}
-
-function completionErrorDetail(error: any): string {
-  const detail = error?.response?.data?.detail;
-  if (typeof detail === "string") return detail.toLowerCase();
-  if (!detail || typeof detail !== "object") return "";
-  return [
-    detail?.error,
-    detail?.reason,
-    detail?.message,
-    detail?.code,
-  ]
-    .filter(Boolean)
-    .map((value) => String(value).toLowerCase())
-    .join(" ");
 }
 
 export function getInFlightCompletionTurnId(

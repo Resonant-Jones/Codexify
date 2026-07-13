@@ -21,6 +21,8 @@ Source anchors:
 Trigger:
 - Frontend posts `POST /api/chat/{thread_id}/complete` after a user message exists in the thread.
 - When the composer starts a brand-new conversation, the frontend first creates a backend thread with `POST /api/chat/threads`, resolves the durable thread id from the response, selects that id, and only then posts the first user message to `POST /api/chat/{thread_id}/messages`.
+- On successful thread creation (excluding idempotent reuse of an existing empty thread), the route emits a best-effort `thread.created` domain event so active hosted-room clients can refresh their thread lists via the existing SSE outbox (see `docs/architecture/runtime-protocol-token-contract.md`).
+- The visible transcript is fetched via `GET /api/chat/{thread_id}/messages` and supports cursor-based pagination (`?before_message_id=<id>`) in addition to the existing offset-based path. The response includes a `has_more` boolean. The transcript pagination path is independent of completion-context assembly — model context remains bounded by `task.max_context` and is loaded through a separate call path in `chat_completion_service.py`.
 
 Sequence:
 1. `guardian/routes/chat.py` validates the thread, turn state, and effective identity depth.
@@ -41,8 +43,11 @@ Sequence:
    - No second tool turn is permitted in this slice.
    - If a non-local provider fails and the selection is eligible for rescue, the worker may retry once on local inference.
    - The context broker starts with active thread messages, then thread-local semantic context, then thread-linked docs. Project docs only enter when the thread is project-bound or the selected posture explicitly allows broader local retrieval.
+   - Uploaded documents are gated on `embedding_status == "ready"` before entering the context window. Documents in `pending`, `processing`, or `failed` state are silently excluded from retrieval. See `docs/architecture/rag-and-retrieval.md`.
    - When `retrievalSource="workspace"`, the completion service asks `ContextBroker` for user-bounded local knowledge, including Obsidian-backed notes; proving reliable selection/injection in executed turns remains an active validation target.
    - Remote Recall Search-as-RAG is a narrow, gated web-evidence branch on this flow. Local retrieval remains the default. Remote Recall is invoked ONLY when the resolved retrieval posture is explicit `global_search`, `REMOTE_RECALL_ENABLED=true`, provider feature flags/credentials/egress are all enabled, and every candidate result passes the Web Evidence Intake Gate before any web content enters synthesis. It is off by default and never enables web search for ordinary local/conversation/workspace turns. Queue acceptance still means the work was accepted, not that web search succeeded.
+   - Remote Recall evidence enters synthesis only as lower-authority bounded retrieval/context data. It is injected as a `user`-role message that is explicitly delimited and labeled as untrusted retrieved data; it MUST NOT be injected as `system` or `developer` authority, and must never be treated as executable instruction. Only Web Evidence Intake Gate-eligible envelopes are injected; blocked evidence remains trace/diagnostic-only.
+   - Remote Recall proof depends on terminal task evidence, a persisted assistant message, and `trace["remote_recall"]` metadata (provider, source kinds, candidate/eligible/blocked counts, gate decisions). Route acceptance, a green health endpoint, and unit-test passes are not live proof. One live supported-path proof (PASS) exists on `feature/remote-retrieval` only, under intentionally enabled Groq/egress/posture overrides; it is **not proven on `main`** until the seam is merged and rerun there. See `remote-recall-live-proof.md`.
    - For the workspace proof harness, executed-path worker-visible completion payload evidence is the canonical proof surface; debug trace remains diagnostic-only and cannot replace the executed completion record.
 9. Assistant output is persisted to Postgres, audited, optionally embedded, and emitted as domain events.
 10. After the assistant row is durably stored, the worker captures a trace snapshot, persists it to Postgres, and best-effort enqueues an eval task on the derived inspection lane.
@@ -91,11 +96,13 @@ Debug trace note:
 - The debug route must not expose raw image or document content, hidden prompts, chain-of-thought, or secrets.
 
 Conceptual state split:
-- The runtime docs now recognize a distinction between provider runtime state, request execution state, and lifecycle visibility state.
+- The runtime docs now recognize a distinction between provider runtime state, request execution state, and transport visibility state.
 - Provider runtime state answers whether the selected provider lane is reachable, warming, ready, or otherwise degraded.
 - Request execution state answers what a specific completion attempt is doing after acceptance.
-- Lifecycle visibility state answers what the UI or operator can currently observe from task events, persisted assistant rows, and related breadcrumbs.
-- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider state vocabulary used by frontend/shared-runtime interpretation.
+- Transport visibility state answers whether the frontend can still observe the stream for that attempt, including connected, suspected_stalled, recovering, recovered, and failed cases.
+- The transport layer can lose visible progress while the backend keeps running, which is why a later visible assistant turn may belong to an earlier accepted request rather than a new backend failure.
+- `docs/architecture/chat-runtime-contract.md` is the normative source for the request/provider/transport vocabulary used by frontend/shared-runtime interpretation.
+- `docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md` defines the third-plane decision and keeps recovery observation-safe rather than replay-driven.
 - This flow remains descriptive of the current queue-backed path. It should not be read as proof that every contract state is already emitted literally by the backend on `main`.
 
 Concrete anchors:
@@ -226,6 +233,7 @@ Supported readback contract:
 - `GET /api/documents/{id}` is the supported document detail route for upload -> embed -> retrieve proof.
 - The detail route resolves document identity by `uploaded_documents.id` and preserves compatibility lookup by `asset_id`.
 - The detail payload is expected to include embedding lifecycle visibility (`embedding_status`, `embedding_error`, `embedding_started_at`, `embedding_completed_at`) without requiring direct DB inspection.
+- `docs/architecture/rag-and-retrieval.md` captures the ready-only retrieval gate: `pending`, `processing`, and `failed` stay visible for diagnosis, but only `ready` documents are eligible for broker retrieval.
 
 Failure modes:
 - Unsupported MIME/type returns `400`

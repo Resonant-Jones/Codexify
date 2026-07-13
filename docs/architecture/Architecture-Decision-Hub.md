@@ -32,6 +32,7 @@ This note exists to strengthen backlink density across the architecture vault.
 * [[flows|Critical Flows]]
 * [[completion_pipeline|Completion Request Pipeline]]
 * [[chat-runtime-contract|Chat Runtime Contract]]
+* [[adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract|ADR-038 Chat Transport Visibility and Adaptive Stream Recovery Contract]]
 * [[router-decision-table|Retrieval Router Decision Table]]
 * [[tech-debt-and-risks|Tech Debt and Risks]]
 

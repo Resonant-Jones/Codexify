@@ -31,6 +31,7 @@ describe("Persona Studio two-pane layout", () => {
     expect(configurationLane).toBeVisible();
     expect(railLane).toBeVisible();
     expect(within(configurationLane).getByTestId("persona-studio-editor")).toBeVisible();
+    expect(within(configurationLane).getByTestId("persona-studio-profile-selector")).toBeVisible();
     expect(within(railLane).getByTestId("persona-studio-rail")).toBeVisible();
   });
 
@@ -128,10 +129,8 @@ describe("Persona Studio two-pane layout", () => {
     const user = userEvent.setup();
     renderPage();
 
-    // Preview is default
     expect(screen.getByTestId("persona-preview-panel")).toBeVisible();
 
-    // Switch to Diagnostics
     await user.click(screen.getByRole("tab", { name: /^diagnostics$/i }));
     expect(screen.getByRole("tab", { name: /^diagnostics$/i })).toHaveAttribute(
       "aria-selected",
@@ -139,7 +138,6 @@ describe("Persona Studio two-pane layout", () => {
     );
     expect(screen.getByTestId("persona-studio-rail-diagnostics-panel")).toBeVisible();
 
-    // Switch back to Preview
     await user.click(screen.getByRole("tab", { name: /^preview$/i }));
     expect(screen.getByRole("tab", { name: /^preview$/i })).toHaveAttribute(
       "aria-selected",
@@ -160,17 +158,13 @@ describe("Persona Studio two-pane layout", () => {
       "persona-studio-profile-selector-trigger"
     );
 
-    // Profile name visible — text-first
     expect(
       within(configurationLane).getByTestId(
         "persona-studio-profile-selector-trigger-name"
       )
     ).toHaveTextContent(/guardian default/i);
-
-    // No oversized icon
     expect(trigger.querySelector("svg")).toBeNull();
 
-    // Profile-level actions and Studio reset live in the same lane
     expect(
       within(configurationLane).getByTestId("persona-studio-action-save")
     ).toBeInTheDocument();
@@ -184,14 +178,44 @@ describe("Persona Studio two-pane layout", () => {
       within(configurationLane).getByTestId("persona-studio-action-reset-all")
     ).toBeInTheDocument();
 
-    // Reset local Studio data appears exactly once across the whole page
     expect(
       screen.getAllByRole("button", { name: /^reset local studio data$/i })
     ).toHaveLength(1);
 
-    // Reset All Data does not appear
     expect(
       screen.queryByRole("button", { name: /^reset all data$/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("applies the Persona Studio action material tiers to tray and preview controls", () => {
+    renderPage();
+
+    expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toHaveAttribute(
+      "data-ps-material",
+      "selector"
+    );
+    expect(screen.getByTestId("persona-studio-action-save")).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(screen.getByTestId("persona-studio-action-save-as-new")).toHaveAttribute(
+      "data-ps-material",
+      "secondary"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByTestId("persona-studio-action-reset-all")).toHaveAttribute(
+      "data-ps-material",
+      "reset"
+    );
+    expect(screen.getByRole("button", { name: /^send$/i })).toHaveAttribute(
+      "data-ps-material",
+      "primary"
+    );
+    expect(
+      screen.getByRole("button", { name: /clear preview session/i })
+    ).toHaveAttribute("data-ps-material", "secondary");
   });
 });

@@ -1,0 +1,80 @@
+name: UX friction
+description: Report confusing, uncertain, or awkward interactions that may not be bugs.
+title: "ux: "
+labels:
+  - ux
+  - friction
+  - intake
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the system technically works, but the interface makes the behavior hard to understand. This is the papercut net.
+
+  - type: textarea
+    id: moment
+    attributes:
+      label: Moment of confusion
+      description: What were you trying to do when the UI felt unclear?
+      placeholder: "I was trying to understand the multi-tab chat behavior."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What you expected
+      placeholder: "I expected the labels to tell me whether I was in an existing chat, a new unsaved chat, or a duplicate."
+    validations:
+      required: true
+
+  - type: textarea
+    id: uncertainty
+    attributes:
+      label: What felt uncertain?
+      description: Capture the user's mental model, not just the visible UI.
+      placeholder: "I could not tell if 'My thread' and 'New thread' were separate conversations, tabs, or copies."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Interaction path
+      description: What did you click or type, in order?
+      placeholder: |
+        1. Opened project chat
+        2. Clicked + in the top-right
+        3. Renamed one thread
+        4. Switched tabs
+    validations:
+      required: false
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Blocks understanding
+        - Causes wrong action
+        - Slows me down
+        - Minor polish issue
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Optional. A rough idea is fine.
+      placeholder: "Rename 'My thread' to 'Current chat' and disable + while an empty new chat already exists."
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshot, recording, or notes
+      description: Paste screenshots, logs, or raw observations here.
+    validations:
+      required: false

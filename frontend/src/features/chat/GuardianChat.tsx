@@ -13,7 +13,6 @@ import {
   useLayoutEffect,
 } from "react";
 import type { CSSProperties } from "react";
-import { debounce } from "lodash-es";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +27,7 @@ import {
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
-import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED } from "@/contracts/runtimeTokens";
+import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED, CHAT_THREAD_CREATED } from "@/contracts/runtimeTokens";
 import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
 import {
   Composer,
@@ -78,7 +77,10 @@ import type { RagTraceResponse } from "@/types/rag";
 import { fetchSystemPromptSummary, type PromptCostStatus, type SystemPromptSummary } from "@/imprint/api";
 import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
-import { getRuntimeConfigHydrationState } from "@/lib/runtimeConfig";
+import {
+  getRuntimeConfigHydrationState,
+  getRuntimeConfigSync,
+} from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
   isChatSelectableModel,
@@ -104,8 +106,6 @@ import { setPreferredProviderSelection } from "@/lib/providerPref";
 import { resolveModelDisplayLabel } from "@/lib/modelLabels";
 import {
   CHAT_LANE_MAX_WIDTH,
-  CHAT_LANE_INLINE_PADDING,
-  CHAT_STAGE_MAX_WIDTH,
   GUARDIAN_SHELL_MAX_WIDTH,
   GUARDIAN_SHELL_MAX_WIDTH_CLASS,
   CHAT_LANE_GUTTER_CLASS,
@@ -129,6 +129,33 @@ import {
   type DocumentContextContent,
 } from "@/lib/documentContext";
 
+function debounce<Args extends unknown[]>(
+  fn: (...args: Args) => void,
+  waitMs: number
+): ((...args: Args) => void) & { cancel: () => void } {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const debounced = (...args: Args) => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      fn(...args);
+    }, waitMs);
+  };
+
+  debounced.cancel = () => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
+  return debounced;
+}
+
 const DRAFT_KEY_PREFIX = "gc-draft:";
 const TURN_LOCK_TOAST =
   "Keep typing. Send unlocks when the current reply finishes.";
@@ -138,7 +165,6 @@ const DEFAULT_SOURCE_MODE = "project";
 const UNSET_PREFERRED_NAME_VALUES = new Set(["you"]);
 const PROFILE_SWITCH_COMMAND_ID = "op::guardian.profile.switch";
 const COMMAND_BUS_ACTOR_ID = "local";
-const CANONICAL_SINGLE_USER_ID = "local";
 
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -237,11 +263,6 @@ function RuntimeStatusStrip({
   if (!showProviderState && !showRequestState) {
     return null;
   }
-
-  const visual = mapRuntimeToVisualState(
-    isActive ? "streaming" : "queued",
-    canonical
-  );
 
   const toneColor =
     canonical === PROVIDER_RUNTIME_STATES.ERROR || canonical === PROVIDER_RUNTIME_STATES.OFFLINE
@@ -885,12 +906,12 @@ export function GuardianChat({
   onPrefillConsumed,
   pendingDocumentTiles,
   onPendingDocumentTilesConsumed,
-  onWorkspaceToggle,
-  workspaceOpen = false,
+  onWorkspaceToggle: _onWorkspaceToggle,
+  workspaceOpen: _workspaceOpen = false,
   activeThread,
   workspaceProjectId = null,
   onSendMessage,
-  onThreadPersisted,
+  onThreadPersisted: _onThreadPersisted,
   onNewChat,
   onBranchThread: _onBranchThread,
   onArchiveThread,
@@ -1005,6 +1026,7 @@ export function GuardianChat({
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const orphanedThreadRef = useRef<Set<number>>(new Set());
+  const recentLocalThreadCreationsRef = useRef<Map<number, number>>(new Map());
   const lastCompletionThreadRef = useRef<number | null>(null);
   const lastCompletionDepthRef = useRef<Record<number, DepthMode>>({});
   const traceEndpointRef = useRef<Record<number, string>>({});
@@ -1141,7 +1163,7 @@ export function GuardianChat({
     providerOverride: null,
     modelOverride: null,
   });
-  const [profileSwitching, setProfileSwitching] = useState(false);
+  const [, setProfileSwitching] = useState(false);
   const [promptCostSummary, setPromptCostSummary] = useState<SystemPromptSummary | null>(null);
   const [promptCostPopoverOpen, setPromptCostPopoverOpen] = useState(false);
   const [providerMenuOpenSignal, setProviderMenuOpenSignal] = useState(0);
@@ -2835,6 +2857,36 @@ export function GuardianChat({
     };
   }, [subscribe]);
 
+  // Live thread-created event → refresh thread list for cross-client visibility.
+  const LOCAL_CREATION_WINDOW_MS = 3000;
+  useEffect(() => {
+    const offCreated = subscribe(CHAT_THREAD_CREATED, (event) => {
+      const payload = flattenChatEventPayload(event.data ?? event.payload ?? {});
+      const tid = Number(payload?.thread_id ?? payload?.threadId);
+      if (!Number.isFinite(tid)) return;
+
+      // Dedupe: skip if *this* tab just created the thread (local echo).
+      const createdAt = recentLocalThreadCreationsRef.current.get(tid);
+      if (createdAt != null && Date.now() - createdAt < LOCAL_CREATION_WINDOW_MS) {
+        return;
+      }
+
+      // Clean up stale entries from the local-creation map.
+      const now = Date.now();
+      for (const [key, ts] of recentLocalThreadCreationsRef.current.entries()) {
+        if (now - ts > LOCAL_CREATION_WINDOW_MS) {
+          recentLocalThreadCreationsRef.current.delete(key);
+        }
+      }
+
+      emitThreadsRefresh("create", { id: tid, remote: true });
+    });
+
+    return () => {
+      offCreated();
+    };
+  }, [subscribe]);
+
   useEffect(() => {
     const offMessage = subscribe("message.created", (event) => {
       const payload = flattenChatEventPayload(event.data);
@@ -3001,6 +3053,7 @@ export function GuardianChat({
     options?: { tabId?: TabId | null }
   ) => {
     const nextTitle = (title && title.trim().length > 0) ? title.trim() : NEW_THREAD_TITLE;
+    recentLocalThreadCreationsRef.current.set(threadId, Date.now());
     const targetTabId = options?.tabId ?? null;
     const shouldPromoteVisibleThread =
       targetTabId == null || targetTabId === activeSessionTabIdRef.current;
@@ -3051,7 +3104,7 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const normalizedUserId = CANONICAL_SINGLE_USER_ID;
+      const runtimeConfig = getRuntimeConfigSync();
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -3061,11 +3114,14 @@ export function GuardianChat({
       const createThreadEndpoint = buildChatThreadsPath();
 
       try {
-        const resp = await api.post(createThreadEndpoint, {
+        const createThreadPayload = {
           title: provisionalTitle,
-          user_id: normalizedUserId,
           metadata,
-        });
+          ...(runtimeConfig.authMode === "remote"
+            ? {}
+            : { user_id: CANONICAL_SINGLE_USER_ID }),
+        };
+        const resp = await api.post(createThreadEndpoint, createThreadPayload);
         const response = resp ?? {};
         const resolution = resolveBackendThreadIdFromResponse(response, {
           endpoint: `POST ${createThreadEndpoint}`,
@@ -3162,7 +3218,18 @@ export function GuardianChat({
   );
 
   const handleDocumentTileRemove = useCallback(
-    (tileId: string) => {
+    (tile: unknown) => {
+      const tileId =
+        typeof tile === "string"
+          ? tile
+          : typeof tile === "object" && tile !== null && "id" in tile
+            ? String((tile as { id?: unknown }).id ?? "")
+            : "";
+
+      if (!tileId.trim()) {
+        return;
+      }
+
       const scopeKey = documentTileScopeKey(activeSessionTabId);
       setDocumentTilesByScope((previous) => {
         const current = previous[scopeKey] ?? [];
@@ -3264,7 +3331,6 @@ export function GuardianChat({
      * container and establishes the temporal message flow. The provisional
      * title becomes the thread's identity in the distributed awareness network.
      */
-    const normalizedUserId = CANONICAL_SINGLE_USER_ID;
     const hydrationState = getRuntimeConfigHydrationState();
     if (hydrationState === "pending") {
       showToast("Local runtime is still hydrating. Try again in a moment.");
@@ -3334,7 +3400,6 @@ export function GuardianChat({
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "assistant",
             content: `Profile switched to ${label}. Next completion will use this profile.`,
-            user_id: normalizedUserId,
           });
           if (targetThreadId === effectiveThreadId) {
             await refreshSnapshot(targetThreadId, "profile-switch");
@@ -3371,7 +3436,6 @@ export function GuardianChat({
         await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
           content: contentForSend,
-          user_id: normalizedUserId,
           project_id: workspaceProjectId ?? undefined,
         });
 
@@ -3430,7 +3494,6 @@ export function GuardianChat({
           await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
             content: contentForSend,
-            user_id: normalizedUserId,
             project_id: workspaceProjectId ?? undefined,
           });
           emitThreadsRefresh("refresh", {
@@ -4251,7 +4314,6 @@ export function GuardianChat({
                   }
                 }}
                 activeModelId={selectedModel?.id ?? activeModelId}
-                selectedModelCatalog={selectedModel}
                 modelOptions={modelOptions}
                 onModelChange={(modelId) => {
                   const nextSnapshot = mergeThreadConfigSnapshot({

@@ -1,0 +1,14 @@
+Onboarding observations
+
+Friction points
+- Setup asks for context before the first useful action.
+- The configuration fork makes the path feel larger than it is.
+
+User expectation
+The invitation should feel intentional, but the first minute should stay calm.
+
+Recommended first-run sequence
+1. Invitation
+2. Login
+3. One clear first action
+4. Optional setup only when it helps the work in front of the user

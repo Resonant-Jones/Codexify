@@ -5,8 +5,6 @@
  * in the current beta build. Visually replaces or covers unfinished content.
  */
 
-import React from "react";
-
 export interface BetaGateProps {
   /** Title of the gated feature */
   title: string;

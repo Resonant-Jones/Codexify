@@ -605,7 +605,7 @@ export function useInferenceRequestState() {
   const startRequest = useCallback(
     ({ threadId, providerId, modelId, mode }: StartInferenceRequestInput) => {
       closeTaskStream();
-      const nextState = {
+      const nextState: InferenceRequestState = {
         ...createIdleInferenceRequestState(),
         phase: "sending",
         threadId,
@@ -653,7 +653,7 @@ export function useInferenceRequestState() {
 
   const markCancelled = useCallback(
     (
-      detailText = INFERENCE_DETAIL_TEXT.CANCELLED,
+      detailText: string = INFERENCE_DETAIL_TEXT.CANCELLED,
       options: { timingPatch?: Partial<InferenceRequestState> } = {}
     ) => {
       closeTaskStream();
@@ -674,7 +674,7 @@ export function useInferenceRequestState() {
 
   const markCompleted = useCallback(
     (
-      detailText = INFERENCE_DETAIL_TEXT.COMPLETED,
+      detailText: string = INFERENCE_DETAIL_TEXT.COMPLETED,
       options: { timingPatch?: Partial<InferenceRequestState> } = {}
     ) => {
       closeTaskStream();
