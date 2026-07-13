@@ -27,7 +27,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - ADR-042 and `schemas/audit/canonical-audit-evidence.schema.json` now define the intended canonical audit evidence model.
 - A test-backed repository-local canonical evidence validator now validates one manifest's schema, bounded semantics, artifact hashes, and eligibility; it is local tooling, not runtime proof.
 - Canonical audit producers and consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
-- No VaultNode identity collector exists yet; historical artifacts are not automatically canonical.
+- A bounded repository-local identity collector now observes machine and Git identity; it is not runtime proof, does not establish VaultNode authority from hostname, and does not produce or promote canonical evidence. Historical artifacts are not automatically canonical.
 - Existing artifacts remain historical or provisional until revalidated under the new model.
 - Campaign posture remains `HOLD / NEXT_PROOF_NEEDED`; the next implementation slice is VaultNode evidence identity collection or schema-validation integration, not feature expansion.
 
