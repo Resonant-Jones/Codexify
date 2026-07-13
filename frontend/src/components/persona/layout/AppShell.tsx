@@ -2485,6 +2485,10 @@ export default function AppShell({
   }, [navigateToView]);
   const createThreadFromDashboard = useCallback(() => {
     if (!checkAuthGate(auth, "threads create")) {
+      if (typeof window !== "undefined") {
+        window.history.pushState({}, "", "/login");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }
       return;
     }
     setPrefill(undefined);
