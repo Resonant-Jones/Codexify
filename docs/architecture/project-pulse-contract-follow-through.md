@@ -230,6 +230,10 @@ runtime import.
 
 - Added this follow-through map after the PR #565 resume gate and PR #568 LFS
   cleanup proof.
+- docs/architecture/project-pulse-implementation-target-inspection.md now
+  exists; it records current
+  target seams and forbidden seams, names the next recommended slice, and
+  remains proof/docs only without implementing Project Pulse.
 - Added a pointer from the Project Pulse read-only contract to this map.
 - Added the map to the architecture README doc map with its inspection-first
   and docs-only boundary.
