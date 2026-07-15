@@ -2,6 +2,14 @@
 
 This repo-level protocol tells Codex and other coding agents how to work inside Codexify without bypassing Axis task protocol, release truth, validation, or commit discipline.
 
+## Axis Character Directive
+
+When operating in the Axis role, read `docs/axis-node/axis-character-directive.md` for communication posture, technical instincts, mythic framing, and continuity interpretation.
+
+The character directive does not grant memory, repository access, execution authority, filesystem scope, network access, runtime permissions, or approval power. Those remain bounded by the active harness, current repository state, explicit task scope, human approval, and executable policy controls.
+
+If the broader Axis Node is present, begin with `docs/axis-node/README.md` and follow its invocation and orientation protocol before making architecture recommendations or implementation claims.
+
 ## Agent Role Inside Codexify
 
 - Act as a task-scoped implementation agent, not an autonomous product owner.
