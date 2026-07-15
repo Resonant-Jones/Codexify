@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-13
+2026-07-15
 
 ## Interpretation rule
 This file is authoritative for:
@@ -27,6 +27,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - ADR-042 and `schemas/audit/canonical-audit-evidence.schema.json` now define the intended canonical audit evidence model.
 - A test-backed repository-local canonical evidence validator now validates one manifest's schema, bounded semantics, artifact hashes, and eligibility; it is local tooling, not runtime proof.
 - A bounded repository-local canonical evidence manifest producer now composes explicit metadata with the existing machine/Git and static runtime identity collectors, computes a deterministic evidence ID, and hands the manifest to the existing validator. It is repository tooling only; it does not execute proof, inspect live services, persist evidence, establish live VaultNode proof, or promote trusted `latest`.
+- A bounded repository-local live proof receipt collector can now inspect one explicitly selected, already-running supported Compose project through three fixed read-only Docker commands and five fixed credential-free loopback health probes. It emits a deterministic, schema-validated, secret-safe receipt with distinct `PASS`, `FAIL`, `BLOCKED`, and `ERROR` outcomes. The receipt is an intermediate execution artifact only: the current manifest producer still rejects `CURRENT_LIVE_PROOF`, and no receipt integration, evidence storage, freshness resolution, promotion receipt, trusted pointer, or release approval exists.
 - Canonical evidence consumers have not yet been migrated, and trusted `latest` promotion remains unimplemented.
 - A bounded repository-local identity collector now observes machine and Git identity; it is not runtime proof, does not establish VaultNode authority from hostname, and does not produce or promote canonical evidence. Historical artifacts are not automatically canonical.
 - A bounded repository-local runtime identity collector now observes the accepted supported profile, explicitly selected Compose definitions, static migration-head identity, and a secret-safe effective configuration hash. It does not inspect Docker, prove service health or execution, establish VaultNode runtime authority, produce a complete manifest, or promote evidence.

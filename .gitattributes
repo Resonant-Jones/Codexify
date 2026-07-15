@@ -12,5 +12,6 @@ tests/fixtures/marketing/golden/**/*.json -filter -diff -merge text
 
 # Canonical audit validator inputs are small deterministic source files, not LFS artifacts.
 schemas/audit/canonical-audit-evidence.schema.json -filter -diff -merge text
+schemas/audit/canonical-live-proof-receipt.schema.json -filter -diff -merge text
 tests/audit/fixtures/canonical-evidence.valid.canonical.json -filter -diff -merge text
 tests/audit/fixtures/canonical-evidence.valid.provisional.json -filter -diff -merge text
