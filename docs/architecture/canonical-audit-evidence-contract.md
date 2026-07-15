@@ -218,20 +218,34 @@ path is repository-local, atomic, and non-overwriting unless `--replace` is
 explicit. The producer never executes commands, inspects Docker or services,
 persists evidence, mutates Git, or promotes authority.
 
+A bounded repository-local live proof receipt collector now observes one
+explicitly selected, already-running supported Compose project. It binds the
+existing machine/Git and static runtime identities to a fixed read-only Docker
+command boundary, supported-profile service lifecycle observations, image
+identity, and five credential-free loopback health probes. It emits a
+schema-validated, secret-safe execution receipt with distinct `PASS`, `FAIL`,
+`BLOCKED`, and `ERROR` outcomes. The subordinate [Canonical Live Proof Receipt
+Contract](./canonical-live-proof-receipt-contract.md) governs this seam. The
+receipt is not accepted canonical evidence, proof storage, promotion approval,
+trusted `latest`, or release approval, and the current manifest producer does
+not consume it.
+
 ## Deferred implementation work
 
-Live service and Compose runtime inspection, runtime health, artifact collection
-from proof runs, complete canonical manifest production beyond this bounded
-validated assembly, freshness evaluation, evidence storage, cross-record
-resolution, pointer storage, promotion receipts, trusted pointers, consumer
-migration, and live VaultNode proof remain separately scoped work.
-`CURRENT_LIVE_PROOF` is rejected by this producer; other supported proof classes
-may carry nullable runtime fields when static runtime identity is not requested.
-A requested static runtime identity must be complete, but it is still not live
-proof.
+Manifest integration and acceptance of the bounded live receipt, artifact
+collection beyond that receipt, complete canonical manifest production beyond
+the current validated assembly, freshness evaluation, evidence storage,
+cross-record resolution, supersession validation, contradiction resolution,
+pointer storage, promotion receipts, trusted pointers, consumer migration, and
+live VaultNode proof remain separately scoped work. `CURRENT_LIVE_PROOF` is
+still rejected by the manifest producer; other supported proof classes may
+carry nullable runtime fields when static runtime identity is not requested. A
+requested static runtime identity must be complete, but it is still not live
+proof without a separately produced receipt, and a receipt is not manifest
+acceptance.
 
 ## Non-goals
 
 This contract does not implement producer or consumer migration, a registry,
-pointer, schedule, audit run, proof run, live Compose inspection, release
-approval, or feature expansion.
+pointer, schedule, autonomous audit execution, manifest integration of the
+bounded receipt, release approval, or feature expansion.

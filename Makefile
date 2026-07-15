@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate canonical-audit-live-proof-receipt audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
 
 # Python executable
 PYTHON      ?= python
@@ -233,6 +233,20 @@ canonical-audit-evidence-generate:
 	@test -n "$(compose_file)" || test -n "$(no_runtime_identity)" || { echo "Usage: make canonical-audit-evidence-generate metadata=... machine_id=... machine_role=... authority_basis=... compose_file=... audit_project=... [no_runtime_identity=1]" >&2; exit 2; }
 	@test -n "$(audit_project)" || test -n "$(no_runtime_identity)" || { echo "Usage: make canonical-audit-evidence-generate metadata=... machine_id=... machine_role=... authority_basis=... compose_file=... audit_project=... [no_runtime_identity=1]" >&2; exit 2; }
 	$(PYTHON) scripts/audit/generate_canonical_evidence_manifest.py $(if $(repo),--repo "$(repo)",) --metadata-input "$(metadata)" --machine-id "$(machine_id)" --machine-role "$(machine_role)" --authority-basis "$(authority_basis)" $(if $(assert_canonical_machine),--assert-canonical-machine,) --compose-file "$(compose_file)" --audit-project "$(audit_project)" $(if $(serving_project),--serving-project "$(serving_project)",) $(if $(profile_name),--profile-name "$(profile_name)",) $(if $(profiles_dir),--profiles-dir "$(profiles_dir)",) $(if $(migration_dir),--migration-dir "$(migration_dir)",) $(if $(no_runtime_identity),--no-runtime-identity,) $(if $(output),--output "$(output)",) $(if $(replace),--replace,)
+
+# Observe one explicitly selected, already-running supported Compose project.
+# This target is read-only: it does not start, stop, build, publish, or promote.
+canonical-audit-live-proof-receipt:
+	@test -n "$(machine_id)" || { echo "machine_id is required" >&2; exit 2; }
+	@test -n "$(machine_role)" || { echo "machine_role is required" >&2; exit 2; }
+	@test -n "$(authority_basis)" || { echo "authority_basis is required" >&2; exit 2; }
+	@test -n "$(compose_file)" || { echo "compose_file is required" >&2; exit 2; }
+	@test -n "$(compose_project)" || { echo "compose_project is required" >&2; exit 2; }
+	@test -n "$(project_role)" || { echo "project_role is required (serving or audit)" >&2; exit 2; }
+	@test -n "$(audit_project)" || { echo "audit_project is required" >&2; exit 2; }
+	@test -n "$(api_base)" || { echo "api_base is required" >&2; exit 2; }
+	@test -n "$(frontend_base)" || { echo "frontend_base is required" >&2; exit 2; }
+	$(PYTHON) scripts/audit/collect_canonical_live_proof_receipt.py --repo "$(if $(repo),$(repo),.)" --machine-id "$(machine_id)" --machine-role "$(machine_role)" --authority-basis "$(authority_basis)" $(if $(assert_canonical_machine),--assert-canonical-machine,) --compose-file "$(compose_file)" --compose-project "$(compose_project)" --project-role "$(project_role)" --audit-project "$(audit_project)" $(if $(serving_project),--serving-project "$(serving_project)",) $(if $(profile_name),--profile-name "$(profile_name)",) $(if $(compose_env_file),--compose-env-file "$(compose_env_file)",) --api-base "$(api_base)" --frontend-base "$(frontend_base)" $(if $(command_timeout),--command-timeout "$(command_timeout)",) $(if $(http_timeout),--http-timeout "$(http_timeout)",) $(if $(output),--output "$(output)",) $(if $(replace),--replace,)
 
 # Run local stdout-only Guardian Evidence Packet generator.
 guardian-evidence-packet-generate:

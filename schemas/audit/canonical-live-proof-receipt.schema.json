@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/audit/canonical-live-proof-receipt.schema.json",
+  "title": "Canonical Live Proof Execution Receipt",
+  "description": "A bounded, secret-safe observation receipt for one explicitly selected supported Compose project. The receipt is not canonical evidence, promotion approval, or trusted latest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "suite_id",
+    "proof_class",
+    "authority_status",
+    "execution_outcome",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "machine",
+    "repository",
+    "runtime",
+    "target",
+    "docker",
+    "services",
+    "probes",
+    "commands",
+    "reason_codes"
+  ],
+  "properties": {
+    "schema_version": { "const": "canonical_live_proof_receipt.v1" },
+    "receipt_id": { "type": "string", "pattern": "^live-proof-receipt-sha256-[0-9a-f]{64}$" },
+    "suite_id": { "const": "supported_compose_live_health.v1" },
+    "proof_class": { "const": "CURRENT_LIVE_PROOF" },
+    "authority_status": { "type": "string", "enum": ["CANONICAL", "PROVISIONAL"] },
+    "execution_outcome": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "ERROR"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "machine": { "$ref": "#/$defs/machine" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "target": { "$ref": "#/$defs/target" },
+    "docker": { "$ref": "#/$defs/docker" },
+    "services": { "type": "array", "items": { "$ref": "#/$defs/service" } },
+    "probes": { "type": "array", "items": { "$ref": "#/$defs/probe" } },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reason_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9_]+$" } }
+  },
+  "$defs": {
+    "nullableIdentifier": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,255}$" },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_id", "machine_role", "hostname", "authority_basis"],
+      "properties": {
+        "machine_id": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "machine_role": { "type": "string", "enum": ["canonical_evidence_host", "provisional_development_host"] },
+        "hostname": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "authority_basis": { "type": "string", "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_root_identity", "branch", "commit_sha", "upstream_sha", "dirty", "worktree_identity"],
+      "properties": {
+        "repository_root_identity": { "type": "string", "minLength": 1, "pattern": "^(?!/).+" },
+        "branch": { "type": "string", "minLength": 1 },
+        "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "upstream_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+        "dirty": { "type": "boolean" },
+        "worktree_identity": { "type": "string", "minLength": 1, "pattern": "^(?!/).+" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supported_profile", "effective_config_hash", "compose_project", "compose_files", "migration_head", "service_identities", "required_services", "optional_services"],
+      "properties": {
+        "supported_profile": { "type": "string", "minLength": 1 },
+        "effective_config_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "compose_project": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "compose_files": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" } },
+        "migration_head": { "type": "string", "minLength": 1 },
+        "service_identities": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "required_services": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "optional_services": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose_project", "project_role", "audit_project", "serving_project", "compose_environment_file"],
+      "properties": {
+        "compose_project": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "project_role": { "type": "string", "enum": ["serving", "audit"] },
+        "audit_project": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "serving_project": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "compose_environment_file": { "type": ["string", "null"], "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" }
+      }
+    },
+    "docker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_version", "server_version"],
+      "properties": {
+        "client_version": { "type": ["string", "null"], "maxLength": 128 },
+        "server_version": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "required", "lifecycle", "container_identity", "image_id", "image_digest", "state", "health_status", "exit_code", "observation_result", "reason_codes"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "lifecycle": { "type": "string", "enum": ["long_running", "one_shot"] },
+        "container_identity": { "$ref": "#/$defs/nullableIdentifier" },
+        "image_id": { "type": ["string", "null"], "pattern": "^(?:sha256:)?[0-9a-f]{12,64}$" },
+        "image_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "state": { "type": ["string", "null"], "maxLength": 64 },
+        "health_status": { "type": ["string", "null"], "maxLength": 64 },
+        "exit_code": { "type": ["integer", "null"] },
+        "observation_result": { "type": "string", "enum": ["PASS", "FAIL", "OPTIONAL_ABSENT"] },
+        "reason_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9_]+$" } }
+      }
+    },
+    "safeProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "valid", "mismatches", "selected_provider_supported"],
+      "properties": {
+        "name": { "type": ["string", "null"], "maxLength": 128 },
+        "valid": { "type": ["boolean", "null"] },
+        "mismatches": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } },
+        "selected_provider_supported": { "type": ["boolean", "null"] }
+      }
+    },
+    "safeCompletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "redis_reachable", "enqueue_test_ok", "worker_heartbeat_status"],
+      "properties": {
+        "ok": { "type": ["boolean", "null"] },
+        "redis_reachable": { "type": ["boolean", "null"] },
+        "enqueue_test_ok": { "type": ["boolean", "null"] },
+        "worker_heartbeat_status": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "safeProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": ["string", "null"], "maxLength": 64 },
+        "ok": { "type": ["boolean", "null"] },
+        "release_hold": { "type": ["boolean", "null"] },
+        "supported_profile": { "$ref": "#/$defs/safeProfile" },
+        "completion_service": { "$ref": "#/$defs/safeCompletion" },
+        "models_available": { "type": ["boolean", "null"] },
+        "provider_runtime_available": { "type": ["boolean", "null"] }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["probe_id", "method", "path", "status_code", "started_at", "completed_at", "duration_ms", "outcome", "response_body_sha256", "projection", "reason_codes"],
+      "properties": {
+        "probe_id": { "type": "string", "enum": ["api_ping", "api_health", "api_health_chat", "api_health_llm", "frontend_root"] },
+        "method": { "const": "GET" },
+        "path": { "type": "string", "enum": ["/ping", "/health", "/health/chat", "/api/health/llm", "/"] },
+        "status_code": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "outcome": { "type": "string", "enum": ["PASS", "FAIL", "ERROR"] },
+        "response_body_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "projection": { "$ref": "#/$defs/safeProjection" },
+        "reason_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9_]+$" } }
+      }
+    }
+  }
+}
