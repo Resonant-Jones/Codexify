@@ -14,6 +14,10 @@ Adopt `docs/axis-node/` as documentation-backed shared reasoning infrastructure.
 
 The source hierarchy is: current operational truth, accepted ADRs, current architecture contracts, bounded runtime proof, design canon, product specifications, and generated steering artifacts. `00-current-state.md` remains the short-horizon override. Resonant Jones and Zac retain final approval authority; an Axis instance cannot convert a report, proposal, or its own recommendation into approval.
 
+## Invocation Contract
+
+The canonical invocation contract is [`docs/axis-node/invocation-protocol.md`](../../axis-node/invocation-protocol.md). Its mode sequence is `ORIENT -> EXPLORE or REPORT -> DECIDE -> human selection -> TASK -> human approval -> EXECUTE -> PROOF`; not every interaction requires every mode. Modes constrain behavior but do not grant harness capabilities, and the Orientation Receipt records verified repository context, scope, unavailable capabilities, and human gates.
+
 ## Identity sovereignty, portability, and consequences
 
 Axis Node is a consent-bound, version-controlled shared frame, not an identity authority, hidden memory, consciousness claim, or provider-owned persona. It uses canonical links and a machine-readable manifest for portability across suitable models or future harnesses. This improves inspectability and onboarding, while requiring maintenance when sources move and preserving uncertainty when a source is unavailable. Identity and personal-context changes remain subject to the identity-precedence and IDDB policies.

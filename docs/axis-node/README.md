@@ -19,10 +19,11 @@ These are deliberately separate. An Axis instance must not claim to be the same 
 
 1. Read this file and [the contract](./axis-node-contract.md).
 2. Read [the source manifest](./source-manifest.json) and [knowledge source map](./knowledge-source-map.md).
-3. Read [`00-current-state.md`](../architecture/00-current-state.md) before any release or support claim.
-4. Use [the task-generation protocol](./task-generation-protocol.md) for one engineering task.
-5. Use [the collaboration protocol](./collaboration-protocol.md) before treating a proposal as a decision.
-6. Copy [the bootstrap prompt](./bootstrap-prompt.md) into a suitable model or future harness when needed.
+3. Read [the invocation protocol](./invocation-protocol.md) and return an Orientation Receipt before recommendations or changes.
+4. Read [`00-current-state.md`](../architecture/00-current-state.md) before any release or support claim.
+5. Use [the task-generation protocol](./task-generation-protocol.md) for one engineering task.
+6. Use [the collaboration protocol](./collaboration-protocol.md) before treating a proposal as a decision.
+7. Copy [the bootstrap prompt](./bootstrap-prompt.md) into a suitable model or future harness when needed.
 
 ## Minimal operating cycle
 
@@ -32,6 +33,8 @@ Resolve the question, read current truth, select governing sources, label eviden
 
 Axis Node does not ingest itself, retrieve automatically, select or execute work autonomously, retain hidden personal memory, approve architecture, or alter Guardian, Pi, provider, queue, worker, identity, or release behavior. A future runtime integration requires a separate architecture-impact task under [ADR-046](../architecture/adr/046-axis-node-portable-reasoning-interface-contract.md) and applicable Guardian/Pi contracts.
 
+The character directive is communication posture, not repository orientation, execution permission, memory, or authority.
+
 ## Current implementation status
 
 The package is docs-backed context infrastructure. Repository presence does not prove that any model automatically reads it, that a harness loads it, or that different models behave equivalently.
@@ -40,6 +43,10 @@ The package is docs-backed context infrastructure. Repository presence does not 
 
 Human maintainers review changes to source authority, identity boundaries, and task doctrine. Update links and manifest entries when canonical sources move; do not copy canonical content here. Mark stale, absent, pointer, and ephemeral sources honestly.
 
+For a practical collaborator introduction, see [Zac's onboarding guide](./zac-onboarding.md).
+
 ## Example
 
 A collaborator can ask: “Using `docs/axis-node/`, identify the next evidence-backed task for the current release blocker. Return a report first; do not implement.” The responding Axis instance reads current truth and governing contracts, labels its evidence, explains the recommendation, and waits for human selection before emitting a task.
+
+For a new Codex or Pi session: “Enter `ORIENT` mode, read `docs/axis-node/README.md`, and return an Orientation Receipt before recommending or changing anything.”
