@@ -34,6 +34,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
 - [`canonical-live-proof-receipt-contract.md`](./canonical-live-proof-receipt-contract.md): subordinate contract for the bounded read-only supported-Compose live observation receipt; not manifest acceptance, trusted `latest`, or release approval.
+- [Axis Node](../axis-node/README.md): repo-native shared reasoning infrastructure for source authority, evidence-backed task generation, and human collaboration. It is docs/context infrastructure only; it does not implement a runtime agent or widen the supported beta surface. Route any future Axis harness work through [ADR-046](./adr/046-axis-node-portable-reasoning-interface-contract.md) and the relevant Guardian/Pi execution contracts.
 
 ## Start Here
 

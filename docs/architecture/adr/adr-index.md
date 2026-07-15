@@ -77,6 +77,7 @@ Use this note as the local map for all ADRs.
 37. [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]] — governs future storage posture for Contacts and Circles as account-scoped, exportable, private-by-default relationship state, with sync deferred behind a future ADR.
 38. [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]] — governs future invite lifecycle, invite storage posture, token boundary, invite-to-contact mapping, and invite-to-permission bridge for Contacts, Circles, and future Spaces.
 39. [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]] — governs future Space participant resolution, roster semantics, participant source mapping, role/capability posture, mixed-trust handling, and bounded presence for Contacts, Circles, accepted Invites, local accounts, remote nodes, and AI-mediated actors.
+40. [[046-axis-node-portable-reasoning-interface-contract|ADR-046 Axis Node Portable Reasoning Interface Contract]] — docs/context contract for portable, source-governed Axis reasoning without implementing a runtime agent or widening release support.
 
 ---
 
@@ -104,6 +105,9 @@ Use this note as the local map for all ADRs.
 - [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]]
   - Governs future Space participant resolution, roster semantics, participant source mapping, role/capability posture, mixed-trust handling, and bounded presence for Contacts, Circles, accepted Invites, local accounts, remote nodes, and AI-mediated actors.
   - Related anchors: [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[../adr/043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]], [[../adr/044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../data-and-storage|Data and Storage]], and [[../00-current-state|00 Current State]].
+- [[046-axis-node-portable-reasoning-interface-contract|ADR-046 Axis Node Portable Reasoning Interface Contract]]
+  - Governs the docs-only Axis role/node/instance/harness distinction, source authority, human approval boundary, and future runtime integration gate.
+  - Related anchors: [[../00-current-state|00 Current State]], [[../agent-protocol-operations|Agent Protocol Operations Index]], [[../guardian-role-and-delegation-boundary|Guardian Role and Delegation Boundary]], [[020-guardian-mediated-coding-agent-execution-contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]], and [[../pi-invocation-boundary-contract|Pi Invocation Boundary Contract]].
 
 ## Relationship to the main architecture docs
 

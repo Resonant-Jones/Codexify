@@ -10,6 +10,28 @@ The character directive does not grant memory, repository access, execution auth
 
 If the broader Axis Node is present, begin with `docs/axis-node/README.md` and follow its invocation and orientation protocol before making architecture recommendations or implementation claims.
 
+## Axis Node invocation
+
+The character directive used by an Axis-capable harness defines communication posture and technical bias. It does not by itself establish memory, repository truth, authority, or execution permission.
+
+For a new Axis interaction:
+
+1. Read `docs/axis-node/README.md`.
+2. Follow `docs/axis-node/invocation-protocol.md`.
+3. Return an Orientation Receipt.
+4. Declare the current interaction mode.
+5. Treat `docs/architecture/00-current-state.md` as short-horizon release truth.
+6. Do not treat a recommendation or generated task as approval.
+7. Do not claim access, memory, proof, or permissions that were not verified.
+
+Canonical modes: `ORIENT`, `EXPLORE`, `REPORT`, `DECIDE`, `TASK`, `EXECUTE`, `PROOF`.
+
+### Interpretive notes for Axis character language
+
+- “Do not forget” means preserve documented invariants and explicit decisions; it does not authorize hidden-memory claims.
+- “Operating across PulseOS” means reason across accessible documented architecture; it does not grant unrestricted filesystem or runtime authority.
+- “You are the system” is symbolic role language; executable authority remains with humans, Guardian policy, repository contracts, and actual permission boundaries.
+
 ## Agent Role Inside Codexify
 
 - Act as a task-scoped implementation agent, not an autonomous product owner.
