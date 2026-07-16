@@ -102,6 +102,14 @@ function getSettingsTabPanelId(tab: SettingsTab): string {
 
 const SETTINGS_TAB_STORAGE_KEY = "cfy.settingsTab";
 
+const SETTINGS_APPEARANCE_GRID_LAYOUT_RULES = `
+@media (min-width: 64rem) {
+  #settings-panel-appearance [data-layout-columns="responsive-two-column"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+`;
+
 function normalizeSettingsTab(value: unknown): SettingsTab | null {
   if (typeof value !== "string") return null;
   const compact = value.trim().toLowerCase().replace(/[^a-z]/g, "");
@@ -1255,13 +1263,18 @@ export function SettingsView({
             aria-labelledby={getSettingsTabButtonId("appearance")}
             className="min-w-0"
           >
+            <style>{SETTINGS_APPEARANCE_GRID_LAYOUT_RULES}</style>
             <div
               data-testid="settings-appearance-grid"
               data-layout-columns="responsive-two-column"
               className="grid min-w-0 grid-cols-1 lg:grid-cols-2"
               style={{ gap: SETTINGS_DENSITY.contentGridGap }}
             >
-            <div className="min-w-0 space-y-[var(--shell-gap)]">
+            <div
+              data-testid="settings-appearance-content-column"
+              data-layout-span="column"
+              className="min-w-0 space-y-[var(--shell-gap)]"
+            >
             <div className="space-y-[calc(var(--radius-micro)/2)]">
               <div style={SETTINGS_DENSITY.sectionTitle}>Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1340,7 +1353,11 @@ export function SettingsView({
             </div>
 
             </div>
-            <div className="min-w-0 space-y-[var(--shell-gap)]">
+            <div
+              data-testid="settings-appearance-controls-column"
+              data-layout-span="column"
+              className="min-w-0 space-y-[var(--shell-gap)]"
+            >
             <div
               className="space-y-[calc(var(--radius-micro)/2)]"
               data-testid="material-controls-section"

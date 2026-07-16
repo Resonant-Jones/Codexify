@@ -307,6 +307,20 @@ describe("SettingsView", () => {
       "data-layout-columns",
       "responsive-two-column"
     );
+    expect(
+      Array.from(document.querySelectorAll("style")).some((style) =>
+        style.textContent?.includes(
+          '#settings-panel-appearance [data-layout-columns="responsive-two-column"]'
+        ) && style.textContent?.includes("@media (min-width: 64rem)")
+      )
+    ).toBe(true);
+
+    expect(
+      screen.getByTestId("settings-appearance-content-column")
+    ).toHaveAttribute("data-layout-span", "column");
+    expect(
+      screen.getByTestId("settings-appearance-controls-column")
+    ).toHaveAttribute("data-layout-span", "column");
 
     await user.click(screen.getByRole("tab", { name: "Imprint" }));
     expect(screen.getByTestId("imprint-workspace")).toHaveAttribute(
