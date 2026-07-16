@@ -84,7 +84,7 @@ flowchart TD
     E --> O["View blueprints"]
     O --> P["Documents<br/>list card plus optional workspace card"]
     O --> Q["Dashboard<br/>thread grid card plus workspace drawer"]
-    O --> R["Settings<br/>single centered or full-width card"]
+    O --> R["Settings<br/>one primary card with compact full-width dock<br/>and responsive one/two-column tabpanel grid"]
     O --> S["Gallery<br/>single card to inner card to grid"]
     O --> T["Guardian<br/>card-wrapped content with optional sidebar"]
 ```

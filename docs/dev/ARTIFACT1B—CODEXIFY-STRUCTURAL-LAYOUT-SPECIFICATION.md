@@ -250,7 +250,7 @@ lg/xl:
 
 Documents: 50/50 split
 
-Settings: left card centered, right stays empty
+Settings: centered primary card with a responsive internal tabpanel grid
 
 Dashboard: workspace drawer allowed
 
@@ -342,9 +342,11 @@ Workspace is right-fixed width via --workspace-w
 Thread grid MUST use tokenized grid spacing
 
 E. SETTINGS VIEW
-+-------------+
-| SettingsCard |
-+-------------+
++------------------------------------------+
+| SettingsCard                             |
+| [ compact full-width internal tab dock ] |
+| [ responsive tabpanel content grid      ] |
++------------------------------------------+
 
 Rules:
 
@@ -352,7 +354,14 @@ Card is centered in large screens
 
 Full-width in small screens
 
-NEVER add additional columns
+Settings remains one primary card. Its internal tabpanel content MAY use a
+responsive two-column grid on sufficiently wide screens and MUST collapse to
+one column on narrow screens. Sections that require additional width MAY span
+both internal columns. The tab dock remains inside the single Settings card.
+
+The two internal columns MUST NOT become independent primary cards or separate
+navigation contexts. This exception does not permit arbitrary page-level
+columns outside the Settings card.
 
 XI. WORKSPACE DRAWER RULES
 

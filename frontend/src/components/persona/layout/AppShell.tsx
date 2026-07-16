@@ -35,6 +35,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
 import ContactsLauncher from "@/features/contacts/ContactsLauncher";
@@ -2523,7 +2524,7 @@ export default function AppShell({
       return { maxWidth: "none" };
     }
     // On larger screens, let the shell expand modestly without becoming a takeover.
-    return { maxWidth: "min(46rem, calc(100vw - 2rem))" };
+    return { maxWidth: SETTINGS_DENSITY.frameMaxWidth };
   }, [bp]);
 
   const galleryGridStyle = useMemo(

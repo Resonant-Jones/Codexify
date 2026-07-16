@@ -28,6 +28,9 @@ describe("SettingsPanelDock", () => {
       paddingInline: SETTINGS_DENSITY.edgeChrome,
     });
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
+    const rail = screen.getByTestId("settings-panel-dock").querySelector(".glass-pill");
+    expect(rail).toHaveClass("w-full", "overflow-x-auto");
+    expect(rail).not.toHaveClass("flex-wrap");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();

@@ -30,12 +30,14 @@ export default function SettingsPanelDock({
       }}
     >
       <div
-        className="glass-pill isolate relative inline-flex w-fit max-w-full min-w-0 flex-wrap items-center justify-center overflow-x-auto"
+        className="glass-pill isolate relative flex w-full min-w-0 items-stretch gap-[var(--settings-dock-gap)] overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
             "--pill-active-text": "var(--text-on-accent)",
-            "--pill-gap": "calc(var(--radius-micro) / 2)",
-            "--pill-font": "0.8rem",
+            "--pill-gap": SETTINGS_DENSITY.dockGap,
+            "--pill-font": SETTINGS_DENSITY.dockFontSize,
+            "--settings-dock-gap": SETTINGS_DENSITY.dockGap,
+            "--settings-dock-padding": SETTINGS_DENSITY.dockPadding,
           } as CSSProperties
         }
       >

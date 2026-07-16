@@ -1119,9 +1119,11 @@ export function SettingsView({
         aria-controls={tabPanelId}
         aria-selected={selected}
         tabIndex={selected ? 0 : -1}
-        variant={selected ? "default" : "ghost"}
+        variant="ghost"
         size="sm"
-        className="rounded-[var(--tile-radius,19px)]"
+        data-state={selected ? "active" : "inactive"}
+        className="pill-tab min-w-max shrink-0 px-3 py-2 text-[0.75rem] lg:min-w-0 lg:flex-1"
+        style={{ minWidth: SETTINGS_DENSITY.dockTabMinWidth }}
         onClick={() => activateTab(definition.value)}
         onKeyDown={(event) => handleTabKeyDown(event, definition.value)}
       >
@@ -1145,11 +1147,14 @@ export function SettingsView({
           >
             <div
               data-testid="settings-panel-content"
-              className="flex w-full min-w-0 max-w-[72rem] flex-col gap-[var(--shell-gap)]"
+              data-layout="settings-content-grid"
+              className="flex w-full min-w-0 flex-col gap-[var(--shell-gap)]"
+              style={{ maxWidth: SETTINGS_DENSITY.contentMaxWidth }}
             >
             {tab === "system" && (
           <SettingsSectionCard
             data-testid="settings-system-surface"
+            data-layout-span="full"
             role="tabpanel"
             id={getSettingsTabPanelId("system")}
             aria-labelledby={getSettingsTabButtonId("system")}
@@ -1226,6 +1231,7 @@ export function SettingsView({
 
             <SettingsSectionCard
               data-testid="imprint-workspace"
+              data-layout-span="full"
               className="space-y-[var(--shell-gap)]"
             >
               <div className="space-y-[calc(var(--radius-micro)/2)]">
@@ -1247,8 +1253,15 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("appearance")}
             aria-labelledby={getSettingsTabButtonId("appearance")}
-            className="space-y-[var(--shell-gap)]"
+            className="min-w-0"
           >
+            <div
+              data-testid="settings-appearance-grid"
+              data-layout-columns="responsive-two-column"
+              className="grid min-w-0 grid-cols-1 lg:grid-cols-2"
+              style={{ gap: SETTINGS_DENSITY.contentGridGap }}
+            >
+            <div className="min-w-0 space-y-[var(--shell-gap)]">
             <div className="space-y-[calc(var(--radius-micro)/2)]">
               <div style={SETTINGS_DENSITY.sectionTitle}>Theme</div>
               <SegmentedThemeControl mode={mode} onChange={setMode} />
@@ -1326,6 +1339,8 @@ export function SettingsView({
               </div>
             </div>
 
+            </div>
+            <div className="min-w-0 space-y-[var(--shell-gap)]">
             <div
               className="space-y-[calc(var(--radius-micro)/2)]"
               data-testid="material-controls-section"
@@ -1430,27 +1445,30 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="flex flex-col items-center gap-[var(--shell-gap)]">
-              <div className="space-y-[calc(var(--radius-micro)/2)] text-center">
+            <div className="grid grid-cols-1 gap-[var(--shell-gap)] sm:grid-cols-2">
+              <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
                 <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Depth</div>
-                <div className="w-[300px] max-w-full mx-auto">
+                <div className="w-full">
                   <Input type="range" min={0} max={1} step={0.01} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
                 </div>
               </div>
-              <div className="space-y-[calc(var(--radius-micro)/2)] text-center">
+              <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
                 <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Fade</div>
-                <div className="w-[300px] max-w-full mx-auto">
+                <div className="w-full">
                   <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
                 </div>
               </div>
             </div>
 
+            </div>
+            </div>
           </SettingsSectionCard>
         )}
 
         {tab === "connectors" && (
           <SettingsSectionCard
             data-testid="settings-connectors-surface"
+            data-layout-span="full"
             role="tabpanel"
             id={getSettingsTabPanelId("connectors")}
             aria-labelledby={getSettingsTabButtonId("connectors")}
@@ -1497,6 +1515,7 @@ export function SettingsView({
         {tab === "data" && (
           <SettingsSectionCard
             data-testid="settings-data-surface"
+            data-layout-span="full"
             role="tabpanel"
             id={getSettingsTabPanelId("data")}
             aria-labelledby={getSettingsTabButtonId("data")}
@@ -1723,6 +1742,7 @@ export function SettingsView({
         {tab === "connection" && desktopMode && (
           <SettingsSectionCard
             data-testid="settings-connection-surface"
+            data-layout-span="full"
             role="tabpanel"
             id={getSettingsTabPanelId("connection")}
             aria-labelledby={getSettingsTabButtonId("connection")}
@@ -1829,6 +1849,7 @@ export function SettingsView({
         {tab === "personalFacts" && (
           <SettingsSectionCard
             data-testid="settings-panel-personal-facts"
+            data-layout-span="full"
             role="tabpanel"
             id={getSettingsTabPanelId("personalFacts")}
             aria-labelledby={getSettingsTabButtonId("personalFacts")}

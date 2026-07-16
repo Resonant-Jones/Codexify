@@ -203,7 +203,13 @@ describe("SettingsView", () => {
       screen.queryByRole("button", { name: "Import ChatGPT history" })
     ).not.toBeInTheDocument();
     expect(scrollBody).toHaveClass("overflow-auto", "justify-center");
-    expect(content).toHaveClass("max-w-[72rem]", "w-full", "min-w-0");
+    expect(content).toHaveClass("w-full", "min-w-0");
+    expect(content).toHaveAttribute("data-layout", "settings-content-grid");
+    expect(content).toHaveStyle({ maxWidth: "72rem" });
+    for (const tabButton of screen.getAllByRole("tab")) {
+      expect(tabButton).toHaveClass("pill-tab", "lg:flex-1", "lg:min-w-0");
+      expect(tabButton).toHaveStyle({ minWidth: "7.5rem" });
+    }
 
     await user.click(screen.getByRole("tab", { name: "Data" }));
     expect(
@@ -288,6 +294,31 @@ describe("SettingsView", () => {
     expect(warmthSlider).toBeInTheDocument();
     expect(warmthSlider).toHaveAttribute("type", "range");
     expect(warmthSlider).toHaveClass("material-slider");
+  });
+
+  test("exposes the responsive Appearance grid and preserves full-width wide panels", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const appearanceGrid = screen.getByTestId("settings-appearance-grid");
+    expect(appearanceGrid).toHaveClass("grid", "grid-cols-1", "lg:grid-cols-2");
+    expect(appearanceGrid).toHaveAttribute(
+      "data-layout-columns",
+      "responsive-two-column"
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
+    expect(screen.getByTestId("imprint-workspace")).toHaveAttribute(
+      "data-layout-span",
+      "full"
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+    expect(screen.getByTestId("settings-data-surface")).toHaveAttribute(
+      "data-layout-span",
+      "full"
+    );
   });
 
   test("orders Material Controls between File Type Colors and Dashboard Layout", () => {

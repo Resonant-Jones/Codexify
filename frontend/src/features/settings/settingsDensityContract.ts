@@ -11,11 +11,26 @@
  */
 
 export const SETTINGS_DENSITY = {
+  /** Large-screen ceiling for the centered Settings frame. */
+  frameMaxWidth: "min(78rem, calc(100vw - 2rem))",
+
+  /** Maximum readable width inside the Settings scroll surface. */
+  contentMaxWidth: "72rem",
+
   /**
    * Inset buffer used to keep interactive content clear of the frame edge.
    * This is intentionally 6px so controls do not touch the shell border.
    */
   edgeChrome: "calc(var(--radius-micro) * 0.75)", // 6px
+
+  /** Compact spacing and type rhythm for the full-width Settings tab dock. */
+  dockGap: "calc(var(--radius-micro) / 2)",
+  dockPadding: "calc(var(--radius-micro) * 0.5)",
+  dockFontSize: "0.75rem",
+  dockTabMinWidth: "7.5rem",
+
+  /** Internal desktop grid rhythm for Settings tab panels. */
+  contentGridGap: "var(--shell-gap)",
 
   /**
    * Space between major sections within a SettingsSectionCard.
