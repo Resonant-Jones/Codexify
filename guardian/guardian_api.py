@@ -512,6 +512,7 @@ from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
     continuity_operator,
+    dashboard,
     delegations,
     devtools,
     documents,
@@ -983,6 +984,12 @@ _include_router(
     label="health",
     flag_name="CODEXIFY_ENABLE_HEALTH_ROUTES",
     include_fn=lambda: app.include_router(health.router),
+    core_surface=True,
+)
+_include_router(
+    label="dashboard",
+    flag_name="CODEXIFY_ENABLE_HEALTH_ROUTES",
+    include_fn=lambda: app.include_router(dashboard.router),
     core_surface=True,
 )
 _include_router(
