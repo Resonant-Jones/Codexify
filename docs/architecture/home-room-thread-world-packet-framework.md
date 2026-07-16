@@ -1,48 +1,47 @@
-# Codexify Home, Room, Thread, and World Packet Framework
+# Codexify HomeBase, Space, Room, Thread, and World Packet Framework
 
 **Classification:** Architecture-impacting product and production integration framework  
 **Status:** Proposed living framework, documentation only  
-**Runtime claim:** This document does not claim that Rooms, visitor joins, collaborator presence, World Packet synchronization, selective Project disclosure, Atlas navigation, Public Pavilion publication, or Codexify.Space federation are implemented.  
+**Runtime claim:** This document does not claim that first-class HomeBases, Spaces, Rooms, visitor joins, collaborator presence, World Packet synchronization, selective Project disclosure, Atlas federation, or Codexify.Space discovery are implemented.  
 **Design lineage:** Zac originated the Home / Room / Chat / World Spine interaction model and the spatial prototype that revealed this product shape. Production integration must preserve the useful interaction behavior and record where implementation necessarily diverges from the prototype.
 
-## 1. Executive decision
+## 1. Canonical hierarchy
 
 Codexify should translate the prototype through this hierarchy:
 
 ```text
-User
-└── Home
-    └── Rooms
-        └── Threads
+User or Organization
+└── HomeBase
+    └── Spaces
+        └── Rooms
+            └── Threads
+                └── Messages
 ```
+
+The layers are intentionally different:
+
+- **HomeBase** is the sovereign ownership and administration root.
+- **Space** is the website-like interactive experience a visitor enters.
+- **Room** is a bounded shared context inside a Space.
+- **Thread** is a durable multi-participant conversation inside a Room.
+- **Message** is a durable authored turn inside a Thread.
 
 Zac commonly calls a Thread a **Chat**. Codexify should preserve that product language in the interface while retaining `chat_threads` and `chat_messages` as the existing backend conversation model.
 
-The central translation is:
+## 2. Executive decisions
 
-> A Room is a host-governed shared context projected from a Project and composed from selectively disclosed Project data streams.
-
-The Project remains the authoritative backend work container during the first production phases. The Room is the collaboration, navigation, and disclosure projection presented to visitors and collaborators.
-
-A Room may contain multiple Threads. It is not a renamed Thread.
-
-A Room may expose selected Threads, documents, artifacts, Knowledge Base material, repository references, activity, receipts, participant state, Room rules, collaboration policy, and optional public projections. The Host decides what the Room discloses, who may enter, and which actions each participant may perform.
-
-## 2. Why this fits Codexify
-
-Codexify already has a durable Project, Thread, Message, document, retrieval, audit, and event substrate. Production integration should extend those systems rather than create a parallel filesystem application.
-
-```text
-Home         -> account-owned sovereign navigation root
-Project      -> authoritative backend work context
-Room         -> governed projection of selected Project state
-Thread       -> durable conversation inside the Room
-Message      -> durable authored turn inside the Thread
-World Packet -> scoped synchronization and Room-entry transport
-Atlas        -> navigable projection of reduced current state
-```
-
-The prototype proves that these relationships can be presented as a place people enter and inhabit. It does not prove that its storage mechanics are safe production authority.
+1. A User or Organization owns one HomeBase identity boundary.
+2. A HomeBase may be served by one or more Nodes.
+3. A HomeBase may publish many Spaces.
+4. A Space is an interactive application or website-like experience, not merely a folder.
+5. A Space may contain many Rooms.
+6. A Room may contain many Threads.
+7. A Thread may contain many simultaneous participants.
+8. A Room is initially a host-governed projection of selected Project state.
+9. The Project remains the authoritative backend work container during the first production phases.
+10. JSONL is an approved synchronization transport and projection format, not the durable database authority.
+11. Atlas renders reduced packet state. Atlas does not own canonical state.
+12. Codexify.Space may coordinate discovery, rendezvous, relay, and public projection without becoming private HomeBase authority.
 
 ## 3. Current-truth boundary
 
@@ -50,7 +49,7 @@ Before implementation, read:
 
 1. `docs/architecture/00-current-state.md`
 2. `docs/architecture/README.md`
-3. `docs/architecture/adr/adr-index.md`
+3. `docs/architecture/adr/ADR Index.md`
 4. `docs/architecture/system-overview.md`
 5. `docs/architecture/data-and-storage.md`
 6. `docs/architecture/flows.md`
@@ -67,36 +66,71 @@ Current truth:
 - Projects currently organize Threads and resources.
 - Threads and Messages remain the durable conversation model.
 - Documents, artifacts, retrieval indexes, audit records, and outbox events already exist.
-- Hosted Rooms, participant-node attachment, general Room synchronization, and federation are not part of the supported release promise.
+- Hosted Spaces, Room synchronization, remote mounting, general participant-node attachment, and federation are not part of the supported release promise.
 
 Not yet true:
 
-- A Room is not yet a first-class runtime entity.
+- HomeBase is not yet a first-class runtime entity.
+- Space is not yet a first-class runtime entity.
+- Room is not yet a first-class runtime entity.
 - Projects do not yet publish governed Room projections.
 - A World Packet is not yet a supported synchronization contract.
 - Joining a Room does not yet hydrate a client from a transport packet.
 - Room rules and moderator notices are not yet enforced through a canonical join protocol.
-- Codexify.Space is not authority for private Home or Project state.
+- Atlas does not yet render live remote topology from canonical World Packets.
+- Codexify.Space is not authority for private HomeBase or Project state.
 
 ## 4. Canonical vocabulary
 
-### Home
+### HomeBase
 
-A Home is the User's sovereign root and navigation boundary. A Home may coordinate profile state, private memory, assistants, tools, attached Nodes, Projects, hosted Rooms, Vault material, public projections, activity, and receipts.
+A HomeBase is the sovereign identity, ownership, administration, and publication root for one User or Organization.
 
-A Home may contain many Rooms. A Home is not one physical computer. Several Nodes may serve the same Home.
+A HomeBase may coordinate:
+
+- profile and identity state;
+- private Vault material;
+- Projects;
+- hosted Spaces;
+- attached Nodes;
+- assistants and agents;
+- publication policy;
+- synchronization policy;
+- invitations and trust relationships;
+- activity, receipts, and audit evidence.
+
+A HomeBase is not one physical computer. Multiple authorized Nodes may serve the same HomeBase, but one Node must not silently impersonate another authority.
+
+### Space
+
+A Space is a host-defined interactive experience published by a HomeBase.
+
+A Space may behave like:
+
+- a website;
+- community portal;
+- documentation system;
+- marketplace;
+- research environment;
+- developer portal;
+- game or simulation;
+- business dashboard;
+- Atlas explorer;
+- public pavilion.
+
+The Space owns the experience shell, navigation, visual grammar, Room directory, discovery posture, and Space-wide policies. Different Spaces may render the same underlying protocol through entirely different interfaces.
+
+A Space is not a Project. A Project may supply authoritative data to one or more Rooms inside a Space.
 
 ### Project
 
-A Project is the authoritative backend work context during the first production phases. The existing `projects` model remains responsible for durable organization and ownership of Project-bound Threads, documents, and context.
+A Project is the authoritative backend work context during the first production phases. The existing `projects` model remains responsible for durable organization and ownership of Project-bound Threads, documents, artifacts, and retrieval context.
 
 A Project is private unless an explicit disclosure policy creates a Room projection or another sharing surface.
 
 ### Room
 
-A Room is a bounded, host-governed shared context and is initially a projection of one Project.
-
-The Room owns the meeting and coordination surface. The Project remains the first authoritative backend for the work being projected.
+A Room is a bounded, host-governed shared context inside a Space. It is initially a projection of one Project.
 
 A Room may contain:
 
@@ -126,62 +160,65 @@ Room
 └── Thread: Agent work log
 ```
 
-Existing queue, worker, completion, transcript, message-versus-attempt, and retrieval semantics remain attached to Threads and Messages.
+Multiple authorized people, assistants, and agents may participate in the same Thread. Existing queue, worker, completion, transcript, message-versus-attempt, and retrieval semantics remain attached to Threads and Messages.
 
-### Participant
+### Node
 
-A Participant is a contextual actor inside a Room. A Participant may be a Host, Collaborator, Visitor, Observer, Guest, Assistant, agent, or authorized Node actor. A Participant record is not automatically equivalent to a canonical User or trusted Node.
+A Node is a compute and hosting participant capable of serving some authorized portion of a HomeBase, Space, or Room experience.
 
-### Host
+A Node may be:
 
-The Host is the Home or authorized operator that publishes and governs the Room projection. The Host selects the backing Project, disclosed streams, participant policy, rules, moderator notice, publication posture, and effective capability envelope.
+- a personal computer;
+- home server;
+- trusted collaborator machine;
+- dedicated business server;
+- community relay;
+- hosted infrastructure instance.
+
+A Node is not automatically a HomeBase and does not own identity merely because it executes workloads.
 
 ### World Packet
 
-A World Packet is a bounded synchronization and Room-entry transport artifact. It carries the minimum state and event information needed for an authorized client to enter or refresh a Room projection.
+A World Packet is a bounded synchronization and entry transport artifact. It carries the minimum authorized state and event information needed for a client to render or refresh a Space or Room projection.
 
-It is not the Host database, private Vault, whole Project archive, Redis state, or unrestricted event history.
+A World Packet is conceptually:
+
+```text
+Snapshot
++ Event Cursor
++ Event Segment
++ Integrity Metadata
++ Capability and Policy Envelope
+```
+
+JSONL is the initial approved event serialization because it is append-oriented, inspectable, streamable, segmentable, and friendly to offline exchange.
 
 ### World Spine
 
 The World Spine is the durable event identity, lineage, replay, and reduction contract from which World Packets may be produced.
 
-Production does not define the World Spine as one permanently growing `world.jsonl` authority. Postgres-backed domain and outbox records remain authoritative. JSONL is a transport, replay, export, debugging, and offline-exchange format.
+Production does not define the World Spine as one permanently growing `world.jsonl` authority. Postgres-backed domain and outbox records remain authoritative. JSONL is transport, replay, export, debugging, and offline-exchange material.
 
 ### Atlas
 
-Atlas is a navigable projection over current reduced state. It may present Homes, Rooms, Threads, participants, files, Nodes, activity, and public projections spatially. Atlas is not canonical state and must not be the only usable interface.
+Atlas is a navigable renderer over reduced current state.
 
-### Space
+Atlas may present:
 
-`Space` is not required as a mandatory hierarchy level for the first implementation. It may later become a grouping of Rooms, community boundary, discovery namespace, or federation domain. No task should insert it between Home and Room until the simpler model is proven insufficient and the design change is reviewed with Zac.
+- local HomeBase topology;
+- Spaces and Rooms;
+- Threads and participants;
+- Nodes and trust relationships;
+- public businesses and communities;
+- search results;
+- articles and bookmarks;
+- nearby or relevant services;
+- joinable remote experiences;
+- federation clusters and digital villages.
 
-## 5. Core invariants
+Atlas is not canonical state and must not be the only usable interface.
 
-1. A Home may contain many Rooms.
-2. A Room may contain many Threads.
-3. A Room is not a Thread.
-4. A Room is initially a governed projection of one authoritative Project.
-5. A Room identifies its backing Project and Host authority.
-6. A Room exposes only explicitly selected data streams.
-7. Project-private material remains private unless selected by disclosure policy.
-8. Membership does not grant ambient access to the Project, Home, Node, filesystem, private memory, or unrelated Knowledge Bases.
-9. Visitor, Collaborator, Observer, Assistant, publication, editing, execution, and administration rights remain separate capabilities.
-10. Postgres remains authoritative during compatibility and first production phases.
-11. Redis operational state must not be synchronized as Room content.
-12. JSONL begins as transport and projection, not competing writable authority.
-13. No phase may silently dual-write Postgres, JSONL, and Markdown.
-14. Eligible Room events must originate through an explicit transactional or outbox-backed boundary.
-15. Every applied transport event requires stable identity, idempotency, scope, provenance, and observable failure state.
-16. A joining client receives only the World Packet authorized for that participant and Room.
-17. Room rules must be visible before or at entry.
-18. A moderator notice is part of the Room-entry contract, not decorative copy.
-19. Atlas and Room files remain rebuildable projections.
-20. Export and restore preserve Project, Room, Thread, artifact, participant, publication, and event lineage.
-21. Repeated contract-bearing values use canonical token registries.
-22. This document and the prototype do not widen the release promise.
-
-## 6. Room as a Project projection
+## 5. Room as a Project projection
 
 ```text
 Authoritative Project
@@ -208,35 +245,55 @@ Room Projection
 └── public projection eligibility
 ```
 
-Candidate disclosed stream families include Room metadata, Thread index, Thread messages, document metadata/content, artifact metadata/content, knowledge references, Code Base references, activity events, receipts, participant roster, presence, and publication state.
+The Host controls which Project streams become Room-visible. Deleting a Room must not delete the Project. Hiding a Thread or document from a Room must not delete its canonical record. Room-originated Project mutations must pass through explicit Project-domain commands and capability checks.
 
-These are candidate concepts only. Runtime values require canonical token review.
+## 6. Space runtime relationship
 
-Each Room projection should declare:
+A Space is the experience container around one or more Rooms.
 
-- Room ID;
-- Host authority reference;
-- backing Project ID;
-- projection version;
-- selected stream families;
-- participant policy;
-- Visitor and Collaborator admission posture;
-- rules and moderator-notice versions;
-- retention posture;
-- publication posture;
-- World Packet schema version;
-- canonical event cursor or watermark.
+```text
+HomeBase
+└── Space: Developer Portal
+    ├── Space manifest
+    ├── Navigation and experience shell
+    ├── Space-wide policy
+    ├── Room directory
+    ├── Room: Architecture
+    │   ├── Threads
+    │   ├── files
+    │   └── shared context
+    └── Room: Releases
+        ├── Threads
+        ├── artifacts
+        └── receipts
+```
 
-Deleting a Room must not delete the Project. Hiding a Thread or document from a Room must not delete its canonical record. Room-originated Project mutations must pass through explicit Project-domain commands and capability checks.
+The Space manifest may declare:
+
+- Space identity and Host authority;
+- experience type and renderer compatibility;
+- public, invite-only, or private posture;
+- Room directory policy;
+- visual shell and navigation hints;
+- supported capabilities;
+- content resolution rules;
+- discovery metadata;
+- synchronization endpoints;
+- integrity and version metadata.
+
+The manifest must not grant authority. Effective capabilities come from authenticated policy evaluation.
 
 ## 7. Participant capability separation
 
-Initial presentation classes may include Host, Collaborator, Visitor, Observer, Assistant, and Suspended. These labels are not sufficient authority by themselves.
+Friendly role labels are presentation. Capability grants are authority.
 
 Capabilities should be evaluated separately for actions such as:
 
+- discover Space;
+- enter Space;
+- list Rooms;
 - enter Room;
-- read metadata;
+- read Room metadata;
 - list Threads;
 - read or post to a Thread;
 - create a Thread;
@@ -247,267 +304,285 @@ Capabilities should be evaluated separately for actions such as:
 - invite participants;
 - change rules or disclosure policy;
 - publish material;
-- administer or close the Room.
+- transact;
+- administer or close the Room or Space.
 
-A friendly role label is presentation. Capability grants are authority.
+Membership does not grant ambient access to the Project, HomeBase, Node, filesystem, private memory, credentials, or unrelated Knowledge Bases.
 
-## 8. Room join and World Packet protocol
+## 8. Join and synchronization protocol
 
-A client may request entry through an invite, shared link, discovery record, direct Room reference, or mounted Room identity.
-
-The join flow distinguishes discovery, invitation, authentication, admission, synchronization, rule acknowledgement, and active participation.
+A client may request entry through an invite, shared link, discovery record, direct Space or Room reference, or mounted remote identity.
 
 ```text
-Client resolves Room reference
+Client resolves Space or Room reference
   -> Host authenticates or classifies participant
   -> Host evaluates admission policy
   -> Host resolves capabilities
   -> Host selects authorized streams
-  -> Host produces Room Entry Manifest
+  -> Host produces Entry Manifest
   -> Host produces scoped World Packet
-  -> Client validates identity, schema, event IDs, and integrity
-  -> Client reduces packet into local Room projection
-  -> UI presents rules / moderator notice
+  -> Client validates authority, schema, event IDs, and integrity
+  -> Client reduces packet into local projection
+  -> UI presents rules and moderator notice
   -> Participant acknowledges when required
-  -> Client opens the Room in the allowed posture
+  -> Client opens the allowed experience
   -> Incremental event delivery begins at packet cursor
 ```
 
-The Room Entry Manifest should identify Room and Host, participant class, effective capabilities, disclosed streams, packet schema, projection version, snapshot timestamp, event cursor, rules version, moderator notice, acknowledgement requirements, privacy summary, content resolution policy, integrity metadata, and resynchronization method.
+The Entry Manifest should identify:
 
-A World Packet may contain a bounded Room snapshot, Thread index, selected transcript windows or message events, selected file and artifact metadata, authored content or references, participant roster appropriate to the viewer, rules, activity events, receipts, provenance, publication metadata, and an incremental cursor.
+- HomeBase, Space, Room, and Host authority;
+- participant class and effective capabilities;
+- disclosed streams;
+- packet schema and projection version;
+- snapshot timestamp and event cursor;
+- rules version and moderator notice;
+- acknowledgement requirements;
+- privacy summary;
+- content resolution policy;
+- integrity metadata;
+- resynchronization method.
 
-It must not contain unrelated Project data, Home-private memory, participant-private context, undisclosed files, credentials, Redis state, hidden prompts, unrestricted audit logs, or capability data outside the viewer's effective scope.
+Join and sync fail closed when authority is uncertain. Unsupported schema, integrity mismatch, missing mandatory rules, revoked access, or event gaps must block or quarantine rather than guess. When the Host is offline, a client may retain the last valid projection but must label it stale.
 
-A joining client normally needs both a bounded snapshot and an event cursor:
+## 9. JSONL transport and Atlas reduction
 
-```text
-Room Entry Manifest
-+ bounded snapshot
-+ world.jsonl event segment
-+ content references or bounded payloads
-+ integrity metadata
-```
-
-The exact container remains open. The semantic contract matters more than the filename.
-
-Join and sync fail closed when authority is uncertain. Unsupported schema, integrity mismatch, missing mandatory rules, revoked access, or event gaps must block or quarantine rather than guess. When the Host is offline, the client may retain the last valid projection but must label it stale.
-
-## 9. Room rules and moderator notice
-
-Room entry should present a concise notice containing:
-
-- Room purpose;
-- Host identity;
-- participant posture;
-- data shared into the Room;
-- data remaining private;
-- allowed and prohibited actions;
-- retention or recording posture;
-- publication posture;
-- tool or agent restrictions;
-- escalation path;
-- rules version and effective date.
-
-The notice may be informational, acknowledgement-required, or require re-acknowledgement after a material rules change.
-
-A rules acknowledgement receipt should record Room ID, participant ID, rules version, notice version, timestamp, acknowledgement posture, provenance, and integrity fields where required. Acknowledgement does not create capabilities that were not already granted.
-
-## 10. JSONL transport and Event Spine
-
-JSONL is useful because it is append-oriented, inspectable, streamable, segmentable, and friendly to offline exchange. Production use requires more than appending lines to a file.
-
-The Event Spine should use:
-
-1. canonical state in Postgres;
-2. transactional outbox behavior for Room-eligible mutations;
-3. normalized, scope-aware event records;
-4. segmented JSONL for transport, replay, export, debugging, and offline exchange;
-5. durable sync inbox and apply receipts;
-6. deterministic reducers;
-7. visible lag, gaps, rejection, and replay state.
-
-Disallowed:
+The initial rendering path is:
 
 ```text
-write Postgres
-then append JSONL
-then write Markdown
-then hope all three succeeded
+Canonical Postgres mutation
+  -> transactional outbox event
+  -> normalized World Spine event
+  -> scoped JSONL packet segment
+  -> authenticated client ingest
+  -> idempotent reducer
+  -> local reduced projection
+  -> Atlas or Space-specific renderer
 ```
 
-Required posture:
+The Room State viewed by a client must be refreshed through bounded snapshots and incremental event segments. A renderer must not scrape arbitrary Host files or treat a mutable shared JSONL file as a transactional database.
 
-```text
-validated command
-  -> one Postgres transaction mutates canonical state
-  -> same transaction appends eligible event/outbox row
-  -> projector emits JSONL idempotently
-  -> receiver stores inbox record
-  -> policy validates event
-  -> reducer applies event idempotently
-  -> receipt records apply, reject, or quarantine
-```
+Every transport event requires:
 
-Every transport event requires stable event identity, schema version, event type, origin, Room scope, actor, idempotency key, causation/correlation references, payload, provenance, and integrity metadata.
+- stable event identity;
+- schema version;
+- HomeBase, Space, and Room scope where applicable;
+- actor and authority references;
+- causation and correlation identity;
+- idempotency semantics;
+- payload or content reference;
+- integrity metadata;
+- cursor or ordering information;
+- observable apply, reject, quarantine, and repair state.
 
-Candidate event families include Room lifecycle, projection-policy changes, rules changes, participant lifecycle, capability grants/revocations, Thread disclosure, message events, document/artifact disclosure, Knowledge Base binding changes, publication changes, packet delivery/apply results, and synchronization gaps.
+## 10. Atlas projection families
 
-Not every application mutation belongs in the Room Event Spine. Eligibility must be explicit and scope-aware.
+Atlas should support at least two projection families.
 
-## 11. Prototype evidence
+### Local Atlas
 
-The prototype is product-design evidence, not runtime proof. It demonstrates that:
+Shows the user's immediate topology:
 
-- a Home contains navigable Rooms;
-- a Room combines files, participants, and conversation;
-- a Room may be Project-backed or repository-backed;
-- multiple Threads can belong to one Room even when one Chat is active;
-- linked files can be visible beside conversation;
-- private and public material can remain visibly distinct;
-- provenance explains where disclosed material came from;
-- the interface can present a moderator notice;
-- presence is visible without implying unrestricted authority;
-- Atlas, Rooms, and Chat are alternate projections over related state.
+- HomeBase;
+- attached Nodes;
+- hosted Spaces;
+- Rooms and Threads;
+- trusted peers;
+- private and public projection boundaries;
+- current activity and health.
 
-Production should preserve these interaction truths without copying the prototype's storage assumptions unchanged.
+### Federated Atlas
 
-## 12. Current codebase mapping
+Shows discoverable network topology:
 
-| Current anchor | Current responsibility | Proposed role |
-| --- | --- | --- |
-| `guardian/db/models.py::User` | Canonical account boundary | Home owner |
-| `guardian/db/models.py::UserProfile` | Presentation metadata | Home display metadata |
-| `guardian/db/models.py::Project` | Organizes Threads and resources | Authoritative Room backing Project |
-| `guardian/db/models.py::ChatThread` | Durable conversation container | Thread / Chat inside Room |
-| `guardian/db/models.py::ChatMessage` | Durable authored turns | Thread transcript |
-| `guardian/routes/projects.py` | Project CRUD and account scoping | Host Project selection seam |
-| `guardian/routes/chat.py` | Thread, Message, completion routes | Existing Thread runtime beneath Rooms |
-| `guardian/core/chat_completion_service.py` | Context and execution preparation | Consume Room-scoped context through policy |
-| `guardian/context/broker.py` | Retrieval assembly | Disclosure-aware context selection |
-| `events_outbox` | Durable event source | Room-eligible event projection source |
-| audit and receipt records | Mutation/execution evidence | Provenance and Room receipt inputs |
-| document/artifact link tables | Existing scope relationships | Room disclosure-binding inputs |
-| `frontend/src/App.tsx` | Route-to-view composition | Future Room entry route |
-| `frontend/src/features/workspace/` | Companion workspace | Possible Room files/context surface, not Room domain |
+- remote HomeBases;
+- businesses and organizations;
+- public Spaces;
+- community clusters;
+- digital villages;
+- joinable Rooms;
+- trusted or nearby Nodes;
+- search results, articles, bookmarks, services, and offers;
+- relationship, trust, availability, and policy posture.
 
-Candidate new module names are provisional and require inspection:
+A card in Federated Atlas represents a remote authority or projection, not merely a visual object. Selecting it may reveal more Spaces, Rooms, public resources, or an authenticated join path.
 
-```text
-guardian/rooms/contracts.py
-guardian/rooms/tokens.py
-guardian/rooms/store.py
-guardian/rooms/projection_policy.py
-guardian/rooms/world_packet.py
-guardian/rooms/reducer.py
-guardian/rooms/join_service.py
-guardian/routes/rooms.py
-```
+## 11. Federation model
 
-Possible durable entities include Rooms, Room-to-Thread bindings, resource bindings, participants, capability bindings, rules versions, join receipts, projection versions, sync inbox records, and apply receipts.
+Each HomeBase may host its own Spaces on its own authorized Nodes. Groups of HomeBases may form federations or digital villages by agreeing on discovery, trust, relay, moderation, and synchronization rules.
 
-No migration should be written until cardinality and authority decisions are closed against the current schema.
+Larger businesses use the same protocol family as individuals. Their differences are scale, policy, availability, and service commitments, not a separate sovereignty model.
 
-## 13. Phased delivery
+Codexify.Space may provide optional:
 
-### Phase 0: Doctrine and review receipt
+- discovery and directory services;
+- rendezvous and invitation exchange;
+- relay and NAT traversal assistance;
+- public metadata indexing;
+- trust bootstrap and reputation signals;
+- protocol capability negotiation;
+- public projection hosting.
 
-Deliver this framework, a translation ledger preserving Zac's original concepts, unresolved decisions, and a review receipt. No runtime changes.
+Codexify.Space must not become required private-state authority.
 
-### Phase 1: Read-only local Room projection
+## 12. Commerce and transactions
 
-Prove one local Room projected from one existing Project, containing multiple existing Threads and selected files. No visitors, remote sync, or authority migration.
+The protocol may later support shopping, bookings, subscriptions, service requests, or other transactions inside Spaces. This is vision, not current implementation.
 
-Proof must show undisclosed Project data never appears, existing Chat completion remains unchanged, deleting the projection does not delete Project data, and projection failure is visible.
+Any transaction layer must preserve:
 
-### Phase 2: First-class local Room policy
+- explicit seller and buyer authority;
+- auditable offers and acceptance;
+- capability checks;
+- price and policy versioning;
+- receipts and dispute evidence;
+- clear external payment-provider boundaries;
+- no ambient financial authority granted by Room membership.
 
-Add durable Room identity, backing Project reference, explicit bindings, rules versions, local participant/capability policy, audit, and receipts. Still no network join.
+Commerce must be introduced as a separate architecture-impacting contract and proof surface.
 
-### Phase 3: Local join simulation and World Packet export
+## 13. Core invariants
 
-Add deterministic entry manifest, bounded World Packet generation, validation, disposable reducer projection, moderator notice, acknowledgement receipt, replay tests, integrity, and gap detection.
+1. A User or Organization owns one HomeBase identity boundary.
+2. A HomeBase may publish many Spaces.
+3. A Space may contain many Rooms.
+4. A Room may contain many Threads.
+5. A Thread may contain many participants.
+6. A Space is not a Room.
+7. A Room is not a Thread.
+8. A Room is initially a governed projection of one authoritative Project.
+9. A Room exposes only explicitly selected data streams.
+10. Postgres remains authoritative during compatibility and first production phases.
+11. Redis operational state must not be synchronized as Room content.
+12. JSONL is transport and projection, not competing writable authority.
+13. Atlas is a renderer, not canonical storage.
+14. No phase may silently dual-write Postgres, JSONL, and Markdown.
+15. Eligible events must originate through an explicit transactional or outbox-backed boundary.
+16. Every applied event requires stable identity, idempotency, scope, provenance, and observable failure state.
+17. A joining client receives only the World Packet authorized for that participant and scope.
+18. Room and Space rules must be visible before or at entry.
+19. A moderator notice is part of the entry contract, not decorative copy.
+20. Export and restore preserve Project, Space, Room, Thread, artifact, participant, publication, and event lineage.
+21. Repeated contract-bearing values use canonical token registries.
+22. Codexify.Space federation remains optional.
+23. This document and the prototype do not widen the supported release promise.
 
-### Phase 4: Hosted Visitor and Collaborator slice
+## 14. Phased delivery
 
-Prove one canonical Host serving one Room to an authenticated remote participant, with admission, capabilities, revocation, incremental delivery, stale/offline posture, and resynchronization. No multi-master Project writes.
+### Phase 0: doctrine and ADR closure
 
-### Phase 5: Two-node Room synchronization proof
+- establish canonical HomeBase, Space, Room, Thread, World Packet, and Atlas vocabulary;
+- record design lineage and translation decisions;
+- create the governing ADR before runtime work;
+- close identity, authority, and deletion semantics.
 
-Prove one Host Home, one participant Home, one Room, stable event identity, inbox/apply receipts, reconnect/replay, surfaced conflicts, and Host continuity when Codexify.Space is unavailable.
+### Phase 1: local read-only compatibility projection
 
-### Phase 6: Codexify.Space coordination
+- project one existing Project into one local Room;
+- place the Room inside one local Space shell;
+- expose a selected Thread and document set;
+- render the reduced state in Atlas and a flat accessible view;
+- prove rebuild without adding federation.
 
-Only after direct Room proof: discovery, rendezvous, invitation delivery, optional relay, public projection coordination, and delivery receipts. Codexify.Space must not become private Home or Project authority.
+### Phase 2: first-class local hierarchy
 
-### Phase 7: Advanced Atlas
+- add only the new durable truth required for HomeBase, Space, Room, and bindings;
+- preserve existing Project, Thread, and Message authority;
+- add policy, membership, and disclosure records;
+- add Room and Space lifecycle receipts.
 
-Add richer spatial navigation after list, search, breadcrumb, permission, and synchronization surfaces are stable.
+### Phase 3: World Packet harness
 
-## 14. Design lineage and review covenant
+- define canonical event envelope and JSONL serialization;
+- implement snapshot plus cursor generation;
+- implement idempotent reducer and repair tooling;
+- expose lag, gap, reject, quarantine, and replay status.
 
-Authorship statement:
+### Phase 4: local hosted collaboration
 
-> Zac originated the Home / Room / Chat / World Spine interaction model and the spatial prototype that established Rooms as shared, navigable contexts containing conversations, files, participants, provenance, and public/private boundaries.
+- enforce participant capabilities;
+- implement rules and moderator notice acknowledgement;
+- support multiple participants in a Thread;
+- prove selective Project disclosure.
 
-Maintain a translation ledger for each material concept:
+### Phase 5: two-node proof
 
-| Concept | Prototype intent | Production translation | Preserved behavior | Divergence | Reason | Zac review | Evidence |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Home | Sovereign root with Rooms | Account-owned Home | Rooms remain navigable | Home is not a device superclass | Identity safety | Pending | Spec/prototype refs |
-| Room | Shared context containing Chats and files | Governed Project projection | Shared context and multiple Threads preserved | Project remains backend authority | Transactional safety | Pending | Spec/code refs |
-| Chat | Conversation inside Room | Existing Thread/Message runtime | Chat language preserved | Backend keeps Thread terminology | Compatibility | Pending | Route/model refs |
-| World file | Join and sync transport | Versioned World Packet from Event Spine | Inspectable JSONL preserved | File is not sole authority | Recovery/idempotency | Pending | Packet/event refs |
-| Rules notice | Visible governance | Versioned notice and acknowledgement receipt | Entry rules visible | Enforcement is capability-backed | Integrity | Pending | UI/protocol refs |
+- synchronize one Room between two authorized Nodes;
+- prove disconnect, stale labeling, reconnect, replay, revocation, and recovery;
+- preserve Host authority and participant-owned private context.
 
-Each phase should produce a review receipt containing the version, concepts reviewed, preserved behaviors, intentional divergences, unresolved questions, runtime proof, documentation follow-through, Zac's response, Chris's decision, date, and evidence references.
+### Phase 6: Space runtime extensibility
 
-The receipt must not imply agreement where no review occurred.
+- define renderer and manifest compatibility;
+- support at least two distinct Space experiences over the same protocol;
+- prove Atlas is one renderer among several.
 
-## 15. Open decisions
+### Phase 7: federation discovery
 
-1. Is one Room backed by exactly one Project, or may future Rooms aggregate several through explicit mounts?
-2. Can one Thread appear in several Rooms, or does it have one primary Room plus references?
-3. Can a Room contain coordination events that never enter a Thread transcript?
-4. Which Project streams are eligible for the first Room disclosure slice?
-5. How are large files and historical transcripts referenced instead of embedded?
-6. Does the first World Packet contain a reduced snapshot plus event tail, or only events from a known baseline?
-7. Which rules changes require re-acknowledgement?
-8. Can Visitors post, or is that a separate capability independent of the Visitor label?
-9. How does a Collaborator propose Project mutation when the Room is a projection?
-10. What retention applies to withdrawn or revoked Room content on participant Nodes?
-11. How are deletion, tombstones, and privacy erasure represented across packet history?
-12. Does `Space` become useful later as a Room grouping or network namespace?
-13. Which prototype interactions are essential to Zac beyond those already documented?
+- publish bounded discovery records;
+- render remote authorities in Federated Atlas;
+- support explicit remote Space entry;
+- keep private state local to its authority.
 
-## 16. ADR impact
+### Phase 8: digital villages and business Nodes
 
-**Classification:** Requires a new ADR before runtime implementation.
+- define federation membership and moderation;
+- support dedicated organization Nodes;
+- add relay and availability postures;
+- defer commerce to its own approved contract.
 
-The ADR must decide:
+## 15. ADR impact
 
-- Home authority and relationship to User/account state;
-- Room-as-Project-projection authority;
-- Room-to-Thread cardinality;
-- disclosure policy and capability boundaries;
-- World Packet and Event Spine authority;
-- JSONL transport status;
-- join, rules, and acknowledgement semantics;
-- publication and Codexify.Space boundaries;
-- export/restore obligations;
-- conflict, deletion, replay, and offline behavior.
+**Classification:** Requires new ADR before runtime implementation.
 
-This document is planning and consolidation only. It does not alter accepted runtime architecture.
+The ADR must govern:
 
-## 17. Near-term recommendation
+- the canonical hierarchy;
+- HomeBase identity and Node hosting boundaries;
+- Space versus Room semantics;
+- Project-to-Room projection authority;
+- World Packet and JSONL transport doctrine;
+- Atlas renderer boundaries;
+- federation and Codexify.Space authority limits;
+- migration and coexistence with current Projects and Threads.
 
-1. Review this framework with Zac.
-2. Record the first translation receipt.
-3. Inspect current Project, Thread, document-link, collaboration, outbox, and audit schemas.
-4. Close one-Project-per-Room and Thread cardinality decisions.
-5. Write the governing ADR.
-6. Implement one read-only local Room projection only after those decisions are accepted.
+## 16. Design review and receipts
 
-The first vertical slice should prove this sentence and nothing larger:
+Zac remains an originating architect and design peer for this model. Production changes must maintain a translation ledger with:
 
-> One existing Codexify Project can be rendered as one local Room containing several existing Threads and a deliberately selected set of shared context, without changing Project or Thread authority and without exposing undisclosed data.
+| Concept | Origin | Preserved behavior | Production translation | Changed behavior | Reason | Status | Zac feedback | Evidence |
+|---|---|---|---|---|---|---|---|---|
+
+Each phase should produce a review receipt containing:
+
+- review ID;
+- phase ID;
+- source-spec version;
+- concepts reviewed;
+- preserved and changed behaviors;
+- production reasons;
+- open questions;
+- reviewer identity;
+- review status;
+- feedback and resolution references;
+- timestamp.
+
+Safety, privacy, transactional integrity, migration, accessibility, and current runtime truth remain binding even when a prototype behavior must change.
+
+## 17. Documentation follow-through
+
+Runtime implementation must update or explicitly defer:
+
+- `docs/architecture/00-current-state.md`;
+- `docs/architecture/README.md`;
+- the ADR index and governing ADR;
+- `docs/architecture/system-overview.md`;
+- `docs/architecture/data-and-storage.md`;
+- `docs/architecture/flows.md`;
+- `docs/architecture/modules-and-ownership.md`;
+- runtime and UI diagrams;
+- export and restore contracts;
+- canonical token registries;
+- operator and security documentation.
+
+This framework is the collaboration and synchronization substrate for the broader Codexify.Space v2 architecture volume.
