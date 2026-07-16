@@ -34,6 +34,7 @@ extension_posture:
 route_posture:
   enabled:
     - health
+    - dashboard
     - admin
     - chat
     - simple_chat
