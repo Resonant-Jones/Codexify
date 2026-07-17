@@ -96,6 +96,27 @@ def _get_or_create_profile(session, owner_id: str) -> UserProfile:
     return profile
 
 
+def resolve_user_profile_owner(
+    owner_id: str,
+) -> tuple[UserProfileResponse, str]:
+    """Resolve one canonical user's profile and persisted account role.
+
+    This is the shared profile seam for read-only Guardian projections.  It
+    preserves the current route's lazy profile creation behavior and never
+    accepts ownership from request-controlled input.
+    """
+    db = _profile_db()
+    with db.get_session() as session:
+        canonical_owner_id = str(owner_id or "").strip()
+        if not canonical_owner_id:
+            raise HTTPException(status_code=401, detail="Missing authenticated user")
+        user = session.get(User, canonical_owner_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        profile = _get_or_create_profile(session, canonical_owner_id)
+        return _profile_payload(profile), str(user.role or "").strip()
+
+
 @router.get("/profile")
 def get_profile(
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
