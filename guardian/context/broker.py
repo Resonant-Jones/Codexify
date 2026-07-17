@@ -2106,7 +2106,9 @@ class ContextBroker:
                 if not cache_key:
                     return False
                 if cache_key not in ready_doc_cache:
-                    ready_doc_cache[cache_key] = self._uploaded_document_is_ready(
+                    ready_doc_cache[
+                        cache_key
+                    ] = self._uploaded_document_is_ready(
                         doc_id=cache_key,
                         user_id=item_user_id or normalized_user_id,
                     )
@@ -2724,29 +2726,6 @@ class ContextBroker:
                 result_count=0,
             )
             return [], WIDEN_REASON_NONE, diagnostics
-
-        if len(primary_hits) < k and project_id is not None:
-            try:
-                project_output = await search_fn(
-                    query,
-                    k - len(primary_hits),
-                    namespace=f"project:{project_id}",
-                    user_id=user_id,
-                )
-                project_hits, _ = self._unpack_search_output(project_output)
-                seen_texts = {h.get("text", "") for h in primary_hits}
-                for hit in project_hits:
-                    text = hit.get("text", "")
-                    if text in seen_texts:
-                        continue
-                    primary_hits.append(hit)
-                    seen_texts.add(text)
-                diagnostics["project_namespace_hit_count"] = len(project_hits)
-            except Exception as _proj_exc:
-                logger.warning(
-                    "[ContextBroker] project namespace search failed: %s",
-                    _proj_exc,
-                )
 
         widen_reason = self._determine_widen_reason(primary_hits, k)
         is_memory_search = (
