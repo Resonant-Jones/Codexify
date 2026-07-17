@@ -9,7 +9,7 @@
 -r ../requirements/base.in
 -r ../requirements/dev.in
 
-# Route/test imports not currently represented in pyproject.toml or base.in.
+# Route/test imports not installed through base.in.
 httpx
 python-multipart
 PyJWT
@@ -17,6 +17,7 @@ pypdf
 pillow
 pydub
 psutil
+slowapi>=0.1.8
 sse-starlette
 
 # Cloud-provider clients used by mocked route paths. These are API clients only;
