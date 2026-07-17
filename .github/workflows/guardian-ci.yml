@@ -163,7 +163,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python -m pytest -q --maxfail=1 --disable-warnings tests -k "not cli and not integration"
+          python -m pytest -q --maxfail=1 --disable-warnings tests -m "not integration" -k "not cli"
 
       - name: Run MVP core loop harness
         if: ${{ needs.changes.outputs.run_backend == 'true' }}

@@ -140,6 +140,7 @@ def mock_readback_deps():
 # ── 4. Live DB integration ──────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_state_readback_roundtrip():
     from fastapi import FastAPI

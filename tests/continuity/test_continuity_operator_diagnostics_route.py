@@ -181,6 +181,7 @@ def test_diagnostics_empty_state():
 # ── 4. Live DB integration ──────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_diagnostics_with_data():
     """Write a stamp, then verify diagnostics reports it."""
@@ -247,6 +248,7 @@ def test_live_diagnostics_with_data():
         _route.get_database_dsn = original
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_diagnostics_no_write_side_effects():
     """Diagnostics must not create any rows."""

@@ -11,11 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def _pg_available():
-    db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
-    return bool(db_url) and "sqlite" not in db_url.lower()
-
-
 # ── 1. Import and source safety ─────────────────────────────────────────────
 
 
@@ -143,11 +138,16 @@ def mock_readback_deps():
 # ── 4. Live DB integration ──────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
+@pytest.mark.integration
 def test_live_commit_readback_roundtrip():
     from fastapi import FastAPI
     from guardian.routes.continuity_operator import router
     db_url = os.getenv("GUARDIAN_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not db_url or "sqlite" in db_url.lower():
+        pytest.fail(
+            "Live Continuity proof requires GUARDIAN_DATABASE_URL or DATABASE_URL "
+            "for a disposable PostgreSQL database."
+        )
     import uuid
     test_id = uuid.uuid4().hex[:12]
     commit_id = f"commit-live-{test_id}"

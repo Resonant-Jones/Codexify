@@ -315,6 +315,7 @@ def mock_readback_deps():
 # ── 4. Live DB integration ──────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_readback_roundtrip():
     """Write a stamp via HTTP, then read it back via HTTP."""

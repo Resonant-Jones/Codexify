@@ -242,6 +242,7 @@ def _pg_available():
     return bool(db_url) and "sqlite" not in db_url.lower()
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_stamp_route():
     """Full end-to-end test with live Postgres and real route."""

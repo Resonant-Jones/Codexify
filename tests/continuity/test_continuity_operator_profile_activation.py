@@ -266,6 +266,7 @@ def test_continuity_operator_only_in_approved_files():
 # ── 4. Live DB integration ──────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_stamp_persistence_under_test_profile():
     """With live Postgres, stamp creates exactly one packet row, zero others."""

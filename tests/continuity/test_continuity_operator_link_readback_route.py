@@ -99,6 +99,7 @@ def test_link_readback_missing():
         assert r.json()["found"] is False
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _pg_available(), reason="Postgres not available")
 def test_live_link_readback_roundtrip():
     from fastapi import FastAPI
