@@ -267,7 +267,7 @@ def test_health_surfaces_missing_supported_profile_explicitly(monkeypatch):
             setattr(settings, field, value)
 
 
-def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
+def test_health_llm_cloud_configured_is_actively_probed(monkeypatch):
     from guardian.core.config import get_settings
 
     settings = get_settings()
@@ -298,6 +298,19 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
     settings.CODEXIFY_EGRESS_ALLOWLIST = "groq"
     settings.GROQ_API_KEY = "groq-key"
 
+    class _ModelsResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"data": [{"id": "llama-3.3-70b-versatile"}]}
+
+    monkeypatch.setattr(
+        health_routes.requests,
+        "get",
+        lambda *args, **kwargs: _ModelsResponse(),
+    )
+
     client = TestClient(app)
     try:
         resp = client.get("/api/health/llm")
@@ -305,10 +318,11 @@ def test_health_llm_cloud_configured_is_truthful_unknown(monkeypatch):
         payload = resp.json()
         details = payload["details"]
         assert details["provider"] == "groq"
-        assert payload["status"] == "degraded"
-        assert details["status"] == "unknown"
-        assert details["ok"] is False
-        assert details["mode"] == "runtime_unprobed"
+        assert payload["status"] == "online"
+        assert details["status"] == "online"
+        assert details["ok"] is True
+        assert details["mode"] == "runtime_probe"
+        assert details["checked_endpoint"] == "/v1/models"
         assert details["provider_runtime"]["enabled"] is True
         assert details["completion_service"]["status_reason"] == "ok"
         assert details["provider_truth"]["configured"] is True

@@ -38,6 +38,7 @@ from guardian.core.provider_truth import (
     build_provider_truth,
     cloud_capable_configuration_present,
 )
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.protocol_tokens import GuardianProviderFailureKind
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,99 @@ def _probe_local_llm(settings, timeout_seconds: float) -> dict:
             reason=last_error,
         ),
     }
+
+
+def _probe_cloud_llm(provider: str, settings, timeout_seconds: float) -> dict:
+    """Probe configured cloud-provider auth and model inventory.
+
+    Static provider catalogs prove that a provider is supported, but they do
+    not prove that the configured credential can reach the provider. The
+    models endpoint is a small authenticated probe that gives the health UI a
+    real runtime signal without spending tokens on a completion.
+    """
+    provider_config = {
+        "openai": ("OPENAI_BASE_URL", "OPENAI_API_KEY"),
+        "groq": ("GROQ_BASE_URL", "GROQ_API_KEY"),
+        "deepseek": ("DEEPSEEK_BASE_URL", "DEEPSEEK_API_KEY"),
+        "alibaba": ("ALIBABA_API_BASE", "ALIBABA_API_KEY"),
+        "minimax": ("MINIMAX_API_BASE", "MINIMAX_API_KEY"),
+    }.get(provider)
+    if provider_config is None:
+        return {
+            "ok": False,
+            "status": "misconfigured",
+            "mode": "runtime_probe",
+            "error": f"No cloud health probe is defined for provider '{provider}'.",
+        }
+
+    base_url = str(getattr(settings, provider_config[0], "") or "").strip().rstrip("/")
+    api_key = str(getattr(settings, provider_config[1], "") or "").strip()
+    if not base_url or not api_key:
+        return {
+            "ok": False,
+            "status": "misconfigured",
+            "mode": "runtime_probe",
+            "error": "Cloud provider base URL or API key is not configured.",
+        }
+
+    try:
+        assert_egress_allowed(provider, settings=settings)
+    except EgressDeniedError as exc:
+        return {
+            "ok": False,
+            "status": "misconfigured",
+            "mode": "runtime_probe",
+            "error": str(exc),
+        }
+
+    models_url = f"{base_url}/models" if base_url.endswith("/v1") else f"{base_url}/v1/models"
+    try:
+        response = requests.get(
+            models_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout_seconds,
+        )
+    except requests.exceptions.RequestException as exc:
+        return {
+            "ok": False,
+            "status": "offline",
+            "mode": "runtime_probe",
+            "checked_endpoint": "/v1/models",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    if not 200 <= response.status_code < 300:
+        return {
+            "ok": False,
+            "status": "offline",
+            "mode": "runtime_probe",
+            "checked_endpoint": "/v1/models",
+            "http_status": response.status_code,
+            "error": f"HTTP {response.status_code} from /v1/models",
+        }
+
+    advertised_models = None
+    try:
+        response_payload = response.json()
+        if isinstance(response_payload, dict) and isinstance(response_payload.get("data"), list):
+            advertised_models = [
+                str(item.get("id"))
+                for item in response_payload["data"]
+                if isinstance(item, dict) and item.get("id")
+            ]
+    except (TypeError, ValueError):
+        pass
+
+    result = {
+        "ok": True,
+        "status": "online",
+        "mode": "runtime_probe",
+        "checked_endpoint": "/v1/models",
+        "http_status": response.status_code,
+    }
+    if advertised_models is not None:
+        result["advertised_models"] = advertised_models
+    return result
 
 
 def _llm_health_cache_ttl_seconds() -> float:
@@ -831,17 +925,7 @@ def health_llm():
         )
         return _wrap("down")
 
-    payload.update(
-        {
-            "ok": False,
-            "status": "unknown",
-            "mode": "runtime_unprobed",
-            "error": (
-                "Cloud provider is configured but not actively probed; "
-                "runtime availability is unknown."
-            ),
-        }
-    )
+    payload.update(_probe_cloud_llm(provider, settings, _health_probe_timeout))
     payload["provider_truth"] = build_provider_truth(
         provider,
         settings,
@@ -852,7 +936,7 @@ def health_llm():
         == "available",
         selectable=bool(provider_runtime.get("enabled")),
     )
-    return _wrap("degraded")
+    return _wrap(payload.get("status"))
 
 
 @router.get("/api/llm/catalog")
