@@ -351,9 +351,9 @@ _STATIC_PROVIDER_MODELS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
     "deepseek": (
         {
-            "id": "deepseek-v4-pro",
-            "displayName": "DeepSeek V4 Pro",
-            "contextWindow": 128000,
+            "id": "deepseek-v4-flash",
+            "displayName": "DeepSeek V4 Flash",
+            "contextWindow": 1000000,
             "capabilities": {
                 "chat": True,
                 "vision": False,
@@ -540,7 +540,7 @@ def default_model_for_provider(provider_id: str, settings: Settings) -> str:
     elif provider == "deepseek":
         candidates = (
             getattr(settings, "DEEPSEEK_CHAT_MODEL", None),
-            "deepseek-v4-pro",
+            "deepseek-v4-flash",
         )
     elif provider == "openai":
         candidates = (

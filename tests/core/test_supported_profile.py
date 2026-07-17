@@ -65,14 +65,13 @@ def test_tester_profile_user_profile_quarantined() -> None:
     assert manifest.route_status("user_profile") == "quarantined"
 
 
-def test_tester_profile_local_only_provider_contract() -> None:
+def test_tester_profile_deepseek_provider_contract() -> None:
     manifest = load_supported_profile("v1-friends-family-web")
 
-    assert manifest.provider_contract["LLM_PROVIDER"] == "local"
-    assert manifest.provider_contract["ALLOW_CLOUD_PROVIDERS"] is False
-    assert manifest.provider_contract["CODEXIFY_LOCAL_ONLY_MODE"] is True
-    assert manifest.provider_contract["CODEXIFY_EGRESS_ALLOWLIST"] == ""
-    assert manifest.provider_contract["LOCAL_API_KEY"] == "local"
+    assert manifest.provider_contract["LLM_PROVIDER"] == "deepseek"
+    assert manifest.provider_contract["ALLOW_CLOUD_PROVIDERS"] is True
+    assert manifest.provider_contract["CODEXIFY_LOCAL_ONLY_MODE"] is False
+    assert manifest.provider_contract["CODEXIFY_EGRESS_ALLOWLIST"] == "deepseek"
 
 
 def test_tester_profile_high_blast_routes_quarantined() -> None:

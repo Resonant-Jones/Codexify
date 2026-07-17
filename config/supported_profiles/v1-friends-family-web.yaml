@@ -81,15 +81,14 @@ route_posture:
     - agent_orchestration_chat
     - user_profile
 provider_contract:
-  LLM_PROVIDER: local
-  ALLOW_CLOUD_PROVIDERS: false
-  CODEXIFY_LOCAL_ONLY_MODE: true
-  CODEXIFY_EGRESS_ALLOWLIST: ""
+  LLM_PROVIDER: deepseek
+  ALLOW_CLOUD_PROVIDERS: true
+  CODEXIFY_LOCAL_ONLY_MODE: false
+  CODEXIFY_EGRESS_ALLOWLIST: deepseek
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
-  # Model names are NOT enforced here — the system discovers available models
-  # at runtime. If no local models exist AND no cloud provider is configured,
-  # the /health/llm endpoint will report models_available: false.
+  # DeepSeek model exposure is restricted by the static provider catalog to
+  # the configured DEEPSEEK_CHAT_MODEL, which defaults to deepseek-v4-flash.
 criticality:
   tier0:
     services:

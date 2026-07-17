@@ -84,6 +84,28 @@ message if `ALIBABA_API_KEY` is missing or `ALIBABA_API_BASE` is blank.
 - Do not commit `.env`/`.env.local` files with real keys.
 - Do not expose provider keys to frontend clients in production.
 
+## DeepSeek
+
+DeepSeek is available as a restricted first-class chat provider through the
+OpenAI-compatible API. The friends/family tester profile exposes only
+`deepseek-v4-flash`; other DeepSeek models are rejected by the static catalog.
+
+### Enable DeepSeek
+
+Set:
+
+- `LLM_PROVIDER=deepseek`
+- `DEEPSEEK_API_KEY=<your_deepseek_api_key>`
+- `DEEPSEEK_BASE_URL=https://api.deepseek.com`
+- `DEEPSEEK_CHAT_MODEL=deepseek-v4-flash`
+- `ALLOW_CLOUD_PROVIDERS=true`
+- `CODEXIFY_LOCAL_ONLY_MODE=false`
+- `CODEXIFY_EGRESS_ALLOWLIST=deepseek`
+
+DeepSeek model discovery is intentionally static for this lane. The catalog
+exposes `deepseek-v4-flash` only, and routing validates the requested model
+against that allowlisted catalog entry.
+
 ## MiniMax
 
 MiniMax is available as a first-class chat provider through the backend provider

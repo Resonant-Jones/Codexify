@@ -247,7 +247,7 @@ def test_deepseek_config_defaults_are_normalized():
     )
 
     assert settings.DEEPSEEK_BASE_URL == "https://api.deepseek.com"
-    assert settings.DEEPSEEK_CHAT_MODEL == "deepseek-v4-pro"
+    assert settings.DEEPSEEK_CHAT_MODEL == "deepseek-v4-flash"
 
 
 def test_validate_llm_config_rejects_deepseek_without_api_key(monkeypatch):

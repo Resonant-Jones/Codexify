@@ -7,7 +7,7 @@ from guardian.providers.deepseek_adapter import (
 
 def test_thinking_payload_is_root_level_and_omits_sampling_controls():
     payload = build_payload(
-        model="deepseek-v4-pro",
+        model="deepseek-v4-flash",
         messages=[{"role": "user", "content": "solve"}],
         reasoning_mode="think",
         temperature=0.2,
@@ -23,7 +23,7 @@ def test_thinking_payload_is_root_level_and_omits_sampling_controls():
 def test_default_and_no_think_explicitly_disable_thinking():
     for mode in (None, "default", "no_think"):
         payload = build_payload(
-            model="deepseek-v4-pro",
+            model="deepseek-v4-flash",
             messages=[],
             reasoning_mode=mode,
             temperature=0.3,
