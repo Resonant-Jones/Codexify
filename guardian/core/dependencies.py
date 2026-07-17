@@ -697,6 +697,56 @@ def verify_api_key(
     raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def require_service_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> str:
+    """Require a configured static service key without accepting session auth.
+
+    Private-preview routes normally use :func:`require_api_key` to validate a
+    Guardian session.  A route that needs a distinct trusted-service authority
+    can layer this dependency alongside it without changing preview-wide auth
+    behavior.
+    """
+    candidate = _coerce_text(x_api_key)
+    if not candidate:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    allowed: List[str] = []
+    try:
+        settings = get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                token.strip()
+                for token in raw_multi.replace(";", ",").split(",")
+                if token.strip()
+            )
+    except Exception:
+        pass
+
+    env_key = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+    if env_key and env_key not in allowed:
+        allowed.append(env_key)
+
+    if not allowed:
+        logger.error(
+            "GUARDIAN_API_KEY is not configured; set it in .env or the environment."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfigured: GUARDIAN_API_KEY is not set",
+        )
+
+    if any(hmac.compare_digest(candidate, allowed_key) for allowed_key in allowed):
+        return candidate
+
+    logger.warning("Unauthorized service API key attempt")
+    raise HTTPException(status_code=401, detail="Invalid API key")
+
+
 def require_api_key(api_key: str = Depends(verify_api_key)) -> str:
     """
     Backward-compatible wrapper around verify_api_key.
@@ -1104,6 +1154,7 @@ __all__ = [
     # Authentication
     "verify_api_key",
     "require_api_key",
+    "require_service_api_key",
     "get_current_user",
     "get_request_user_scope",
     "get_request_user_id",
