@@ -155,7 +155,7 @@ class Settings(BaseSettings):
         description="Base URL for DeepSeek's OpenAI-compatible API endpoint.",
     )
     DEEPSEEK_CHAT_MODEL: str | None = Field(
-        default="deepseek-v4-pro",
+        default="deepseek-v4-flash",
         description="Default chat model for DeepSeek completions.",
     )
     EMBEDDER_PROVIDER: str = Field(
@@ -770,7 +770,7 @@ class Settings(BaseSettings):
         if not _normalize_model_setting(
             getattr(self, "DEEPSEEK_CHAT_MODEL", None)
         ):
-            self.DEEPSEEK_CHAT_MODEL = "deepseek-v4-pro"
+            self.DEEPSEEK_CHAT_MODEL = "deepseek-v4-flash"
 
 
 # Create a singleton instance that can be imported across the application

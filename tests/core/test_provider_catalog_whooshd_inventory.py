@@ -3,6 +3,7 @@ from __future__ import annotations
 from guardian.core import llm_catalog
 from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
+from guardian.core.provider_registry import validate_provider_model_selection
 
 
 _GEMMA = "mlx-community/gemma-4-e2b-it-4bit"
@@ -57,7 +58,7 @@ def _settings(**overrides) -> Settings:
         "GROQ_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
         "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
-        "DEEPSEEK_CHAT_MODEL": "deepseek-v4-pro",
+        "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
         "ALIBABA_API_KEY": None,
         "MINIMAX_API_KEY": None,
     }
@@ -143,11 +144,33 @@ def test_deepseek_catalog_exposes_static_model_when_cloud_policy_allows(
     assert deepseek["available"] is True
     assert deepseek["authorized"] is True
     assert [model["id"] for model in deepseek["models"]] == [
-        "deepseek-v4-pro"
+        "deepseek-v4-flash"
     ]
-    assert deepseek["models"][0]["displayName"] == "DeepSeek V4 Pro"
+    assert deepseek["models"][0]["displayName"] == "DeepSeek V4 Flash"
     assert deepseek["truth"]["selectable"] is True
     assert deepseek["truth"]["egress_allowed"] is True
+
+
+def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    allowed, reason = validate_provider_model_selection(
+        provider_id="deepseek",
+        model_id="deepseek-v4-pro",
+        settings=settings,
+    )
+
+    assert allowed is False
+    assert reason == (
+        "Requested model 'deepseek-v4-pro' is not available for provider 'deepseek'"
+    )
 
 
 def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(

@@ -33,6 +33,11 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 | User accounts | N/A (single-user dev) | Register/login/logout |
 | State isolation | Dev Postgres/Redis/Neo4j volumes | Separate volumes via project name |
 | Supported profile | `v1-local-core-web-mcp` | `v1-friends-family-web` |
+| Chat provider | Local runtime | DeepSeek `deepseek-v4-flash` only |
+
+The friends/family profile sends chat completions to DeepSeek instead of
+Whoosh'd. Its egress allowlist contains only `deepseek`; the API key remains
+local-only in `.env.tester`.
 
 ## First-Time Setup
 

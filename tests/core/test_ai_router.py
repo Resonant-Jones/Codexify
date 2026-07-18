@@ -203,7 +203,7 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
         CODEXIFY_EGRESS_ALLOWLIST="deepseek",
         DEEPSEEK_API_KEY="test-deepseek-key",
         DEEPSEEK_BASE_URL="https://api.deepseek.com",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-pro",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
     )
     messages = [{"role": "user", "content": "Ping"}]
 
@@ -216,7 +216,7 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
     assert result == "DeepSeek routed"
     assert captured["url"] == "https://api.deepseek.com/v1/chat/completions"
     assert captured["json"] == {
-        "model": "deepseek-v4-pro",
+        "model": "deepseek-v4-flash",
         "messages": messages,
         "thinking": {"type": "disabled"},
         "temperature": 0.7,
