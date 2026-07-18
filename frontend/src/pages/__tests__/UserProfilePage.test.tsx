@@ -11,10 +11,6 @@ import {
   __setAuthStateForTests,
 } from "@/lib/authState";
 
-vi.mock("@/components/DocumentGenModal", () => ({
-  default: () => null,
-}));
-
 vi.mock("@/components/persona/layout/AppShell", () => ({
   default: () => <div data-testid="app-shell-mock" />,
 }));

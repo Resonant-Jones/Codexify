@@ -1,22 +1,12 @@
-import React, { useMemo } from "react";
+import React from "react";
 
 import BootstrapGate from "./components/bootstrap/BootstrapGate";
 import WebRuntimeStartupGate from "./components/bootstrap/WebRuntimeStartupGate";
-import DocumentGenModal, {
-  DocumentGenInput,
-} from "./components/DocumentGenModal";
 import AppShell from "./components/persona/layout/AppShell";
-import { useShellViewportClass } from "./components/persona/layout/shellBreakpointContract";
-import { useViewportInsets } from "./hooks/useViewportInsets";
-import { shouldSuppressMobileAmbientBottom } from "./components/persona/layout/mobileBottomEdgeContract";
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/button";
 import CommandCenterPage from "./features/commandCenter/CommandCenterPage";
-import {
-  requestWorkspaceOpen,
-  shouldBlockNestedWorkspaceShell,
-} from "./features/workspace/state/useWorkspaceState";
-import api from "./lib/api";
+import { shouldBlockNestedWorkspaceShell } from "./features/workspace/state/useWorkspaceState";
 import {
   appendBootstrapDetail,
   BOOTSTRAP_LOG_SERVICES,
@@ -93,19 +83,6 @@ const HEARTBEAT_STATUS_ENABLED =
   /^(1|true)$/i.test(
     String((import.meta as any)?.env?.VITE_ENABLE_HEARTBEAT_STATUS ?? "")
   );
-
-const DOC_GEN_EXT_MAP: Record<string, string> = {
-  markdown: "md",
-  plain: "txt",
-};
-
-function getActiveThreadId(): number | null {
-  if (typeof window === "undefined") return null;
-  const match = window.location.pathname.match(/^\/chat\/(\d+)/);
-  if (!match) return null;
-  const id = Number(match[1]);
-  return Number.isFinite(id) ? id : null;
-}
 
 function isTuneRoute() {
   if (typeof window === "undefined") return false;
@@ -649,10 +626,6 @@ export default function App() {
     !profileRoute &&
     !(shareRoute && !!shareToken) &&
     (desktopStartupCanBootstrap || desktopRecoveryRequested);
-  const [docGenOpen, setDocGenOpen] = React.useState(false);
-  const [docGenDraft, setDocGenDraft] = React.useState<DocumentGenInput | null>(
-    null
-  );
   const [bootstrapState, setBootstrapState] =
     React.useState<RuntimeBootstrapState>(createCheckingRuntimeBootstrapState);
   const [bootstrapPhase, setBootstrapPhase] = React.useState<BootstrapPhase>(
@@ -675,113 +648,6 @@ export default function App() {
     React.useState<BootstrapRecoveryNotice | null>(null);
   const [openingDockerDesktop, setOpeningDockerDesktop] = React.useState(false);
   const [restartingServices, setRestartingServices] = React.useState(false);
-
-  const handleDocGenSubmit = React.useCallback(
-    async (input: DocumentGenInput) => {
-      setDocGenDraft(input);
-      const threadId = getActiveThreadId();
-      if (!threadId) {
-        try {
-          window.dispatchEvent(
-            new CustomEvent("cfy:toast", {
-              detail: {
-                kind: "error",
-                message: "Open a chat thread before generating a document.",
-              },
-            })
-          );
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
-      try {
-        const payload = {
-          thread_id: threadId,
-          title: input.title.trim() || undefined,
-          prompt: input.prompt,
-          format: input.format,
-          doc_type: input.doc_type,
-        };
-        const response = await api.post("/documents/generate", payload);
-        const data = response?.data ?? {};
-        const documentId = data.document_id ?? data.id;
-        if (!documentId) {
-          throw new Error("Missing generated document id.");
-        }
-        const resolvedTitle =
-          (data.title || input.title).trim() || "Generated document";
-        const resolvedFormat = String(
-          data.format || input.format || "markdown"
-        ).toLowerCase();
-        const ext = DOC_GEN_EXT_MAP[resolvedFormat] || "md";
-        const doc = {
-          id: documentId,
-          title: resolvedTitle,
-          ext,
-          type: "file",
-          thread_id: threadId,
-        };
-        try {
-          window.dispatchEvent(
-            new CustomEvent("cfy:documents:add", {
-              detail: { items: [doc] },
-            })
-          );
-        } catch {
-          // ignore
-        }
-        requestWorkspaceOpen(
-          { doc, source: "generated-document", targetView: "documents" },
-          { source: "generated-document", targetView: "documents" }
-        );
-        try {
-          window.dispatchEvent(
-            new CustomEvent("cfy:toast", {
-              detail: { message: "Document generated." },
-            })
-          );
-        } catch {
-          // ignore
-        }
-      } catch (err: unknown) {
-        const fallback = "Failed to generate document.";
-        const maybeErr =
-          err && typeof err === "object"
-            ? (err as {
-                response?: { data?: { detail?: string } };
-                message?: string;
-              })
-            : null;
-        const message =
-          maybeErr?.response?.data?.detail ||
-          maybeErr?.message ||
-          fallback;
-        try {
-          window.dispatchEvent(
-            new CustomEvent("cfy:toast", {
-              detail: { kind: "error", message },
-            })
-          );
-        } catch {
-          // ignore
-        }
-      }
-    },
-    []
-  );
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOpen = () => setDocGenOpen(true);
-    window.addEventListener("cfy:documents:generate", onOpen as EventListener);
-    return () =>
-      window.removeEventListener(
-        "cfy:documents:generate",
-        onOpen as EventListener
-      );
-  }, []);
 
   const appendDiagnostics = React.useCallback(
     (next: string | undefined, heading?: string) => {
@@ -1389,15 +1255,6 @@ export default function App() {
   const webRuntimeGateEnabled =
     !desktopRuntime && !bootstrapEnabled && import.meta.env.MODE !== "test";
 
-  // Mobile bottom-edge contract: suppress ambient bottom chrome when keyboard is open
-  // on phone-class widths to keep the keyboard flush against the active input surface.
-  const shellViewportClass = useShellViewportClass();
-  const viewportInsets = useViewportInsets(shellViewportClass === "phone");
-  const suppressAmbientBottom = useMemo(
-    () => shouldSuppressMobileAmbientBottom(shellViewportClass === "phone", viewportInsets.isKeyboardOpen),
-    [shellViewportClass, viewportInsets.isKeyboardOpen]
-  );
-
   if (tuneRoute) {
     return <DevTuneGate />;
   }
@@ -1472,31 +1329,7 @@ export default function App() {
         />
       );
   } else {
-    mainContent = (
-      <>
-        <AppShell />
-        {!suppressAmbientBottom && (
-          <div className="fixed bottom-6 right-6 z-[1200]">
-            <Button
-              type="button"
-              variant="ghost"
-              className="rounded-full px-4 shadow"
-              onClick={() => setDocGenOpen(true)}
-              aria-haspopup="dialog"
-              aria-expanded={docGenOpen}
-            >
-              Generate Doc
-            </Button>
-          </div>
-        )}
-        <DocumentGenModal
-          open={docGenOpen}
-          onOpenChange={setDocGenOpen}
-          onSubmit={handleDocGenSubmit}
-          initialValues={docGenDraft ?? undefined}
-        />
-      </>
-    );
+    mainContent = <AppShell />;
   }
 
   return (

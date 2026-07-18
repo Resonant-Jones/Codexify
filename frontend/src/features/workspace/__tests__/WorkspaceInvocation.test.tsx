@@ -34,10 +34,6 @@ vi.mock("@/components/bootstrap/BootstrapGate", () => ({
   default: () => <div data-testid="bootstrap-gate-mock" />,
 }));
 
-vi.mock("@/components/DocumentGenModal", () => ({
-  default: () => null,
-}));
-
 vi.mock("@/components/persona/layout/AppShell", () => ({
   default: () => <div data-testid="app-shell-mock" />,
 }));
