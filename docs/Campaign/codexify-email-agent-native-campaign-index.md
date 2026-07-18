@@ -95,7 +95,7 @@ memory without explicit consent through a governed path.
 
 ### Collaborators remain separate principals
 
-Zac Matariki Snushall, also referred to as Maatariki or Matariki, is a separate
+Zac Matariki, also referred to as Maatariki or Matariki, is a separate
 human collaborator, Codexify engineer, and Resonant Constructs member.
 `maatariki@resonantconstructs.ai` is Zac's Google Workspace mailbox. It is not an
 agent identity, operator test mailbox, alias target, credential source, or
@@ -576,7 +576,7 @@ This index does not authorize or implement:
   retrieval, frontend, or Tauri changes;
 - mailbox, alias, label/filter, OAuth client, app-password, credential, DNS, or MX changes;
 - production mailbox cutover or production correspondence;
-- use, inspection, or modification of Zac Matariki Snushall's mailbox or any
+- use, inspection, or modification of Zac Matariki's mailbox or any
   other collaborator infrastructure;
 - a self-hosted mail server in the initial implementation;
 - autonomous sending or deletion;
@@ -586,7 +586,7 @@ This index does not authorize or implement:
 ## 14. Source evidence
 
 - GitHub Issue #599, including its hosted-provider comments
-- GitHub Issue #600 and the identity correction naming Zac Matariki Snushall
+- GitHub Issue #600 and the identity correction naming Zac Matariki
 - `docs/architecture/00-current-state.md`
 - `docs/architecture/README.md`
 - `docs/architecture/adr/adr-index.md`
