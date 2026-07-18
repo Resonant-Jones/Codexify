@@ -972,7 +972,8 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.layoutMode");
     return raw === "zen" ? "zen" : "focus";
   });
-  const dockAutoCollapseEnabled = true;
+  const bp = useBreakpoint();
+  const dockAutoCollapseEnabled = bp !== "sm";
   const topChromeRef = useRef<HTMLDivElement | null>(null);
   const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const dockEngagedRef = useRef(false);
@@ -1042,6 +1043,11 @@ export default function AppShell({
     },
     [dockHovered, scheduleDockCollapse]
   );
+
+  useEffect(() => {
+    if (dockAutoCollapseEnabled) return;
+    expandDock();
+  }, [dockAutoCollapseEnabled, expandDock]);
 
   useEffect(() => clearDockCollapseTimer, [clearDockCollapseTimer]);
 
@@ -2511,8 +2517,6 @@ export default function AppShell({
   const activeWallpaper = useMemo(() => {
     return wallpaper ?? (gallery && gallery.length > 0 ? gallery[0].src : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop");
   }, [wallpaper, gallery]);
-
-  const bp = useBreakpoint();
 
   // Helper to jump to Guardian chat with a prefilled prompt
   function openChatWithPrompt(p: string) { setPrefill(p); navigateToView("guardian"); }

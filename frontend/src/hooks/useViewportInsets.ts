@@ -16,6 +16,8 @@ const DEFAULT_VIEWPORT_INSETS: ViewportInsets = {
   isKeyboardOpen: false,
 };
 
+const FOCUS_VIEWPORT_SETTLE_DELAY_MS = 350;
+
 function readViewportInsets(): ViewportInsets {
   if (typeof window === "undefined") {
     return DEFAULT_VIEWPORT_INSETS;
@@ -57,6 +59,7 @@ export function useViewportInsets(enabled = true): ViewportInsets {
 
     const visualViewport = window.visualViewport;
     let frameId: number | null = null;
+    let focusSettleTimerId: number | null = null;
 
     const syncViewportInsets = () => {
       if (frameId != null) {
@@ -78,10 +81,24 @@ export function useViewportInsets(enabled = true): ViewportInsets {
       });
     };
 
+    const settleViewportAfterFocusChange = () => {
+      syncViewportInsets();
+
+      if (focusSettleTimerId != null) {
+        window.clearTimeout(focusSettleTimerId);
+      }
+      focusSettleTimerId = window.setTimeout(() => {
+        focusSettleTimerId = null;
+        syncViewportInsets();
+      }, FOCUS_VIEWPORT_SETTLE_DELAY_MS);
+    };
+
     syncViewportInsets();
 
     window.addEventListener("resize", syncViewportInsets, { passive: true });
     window.addEventListener("orientationchange", syncViewportInsets);
+    window.addEventListener("focusin", settleViewportAfterFocusChange);
+    window.addEventListener("focusout", settleViewportAfterFocusChange);
     visualViewport?.addEventListener("resize", syncViewportInsets, { passive: true });
     visualViewport?.addEventListener("scroll", syncViewportInsets, { passive: true });
 
@@ -89,8 +106,13 @@ export function useViewportInsets(enabled = true): ViewportInsets {
       if (frameId != null) {
         window.cancelAnimationFrame(frameId);
       }
+      if (focusSettleTimerId != null) {
+        window.clearTimeout(focusSettleTimerId);
+      }
       window.removeEventListener("resize", syncViewportInsets);
       window.removeEventListener("orientationchange", syncViewportInsets);
+      window.removeEventListener("focusin", settleViewportAfterFocusChange);
+      window.removeEventListener("focusout", settleViewportAfterFocusChange);
       visualViewport?.removeEventListener("resize", syncViewportInsets);
       visualViewport?.removeEventListener("scroll", syncViewportInsets);
     };

@@ -723,6 +723,31 @@ describe("AppShell settings utility trigger", () => {
     }
   });
 
+  it("keeps the phone Dock expanded after a touch leaves the top chrome", () => {
+    setViewportWidth(390);
+    localStorage.setItem("cfy.lastView", "guardian");
+
+    render(<AppShell />);
+
+    const shell = screen.getByTestId("app-shell-top-chrome").parentElement;
+    const topChrome = screen.getByTestId("app-shell-top-chrome");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        fireEvent.pointerEnter(topChrome, { pointerType: "touch" });
+        fireEvent.pointerLeave(topChrome, { pointerType: "touch" });
+        vi.advanceTimersByTime(5_000);
+      });
+
+      expect(shell).toHaveAttribute("data-dock-engaged", "true");
+      expect(shell).not.toHaveClass("codexify-shell--dock-collapsed");
+      expect(topChrome).toHaveAttribute("data-dock-collapsed", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("routes Project Knowledge Base requests to the Documents surface", async () => {
     localStorage.setItem("cfy.lastView", "guardian");
     setRouteThread(123);

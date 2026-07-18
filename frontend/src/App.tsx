@@ -1392,7 +1392,7 @@ export default function App() {
   // Mobile bottom-edge contract: suppress ambient bottom chrome when keyboard is open
   // on phone-class widths to keep the keyboard flush against the active input surface.
   const shellViewportClass = useShellViewportClass();
-  const viewportInsets = useViewportInsets();
+  const viewportInsets = useViewportInsets(shellViewportClass === "phone");
   const suppressAmbientBottom = useMemo(
     () => shouldSuppressMobileAmbientBottom(shellViewportClass === "phone", viewportInsets.isKeyboardOpen),
     [shellViewportClass, viewportInsets.isKeyboardOpen]
