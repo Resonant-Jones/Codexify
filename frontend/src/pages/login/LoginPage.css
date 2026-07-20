@@ -1,0 +1,333 @@
+.login-threshold {
+  --login-threshold-max-width: 32rem;
+  --login-card-padding: clamp(
+    calc(var(--card-pad) + var(--card-pad)),
+    6vw,
+    calc(var(--card-pad) + var(--card-pad) + var(--card-pad))
+  );
+  --login-control-height: 2.875rem;
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: 100svh;
+  width: 100%;
+  box-sizing: border-box;
+  place-items: center;
+  overflow-x: clip;
+  overflow-y: auto;
+  padding: clamp(
+      var(--shell-gap),
+      5svh,
+      calc(var(--shell-gap) + var(--shell-gap) + var(--shell-gap))
+    )
+    clamp(
+      var(--shell-gap),
+      5vw,
+      calc(var(--shell-gap) + var(--shell-gap))
+    );
+  color: var(--text);
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      color-mix(in oklab, var(--accent-weak) 20%, transparent) 0%,
+      color-mix(in oklab, var(--accent-weak) 7%, transparent) 28%,
+      transparent 58%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in oklab, var(--panel-sheet) 72%, var(--panel-bg) 28%) 0%,
+      color-mix(in oklab, var(--panel-bg) 88%, var(--chip-bg) 12%) 100%
+    );
+}
+
+.login-threshold,
+.login-threshold *,
+.login-threshold *::before,
+.login-threshold *::after {
+  box-sizing: border-box;
+}
+
+.login-threshold__atmosphere {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      115deg,
+      transparent 0%,
+      color-mix(in oklab, var(--panel-bezel) 11%, transparent) 50%,
+      transparent 100%
+    ),
+    radial-gradient(
+      circle at 50% 38%,
+      color-mix(in oklab, var(--accent) 9%, transparent),
+      transparent 46%
+    );
+  opacity: 0.56;
+}
+
+.login-threshold__composition {
+  width: min(100%, var(--login-threshold-max-width));
+}
+
+.login-threshold__brand {
+  margin: 0 0 var(--shell-gap);
+  color: color-mix(in oklab, var(--text) 84%, var(--text-subtle) 16%);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  line-height: 1;
+}
+
+.login-threshold__card {
+  border: 1px solid
+    color-mix(in oklab, var(--panel-border) 76%, var(--panel-bezel) 24%);
+  border-radius: var(--card-radius);
+  padding: var(--login-card-padding);
+  background: color-mix(in oklab, var(--panel-bg) 82%, transparent);
+  box-shadow:
+    0 calc(var(--shell-gap) + var(--shell-gap))
+      calc(var(--shell-gap) + var(--shell-gap) + var(--shell-gap) + var(--shell-gap))
+      color-mix(in oklab, var(--panel-bg) 72%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--panel-bezel) 44%, transparent);
+  backdrop-filter: blur(16px) saturate(118%);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
+}
+
+.login-threshold__header {
+  display: grid;
+  gap: var(--card-pad);
+}
+
+.login-threshold__eyebrow,
+.login-threshold__heading,
+.login-threshold__body,
+.login-threshold__registration {
+  margin: 0;
+}
+
+.login-threshold__eyebrow {
+  color: color-mix(in oklab, var(--accent) 72%, var(--text-subtle) 28%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  line-height: 1.4;
+}
+
+.login-threshold__heading {
+  color: var(--text);
+  font-size: clamp(1.85rem, 7vw, 2.5rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.login-threshold__body {
+  color: var(--text-subtle);
+  font-size: 0.94rem;
+  line-height: 1.65;
+}
+
+.login-threshold__form,
+.login-threshold__actions {
+  display: grid;
+  gap: var(--shell-gap);
+  margin-top: calc(var(--shell-gap) + var(--card-pad));
+}
+
+.login-threshold__field {
+  display: grid;
+  gap: var(--card-pad);
+}
+
+.login-threshold__field label {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.login-threshold__field input {
+  width: 100%;
+  min-height: var(--login-control-height);
+  border: 1px solid var(--chip-border);
+  border-radius: var(--radius-micro);
+  padding: 0 var(--shell-gap);
+  color: var(--text);
+  background: color-mix(in oklab, var(--chip-bg) 84%, transparent);
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.login-threshold__field input:hover {
+  border-color: color-mix(
+    in oklab,
+    var(--chip-border) 66%,
+    var(--panel-bezel) 34%
+  );
+}
+
+.login-threshold__field input:focus-visible {
+  border-color: color-mix(in oklab, var(--accent) 68%, var(--chip-border));
+  background: color-mix(in oklab, var(--chip-bg) 92%, var(--panel-sheet) 8%);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--accent-weak) 48%, transparent);
+}
+
+.login-threshold__error {
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-micro);
+  padding: var(--card-pad) var(--shell-gap);
+  color: var(--danger-text);
+  background: var(--danger-surface);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.login-threshold__primary-action,
+.login-threshold__secondary-action {
+  min-height: var(--login-control-height);
+  width: 100%;
+}
+
+.login-threshold__primary-action {
+  border: 1px solid color-mix(in oklab, var(--accent-strong) 72%, transparent);
+  box-shadow: 0 10px 24px
+    color-mix(in oklab, var(--accent-weak) 24%, transparent);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  transition:
+    transform 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.login-threshold__primary-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent-strong);
+  box-shadow: 0 14px 30px
+    color-mix(in oklab, var(--accent-weak) 32%, transparent);
+}
+
+.login-threshold__primary-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login-threshold__secondary-action {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-decoration-color: color-mix(
+    in oklab,
+    var(--text-subtle) 52%,
+    transparent
+  );
+  text-underline-offset: 0.22em;
+}
+
+.login-threshold__secondary-action:hover:not(:disabled) {
+  border-color: var(--chip-border);
+  color: var(--text);
+}
+
+.login-threshold__registration {
+  margin-top: calc(var(--shell-gap) + var(--card-pad));
+  color: var(--text-subtle);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.login-threshold__registration a {
+  color: color-mix(in oklab, var(--accent) 82%, var(--text) 18%);
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.24em;
+  transition: color 150ms ease;
+}
+
+.login-threshold__registration a:hover {
+  color: var(--accent-strong);
+}
+
+.login-threshold__registration a:focus-visible {
+  border-radius: var(--radius-micro);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.login-threshold__readiness {
+  height: 3px;
+  margin-top: calc(var(--shell-gap) + var(--card-pad));
+  overflow: hidden;
+  border-radius: var(--radius-micro);
+  background: color-mix(in oklab, var(--chip-bg) 78%, transparent);
+}
+
+.login-threshold__readiness-bar {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--accent) 68%, var(--accent-weak) 32%);
+  animation: login-threshold-readiness 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes login-threshold-readiness {
+  from {
+    opacity: 0.48;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0.82;
+    transform: translateX(138%);
+  }
+}
+
+@media (max-width: 30rem) {
+  .login-threshold {
+    place-items: center;
+    padding: calc(var(--shell-gap) + var(--shell-gap)) var(--shell-gap);
+  }
+
+  .login-threshold__card {
+    padding: calc(var(--card-pad) + var(--card-pad));
+  }
+}
+
+@media (max-height: 42rem) {
+  .login-threshold {
+    place-items: start center;
+    padding-block: calc(var(--shell-gap) + var(--card-pad));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-threshold__field input,
+  .login-threshold__primary-action,
+  .login-threshold__registration a {
+    transition: none;
+  }
+
+  .login-threshold__primary-action:hover:not(:disabled),
+  .login-threshold__primary-action:active:not(:disabled) {
+    transform: none;
+  }
+
+  .login-threshold__readiness-bar {
+    animation: none;
+    opacity: 0.72;
+    transform: none;
+  }
+}

@@ -1,8 +1,15 @@
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/useAuth";
+import { Button } from "@/components/ui/button";
 import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
+
+import "./LoginPage.css";
 
 const LOGIN_FAILURE_MESSAGE =
   "Unable to sign in. Check your credentials and try again.";
@@ -13,12 +20,25 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const wasAuthenticatedRef = useRef(false);
 
-  const canSubmit = useMemo(
-    () => username.trim().length > 0 && password.trim().length > 0,
-    [password, username]
-  );
+  const canSubmit = username.trim().length > 0 && password.length > 0;
+  const activeSession = auth.ready && auth.isAuthenticated;
+  const showRegistration = import.meta.env.VITE_PRIVATE_PREVIEW !== "true";
+
+  useEffect(() => {
+    if (
+      wasAuthenticatedRef.current &&
+      auth.ready &&
+      !auth.isAuthenticated
+    ) {
+      usernameInputRef.current?.focus();
+    }
+    wasAuthenticatedRef.current = activeSession;
+  }, [activeSession, auth.isAuthenticated, auth.ready]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,93 +58,151 @@ export default function LoginPage() {
     }
   }
 
+  async function handleSwitchUser() {
+    if (logoutLoading) return;
+    setLogoutLoading(true);
+    try {
+      await auth.logout();
+    } catch {
+      // useAuth.logout clears the stored session token in its finally block.
+    } finally {
+      setLogoutLoading(false);
+    }
+  }
+
+  const eyebrow = !auth.ready
+    ? "LOCAL WORKSPACE"
+    : remoteAuthMode
+      ? "PRIVATE WORKSPACE"
+      : "LOCAL WORKSPACE";
+  const heading = !auth.ready
+    ? "Preparing your workspace"
+    : activeSession
+      ? "Your workspace is ready"
+      : "Welcome back to Codexify";
+  const body = !auth.ready
+    ? "Checking the local access state on this device."
+    : activeSession
+      ? auth.token
+        ? "An active session was found on this device."
+        : "Local workspace access is already configured on this device."
+      : remoteAuthMode
+        ? "Sign in to enter your Codexify workspace. This browser will receive a private session token for the active session."
+        : "Sign in to enter your local workspace. Your session and workspace data remain on this device.";
+
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--panel-bg)]/95 p-8 text-[var(--text)] shadow-2xl backdrop-blur-xl">
-        {/* ── Brand + context label ── */}
-        <div className="mb-6 space-y-2">
-          <p className="text-xs uppercase tracking-[0.3em] text-[var(--text-subtle)]">
-            Codexify
-          </p>
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-3xl font-semibold tracking-[-0.03em]">
-              {remoteAuthMode ? "Session sign-in" : "Sign in"}
-            </h1>
-            <span className="rounded-full bg-[var(--accent)]/15 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">
-              Returning user
-            </span>
-          </div>
-          <p className="text-sm leading-6 text-[var(--text-subtle)]">
-            {remoteAuthMode
-              ? "Use your workspace username and password. This browser will receive a session token after sign-in."
-              : "Use your username and password to open the workspace."}
-          </p>
-        </div>
+    <main className="login-threshold">
+      <div className="login-threshold__atmosphere" aria-hidden="true" />
 
-        {/* ── Sign-in form ── */}
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-[var(--text)]">Username</span>
-            <input
-              className="w-full rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--chip-bg)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-subtle)]/50 outline-none transition focus:border-[var(--accent)]/60 focus:bg-[var(--chip-bg)] focus:ring-1 focus:ring-[var(--accent)]/30"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              placeholder="Enter your username"
-              autoComplete="username"
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-[var(--text)]">Password</span>
-            <input
-              className="w-full rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--chip-bg)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-subtle)]/50 outline-none transition focus:border-[var(--accent)]/60 focus:bg-[var(--chip-bg)] focus:ring-1 focus:ring-[var(--accent)]/30"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-            />
-          </label>
+      <section
+        className="login-threshold__composition"
+        aria-labelledby="login-threshold-heading"
+      >
+        <p className="login-threshold__brand">CODEXIFY</p>
 
-          {error ? (
-            <div
-              className="rounded-[var(--radius-tile,19px)] border border-[var(--danger-border)] bg-[var(--danger-surface)] px-4 py-3 text-sm text-[var(--danger-text)]"
-              role="alert"
+        <div className="login-threshold__card">
+          <header className="login-threshold__header">
+            <p className="login-threshold__eyebrow">{eyebrow}</p>
+            <h1
+              className="login-threshold__heading"
+              id="login-threshold-heading"
             >
-              {error}
-            </div>
-          ) : null}
+              {heading}
+            </h1>
+            <p className="login-threshold__body">{body}</p>
+          </header>
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={!canSubmit || loading}
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </Button>
-        </form>
-
-        {import.meta.env.VITE_PRIVATE_PREVIEW !== "true" && (
-          <>
-            <div className="my-6 flex items-center gap-3">
-              <div className="h-px flex-1 bg-[var(--panel-border)]" />
-              <span className="text-xs text-[var(--text-subtle)]">or</span>
-              <div className="h-px flex-1 bg-[var(--panel-border)]" />
+          {!auth.ready ? (
+            <div
+              className="login-threshold__readiness"
+              aria-label="Checking workspace access"
+            >
+              <span className="login-threshold__readiness-bar" />
             </div>
-            <div className="rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--surface-soft)] p-4 text-center">
-              <p className="text-sm text-[var(--text-subtle)]">New to Codexify?</p>
-              <a className="mt-1.5 inline-block text-sm font-semibold text-[var(--accent)] underline underline-offset-4 hover:text-[var(--accent-strong)] transition-colors" href="/register">
-                Create a user profile →
-              </a>
-            </div>
-          </>
-        )}
+          ) : activeSession ? (
+            <div className="login-threshold__actions">
+              <Button
+                className="login-threshold__primary-action"
+                onClick={() => window.location.assign("/")}
+                size="lg"
+                type="button"
+              >
+                CONTINUE TO WORKSPACE
+              </Button>
 
-        {auth.ready && auth.isAuthenticated ? (
-          <div className="mt-4 text-xs text-emerald-300">
-            A session is already active.
-          </div>
-        ) : null}
-      </div>
+              {auth.token ? (
+                <Button
+                  className="login-threshold__secondary-action"
+                  disabled={logoutLoading}
+                  onClick={handleSwitchUser}
+                  size="lg"
+                  type="button"
+                  variant="ghost"
+                >
+                  {logoutLoading ? "Signing out…" : "Sign in as another user"}
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <form className="login-threshold__form" onSubmit={handleSubmit}>
+                <div className="login-threshold__field">
+                  <label htmlFor="login-username">Username</label>
+                  <input
+                    autoComplete="username"
+                    id="login-username"
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="Enter your username"
+                    ref={usernameInputRef}
+                    required
+                    value={username}
+                  />
+                </div>
+
+                <div className="login-threshold__field">
+                  <label htmlFor="login-password">Password</label>
+                  <input
+                    aria-describedby={error ? "login-failure" : undefined}
+                    aria-invalid={error ? "true" : undefined}
+                    autoComplete="current-password"
+                    id="login-password"
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    type="password"
+                    value={password}
+                  />
+                </div>
+
+                {error ? (
+                  <div
+                    className="login-threshold__error"
+                    id="login-failure"
+                    role="alert"
+                  >
+                    {error}
+                  </div>
+                ) : null}
+
+                <Button
+                  className="login-threshold__primary-action"
+                  disabled={!canSubmit || loading}
+                  size="lg"
+                  type="submit"
+                >
+                  {loading ? "ENTERING…" : "ENTER WORKSPACE"}
+                </Button>
+              </form>
+
+              {showRegistration ? (
+                <p className="login-threshold__registration">
+                  New to Codexify? <a href="/register">Create a user profile</a>
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      </section>
     </main>
   );
 }
