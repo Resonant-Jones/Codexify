@@ -7,7 +7,9 @@ import pytest
 from fastapi import HTTPException
 
 from guardian.core.chat_completion_service import ChatTaskCancelled
+from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import (
+    CompletionTerminalStatus,
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
 )
@@ -34,7 +36,16 @@ class _TokenStream:
         self._tokens = list(tokens)
 
     def __iter__(self):
-        return iter(self._tokens)
+        yield from self._tokens
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=bool(self._tokens),
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="test-model",
+        )
 
     def close(self):
         return None
@@ -172,9 +183,7 @@ def _prepare_worker_harness(
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
 
     if stream_exc is not None:
-        stream_handler = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            stream_exc
-        )
+        stream_handler = lambda *_args, **_kwargs: (_ for _ in ()).throw(stream_exc)
         monkeypatch.setattr(
             chat_worker,
             "stream_local",
@@ -203,9 +212,7 @@ def _prepare_worker_harness(
     )
 
     if chat_with_ai_exc is not None:
-        chat_handler = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            chat_with_ai_exc
-        )
+        chat_handler = lambda *_args, **_kwargs: (_ for _ in ()).throw(chat_with_ai_exc)
         monkeypatch.setattr(
             chat_worker,
             "chat_with_ai",
@@ -252,9 +259,7 @@ def test_chat_worker_stamps_chronological_timing_fields_for_streaming_flow(
     chat_worker._run_chat_task(task)
 
     state_events = [
-        payload
-        for event_type, payload in published
-        if event_type == "task.state"
+        payload for event_type, payload in published if event_type == "task.state"
     ]
     state_by_name = {payload["state"]: payload for payload in state_events}
 
@@ -262,9 +267,7 @@ def test_chat_worker_stamps_chronological_timing_fields_for_streaming_flow(
         task.created_at
     )
     assert (
-        state_by_name[TaskLifecycleState.AWAITING_MODEL.value][
-            "awaiting_model_at"
-        ]
+        state_by_name[TaskLifecycleState.AWAITING_MODEL.value]["awaiting_model_at"]
         == "2026-04-02T00:00:01+00:00"
     )
     assert (
@@ -287,24 +290,16 @@ def test_chat_worker_stamps_chronological_timing_fields_for_streaming_flow(
     )
 
     terminal_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.completed"
+        payload for event_type, payload in published if event_type == "task.completed"
     )
     assert terminal_payload["queued_at"] == task.created_at
-    assert terminal_payload["awaiting_model_at"] == (
-        "2026-04-02T00:00:01+00:00"
-    )
-    assert terminal_payload["awaiting_first_token_at"] == (
-        "2026-04-02T00:00:02+00:00"
-    )
+    assert terminal_payload["awaiting_model_at"] == ("2026-04-02T00:00:01+00:00")
+    assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert terminal_payload["first_token_at"] == ("2026-04-02T00:00:03+00:00")
     assert terminal_payload["first_output_at"] == ("2026-04-02T00:00:03+00:00")
     assert terminal_payload["completed_at"] == ("2026-04-02T00:00:04+00:00")
     assert terminal_payload["trace"]["queued_at"] == task.created_at
-    assert terminal_payload["trace"]["first_token_at"] == (
-        "2026-04-02T00:00:03+00:00"
-    )
+    assert terminal_payload["trace"]["first_token_at"] == ("2026-04-02T00:00:03+00:00")
 
     assert (
         terminal_payload["queued_at"]
@@ -345,32 +340,21 @@ def test_chat_worker_uses_first_output_only_for_body_completion(
         if event_type == "task.state"
     }
     assert TaskLifecycleState.STREAMING.value in state_by_name
-    assert (
-        "first_token_at"
-        not in state_by_name[TaskLifecycleState.STREAMING.value]
-    )
+    assert "first_token_at" not in state_by_name[TaskLifecycleState.STREAMING.value]
     assert (
         state_by_name[TaskLifecycleState.STREAMING.value]["first_output_at"]
         == "2026-04-02T00:00:03+00:00"
     )
 
     terminal_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.completed"
+        payload for event_type, payload in published if event_type == "task.completed"
     )
-    assert terminal_payload["awaiting_model_at"] == (
-        "2026-04-02T00:00:01+00:00"
-    )
-    assert terminal_payload["awaiting_first_token_at"] == (
-        "2026-04-02T00:00:02+00:00"
-    )
+    assert terminal_payload["awaiting_model_at"] == ("2026-04-02T00:00:01+00:00")
+    assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert "first_token_at" not in terminal_payload
     assert terminal_payload["first_output_at"] == ("2026-04-02T00:00:03+00:00")
     assert terminal_payload["completed_at"] == ("2026-04-02T00:00:04+00:00")
-    assert terminal_payload["trace"]["first_output_at"] == (
-        "2026-04-02T00:00:03+00:00"
-    )
+    assert terminal_payload["trace"]["first_output_at"] == ("2026-04-02T00:00:03+00:00")
 
 
 @pytest.mark.parametrize(
@@ -415,17 +399,11 @@ def test_chat_worker_does_not_fabricate_first_token_timing_on_terminal_error(
     assert TaskLifecycleState.STREAMING.value not in state_by_name
 
     terminal_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == terminal_event
+        payload for event_type, payload in published if event_type == terminal_event
     )
     assert terminal_payload["queued_at"] == task.created_at
-    assert terminal_payload["awaiting_model_at"] == (
-        "2026-04-02T00:00:01+00:00"
-    )
-    assert terminal_payload["awaiting_first_token_at"] == (
-        "2026-04-02T00:00:02+00:00"
-    )
+    assert terminal_payload["awaiting_model_at"] == ("2026-04-02T00:00:01+00:00")
+    assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert "first_token_at" not in terminal_payload
     assert "first_output_at" not in terminal_payload
     assert terminal_payload["completed_at"] == ("2026-04-02T00:00:03+00:00")
@@ -468,9 +446,7 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
     chat_worker._run_chat_task(task)
 
     terminal_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.failed"
+        payload for event_type, payload in published if event_type == "task.failed"
     )
     assert (
         terminal_payload["failure_kind"]
@@ -488,8 +464,6 @@ def test_chat_worker_marks_provider_timeout_after_awaiting_first_token(
     )
     assert terminal_payload["provider_request_started"] is True
     assert terminal_payload["first_output_observed"] is False
-    assert terminal_payload["awaiting_first_token_at"] == (
-        "2026-04-02T00:00:02+00:00"
-    )
+    assert terminal_payload["awaiting_first_token_at"] == ("2026-04-02T00:00:02+00:00")
     assert "first_token_at" not in terminal_payload
     assert "first_output_at" not in terminal_payload

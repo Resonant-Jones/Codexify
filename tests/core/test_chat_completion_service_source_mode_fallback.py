@@ -19,8 +19,28 @@ from guardian.context.retrieval_router_policy import (
     WIDEN_REASON_NONE,
 )
 from guardian.core import chat_completion_service
+from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.tasks.types import ChatCompletionTask, task_from_dict
+
+
+class _SuccessfulEmptyStream:
+    def __iter__(self):
+        if False:
+            yield ""
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=False,
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="mock-model",
+        )
+
+    def close(self):
+        return None
 
 
 def _seed_completion_service(
@@ -72,9 +92,7 @@ def _seed_completion_service(
         LLM_MODEL="local-model",
     )
 
-    monkeypatch.setattr(
-        chat_completion_service, "get_settings", lambda: settings
-    )
+    monkeypatch.setattr(chat_completion_service, "get_settings", lambda: settings)
     monkeypatch.setattr(
         chat_completion_service,
         "validate_llm_config",
@@ -382,17 +400,13 @@ def test_run_chat_completion_task_preserves_routing_debug_metadata_in_payload_su
     assert captured["source_mode"] == "personal_knowledge"
     assert result["trace"]["source_mode"] == "personal_knowledge"
     assert result["trace"]["slash_intent"] == "slash:search"
-    assert result["trace"]["retrieval_override"] == {
-        "mode": "personal_knowledge"
-    }
+    assert result["trace"]["retrieval_override"] == {"mode": "personal_knowledge"}
     assert result["payload_summary"]["slash_intent"] == "slash:search"
     assert result["payload_summary"]["retrieval_override"] == {
         "mode": "personal_knowledge"
     }
     assert result["payload_summary"]["source_mode"] == "personal_knowledge"
-    assert result["payload_summary"]["effective_source_mode"] == (
-        "personal_knowledge"
-    )
+    assert result["payload_summary"]["effective_source_mode"] == ("personal_knowledge")
 
 
 def test_run_chat_completion_task_persists_retrieval_provenance(
@@ -445,26 +459,17 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
                 "widen_reason": WIDEN_REASON_NONE,
             }
 
-    monkeypatch.setattr(
-        chat_completion_service, "ContextBroker", _ObsidianOnlyBroker
-    )
+    monkeypatch.setattr(chat_completion_service, "ContextBroker", _ObsidianOnlyBroker)
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
         lambda *args, **kwargs: "assistant reply",
     )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(
         chat_completion_service,
         "stream_local",
-        lambda *args, **kwargs: _EmptyStream(),
+        lambda *args, **kwargs: _SuccessfulEmptyStream(),
     )
 
     task = ChatCompletionTask(
@@ -492,13 +497,8 @@ def test_run_chat_completion_task_persists_retrieval_provenance(
     assert provenance["source_hit_counts"]["thread_semantic"] == 0
     assert result["payload_summary"]["retrieval_provenance"] == provenance
     assert result["payload_summary"]["graph_hit_count"] == 0
-    assert result["payload_summary"]["graph_enrichment_status"] == (
-        "not_used_yet"
-    )
-    assert (
-        result["payload_summary"]["requested_source_mode"]
-        == "Personal_Knowledge"
-    )
+    assert result["payload_summary"]["graph_enrichment_status"] == ("not_used_yet")
+    assert result["payload_summary"]["requested_source_mode"] == "Personal_Knowledge"
 
 
 def test_run_chat_completion_task_persists_workspace_obsidian_payload_evidence(
@@ -578,9 +578,7 @@ def test_run_chat_completion_task_persists_workspace_obsidian_payload_evidence(
                     doc_count += len(value)
             if not doc_count:
                 doc_count = sum(
-                    len(value)
-                    for value in docs.values()
-                    if isinstance(value, list)
+                    len(value) for value in docs.values() if isinstance(value, list)
                 )
         return (
             "WORKSPACE CONTEXT",
@@ -619,17 +617,10 @@ def test_run_chat_completion_task_persists_workspace_obsidian_payload_evidence(
         lambda *args, **kwargs: "assistant reply",
     )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(
         chat_completion_service,
         "stream_local",
-        lambda *args, **kwargs: _EmptyStream(),
+        lambda *args, **kwargs: _SuccessfulEmptyStream(),
     )
 
     task = ChatCompletionTask(

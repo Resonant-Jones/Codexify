@@ -35,6 +35,12 @@ inline literals.
   `task.created`, `task.completed`, `task.failed`,
   `task.cancelled`, `task.event`
 
+- Completion terminal statuses:
+  `success`, `cancelled`, `stream_incomplete`, `provider_error`,
+  `malformed_terminal`, `execution_timeout`
+  - These describe provider-attempt terminal integrity. They do not contain
+    assistant content and do not replace request lifecycle or task event types.
+
 - Chat lifecycle event types:
   `chat.orphaned_turn_recovered`, `thread.created`
 

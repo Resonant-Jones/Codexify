@@ -407,9 +407,8 @@ export function Composer({
     return inferProjectIdFromLocation(null);
   };
 
-  function stageFiles(files: FileList | File[]) {
-    const arr = Array.from(files || []);
-    if (!arr.length) return;
+  function stageFiles(files: readonly File[]) {
+    if (!files.length) return;
     if (draftControlsDisabled) {
       notifyTransportBusy();
       return;
@@ -417,7 +416,7 @@ export function Composer({
 
     setDraftAttachments((prev) => {
       const next = [...prev];
-      for (const file of arr) {
+      for (const file of files) {
         // Prevent duplicate staging of the exact same file within the draft.
         const exists = next.some(
           (item) =>
@@ -489,8 +488,8 @@ export function Composer({
   }
 
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const files = e.clipboardData?.files;
-    if (files && files.length > 0) {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length > 0) {
       stageFiles(files);
     }
   }
@@ -635,8 +634,9 @@ export function Composer({
       notifyTransportBusy();
       return;
     }
-    if (e.dataTransfer?.files?.length) {
-      stageFiles(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) {
+      stageFiles(files);
     }
   };
   const handleDragOver = (e: React.DragEvent) => {
@@ -773,9 +773,9 @@ export function Composer({
             multiple
             style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
             onChange={(e) => {
-              const files = e.target.files;
+              const files = Array.from(e.currentTarget.files ?? []);
               e.currentTarget.value = "";
-              if (files && files.length) stageFiles(files);
+              stageFiles(files);
             }}
           />
 

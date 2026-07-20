@@ -110,6 +110,15 @@ class GuardianProviderTransportClassification(str, Enum):
     REQUEST_ERROR = "request_error"
 
 
+class CompletionTerminalStatus(str, Enum):
+    SUCCESS = "success"
+    CANCELLED = "cancelled"
+    STREAM_INCOMPLETE = "stream_incomplete"
+    PROVIDER_ERROR = "provider_error"
+    MALFORMED_TERMINAL = "malformed_terminal"
+    EXECUTION_TIMEOUT = "execution_timeout"
+
+
 class TaskEventType(str, Enum):
     TASK_CREATED = "task.created"
     TASK_COMPLETED = "task.completed"
@@ -187,9 +196,7 @@ class PersonalFactStatus(str, Enum):
 
 
 class TraceSuppressionReason(str, Enum):
-    ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = (
-        "assistant_vision_refusal_on_image_turn"
-    )
+    ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = "assistant_vision_refusal_on_image_turn"
 
 
 DELEGATION_SUMMARY_OUTCOME_TYPE = "task_summary"
@@ -263,13 +270,9 @@ class ErrorCode(str, Enum):
     DIRTY_WORKTREE_PRECHECK_FAILED = "DIRTY_WORKTREE_PRECHECK_FAILED"
     MUTATION_SCOPE_VIOLATION = "MUTATION_SCOPE_VIOLATION"
     MUTATION_SCOPE_UNVERIFIED = "MUTATION_SCOPE_UNVERIFIED"
-    CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = (
-        "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
-    )
+    CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED = "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     CODING_ADAPTER_NOT_FOUND = "CODING_ADAPTER_NOT_FOUND"
-    CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED = (
-        "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
-    )
+    CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED = "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
     CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING = "CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING"
     DELEGATION_EXECUTOR_UNSUPPORTED = "DELEGATION_EXECUTOR_UNSUPPORTED"
     DELEGATION_EXECUTOR_NOT_FOUND = "DELEGATION_EXECUTOR_NOT_FOUND"
@@ -466,17 +469,15 @@ GUARDIAN_PROVIDER_FAILURE_KINDS: frozenset[str] = frozenset(
     {kind.value for kind in GuardianProviderFailureKind}
 )
 GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS: frozenset[str] = frozenset(
-    {
-        classification.value
-        for classification in GuardianProviderTransportClassification
-    }
+    {classification.value for classification in GuardianProviderTransportClassification}
+)
+COMPLETION_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in CompletionTerminalStatus}
 )
 TASK_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in TaskEventType}
 )
-TOOL_TURN_STATES: frozenset[str] = frozenset(
-    {state.value for state in ToolTurnState}
-)
+TOOL_TURN_STATES: frozenset[str] = frozenset({state.value for state in ToolTurnState})
 LOOP_STOP_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in LoopStopReason}
 )
@@ -498,9 +499,7 @@ TRACE_SUPPRESSION_REASONS: frozenset[str] = frozenset(
 DELEGATION_EXECUTOR_NAMES: frozenset[str] = frozenset(
     {executor.value for executor in DelegationExecutorName}
 )
-EXECUTOR_IDS: frozenset[str] = frozenset(
-    {executor.value for executor in ExecutorId}
-)
+EXECUTOR_IDS: frozenset[str] = frozenset({executor.value for executor in ExecutorId})
 EXECUTOR_RELEASE_POSTURES: frozenset[str] = frozenset(
     {posture.value for posture in ExecutorReleasePosture}
 )
@@ -539,9 +538,7 @@ DELEGATION_TERMINAL_EVENT_TYPES: frozenset[str] = frozenset(
         DelegationEventType.CANCELLED.value,
     }
 )
-ERROR_CODES: frozenset[str] = frozenset(
-    {error_code.value for error_code in ErrorCode}
-)
+ERROR_CODES: frozenset[str] = frozenset({error_code.value for error_code in ErrorCode})
 ORCHESTRATOR_DECISION_TOKENS: frozenset[str] = frozenset(
     {token.value for token in OrchestratorDecisionToken}
 )
@@ -594,6 +591,7 @@ __all__ = [
     "ContextRequestStatus",
     "GuardianProviderFailureKind",
     "GuardianProviderTransportClassification",
+    "CompletionTerminalStatus",
     "TaskEventType",
     "ChatEventType",
     "ToolTurnState",
@@ -639,6 +637,7 @@ __all__ = [
     "GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES",
     "GUARDIAN_PROVIDER_FAILURE_KINDS",
     "GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS",
+    "COMPLETION_TERMINAL_STATUSES",
     "TASK_EVENT_TYPES",
     "TOOL_TURN_STATES",
     "LOOP_STOP_REASONS",

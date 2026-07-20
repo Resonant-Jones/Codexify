@@ -70,6 +70,13 @@ from guardian.core.ai_router import (
     stream_local,
 )
 from guardian.core.candidate_trace_store import store_candidate_trace
+from guardian.core.completion_terminal import (
+    CompletionAttemptResult,
+    CompletionTerminalEvidence,
+    CompletionTerminalError,
+    require_successful_terminal,
+    successful_non_stream_terminal,
+)
 from guardian.core.chat_attachments import (
     extract_attachments_and_text,
     render_content_for_inference,
@@ -88,6 +95,7 @@ from guardian.core.provider_registry import (
 )
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
+    CompletionTerminalStatus,
     ContextRequestStatus,
     ErrorCode,
     ImageRoutingPath,
@@ -152,6 +160,33 @@ except Exception:  # pragma: no cover - optional dependency
 
 class ChatTaskCancelled(RuntimeError):
     """Raised when a caller-provided cancellation check aborts completion."""
+
+    def __init__(
+        self,
+        message: str = "cancelled",
+        *,
+        provider: str = "",
+        model: str = "",
+        visible_output_emitted: bool = False,
+    ) -> None:
+        evidence = CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.CANCELLED,
+            visible_output_emitted=visible_output_emitted,
+            explicit_provider_terminal_observed=False,
+            finish_reason=None,
+            transport_ended_cleanly=False,
+            provider=provider,
+            model=model,
+            failure_kind="cancelled",
+            retry_permitted=False,
+        )
+        self.metadata = {
+            "failure_kind": "cancelled",
+            "terminal_evidence": evidence.as_dict(),
+            "provider": provider,
+            "model": model,
+        }
+        super().__init__(message or "cancelled")
 
 
 class ToolLoopExecutionError(RuntimeError):
@@ -224,6 +259,64 @@ def _extract_finish_reason(result: dict[str, Any] | None) -> str | None:
         if reason:
             return str(reason)
     return None
+
+
+def _provider_output_finish_reason(output: Any) -> str | None:
+    raw = getattr(output, "raw_payload", None)
+    if not isinstance(raw, dict) and isinstance(output, dict):
+        raw = output
+    if not isinstance(raw, dict):
+        return None
+    reason = raw.get("stop_reason")
+    if reason:
+        return str(reason)
+    choices = raw.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        reason = choices[0].get("finish_reason")
+        if reason:
+            return str(reason)
+    return None
+
+
+def _terminal_failure_for_exception(
+    exc: Exception,
+    *,
+    provider: str,
+    model: str,
+    visible_output_emitted: bool,
+) -> CompletionTerminalEvidence:
+    detail = getattr(exc, "detail", None)
+    failure_kind = "provider_error"
+    transport_classification = ""
+    if isinstance(detail, dict):
+        failure_kind = str(detail.get("failure_kind") or failure_kind)
+        transport_classification = str(detail.get("transport_classification") or "")
+    timeout = "timeout" in failure_kind.lower() or transport_classification == "timeout"
+    status = (
+        CompletionTerminalStatus.EXECUTION_TIMEOUT
+        if timeout
+        else CompletionTerminalStatus.PROVIDER_ERROR
+    )
+    evidence = CompletionTerminalEvidence(
+        status=status,
+        visible_output_emitted=visible_output_emitted,
+        explicit_provider_terminal_observed=False,
+        finish_reason=None,
+        transport_ended_cleanly=False,
+        provider=provider,
+        model=model,
+        failure_kind=failure_kind,
+        retry_permitted=not visible_output_emitted,
+    )
+    if isinstance(detail, dict):
+        detail.setdefault("terminal_evidence", evidence.as_dict())
+    else:
+        metadata = getattr(exc, "metadata", None)
+        merged = dict(metadata) if isinstance(metadata, dict) else {}
+        merged.setdefault("failure_kind", failure_kind)
+        merged["terminal_evidence"] = evidence.as_dict()
+        exc.metadata = merged
+    return evidence
 
 
 def _summarize_retrieval_bundle(bundle: Any) -> dict[str, Any]:
@@ -338,9 +431,7 @@ def _tool_turn_invoke_arguments(raw: Any) -> InvokeArguments:
     if isinstance(raw, InvokeArguments):
         return raw
     if isinstance(raw, dict):
-        if any(
-            key in raw for key in ("path_params", "query", "headers", "body")
-        ):
+        if any(key in raw for key in ("path_params", "query", "headers", "body")):
             return InvokeArguments(
                 path_params=dict(raw.get("path_params") or {}),
                 query=dict(raw.get("query") or {}),
@@ -397,9 +488,7 @@ def _append_tool_result_message(
     command_result: dict[str, Any],
 ) -> list[dict[str, Any]]:
     next_messages = [
-        dict(message)
-        for message in (messages or [])
-        if isinstance(message, dict)
+        dict(message) for message in (messages or []) if isinstance(message, dict)
     ]
     next_messages.append(
         {
@@ -421,9 +510,7 @@ def _append_deepseek_tool_result_messages(
     tool_call_id: str,
     command_result: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    next_messages = [
-        dict(message) for message in messages if isinstance(message, dict)
-    ]
+    next_messages = [dict(message) for message in messages if isinstance(message, dict)]
     next_messages.append(dict(assistant_message))
     next_messages.append(
         {
@@ -499,9 +586,9 @@ def _execute_completion_attempt(
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
-) -> Any:
+) -> CompletionAttemptResult:
     if callable(cancel_check) and cancel_check():
-        raise ChatTaskCancelled()
+        raise ChatTaskCancelled(provider=provider, model=model)
 
     reasoning_mode = getattr(task, "reasoning_mode", None)
     temperature = getattr(task, "temperature", None)
@@ -516,34 +603,101 @@ def _execute_completion_attempt(
             temperature=temperature,
         )
         if isinstance(stream, str):
-            return stream
+            evidence = CompletionTerminalEvidence(
+                status=CompletionTerminalStatus.MALFORMED_TERMINAL,
+                visible_output_emitted=False,
+                explicit_provider_terminal_observed=False,
+                finish_reason=None,
+                transport_ended_cleanly=False,
+                provider=provider,
+                model=model,
+                failure_kind="stream_adapter_returned_plain_text",
+                retry_permitted=True,
+            )
+            raise CompletionTerminalError(evidence)
 
         collected: list[str] = []
-        for chunk in stream:
-            if callable(cancel_check) and cancel_check():
-                raise ChatTaskCancelled()
-            text = str(chunk or "")
-            if not text:
-                continue
-            collected.append(text)
-            if token_callback:
-                token_callback(text)
-            if callable(chunk_callback):
-                chunk_callback(text)
-        return "".join(collected)
+        iterator = iter(stream)
+        terminal: Any = None
+        try:
+            while True:
+                try:
+                    chunk = next(iterator)
+                except StopIteration as stop:
+                    terminal = stop.value
+                    break
+                if callable(cancel_check) and cancel_check():
+                    raise ChatTaskCancelled(
+                        provider=provider,
+                        model=model,
+                        visible_output_emitted=bool(collected),
+                    )
+                text = str(chunk or "")
+                if not text:
+                    continue
+                collected.append(text)
+                if token_callback:
+                    token_callback(text)
+                if callable(chunk_callback):
+                    chunk_callback(text)
+        except ChatTaskCancelled:
+            raise
+        except Exception as exc:
+            _terminal_failure_for_exception(
+                exc,
+                provider=provider,
+                model=model,
+                visible_output_emitted=bool(collected),
+            )
+            raise
+        visible_output_emitted = bool(collected)
+        if not isinstance(terminal, CompletionTerminalEvidence):
+            terminal = CompletionTerminalEvidence(
+                status=CompletionTerminalStatus.STREAM_INCOMPLETE,
+                visible_output_emitted=visible_output_emitted,
+                explicit_provider_terminal_observed=False,
+                finish_reason=None,
+                transport_ended_cleanly=False,
+                provider=provider,
+                model=model,
+                failure_kind="missing_stream_terminal",
+                retry_permitted=not visible_output_emitted,
+            )
+        else:
+            terminal = terminal.with_visible_output(visible_output_emitted)
+        if not terminal.successful:
+            raise CompletionTerminalError(terminal)
+        return CompletionAttemptResult("".join(collected), terminal)
 
-    return chat_with_ai(
-        messages_for_llm,
-        model=model,
+    try:
+        output = chat_with_ai(
+            messages_for_llm,
+            model=model,
+            provider=provider,
+            reasoning_mode=reasoning_mode,
+            temperature=temperature,
+            tools=getattr(task, "tools", None) if provider == "deepseek" else None,
+            settings=settings,
+            prompt_meta=(
+                (bundle or {}).get("_prompt_meta") if isinstance(bundle, dict) else None
+            ),
+        )
+    except Exception as exc:
+        _terminal_failure_for_exception(
+            exc,
+            provider=provider,
+            model=model,
+            visible_output_emitted=False,
+        )
+        raise
+    if callable(cancel_check) and cancel_check():
+        raise ChatTaskCancelled(provider=provider, model=model)
+    terminal = successful_non_stream_terminal(
         provider=provider,
-        reasoning_mode=reasoning_mode,
-        temperature=temperature,
-        tools=getattr(task, "tools", None) if provider == "deepseek" else None,
-        settings=settings,
-        prompt_meta=(bundle or {}).get("_prompt_meta")
-        if isinstance(bundle, dict)
-        else None,
+        model=model,
+        finish_reason=_provider_output_finish_reason(output),
     )
+    return CompletionAttemptResult(output, terminal)
 
 
 async def _build_messages_for_llm_compat(
@@ -552,8 +706,7 @@ async def _build_messages_for_llm_compat(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
-    | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -599,21 +752,19 @@ async def _build_messages_for_llm_compat(
     if memory_preselection_candidate_headers is not None and _accepts(
         "memory_preselection_candidate_headers"
     ):
-        call_kwargs[
-            "memory_preselection_candidate_headers"
-        ] = memory_preselection_candidate_headers
+        call_kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
     if memory_preselection_persona_id is not None and _accepts(
         "memory_preselection_persona_id"
     ):
-        call_kwargs[
-            "memory_preselection_persona_id"
-        ] = memory_preselection_persona_id
+        call_kwargs["memory_preselection_persona_id"] = memory_preselection_persona_id
     if memory_preselection_identity_depth is not None and _accepts(
         "memory_preselection_identity_depth"
     ):
-        call_kwargs[
-            "memory_preselection_identity_depth"
-        ] = memory_preselection_identity_depth
+        call_kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
     if memory_preselection_include_diary_excluded is not None and _accepts(
         "memory_preselection_include_diary_excluded"
     ):
@@ -752,9 +903,7 @@ def _supported_obsidian_context_request_plans(
 ) -> list[dict[str, Any]]:
     raw_plans = getattr(task, "context_request_plans", None)
     if raw_plans is None:
-        raw_plans = _context_request_plans_from_origin(
-            getattr(task, "origin", None)
-        )
+        raw_plans = _context_request_plans_from_origin(getattr(task, "origin", None))
     if not isinstance(raw_plans, list):
         return []
 
@@ -772,9 +921,7 @@ def _supported_obsidian_context_request_plans(
     task: Any,
 ) -> list[dict[str, Any]]:
     supported_plans: list[dict[str, Any]] = []
-    for plan in _context_request_plans_from_origin(
-        getattr(task, "origin", None)
-    ):
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
         request_kind = (
             str(plan.get("request_kind") or plan.get("requestKind") or "")
             .strip()
@@ -786,9 +933,7 @@ def _supported_obsidian_context_request_plans(
             .lower()
         )
         invocation = str(plan.get("invocation") or "").strip().lower()
-        query_text = str(
-            plan.get("query_text") or plan.get("queryText") or ""
-        ).strip()
+        query_text = str(plan.get("query_text") or plan.get("queryText") or "").strip()
         if (
             request_kind != SUPPORTED_CONTEXT_REQUEST_KIND
             or connector_id != SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID
@@ -842,20 +987,12 @@ def _has_active_obsidian_slash_intent(task: Any) -> bool:
         return False
 
     command_id = (
-        str(
-            slash_intent.get("commandId")
-            or slash_intent.get("command_id")
-            or ""
-        )
+        str(slash_intent.get("commandId") or slash_intent.get("command_id") or "")
         .strip()
         .lower()
     )
     intent_kind = (
-        str(
-            slash_intent.get("intentKind")
-            or slash_intent.get("intent_kind")
-            or ""
-        )
+        str(slash_intent.get("intentKind") or slash_intent.get("intent_kind") or "")
         .strip()
         .lower()
     )
@@ -921,9 +1058,7 @@ async def _apply_context_request_plans(
     context_request_results: list[dict[str, Any]] = []
     connector_context = list(bundle.get("connector_context") or [])
 
-    for plan in _context_request_plans_from_origin(
-        getattr(task, "origin", None)
-    ):
+    for plan in _context_request_plans_from_origin(getattr(task, "origin", None)):
         request_kind = (
             str(plan.get("request_kind") or plan.get("requestKind") or "")
             .strip()
@@ -963,9 +1098,7 @@ async def _apply_context_request_plans(
             )
             continue
 
-        query_text = str(
-            plan.get("query_text") or plan.get("queryText") or ""
-        ).strip()
+        query_text = str(plan.get("query_text") or plan.get("queryText") or "").strip()
         normalized_plan = {
             "request_kind": SUPPORTED_CONTEXT_REQUEST_KIND,
             "connector_id": SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -993,9 +1126,11 @@ async def _apply_context_request_plans(
                 user_id=user_id,
                 project_id=project_id,
                 k=int(plan.get("k") or plan.get("limit") or 4),
-                retrieval_policy=plan.get("retrieval_policy")
-                if isinstance(plan.get("retrieval_policy"), dict)
-                else None,
+                retrieval_policy=(
+                    plan.get("retrieval_policy")
+                    if isinstance(plan.get("retrieval_policy"), dict)
+                    else None
+                ),
             )
         except Exception as exc:
             context_request_results.append(
@@ -1049,9 +1184,7 @@ def _image_attachment_count_from_origin(origin: Any) -> int | None:
 def _retrieval_override_from_task(task: Any) -> dict[str, Any] | None:
     raw_override = getattr(task, "retrieval_override", None)
     if raw_override is None:
-        raw_override = _retrieval_override_from_origin(
-            getattr(task, "origin", None)
-        )
+        raw_override = _retrieval_override_from_origin(getattr(task, "origin", None))
     return _normalize_retrieval_override(raw_override)
 
 
@@ -1132,8 +1265,7 @@ def _broker_memory_preselection_kwargs(
     *,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
-    | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -1144,17 +1276,15 @@ def _broker_memory_preselection_kwargs(
     if enable_memory_preselection_active is True:
         kwargs["enable_memory_preselection_active"] = True
     if memory_preselection_candidate_headers is not None:
-        kwargs[
-            "memory_preselection_candidate_headers"
-        ] = memory_preselection_candidate_headers
+        kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
     if memory_preselection_persona_id is not None:
-        kwargs[
-            "memory_preselection_persona_id"
-        ] = memory_preselection_persona_id
+        kwargs["memory_preselection_persona_id"] = memory_preselection_persona_id
     if memory_preselection_identity_depth is not None:
-        kwargs[
-            "memory_preselection_identity_depth"
-        ] = memory_preselection_identity_depth
+        kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
     if memory_preselection_include_diary_excluded is not None:
         kwargs["memory_preselection_include_diary_excluded"] = bool(
             memory_preselection_include_diary_excluded
@@ -1230,9 +1360,7 @@ def _tool_loop_observability(
     command_run_id: str | None = None,
 ) -> dict[str, Any]:
     return {
-        "messageId": _coerce_message_id(
-            getattr(task, "latest_turn_message_id", None)
-        ),
+        "messageId": _coerce_message_id(getattr(task, "latest_turn_message_id", None)),
         "requestId": _completion_request_id(task),
         "toolTurnId": tool_turn_id,
         "toolTurnState": tool_turn_state.value,
@@ -1343,8 +1471,7 @@ def _execute_bounded_tool_turn(
         command_bus_result = asyncio.run(
             execute_invoke(
                 payload=invoke_request,
-                auth_subject=str(getattr(task, "user_id", "") or "").strip()
-                or "local",
+                auth_subject=str(getattr(task, "user_id", "") or "").strip() or "local",
                 inbound_headers={},
                 store=store,
                 app=_resolve_command_bus_app(),
@@ -1401,9 +1528,7 @@ def _execute_bounded_tool_turn(
         if final_text.strip() and token_callback:
             token_callback(final_text)
         if command_status not in {"blocked", "failed"}:
-            tool_loop[
-                "loopStopReason"
-            ] = LoopStopReason.TOOL_TURN_COMPLETED.value
+            tool_loop["loopStopReason"] = LoopStopReason.TOOL_TURN_COMPLETED.value
         return final_text, tool_loop, command_result
 
     def _apply_tool_turn_limit() -> None:
@@ -1417,9 +1542,7 @@ def _execute_bounded_tool_turn(
             LoopStopReason.TOOL_TURN_BLOCKED.value,
             LoopStopReason.TOOL_TURN_MALFORMED.value,
         }:
-            tool_loop[
-                "loopStopReason"
-            ] = LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
+            tool_loop["loopStopReason"] = LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
 
     if final_normalized["kind"] == "malformed_tool_decision":
         _apply_tool_turn_limit()
@@ -1527,15 +1650,11 @@ def _runtime_model_for_provider(provider: str, settings: Any) -> str:
         return (
             normalize_model_id(getattr(settings, "LOCAL_CHAT_MODEL", None))
             or normalize_model_id(getattr(settings, "LOCAL_LLM_MODEL", None))
-            or normalize_model_id(
-                getattr(settings, "DEFAULT_LOCAL_MODEL", None)
-            )
+            or normalize_model_id(getattr(settings, "DEFAULT_LOCAL_MODEL", None))
             or normalize_model_id(getattr(settings, "LLM_MODEL", None))
             or ""
         )
-    return (
-        normalize_model_id(getattr(dependencies, "DEFAULT_MODEL", None)) or ""
-    )
+    return normalize_model_id(getattr(dependencies, "DEFAULT_MODEL", None)) or ""
 
 
 def resolve_thread_completion_settings(
@@ -1561,27 +1680,19 @@ def resolve_thread_completion_settings(
             else _runtime_provider(settings)
         )
 
-        model_text = _thread_config_value(
-            thread_config, _THREAD_CONFIG_MODEL_KEYS
-        )
+        model_text = _thread_config_value(thread_config, _THREAD_CONFIG_MODEL_KEYS)
         model = normalize_model_id(model_text) if model_text else ""
         if not model:
             model = _runtime_model_for_provider(provider, settings)
 
         reasoning_mode = _normalize_reasoning_mode(
-            _thread_config_value(
-                thread_config, _THREAD_CONFIG_INFERENCE_MODE_KEYS
-            )
+            _thread_config_value(thread_config, _THREAD_CONFIG_INFERENCE_MODE_KEYS)
         )
         source_mode = normalize_source_mode(
-            _thread_config_value(
-                thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS
-            )
+            _thread_config_value(thread_config, _THREAD_CONFIG_RETRIEVAL_SOURCE_KEYS)
             or SOURCE_MODE_PROJECT
         )
-        persona_id = _thread_config_value(
-            thread_config, _THREAD_CONFIG_PERSONA_KEYS
-        )
+        persona_id = _thread_config_value(thread_config, _THREAD_CONFIG_PERSONA_KEYS)
         return ThreadCompletionSettings(
             provider=provider,
             model=model,
@@ -1644,9 +1755,7 @@ def _build_remote_recall_evidence_context_message(
     for envelope in evidence:
         title = str(getattr(envelope, "title", "") or "").strip()
         snippet = str(
-            getattr(envelope, "snippet", "")
-            or getattr(envelope, "text", "")
-            or ""
+            getattr(envelope, "snippet", "") or getattr(envelope, "text", "") or ""
         ).strip()
         url = str(getattr(envelope, "url", "") or "").strip()
         rank = getattr(envelope, "rank", None)
@@ -1675,8 +1784,7 @@ async def _assemble_context_bundle(
     request_user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
-    | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -1784,17 +1892,12 @@ def split_history_and_latest_turn(
     """Partition thread messages into prior history and the latest user turn."""
 
     safe_messages = [
-        dict(message)
-        for message in (messages or [])
-        if isinstance(message, dict)
+        dict(message) for message in (messages or []) if isinstance(message, dict)
     ]
     explicit_latest_turn_message_id = _coerce_message_id(latest_turn_message_id)
     if explicit_latest_turn_message_id is not None:
         for index, message in enumerate(safe_messages):
-            if (
-                _coerce_message_id(message.get("id"))
-                != explicit_latest_turn_message_id
-            ):
+            if _coerce_message_id(message.get("id")) != explicit_latest_turn_message_id:
                 continue
             if str(message.get("role") or "").strip().lower() != "user":
                 return {"history": safe_messages[:index], "latest_turn": None}
@@ -1959,9 +2062,7 @@ def _build_retrieval_suppression_item(
     return {
         "id": str(item.get("id") or metadata.get("id") or ""),
         "source_type": str(
-            item.get("source_type")
-            or metadata.get("source_type")
-            or "retrieval"
+            item.get("source_type") or metadata.get("source_type") or "retrieval"
         ).strip()
         or "retrieval",
         "role": str(
@@ -1993,9 +2094,7 @@ def _merge_retrieval_suppression_summaries(
             continue
         items = summary.get("items")
         if isinstance(items, list):
-            merged_items.extend(
-                [item for item in items if isinstance(item, dict)]
-            )
+            merged_items.extend([item for item in items if isinstance(item, dict)])
         counts = summary.get("counts_by_reason")
         if isinstance(counts, dict):
             for reason, count in counts.items():
@@ -2014,9 +2113,7 @@ def _merge_retrieval_suppression_summaries(
     if not merged_items and not counts_by_reason:
         return None
     return {
-        "count": len(merged_items)
-        if merged_items
-        else sum(counts_by_reason.values()),
+        "count": len(merged_items) if merged_items else sum(counts_by_reason.values()),
         "items": merged_items,
         "counts_by_reason": counts_by_reason,
     }
@@ -2047,9 +2144,7 @@ def _filter_image_refusal_semantic_context(
     suppression_trace: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None] | list[dict[str, Any]]:
     if not _image_attachments_from_meta(latest_user_meta):
-        filtered = [
-            item for item in semantic_items or [] if isinstance(item, dict)
-        ]
+        filtered = [item for item in semantic_items or [] if isinstance(item, dict)]
         if isinstance(suppression_trace, dict):
             suppression_trace.setdefault("items", [])
             suppression_trace.setdefault("summary", {"total_suppressed": 0})
@@ -2070,14 +2165,14 @@ def _filter_image_refusal_semantic_context(
                     item,
                     suppression_reason=suppression_reason,
                     policy_reason=suppression_reason,
-                    retrieval_lane=str(
-                        item.get("retrieval_lane") or "thread_semantic"
-                    ),
+                    retrieval_lane=str(item.get("retrieval_lane") or "thread_semantic"),
                     thread_id=item.get("thread_id"),
                     project_id=item.get("project_id"),
-                    retrieval_policy=item.get("retrieval_policy")
-                    if isinstance(item.get("retrieval_policy"), dict)
-                    else None,
+                    retrieval_policy=(
+                        item.get("retrieval_policy")
+                        if isinstance(item.get("retrieval_policy"), dict)
+                        else None
+                    ),
                 )
             )
             suppressed_trace_items.append(
@@ -2146,9 +2241,7 @@ def _load_local_image_captioner() -> tuple[Any, Any] | None:
     try:
         from transformers import BlipForConditionalGeneration, BlipProcessor
     except Exception as exc:
-        logger.debug(
-            "[chat-completion] local BLIP imports unavailable: %s", exc
-        )
+        logger.debug("[chat-completion] local BLIP imports unavailable: %s", exc)
         return None
 
     try:
@@ -2164,9 +2257,7 @@ def _load_local_image_captioner() -> tuple[Any, Any] | None:
         except Exception:
             pass
     except Exception as exc:
-        logger.warning(
-            "[chat-completion] local BLIP captioner unavailable: %s", exc
-        )
+        logger.warning("[chat-completion] local BLIP captioner unavailable: %s", exc)
         return None
 
     _LOCAL_IMAGE_CAPTIONER = (processor, model)
@@ -2404,8 +2495,7 @@ def _apply_image_attachment_routing(
         return messages, routing_meta
 
     updated = [
-        dict(message) if isinstance(message, dict) else message
-        for message in messages
+        dict(message) if isinstance(message, dict) else message for message in messages
     ]
 
     if vision_support_state is False:
@@ -2420,9 +2510,7 @@ def _apply_image_attachment_routing(
         )
 
     if vision_support_state is True:
-        image_urls = [
-            str(item.get("src") or "").strip() for item in image_attachments
-        ]
+        image_urls = [str(item.get("src") or "").strip() for item in image_attachments]
         image_urls = [url for url in image_urls if url]
         if not image_urls:
             raise HTTPException(
@@ -2464,14 +2552,12 @@ def _apply_image_attachment_routing(
             "role": "user",
             "content": build_openai_vision_content(text, resolved_image_urls),
         }
-        routing_meta[
-            "image_routing_path"
-        ] = ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+        routing_meta["image_routing_path"] = (
+            ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+        )
         return updated, routing_meta
 
-    interpretations = _interpret_image_attachments(
-        image_attachments, settings=settings
-    )
+    interpretations = _interpret_image_attachments(image_attachments, settings=settings)
     if not interpretations:
         raise HTTPException(
             status_code=400,
@@ -2552,9 +2638,7 @@ def _resolve_image_routing_trace(
     requested_model: str | None,
     settings: Any,
 ) -> tuple[str | None, str | None]:
-    image_attachment_count = int(
-        routing_meta.get("image_attachment_count", 0) or 0
-    )
+    image_attachment_count = int(routing_meta.get("image_attachment_count", 0) or 0)
     if image_attachment_count <= 0:
         return (
             None,
@@ -2641,9 +2725,7 @@ def _normalize_completion_image_routing_truth(
                 _positive_int(trace.get("image_attachment_count")),
                 _positive_int(result.get("image_attachment_count")),
                 _positive_int(
-                    _image_attachment_count_from_origin(
-                        getattr(task, "origin", None)
-                    )
+                    _image_attachment_count_from_origin(getattr(task, "origin", None))
                 ),
             )
             if count > 0
@@ -2685,9 +2767,7 @@ def _normalize_completion_image_routing_truth(
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
-            value = (
-                str(candidate.get("image_routing_path") or "").strip().lower()
-            )
+            value = str(candidate.get("image_routing_path") or "").strip().lower()
             if value:
                 return value
         return None
@@ -2735,9 +2815,7 @@ def _normalize_completion_image_routing_truth(
         selected_provider = normalize_provider(
             model_selection.get("final_provider") or provider
         )
-        selected_requested = normalize_model_id(
-            model_selection.get("requested_model")
-        )
+        selected_requested = normalize_model_id(model_selection.get("requested_model"))
         selected_final = normalize_model_id(model_selection.get("final_model"))
         if (
             selected_provider == "local"
@@ -2860,14 +2938,10 @@ def build_sanitized_payload_summary(
             or {}
         )
 
-    semantic_injected = bool(
-        (retrieval_meta.get("semantic") or {}).get("injected")
-    )
+    semantic_injected = bool((retrieval_meta.get("semantic") or {}).get("injected"))
     memory_injected = bool((retrieval_meta.get("memory") or {}).get("injected"))
     graph_injected = bool((retrieval_meta.get("graph") or {}).get("injected"))
-    federated_injected = bool(
-        (retrieval_meta.get("federated") or {}).get("injected")
-    )
+    federated_injected = bool((retrieval_meta.get("federated") or {}).get("injected"))
     linked_document_injected = bool(docs_meta.get("injected"))
     connector_context_meta = retrieval_meta.get("connector_context") or {}
     connector_context_injected = bool(connector_context_meta.get("injected"))
@@ -2913,19 +2987,13 @@ def build_sanitized_payload_summary(
         "message_count": message_count,
         "persona_or_imprint_present": bool(persona_or_imprint_present),
         "semantic_count": (
-            len((bundle or {}).get("semantic") or [])
-            if isinstance(bundle, dict)
-            else 0
+            len((bundle or {}).get("semantic") or []) if isinstance(bundle, dict) else 0
         ),
         "memory_count": (
-            len((bundle or {}).get("memory") or [])
-            if isinstance(bundle, dict)
-            else 0
+            len((bundle or {}).get("memory") or []) if isinstance(bundle, dict) else 0
         ),
         "graph_count": (
-            len((bundle or {}).get("graph") or [])
-            if isinstance(bundle, dict)
-            else 0
+            len((bundle or {}).get("graph") or []) if isinstance(bundle, dict) else 0
         ),
         "obsidian_count": obsidian_count,
         "linked_document_count": linked_document_count,
@@ -2969,9 +3037,7 @@ def build_sanitized_payload_summary(
     }
     summary["graph_hit_count"] = summary["graph_count"]
     summary["graph_enrichment_status"] = (
-        "not_used_yet"
-        if summary["graph_hit_count"] == 0
-        else "graph_hits_present"
+        "not_used_yet" if summary["graph_hit_count"] == 0 else "graph_hits_present"
     )
 
     summary["retrieval_injected"] = any(
@@ -3016,9 +3082,7 @@ def _count_items_with_namespace(
     normalized_namespace = str(namespace).strip()
     if not normalized_namespace:
         return 0
-    return sum(
-        1 for item in items if _namespace_from_hit(item) == normalized_namespace
-    )
+    return sum(1 for item in items if _namespace_from_hit(item) == normalized_namespace)
 
 
 def _count_items_with_prefix(
@@ -3044,17 +3108,13 @@ def _obsidian_semantic_hits_from_bundle(
         return []
 
     obsidian_hits = [
-        item
-        for item in (bundle.get("obsidian") or [])
-        if isinstance(item, dict)
+        item for item in (bundle.get("obsidian") or []) if isinstance(item, dict)
     ]
     if obsidian_hits:
         return obsidian_hits
 
     semantic_hits = [
-        item
-        for item in (bundle.get("semantic") or [])
-        if isinstance(item, dict)
+        item for item in (bundle.get("semantic") or []) if isinstance(item, dict)
     ]
     return [
         item
@@ -3072,9 +3132,7 @@ def _build_retrieval_provenance(
     semantic_hits = []
     if isinstance(bundle, dict):
         semantic_hits = [
-            item
-            for item in (bundle.get("semantic") or [])
-            if isinstance(item, dict)
+            item for item in (bundle.get("semantic") or []) if isinstance(item, dict)
         ]
     thread_semantic_count = _count_items_with_prefix(semantic_hits, "thread:")
     obsidian_semantic_hits = [
@@ -3109,9 +3167,7 @@ def _build_retrieval_provenance(
             else:
                 other_document_count += count
     elif isinstance(docs, list):
-        other_document_count = len(
-            [item for item in docs if isinstance(item, dict)]
-        )
+        other_document_count = len([item for item in docs if isinstance(item, dict)])
     memory_count = (
         len(
             [
@@ -3125,11 +3181,7 @@ def _build_retrieval_provenance(
     )
     graph_count = (
         len(
-            [
-                item
-                for item in (bundle or {}).get("graph", [])
-                if isinstance(item, dict)
-            ]
+            [item for item in (bundle or {}).get("graph", []) if isinstance(item, dict)]
         )
         if isinstance(bundle, dict)
         else 0
@@ -3233,19 +3285,13 @@ def _build_model_selection_metadata(
             else None
         ),
         "resolved_model": (
-            str(resolved_model).strip() or None
-            if resolved_model is not None
-            else None
+            str(resolved_model).strip() or None if resolved_model is not None else None
         ),
         "final_provider": (
-            str(final_provider).strip() or None
-            if final_provider is not None
-            else None
+            str(final_provider).strip() or None if final_provider is not None else None
         ),
         "final_model": (
-            str(final_model).strip() or None
-            if final_model is not None
-            else None
+            str(final_model).strip() or None if final_model is not None else None
         ),
         "selection_source": (
             str(selection_source).strip() or None
@@ -3312,14 +3358,10 @@ def _build_model_selection_trace(
         str(attempted_provider or "").strip().lower() or None
     )
     normalized_attempted_model = normalize_model_id(attempted_model)
-    normalized_final_provider = (
-        str(final_provider or "").strip().lower() or None
-    )
+    normalized_final_provider = str(final_provider or "").strip().lower() or None
     normalized_final_model = normalize_model_id(final_model)
     selection_source_text = str(selection_source or "").strip() or None
-    local_chat_model = normalize_model_id(
-        getattr(settings, "LOCAL_CHAT_MODEL", None)
-    )
+    local_chat_model = normalize_model_id(getattr(settings, "LOCAL_CHAT_MODEL", None))
     model_resolution_source = selection_source_text
     model_resolution_message: str | None = None
     policy_reason = fallback_reason or selection_source_text
@@ -3418,9 +3460,7 @@ def _preserve_workspace_evidence_fields(
     return target
 
 
-def _embed_message(
-    thread_id: int, role: str, content: str, message_id: int
-) -> None:
+def _embed_message(thread_id: int, role: str, content: str, message_id: int) -> None:
     if not dependencies._vector_store:
         return
     try:
@@ -3651,8 +3691,7 @@ async def build_messages_for_llm(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
-    | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -3666,9 +3705,7 @@ async def build_messages_for_llm(
     """Build contextual messages and provider/model selection for one task."""
     settings = get_settings()
     raw_task_provider = str(task.provider or "").strip()
-    provider = (
-        normalize_provider(raw_task_provider) if raw_task_provider else ""
-    )
+    provider = normalize_provider(raw_task_provider) if raw_task_provider else ""
     thread_id = task.thread_id
     thread_info: dict[str, Any] | None = (
         dependencies.chatlog_db.get_chat_thread(thread_id)
@@ -3719,17 +3756,13 @@ async def build_messages_for_llm(
     profile_model = None
     profile_temperature = None
     if resolved_profile is not None:
-        raw_profile_provider = getattr(
-            resolved_profile, "provider_override", None
-        )
+        raw_profile_provider = getattr(resolved_profile, "provider_override", None)
         if raw_profile_provider is not None:
             profile_provider = normalize_provider(raw_profile_provider)
         raw_profile_model = getattr(resolved_profile, "model_override", None)
         if raw_profile_model is not None:
             profile_model = normalize_model_id(raw_profile_model)
-        profile_temperature = getattr(
-            resolved_profile, "temperature_override", None
-        )
+        profile_temperature = getattr(resolved_profile, "temperature_override", None)
 
     if not provider and task.model:
         try:
@@ -3775,9 +3808,7 @@ async def build_messages_for_llm(
     # the visible transcript (which may page older messages through
     # the transcript endpoint at GET /{thread_id}/messages).
     limit = int(task.max_context or 50)
-    items = dependencies.chatlog_db.list_messages(
-        thread_id, limit=limit, offset=0
-    )
+    items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
     try:
         items = sorted(items, key=lambda m: m.get("id") or 0)
     except Exception:
@@ -4036,17 +4067,13 @@ async def build_messages_for_llm(
                 "If you are uncertain, say so explicitly and avoid fabrication."
             )
     except Exception as exc:
-        logger.warning(
-            "[chat-completion] failed to build system prompt: %s", exc
-        )
+        logger.warning("[chat-completion] failed to build system prompt: %s", exc)
         system_content = (
             "You are Guardian, a careful and honest AI assistant. "
             "Answer concisely, avoid speculation, and clearly mark any uncertainty."
         )
 
-    latest_turn_instruction = _latest_turn_instruction_message(
-        completion_assembly
-    )
+    latest_turn_instruction = _latest_turn_instruction_message(completion_assembly)
     active_context_instruction = _build_active_context_instruction(task)
 
     if isinstance(bundle, dict):
@@ -4060,9 +4087,7 @@ async def build_messages_for_llm(
 
     messages_for_llm.append({"role": "system", "content": system_content})
     if latest_turn_instruction:
-        messages_for_llm.append(
-            {"role": "system", "content": latest_turn_instruction}
-        )
+        messages_for_llm.append({"role": "system", "content": latest_turn_instruction})
     if active_context_instruction:
         messages_for_llm.append(
             {"role": "system", "content": active_context_instruction}
@@ -4070,22 +4095,16 @@ async def build_messages_for_llm(
 
     doc_message, doc_count = _build_document_context_message(bundle)
     if doc_message:
-        retrieved_context_messages.append(
-            {"role": "system", "content": doc_message}
-        )
+        retrieved_context_messages.append({"role": "system", "content": doc_message})
 
-    context_message, context_meta = build_context_system_message_with_meta(
-        bundle
-    )
+    context_message, context_meta = build_context_system_message_with_meta(bundle)
     if isinstance(context_meta, dict):
         obsidian_hits = _obsidian_semantic_hits_from_bundle(
             bundle if isinstance(bundle, dict) else None
         )
         semantic_meta = context_meta.get("semantic")
         semantic_injected = bool(
-            semantic_meta.get("injected")
-            if isinstance(semantic_meta, dict)
-            else False
+            semantic_meta.get("injected") if isinstance(semantic_meta, dict) else False
         )
         context_meta["obsidian"] = {
             "count": len(obsidian_hits),
@@ -4097,9 +4116,7 @@ async def build_messages_for_llm(
         )
     prompt_meta["context"] = context_meta
     prompt_meta.setdefault("docs", {})
-    prompt_meta["docs"].update(
-        {"count": doc_count, "injected": bool(doc_message)}
-    )
+    prompt_meta["docs"].update({"count": doc_count, "injected": bool(doc_message)})
     if isinstance(bundle, dict):
         try:
             merged_meta = dict(bundle.get("_prompt_meta") or {})
@@ -4233,9 +4250,11 @@ async def build_messages_for_llm(
         )
     retrieval_provenance = _build_retrieval_provenance(
         requested_source_mode=requested_source_mode,
-        normalized_source_mode=trace.get("source_mode")
-        if isinstance(trace, dict)
-        else effective_source_mode,
+        normalized_source_mode=(
+            trace.get("source_mode")
+            if isinstance(trace, dict)
+            else effective_source_mode
+        ),
         bundle=bundle if isinstance(bundle, dict) else None,
     )
 
@@ -4255,11 +4274,7 @@ async def build_messages_for_llm(
         if isinstance(bundle, dict):
             for key in ("semantic", "obsidian", "memory", "graph"):
                 retained_result_count += len(
-                    [
-                        item
-                        for item in bundle.get(key, [])
-                        if isinstance(item, dict)
-                    ]
+                    [item for item in bundle.get(key, []) if isinstance(item, dict)]
                 )
             docs_value = bundle.get("docs")
             if isinstance(docs_value, dict):
@@ -4348,9 +4363,7 @@ def _execute_bounded_tool_turn_completion(
             or ""
         ),
         requested_model=str(
-            getattr(task, "requested_model", None)
-            or getattr(task, "model", None)
-            or ""
+            getattr(task, "requested_model", None) or getattr(task, "model", None) or ""
         ),
         attempted_provider=provider,
         attempted_model=model,
@@ -4368,6 +4381,7 @@ def _execute_bounded_tool_turn_completion(
         assistant_text: str,
         tool_turn_state_value: str,
         loop_stop_reason_value: str,
+        terminal_evidence: CompletionTerminalEvidence,
     ) -> dict[str, Any]:
         payload_summary = dict(base_payload_summary or {})
         payload_summary.update(
@@ -4424,23 +4438,13 @@ def _execute_bounded_tool_turn_completion(
             payload_summary["requested_provider"] = model_selection[
                 "requested_provider"
             ]
-            payload_summary["requested_model"] = model_selection[
-                "requested_model"
-            ]
-            payload_summary["final_provider"] = model_selection[
-                "final_provider"
-            ]
+            payload_summary["requested_model"] = model_selection["requested_model"]
+            payload_summary["final_provider"] = model_selection["final_provider"]
             payload_summary["final_model"] = model_selection["final_model"]
-            payload_summary["selection_source"] = model_selection[
-                "selection_source"
-            ]
+            payload_summary["selection_source"] = model_selection["selection_source"]
             payload_summary["policy_reason"] = model_selection["policy_reason"]
-            payload_summary["fallback_reason"] = model_selection[
-                "fallback_reason"
-            ]
-            payload_summary["model_resolution"] = model_selection[
-                "model_resolution"
-            ]
+            payload_summary["fallback_reason"] = model_selection["fallback_reason"]
+            payload_summary["model_resolution"] = model_selection["model_resolution"]
             if isinstance(trace, dict):
                 trace["model_selection"] = dict(model_selection)
         if command_status is not None:
@@ -4449,7 +4453,7 @@ def _execute_bounded_tool_turn_completion(
             payload_summary["command_error"] = command_error
         if execution is not None:
             payload_summary["execution"] = execution
-        return _tool_turn_completion_result(
+        result = _tool_turn_completion_result(
             task=task,
             assistant_text=assistant_text,
             provider=final_provider,
@@ -4466,8 +4470,11 @@ def _execute_bounded_tool_turn_completion(
             message_id=latest_turn_message_id,
             execution=execution,
         )
+        result["terminal_evidence"] = terminal_evidence.as_dict()
+        payload_summary["terminal_evidence"] = terminal_evidence.as_dict()
+        return result
 
-    first_output = _execute_completion_attempt(
+    first_attempt = _execute_completion_attempt(
         task=task,
         messages_for_llm=current_messages,
         provider=provider,
@@ -4477,7 +4484,7 @@ def _execute_bounded_tool_turn_completion(
         chunk_callback=chunk_callback,
         cancel_check=cancel_check,
     )
-    normalized_first_output = normalize_completion_output(first_output)
+    normalized_first_output = normalize_completion_output(first_attempt.output)
     if normalized_first_output.kind != "tool_decision":
         assistant_text = normalized_first_output.text or ""
         if not assistant_text.strip():
@@ -4494,6 +4501,7 @@ def _execute_bounded_tool_turn_completion(
             assistant_text=assistant_text,
             tool_turn_state_value=ToolTurnState.IDLE.value,
             loop_stop_reason_value=ToolLoopStopReason.PLAIN_ANSWER.value,
+            terminal_evidence=first_attempt.terminal,
         )
 
     tool_turn_id = str(uuid.uuid4())
@@ -4531,9 +4539,7 @@ def _execute_bounded_tool_turn_completion(
             id=request_id or tool_turn_id,
             session_id=tool_turn_id,
         ),
-        arguments=_tool_turn_invoke_arguments(
-            normalized_first_output.arguments or {}
-        ),
+        arguments=_tool_turn_invoke_arguments(normalized_first_output.arguments or {}),
         idempotency_key=(
             f"{request_id or tool_turn_id}:{tool_turn_id}:{normalized_first_output.command_id}"
         ),
@@ -4609,7 +4615,7 @@ def _execute_bounded_tool_turn_completion(
             command_result=command_result,
         )
     tool_turn_state = ToolTurnState.RESULT_REINJECTED.value
-    second_output = _execute_completion_attempt(
+    second_attempt = _execute_completion_attempt(
         task=task,
         messages_for_llm=current_messages,
         provider=provider,
@@ -4619,7 +4625,7 @@ def _execute_bounded_tool_turn_completion(
         chunk_callback=chunk_callback,
         cancel_check=cancel_check,
     )
-    normalized_second_output = normalize_completion_output(second_output)
+    normalized_second_output = normalize_completion_output(second_attempt.output)
     if normalized_second_output.kind == "tool_decision":
         raise ToolLoopExecutionError(
             "tool_turn_limit_reached",
@@ -4652,6 +4658,7 @@ def _execute_bounded_tool_turn_completion(
         assistant_text=assistant_text,
         tool_turn_state_value=tool_turn_state,
         loop_stop_reason_value=loop_stop_reason,
+        terminal_evidence=second_attempt.terminal,
     )
     if provider == "deepseek":
         result["_provider_replay_state"] = {
@@ -4661,7 +4668,9 @@ def _execute_bounded_tool_turn_completion(
                 {
                     "role": "tool",
                     "tool_call_id": normalized_first_output.tool_call_id or "",
-                    "content": json.dumps(command_result, ensure_ascii=False, default=str),
+                    "content": json.dumps(
+                        command_result, ensure_ascii=False, default=str
+                    ),
                 },
             ],
         }
@@ -4674,8 +4683,7 @@ def run_chat_completion_task(
     user_id: str | None = None,
     enable_memory_preselection_trace: bool | None = None,
     enable_memory_preselection_active: bool | None = None,
-    memory_preselection_candidate_headers: Sequence[dict[str, Any]]
-    | None = None,
+    memory_preselection_candidate_headers: Sequence[dict[str, Any]] | None = None,
     memory_preselection_persona_id: str | None = None,
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
@@ -4720,24 +4728,23 @@ def run_chat_completion_task(
     if memory_preselection_candidate_headers is not None and _compat_accepts(
         "memory_preselection_candidate_headers"
     ):
-        compat_call_kwargs[
-            "memory_preselection_candidate_headers"
-        ] = memory_preselection_candidate_headers
+        compat_call_kwargs["memory_preselection_candidate_headers"] = (
+            memory_preselection_candidate_headers
+        )
     if memory_preselection_persona_id is not None and _compat_accepts(
         "memory_preselection_persona_id"
     ):
-        compat_call_kwargs[
-            "memory_preselection_persona_id"
-        ] = memory_preselection_persona_id
+        compat_call_kwargs["memory_preselection_persona_id"] = (
+            memory_preselection_persona_id
+        )
     if memory_preselection_identity_depth is not None and _compat_accepts(
         "memory_preselection_identity_depth"
     ):
-        compat_call_kwargs[
-            "memory_preselection_identity_depth"
-        ] = memory_preselection_identity_depth
-    if (
-        memory_preselection_include_diary_excluded is not None
-        and _compat_accepts("memory_preselection_include_diary_excluded")
+        compat_call_kwargs["memory_preselection_identity_depth"] = (
+            memory_preselection_identity_depth
+        )
+    if memory_preselection_include_diary_excluded is not None and _compat_accepts(
+        "memory_preselection_include_diary_excluded"
     ):
         compat_call_kwargs["memory_preselection_include_diary_excluded"] = bool(
             memory_preselection_include_diary_excluded
@@ -4767,10 +4774,7 @@ def run_chat_completion_task(
                 break
         # Replace the content of the last user message with structured content
         for i in range(len(messages_for_llm) - 1, -1, -1):
-            if (
-                str(messages_for_llm[i].get("role", "")).strip().lower()
-                == "user"
-            ):
+            if str(messages_for_llm[i].get("role", "")).strip().lower() == "user":
                 messages_for_llm[i] = dict(messages_for_llm[i])
                 messages_for_llm[i]["content"] = latest_turn_msgs
                 break
@@ -4804,9 +4808,7 @@ def run_chat_completion_task(
         settings=settings,
     )
     routing_debug_metadata = _task_routing_debug_metadata(task)
-    image_attachment_count = int(
-        routing_meta.get("image_attachment_count", 0) or 0
-    )
+    image_attachment_count = int(routing_meta.get("image_attachment_count", 0) or 0)
     routing_debug_image_attachment_count = int(
         routing_debug_metadata.get("image_attachment_count", 0) or 0
     )
@@ -4815,9 +4817,7 @@ def run_chat_completion_task(
         routing_meta["image_attachment_count"] = image_attachment_count
     if image_attachment_count <= 0 and isinstance(trace, dict):
         latest_turn_image_hint = str(
-            trace.get("retrieval_query")
-            or trace.get("latest_turn_content")
-            or ""
+            trace.get("retrieval_query") or trace.get("latest_turn_content") or ""
         ).strip()
         if (
             "Attached image:" in latest_turn_image_hint
@@ -4848,22 +4848,17 @@ def run_chat_completion_task(
                     latest_turn_message.get("content") or ""
                 ).strip()
                 if latest_turn_content:
-                    attachments, _ = extract_attachments_and_text(
-                        latest_turn_content
-                    )
+                    attachments, _ = extract_attachments_and_text(latest_turn_content)
                     image_attachment_count = len(
                         [
                             item
                             for item in attachments
                             if isinstance(item, dict)
-                            and str(item.get("kind") or "").strip().lower()
-                            == "image"
+                            and str(item.get("kind") or "").strip().lower() == "image"
                         ]
                     )
                     if image_attachment_count > 0:
-                        routing_meta[
-                            "image_attachment_count"
-                        ] = image_attachment_count
+                        routing_meta["image_attachment_count"] = image_attachment_count
         except Exception:
             logger.debug(
                 "[chat-completion] image attachment inference from thread messages failed",
@@ -4873,15 +4868,12 @@ def run_chat_completion_task(
         for candidate_message in reversed(messages_for_llm):
             if not isinstance(candidate_message, dict):
                 continue
-            if (
-                str(candidate_message.get("role") or "").strip().lower()
-                != "user"
-            ):
+            if str(candidate_message.get("role") or "").strip().lower() != "user":
                 continue
             candidate_content = candidate_message.get("content")
-            if isinstance(
-                candidate_content, list
-            ) and messages_contain_image_payload([candidate_message]):
+            if isinstance(candidate_content, list) and messages_contain_image_payload(
+                [candidate_message]
+            ):
                 image_attachment_count = 1
                 routing_meta["image_attachment_count"] = image_attachment_count
                 break
@@ -4934,9 +4926,7 @@ def run_chat_completion_task(
         trace["image_routing_path"] = image_routing_path
         trace["image_attachment_count"] = image_attachment_count
         trace["image_routing_absence_reason"] = image_routing_absence_reason
-    trace_source_mode = (
-        trace.get("source_mode") if isinstance(trace, dict) else None
-    )
+    trace_source_mode = trace.get("source_mode") if isinstance(trace, dict) else None
     effective_policy = (
         trace.get("effective_policy") if isinstance(trace, dict) else None
     )
@@ -4956,9 +4946,7 @@ def run_chat_completion_task(
             model_resolution = local_model_resolution.as_dict()
         except Exception:
             model_resolution = None
-    selection_source = (
-        str(getattr(task, "selection_source", "") or "").strip() or None
-    )
+    selection_source = str(getattr(task, "selection_source", "") or "").strip() or None
     if isinstance(model_resolution, dict):
         resolution_source = str(model_resolution.get("source") or "").strip()
         if resolution_source:
@@ -4979,9 +4967,7 @@ def run_chat_completion_task(
     ) or model
     fallback_reason = None
     if isinstance(model_resolution, dict):
-        fallback_reason = (
-            str(model_resolution.get("message") or "").strip() or None
-        )
+        fallback_reason = str(model_resolution.get("message") or "").strip() or None
     payload_summary["requested_provider"] = requested_provider
     payload_summary["requested_model"] = requested_model
     payload_summary["attempted_provider"] = attempted_provider
@@ -5000,29 +4986,19 @@ def run_chat_completion_task(
         bundle=bundle if isinstance(bundle, dict) else None,
     )
     payload_summary["retrieval_provenance"] = retrieval_provenance
-    if (
-        isinstance(trace, dict)
-        and trace.get("retrieval_suppression") is not None
-    ):
-        payload_summary["retrieval_suppression"] = trace.get(
-            "retrieval_suppression"
-        )
+    if isinstance(trace, dict) and trace.get("retrieval_suppression") is not None:
+        payload_summary["retrieval_suppression"] = trace.get("retrieval_suppression")
     retrieval_posture = _build_retrieval_posture(
         source_mode=trace_source_mode,
         retrieval_override=routing_debug_metadata.get("retrieval_override"),
-        widen_reason=(
-            trace.get("widen_reason") if isinstance(trace, dict) else None
-        ),
+        widen_reason=(trace.get("widen_reason") if isinstance(trace, dict) else None),
     )
     if retrieval_posture is not None:
         payload_summary["retrieval_posture"] = retrieval_posture
         if isinstance(trace, dict):
             trace = dict(trace)
             trace["retrieval_posture"] = retrieval_posture
-    if (
-        isinstance(trace, dict)
-        and trace.get("context_request_results") is not None
-    ):
+    if isinstance(trace, dict) and trace.get("context_request_results") is not None:
         payload_summary["context_request_results"] = list(
             trace.get("context_request_results") or []
         )
@@ -5118,9 +5094,7 @@ def run_chat_completion_task(
     if merged_payload_summary.get("retrieval_posture") is None and isinstance(
         base_retrieval_posture, dict
     ):
-        merged_payload_summary["retrieval_posture"] = dict(
-            base_retrieval_posture
-        )
+        merged_payload_summary["retrieval_posture"] = dict(base_retrieval_posture)
     _preserve_workspace_evidence_fields(
         merged_payload_summary,
         payload_summary,
@@ -5151,25 +5125,19 @@ def run_chat_completion_task(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary[
-        "image_routing_absence_reason"
-    ] = image_routing_absence_reason
+    payload_summary["image_routing_absence_reason"] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(trace_result, dict):
         trace_result["image_attachment_count"] = image_attachment_count
         trace_result["image_routing_path"] = image_routing_path
-        trace_result[
-            "image_routing_absence_reason"
-        ] = image_routing_absence_reason
+        trace_result["image_routing_absence_reason"] = image_routing_absence_reason
         result["trace"] = trace_result
     elif isinstance(trace_fallback, dict):
         trace_fallback["image_attachment_count"] = image_attachment_count
         trace_fallback["image_routing_path"] = image_routing_path
-        trace_fallback[
-            "image_routing_absence_reason"
-        ] = image_routing_absence_reason
+        trace_fallback["image_routing_absence_reason"] = image_routing_absence_reason
         result["trace"] = trace_fallback
 
     candidate_trace = _build_candidate_trace(
@@ -5232,6 +5200,7 @@ def run_chat_completion_task(
         "final_model": final_model,
         "selection_source": selection_source,
         "fallback_reason": fallback_reason,
+        "terminal_evidence": payload_summary.get("terminal_evidence"),
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
@@ -5259,9 +5228,7 @@ def run_chat_completion_task(
         result["retrieval_policy"] = trace.get("retrieval_policy")
         result["retrieval_suppression"] = trace.get("retrieval_suppression")
         result["retrieval_executed"] = trace.get("retrieval_executed")
-        result["retrieval_absence_reason"] = trace.get(
-            "retrieval_absence_reason"
-        )
+        result["retrieval_absence_reason"] = trace.get("retrieval_absence_reason")
         result["image_routing_path"] = trace.get("image_routing_path")
         result["image_routing_absence_reason"] = trace.get(
             "image_routing_absence_reason"
@@ -5294,19 +5261,25 @@ def run_chat_completion_task(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary[
-        "image_routing_absence_reason"
-    ] = image_routing_absence_reason
+    payload_summary["image_routing_absence_reason"] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(final_trace, dict):
         final_trace["image_attachment_count"] = image_attachment_count
         final_trace["image_routing_path"] = image_routing_path
-        final_trace[
-            "image_routing_absence_reason"
-        ] = image_routing_absence_reason
+        final_trace["image_routing_absence_reason"] = image_routing_absence_reason
         result["trace"] = final_trace
+
+    terminal_evidence = require_successful_terminal(result)
+    result["terminal_evidence"] = terminal_evidence.as_dict()
+    payload_summary["terminal_evidence"] = terminal_evidence.as_dict()
+    if callable(cancel_check) and cancel_check():
+        raise ChatTaskCancelled(
+            provider=provider,
+            model=model,
+            visible_output_emitted=bool(terminal_evidence.visible_output_emitted),
+        )
 
     if not persist_assistant_message:
         return result
@@ -5322,6 +5295,7 @@ def run_chat_completion_task(
         ),
     )
     result["message_id"] = message_id
+    result["persistence_outcome"] = "persisted"
 
     try:
         dependencies.chatlog_db.write_audit_log(

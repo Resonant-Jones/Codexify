@@ -23,6 +23,7 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    COMPLETION_TERMINAL_STATUSES,
     CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
@@ -69,6 +70,7 @@ from guardian.protocol_tokens import (
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
     CampaignStatus,
+    CompletionTerminalStatus,
     ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -117,15 +119,23 @@ def test_acceptance_status_tokens() -> None:
     assert ACCEPTANCE_STATUSES == {"accepted", "accepted_degraded"}
 
 
+def test_completion_terminal_status_tokens() -> None:
+    assert COMPLETION_TERMINAL_STATUSES == {
+        "success",
+        "cancelled",
+        "stream_incomplete",
+        "provider_error",
+        "malformed_terminal",
+        "execution_timeout",
+    }
+    assert CompletionTerminalStatus.SUCCESS.value == "success"
+
+
 def test_guardian_delegation_protocol_tokens() -> None:
-    assert (
-        GuardianDelegationInteractionMode.NON_BLOCKING.value == "non_blocking"
-    )
+    assert GuardianDelegationInteractionMode.NON_BLOCKING.value == "non_blocking"
     assert GUARDIAN_DELEGATION_INTERACTION_MODES == {"non_blocking"}
     assert GuardianDelegationApprovalMode.SCOPED_AUTO.value == "scoped_auto"
-    assert (
-        GuardianDelegationApprovalMode.HUMAN_REQUIRED.value == "human_required"
-    )
+    assert GuardianDelegationApprovalMode.HUMAN_REQUIRED.value == "human_required"
     assert GUARDIAN_DELEGATION_APPROVAL_MODES == {
         "human_required",
         "scoped_auto",
@@ -152,10 +162,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
         GuardianDelegationIntentStatus.AWAITING_CLARIFICATION.value
         == "awaiting_clarification"
     )
-    assert (
-        GuardianDelegationIntentStatus.AWAITING_APPROVAL.value
-        == "awaiting_approval"
-    )
+    assert GuardianDelegationIntentStatus.AWAITING_APPROVAL.value == "awaiting_approval"
     assert GuardianDelegationIntentStatus.ACCEPTED.value == "accepted"
     assert GuardianDelegationIntentStatus.SUPERSEDED.value == "superseded"
     assert GuardianDelegationIntentStatus.CANCELLED.value == "cancelled"
@@ -186,16 +193,11 @@ def test_guardian_delegation_protocol_tokens() -> None:
     }
     assert GuardianDelegationVisibilityStatus.NOT_POSTED.value == "not_posted"
     assert (
-        GuardianDelegationVisibilityStatus.INTERRUPT_POSTED.value
-        == "interrupt_posted"
+        GuardianDelegationVisibilityStatus.INTERRUPT_POSTED.value == "interrupt_posted"
     )
+    assert GuardianDelegationVisibilityStatus.RESULT_POSTED.value == "result_posted"
     assert (
-        GuardianDelegationVisibilityStatus.RESULT_POSTED.value
-        == "result_posted"
-    )
-    assert (
-        GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
-        == "stale_suppressed"
+        GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value == "stale_suppressed"
     )
     assert (
         GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
@@ -208,23 +210,16 @@ def test_guardian_delegation_protocol_tokens() -> None:
         "stale_suppressed",
         "delivery_degraded",
     }
-    assert (
-        GuardianDelegationContextSourceType.SELECTED_TURN.value
-        == "selected_turn"
-    )
+    assert GuardianDelegationContextSourceType.SELECTED_TURN.value == "selected_turn"
     assert GuardianDelegationContextSourceType.PROJECT_KB.value == "project_kb"
     assert (
-        GuardianDelegationContextSourceType.ARCHITECTURE_DOC.value
-        == "architecture_doc"
+        GuardianDelegationContextSourceType.ARCHITECTURE_DOC.value == "architecture_doc"
     )
     assert GuardianDelegationContextSourceType.ADR.value == "adr"
     assert GuardianDelegationContextSourceType.TASK_FILE.value == "task_file"
+    assert GuardianDelegationContextSourceType.PROTOCOL_DOC.value == "protocol_doc"
     assert (
-        GuardianDelegationContextSourceType.PROTOCOL_DOC.value == "protocol_doc"
-    )
-    assert (
-        GuardianDelegationContextSourceType.LINKED_DOCUMENT.value
-        == "linked_document"
+        GuardianDelegationContextSourceType.LINKED_DOCUMENT.value == "linked_document"
     )
     assert GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES == {
         "selected_turn",
@@ -235,31 +230,20 @@ def test_guardian_delegation_protocol_tokens() -> None:
         "protocol_doc",
         "linked_document",
     }
-    assert (
-        GuardianDelegationTranscriptItemKind.INTENT_CREATED.value
-        == "intent_created"
-    )
-    assert (
-        GuardianDelegationTranscriptItemKind.PLAN_PREPARED.value
-        == "plan_prepared"
-    )
-    assert (
-        GuardianDelegationTranscriptItemKind.APPROVAL_STATE.value
-        == "approval_state"
-    )
+    assert GuardianDelegationTranscriptItemKind.INTENT_CREATED.value == "intent_created"
+    assert GuardianDelegationTranscriptItemKind.PLAN_PREPARED.value == "plan_prepared"
+    assert GuardianDelegationTranscriptItemKind.APPROVAL_STATE.value == "approval_state"
     assert GuardianDelegationTranscriptItemKind.RUN_LINKED.value == "run_linked"
     assert GuardianDelegationTranscriptItemKind.RUN_STATUS.value == "run_status"
     assert (
-        GuardianDelegationTranscriptItemKind.AGENT_RUN_EVENT.value
-        == "agent_run_event"
+        GuardianDelegationTranscriptItemKind.AGENT_RUN_EVENT.value == "agent_run_event"
     )
     assert (
         GuardianDelegationTranscriptItemKind.INTENT_CANCELLED.value
         == "intent_cancelled"
     )
     assert (
-        GuardianDelegationTranscriptItemKind.DELIVERY_RESULT.value
-        == "delivery_result"
+        GuardianDelegationTranscriptItemKind.DELIVERY_RESULT.value == "delivery_result"
     )
     assert (
         GuardianDelegationTranscriptItemKind.VISIBILITY_STATE.value
@@ -289,10 +273,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
         GuardianDelegationTranscriptItemSource.AGENT_RUN_ARTIFACT.value
         == "agent_run_artifact"
     )
-    assert (
-        GuardianDelegationTranscriptItemSource.CHAT_MESSAGE.value
-        == "chat_message"
-    )
+    assert GuardianDelegationTranscriptItemSource.CHAT_MESSAGE.value == "chat_message"
     assert GUARDIAN_DELEGATION_TRANSCRIPT_ITEM_SOURCES == {
         "guardian_delegation_intent",
         "agent_run",
@@ -303,9 +284,7 @@ def test_guardian_delegation_protocol_tokens() -> None:
 
 
 def test_context_request_status_tokens() -> None:
-    assert ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value == (
-        "accepted_not_executed"
-    )
+    assert ContextRequestStatus.ACCEPTED_NOT_EXECUTED.value == ("accepted_not_executed")
     assert ContextRequestStatus.EXECUTED.value == "executed"
     assert ContextRequestStatus.NO_RESULTS.value == "no_results"
     assert ContextRequestStatus.FAILED.value == "failed"
@@ -318,12 +297,8 @@ def test_context_request_status_tokens() -> None:
 
 
 def test_provider_failure_and_transport_classification_tokens() -> None:
-    assert (
-        GuardianProviderFailureKind.PROVIDER_TIMEOUT.value == "provider_timeout"
-    )
-    assert (
-        GuardianProviderFailureKind.TRANSPORT_ERROR.value == "transport_error"
-    )
+    assert GuardianProviderFailureKind.PROVIDER_TIMEOUT.value == "provider_timeout"
+    assert GuardianProviderFailureKind.TRANSPORT_ERROR.value == "transport_error"
     assert GuardianProviderFailureKind.REQUEST_ERROR.value == "request_error"
     assert GUARDIAN_PROVIDER_FAILURE_KINDS == {
         "provider_timeout",
@@ -336,12 +311,9 @@ def test_provider_failure_and_transport_classification_tokens() -> None:
         GuardianProviderTransportClassification.CONNECTION_REFUSED.value
         == "connection_refused"
     )
-    assert GuardianProviderTransportClassification.DNS_ERROR.value == (
-        "dns_error"
-    )
+    assert GuardianProviderTransportClassification.DNS_ERROR.value == ("dns_error")
     assert (
-        GuardianProviderTransportClassification.REQUEST_ERROR.value
-        == "request_error"
+        GuardianProviderTransportClassification.REQUEST_ERROR.value == "request_error"
     )
     assert GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS == {
         "timeout",
@@ -393,23 +365,13 @@ def test_task_event_tokens() -> None:
     assert TaskEventType.TASK_CREATED.value in TASK_EVENT_TYPES
     assert TaskEventType.TASK_WORKTREE_CREATED.value == "task.worktree_created"
     assert TaskEventType.TASK_ATTEMPT_STARTED.value == "task.attempt_started"
-    assert (
-        TaskEventType.TASK_VALIDATION_STARTED.value == "task.validation_started"
-    )
-    assert (
-        TaskEventType.TASK_VALIDATION_FAILED.value == "task.validation_failed"
-    )
-    assert (
-        TaskEventType.TASK_VALIDATION_PASSED.value == "task.validation_passed"
-    )
-    assert (
-        TaskEventType.TASK_VALIDATION_RETRYING.value
-        == "task.validation_retrying"
-    )
+    assert TaskEventType.TASK_VALIDATION_STARTED.value == "task.validation_started"
+    assert TaskEventType.TASK_VALIDATION_FAILED.value == "task.validation_failed"
+    assert TaskEventType.TASK_VALIDATION_PASSED.value == "task.validation_passed"
+    assert TaskEventType.TASK_VALIDATION_RETRYING.value == "task.validation_retrying"
     assert TaskEventType.TASK_RETRYING.value == "task.retrying"
     assert (
-        TaskEventType.TASK_PATCH_ARTIFACT_CREATED.value
-        == "task.patch_artifact_created"
+        TaskEventType.TASK_PATCH_ARTIFACT_CREATED.value == "task.patch_artifact_created"
     )
     assert "task.attempt_started" in TASK_EVENT_TYPES
     assert "task.validation_started" in TASK_EVENT_TYPES
@@ -419,9 +381,7 @@ def test_task_event_tokens() -> None:
     assert "task.retrying" in TASK_EVENT_TYPES
     assert "task.patch_artifact_created" in TASK_EVENT_TYPES
     assert "task.worktree_created" in TASK_EVENT_TYPES
-    assert TaskEventType.TASK_VALIDATION_FAILED.value == (
-        "task.validation_failed"
-    )
+    assert TaskEventType.TASK_VALIDATION_FAILED.value == ("task.validation_failed")
     assert TaskEventType.TASK_RETRYING.value == "task.retrying"
     assert TASK_EVENT_TYPES.issuperset(
         {
@@ -527,18 +487,10 @@ def test_tool_turn_protocol_tokens() -> None:
 
     assert ToolLoopStopReason.PLAIN_ANSWER.value == "plain_answer"
     assert ToolLoopStopReason.TOOL_TURN_COMPLETED.value == "tool_turn_completed"
-    assert (
-        ToolLoopStopReason.TOOL_DECISION_INVALID.value
-        == "tool_decision_invalid"
-    )
+    assert ToolLoopStopReason.TOOL_DECISION_INVALID.value == "tool_decision_invalid"
     assert ToolLoopStopReason.TOOL_COMMAND_FAILED.value == "tool_command_failed"
-    assert (
-        ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value == "tool_command_blocked"
-    )
-    assert (
-        ToolLoopStopReason.TOOL_TURN_LIMIT_REACHED.value
-        == "tool_turn_limit_reached"
-    )
+    assert ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value == "tool_command_blocked"
+    assert ToolLoopStopReason.TOOL_TURN_LIMIT_REACHED.value == "tool_turn_limit_reached"
     assert ToolLoopStopReason.CANCELLED.value == "cancelled"
     assert TOOL_LOOP_STOP_REASONS == {
         "plain_answer",
@@ -747,9 +699,7 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PiValidationFailureReason.INCONSISTENT_INVOCATION_ID.value == (
         "inconsistent_invocation_id"
     )
-    assert PiValidationFailureReason.MISSING_HARNESS_ID.value == (
-        "missing_harness_id"
-    )
+    assert PiValidationFailureReason.MISSING_HARNESS_ID.value == ("missing_harness_id")
     assert PiValidationFailureReason.MISSING_HARNESS_VERSION.value == (
         "missing_harness_version"
     )
@@ -771,16 +721,11 @@ def test_pi_invocation_boundary_tokens() -> None:
     assert PiValidationFailureReason.PERMISSION_POSTURE_INCONSISTENT.value == (
         "permission_posture_inconsistent"
     )
-    assert (
-        PiValidationFailureReason.RECEIPT_MISMATCH.value == "receipt_mismatch"
-    )
+    assert PiValidationFailureReason.RECEIPT_MISMATCH.value == "receipt_mismatch"
     assert PiValidationFailureReason.HARNESS_RESULT_MISMATCH.value == (
         "harness_result_mismatch"
     )
-    assert (
-        PiValidationFailureReason.MISSING_RECEIPT_ID.value
-        == "missing_receipt_id"
-    )
+    assert PiValidationFailureReason.MISSING_RECEIPT_ID.value == "missing_receipt_id"
     assert PiValidationFailureReason.MISSING_HARNESS_RESULT_ID.value == (
         "missing_harness_result_id"
     )
@@ -814,10 +759,7 @@ def test_pi_invocation_boundary_tokens() -> None:
         "malformed_command_bus_linkage",
     }
 
-    assert (
-        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
-        == "needs_clarification"
-    )
+    assert ExecutorEscalationKind.NEEDS_CLARIFICATION.value == "needs_clarification"
     assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
     assert ExecutorEscalationKind.BLOCKED.value == "blocked"
     assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
@@ -852,10 +794,7 @@ def test_pi_invocation_boundary_tokens() -> None:
         "executor.cancelled",
     }
 
-    assert (
-        ExecutorEscalationKind.NEEDS_CLARIFICATION.value
-        == "needs_clarification"
-    )
+    assert ExecutorEscalationKind.NEEDS_CLARIFICATION.value == "needs_clarification"
     assert ExecutorEscalationKind.NEEDS_PERMISSION.value == "needs_permission"
     assert ExecutorEscalationKind.BLOCKED.value == "blocked"
     assert ExecutorEscalationKind.NEEDS_REVIEW.value == "needs_review"
@@ -887,31 +826,22 @@ def test_delegation_event_tokens() -> None:
 def test_error_code_tokens() -> None:
     assert ErrorCode.QUEUE_ENQUEUE_FAILED.value == "QUEUE_ENQUEUE_FAILED"
     assert (
-        ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
-        == "CHAT_COMPLETE_ENQUEUE_FAILED"
+        ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value == "CHAT_COMPLETE_ENQUEUE_FAILED"
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
     assert (
         ErrorCode.DIRTY_WORKTREE_PRECHECK_FAILED.value
         == "DIRTY_WORKTREE_PRECHECK_FAILED"
     )
-    assert (
-        ErrorCode.MUTATION_SCOPE_VIOLATION.value == "MUTATION_SCOPE_VIOLATION"
-    )
-    assert (
-        ErrorCode.MUTATION_SCOPE_UNVERIFIED.value == "MUTATION_SCOPE_UNVERIFIED"
-    )
-    assert (
-        ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
-    )
+    assert ErrorCode.MUTATION_SCOPE_VIOLATION.value == "MUTATION_SCOPE_VIOLATION"
+    assert ErrorCode.MUTATION_SCOPE_UNVERIFIED.value == "MUTATION_SCOPE_UNVERIFIED"
+    assert ErrorCode.TASK_EVENT_PUBLISH_FAILED.value == "TASK_EVENT_PUBLISH_FAILED"
     assert (
         ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
         == "CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED"
     )
     assert ErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
-    assert (
-        ErrorCode.CODING_ADAPTER_NOT_FOUND.value == "CODING_ADAPTER_NOT_FOUND"
-    )
+    assert ErrorCode.CODING_ADAPTER_NOT_FOUND.value == "CODING_ADAPTER_NOT_FOUND"
     assert (
         ErrorCode.CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED.value
         == "CHAT_COMPLETE_IMAGE_VISION_UNSUPPORTED"
@@ -925,13 +855,9 @@ def test_error_code_tokens() -> None:
         == "DELEGATION_EXECUTOR_UNSUPPORTED"
     )
     assert (
-        ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value
-        == "DELEGATION_EXECUTOR_NOT_FOUND"
+        ErrorCode.DELEGATION_EXECUTOR_NOT_FOUND.value == "DELEGATION_EXECUTOR_NOT_FOUND"
     )
-    assert (
-        ErrorCode.DELEGATION_EXECUTOR_TIMEOUT.value
-        == "DELEGATION_EXECUTOR_TIMEOUT"
-    )
+    assert ErrorCode.DELEGATION_EXECUTOR_TIMEOUT.value == "DELEGATION_EXECUTOR_TIMEOUT"
     assert (
         ErrorCode.DELEGATION_EXECUTOR_NONZERO_EXIT.value
         == "DELEGATION_EXECUTOR_NONZERO_EXIT"
@@ -941,12 +867,8 @@ def test_error_code_tokens() -> None:
         == "DELEGATION_EXECUTOR_SPAWN_FAILED"
     )
     assert ErrorCode.WORKTREE_LEASE_REQUIRED.value == "WORKTREE_LEASE_REQUIRED"
-    assert (
-        ErrorCode.WORKTREE_LEASE_NOT_FOUND.value == "WORKTREE_LEASE_NOT_FOUND"
-    )
-    assert (
-        ErrorCode.WORKTREE_LEASE_NOT_ACTIVE.value == "WORKTREE_LEASE_NOT_ACTIVE"
-    )
+    assert ErrorCode.WORKTREE_LEASE_NOT_FOUND.value == "WORKTREE_LEASE_NOT_FOUND"
+    assert ErrorCode.WORKTREE_LEASE_NOT_ACTIVE.value == "WORKTREE_LEASE_NOT_ACTIVE"
     assert ErrorCode.WORKTREE_LEASE_INVALID.value == "WORKTREE_LEASE_INVALID"
     assert (
         ErrorCode.WORKTREE_LEASE_PATH_UNAVAILABLE.value
@@ -966,25 +888,17 @@ def test_error_code_tokens() -> None:
         ErrorCode.PATCH_ARTIFACT_GENERATION_FAILED.value
         == "PATCH_ARTIFACT_GENERATION_FAILED"
     )
-    assert (
-        ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value
-        == "PATCH_ARTIFACT_WRITE_FAILED"
-    )
+    assert ErrorCode.PATCH_ARTIFACT_WRITE_FAILED.value == "PATCH_ARTIFACT_WRITE_FAILED"
     assert ErrorCode.GIT_WORKTREE_REQUIRED.value == "GIT_WORKTREE_REQUIRED"
     assert ErrorCode.GIT_WORKTREE_INVALID.value == "GIT_WORKTREE_INVALID"
-    assert (
-        ErrorCode.GIT_NO_CHANGES_TO_COMMIT.value == "GIT_NO_CHANGES_TO_COMMIT"
-    )
+    assert ErrorCode.GIT_NO_CHANGES_TO_COMMIT.value == "GIT_NO_CHANGES_TO_COMMIT"
     assert ErrorCode.GIT_COMMIT_FAILED.value == "GIT_COMMIT_FAILED"
     assert ErrorCode.GIT_COMMIT_CREATED.value == "GIT_COMMIT_CREATED"
     assert ErrorCode.WORK_ORDER_NOT_FOUND.value == "WORK_ORDER_NOT_FOUND"
     assert ErrorCode.WORK_ORDER_INVALID.value == "WORK_ORDER_INVALID"
+    assert ErrorCode.WORK_ORDER_INVALID_STATUS.value == "WORK_ORDER_INVALID_STATUS"
     assert (
-        ErrorCode.WORK_ORDER_INVALID_STATUS.value == "WORK_ORDER_INVALID_STATUS"
-    )
-    assert (
-        ErrorCode.WORK_ORDER_INVALID_TRANSITION.value
-        == "WORK_ORDER_INVALID_TRANSITION"
+        ErrorCode.WORK_ORDER_INVALID_TRANSITION.value == "WORK_ORDER_INVALID_TRANSITION"
     )
     assert ErrorCode.CAMPAIGN_GOAL_NOT_FOUND.value == "CAMPAIGN_GOAL_NOT_FOUND"
     assert ErrorCode.CAMPAIGN_GOAL_INVALID.value == "CAMPAIGN_GOAL_INVALID"
@@ -1044,10 +958,7 @@ def test_orchestrator_decision_tokens() -> None:
     assert OrchestratorDecisionToken.RECOMMEND.value == "recommend"
     assert OrchestratorDecisionToken.SKIP.value == "skip"
     assert OrchestratorDecisionToken.BLOCKED.value == "blocked"
-    assert (
-        OrchestratorDecisionToken.RECOMMENDATION_ONLY.value
-        == "recommendation_only"
-    )
+    assert OrchestratorDecisionToken.RECOMMENDATION_ONLY.value == "recommendation_only"
     assert ORCHESTRATOR_DECISION_TOKENS == {
         "recommend",
         "skip",
@@ -1061,23 +972,12 @@ def test_orchestrator_reason_code_tokens() -> None:
         OrchestratorReasonCode.DEPENDENCY_NOT_SATISFIED.value
         == "DEPENDENCY_NOT_SATISFIED"
     )
-    assert (
-        OrchestratorReasonCode.ACTIVE_LEASE_CONFLICT.value
-        == "ACTIVE_LEASE_CONFLICT"
-    )
-    assert (
-        OrchestratorReasonCode.FILE_SCOPE_CONFLICT.value
-        == "FILE_SCOPE_CONFLICT"
-    )
+    assert OrchestratorReasonCode.ACTIVE_LEASE_CONFLICT.value == "ACTIVE_LEASE_CONFLICT"
+    assert OrchestratorReasonCode.FILE_SCOPE_CONFLICT.value == "FILE_SCOPE_CONFLICT"
     assert OrchestratorReasonCode.STATUS_NOT_READY.value == "STATUS_NOT_READY"
-    assert (
-        OrchestratorReasonCode.HUMAN_REVIEW_REQUIRED.value
-        == "HUMAN_REVIEW_REQUIRED"
-    )
+    assert OrchestratorReasonCode.HUMAN_REVIEW_REQUIRED.value == "HUMAN_REVIEW_REQUIRED"
     assert OrchestratorReasonCode.AMBIGUOUS_STATE.value == "AMBIGUOUS_STATE"
-    assert (
-        OrchestratorReasonCode.READY_FOR_DISPATCH.value == "READY_FOR_DISPATCH"
-    )
+    assert OrchestratorReasonCode.READY_FOR_DISPATCH.value == "READY_FOR_DISPATCH"
     assert ORCHESTRATOR_REASON_CODES == {
         "DEPENDENCY_NOT_SATISFIED",
         "ACTIVE_LEASE_CONFLICT",
@@ -1112,10 +1012,7 @@ def test_legacy_loop_stop_tokens() -> None:
     assert LoopStopReason.TOOL_TURN_BLOCKED.value == "tool_turn_blocked"
     assert LoopStopReason.TOOL_TURN_FAILED.value == "tool_turn_failed"
     assert LoopStopReason.TOOL_TURN_MALFORMED.value == "tool_turn_malformed"
-    assert (
-        LoopStopReason.TOOL_TURN_LIMIT_REACHED.value
-        == "tool_turn_limit_reached"
-    )
+    assert LoopStopReason.TOOL_TURN_LIMIT_REACHED.value == "tool_turn_limit_reached"
     assert LOOP_STOP_REASONS == {
         "model_final_answer",
         "tool_turn_completed",
@@ -1130,10 +1027,7 @@ def test_chat_event_type_tokens() -> None:
     """Canonical chat lifecycle event tokens."""
     from guardian.protocol_tokens import CHAT_EVENT_TYPES, ChatEventType
 
-    assert (
-        ChatEventType.ORPHANED_TURN_RECOVERED.value
-        == "chat.orphaned_turn_recovered"
-    )
+    assert ChatEventType.ORPHANED_TURN_RECOVERED.value == "chat.orphaned_turn_recovered"
     assert ChatEventType.THREAD_CREATED.value == "thread.created"
     assert CHAT_EVENT_TYPES == {
         "chat.orphaned_turn_recovered",
@@ -1147,13 +1041,8 @@ def test_remote_recall_source_kind_tokens() -> None:
     assert RemoteRecallSourceKind.ARXIV.value == "arxiv"
     assert RemoteRecallSourceKind.SEMANTIC_SCHOLAR.value == "semantic_scholar"
     assert RemoteRecallSourceKind.BRAVE_SEARCH.value == "brave_search"
-    assert (
-        RemoteRecallSourceKind.GOOGLE_CUSTOM_SEARCH.value
-        == "google_custom_search"
-    )
-    assert RemoteRecallSourceKind.LOCAL_PRIVATE_INDEX.value == (
-        "local_private_index"
-    )
+    assert RemoteRecallSourceKind.GOOGLE_CUSTOM_SEARCH.value == "google_custom_search"
+    assert RemoteRecallSourceKind.LOCAL_PRIVATE_INDEX.value == ("local_private_index")
     assert REMOTE_RECALL_SOURCE_KINDS == {
         "groq_web_search",
         "wikipedia",
@@ -1167,13 +1056,10 @@ def test_remote_recall_source_kind_tokens() -> None:
 
 def test_web_evidence_gate_decision_tokens() -> None:
     assert (
-        WebEvidenceGateDecision.ELIGIBLE_FOR_SYNTHESIS.value
-        == "eligible_for_synthesis"
+        WebEvidenceGateDecision.ELIGIBLE_FOR_SYNTHESIS.value == "eligible_for_synthesis"
     )
     assert WebEvidenceGateDecision.BLOCKED.value == "blocked"
-    assert WebEvidenceGateDecision.NEEDS_HUMAN_REVIEW.value == (
-        "needs_human_review"
-    )
+    assert WebEvidenceGateDecision.NEEDS_HUMAN_REVIEW.value == ("needs_human_review")
     assert WEB_EVIDENCE_GATE_DECISIONS == {
         "eligible_for_synthesis",
         "blocked",
@@ -1193,25 +1079,19 @@ def test_remote_recall_failure_reason_tokens() -> None:
         == "provider_not_configured"
     )
     assert (
-        RemoteRecallFailureReason.PROVIDER_UNAUTHORIZED.value
-        == "provider_unauthorized"
+        RemoteRecallFailureReason.PROVIDER_UNAUTHORIZED.value == "provider_unauthorized"
     )
     assert RemoteRecallFailureReason.EGRESS_BLOCKED.value == "egress_blocked"
     assert RemoteRecallFailureReason.AUTH_REQUIRED.value == "auth_required"
     assert (
-        RemoteRecallFailureReason.PROVIDER_UNAVAILABLE.value
-        == "provider_unavailable"
+        RemoteRecallFailureReason.PROVIDER_UNAVAILABLE.value == "provider_unavailable"
+    )
+    assert RemoteRecallFailureReason.EMPTY_RESULT_SET.value == "empty_result_set"
+    assert (
+        RemoteRecallFailureReason.SAFETY_SCREEN_BLOCKED.value == "safety_screen_blocked"
     )
     assert (
-        RemoteRecallFailureReason.EMPTY_RESULT_SET.value == "empty_result_set"
-    )
-    assert (
-        RemoteRecallFailureReason.SAFETY_SCREEN_BLOCKED.value
-        == "safety_screen_blocked"
-    )
-    assert (
-        RemoteRecallFailureReason.NORMALIZATION_FAILED.value
-        == "normalization_failed"
+        RemoteRecallFailureReason.NORMALIZATION_FAILED.value == "normalization_failed"
     )
     assert RemoteRecallFailureReason.ADAPTER_ERROR.value == "adapter_error"
     assert REMOTE_RECALL_FAILURE_REASONS == {

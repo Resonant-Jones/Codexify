@@ -40,6 +40,10 @@ from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
 )
+from guardian.core.completion_terminal import (
+    CompletionTerminalError,
+    require_successful_terminal,
+)
 from guardian.core.config import (
     LLMConfigError,
     Settings,
@@ -88,13 +92,9 @@ from guardian.voice.runtime import assistant_message_audio_autogenerate_enabled
 
 logger = logging.getLogger(__name__)
 
-build_guardian_system_prompt = (
-    _chat_completion_service.build_guardian_system_prompt
-)
+build_guardian_system_prompt = _chat_completion_service.build_guardian_system_prompt
 _embed_message = _chat_completion_service._embed_message
-_ORIGINAL_BUILD_MESSAGES_FOR_LLM = (
-    _chat_completion_service.build_messages_for_llm
-)
+_ORIGINAL_BUILD_MESSAGES_FOR_LLM = _chat_completion_service.build_messages_for_llm
 _ORIGINAL_BUILD_CONTEXT_SYSTEM_MESSAGE_WITH_META = (
     _chat_completion_service.build_context_system_message_with_meta
 )
@@ -142,9 +142,7 @@ CONCURRENCY = int(os.getenv("CHAT_WORKER_CONCURRENCY", "2"))
 WORKER_HEARTBEAT_KEY = os.getenv(
     "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
-WORKER_HEARTBEAT_TTL_SECONDS = int(
-    os.getenv("CHAT_WORKER_HEARTBEAT_TTL_SECONDS", "45")
-)
+WORKER_HEARTBEAT_TTL_SECONDS = int(os.getenv("CHAT_WORKER_HEARTBEAT_TTL_SECONDS", "45"))
 
 _MEDIA_DB: GuardianDB | None = None
 _MEDIA_MARKER_RE = re.compile(
@@ -240,9 +238,7 @@ def _extract_latest_turn_message_id(task: ChatCompletionTask) -> int | None:
     return _coerce_message_id(getattr(task, "latest_turn_message_id", None))
 
 
-def _persist_turn_id_metadata(
-    *, thread_id: int, message_id: int, turn_id: str
-) -> bool:
+def _persist_turn_id_metadata(*, thread_id: int, message_id: int, turn_id: str) -> bool:
     """Persist turn correlation key in chat_messages.extra_meta."""
     if not turn_id:
         return True
@@ -355,9 +351,7 @@ def _cache_turn_completion_anchor(
         return False
 
 
-def _cached_turn_completion_anchor(
-    *, thread_id: int, turn_id: str
-) -> int | None:
+def _cached_turn_completion_anchor(*, thread_id: int, turn_id: str) -> int | None:
     if not turn_id:
         return None
     try:
@@ -459,9 +453,7 @@ def _find_assistant_message_id_by_turn_id(
     return _cached_turn_completion_anchor(thread_id=thread_id, turn_id=turn_id)
 
 
-def _find_assistant_message_for_turn(
-    *, thread_id: int, turn_id: str
-) -> int | None:
+def _find_assistant_message_for_turn(*, thread_id: int, turn_id: str) -> int | None:
     """Return an existing assistant message id for the turn when present."""
     return _find_assistant_message_id_by_turn_id(
         thread_id=thread_id,
@@ -667,9 +659,7 @@ def _classify_runtime_status(detail: str) -> str | None:
     if "timed out" in lowered or "read timeout" in lowered:
         return GuardianProviderTransportClassification.TIMEOUT.value
     if "connection refused" in lowered:
-        return (
-            GuardianProviderTransportClassification.CONNECTION_REFUSED.value
-        )
+        return GuardianProviderTransportClassification.CONNECTION_REFUSED.value
     if "failed to resolve" in lowered or "name resolution" in lowered:
         return GuardianProviderTransportClassification.DNS_ERROR.value
     return None
@@ -733,6 +723,8 @@ def _completion_truth(
 def _should_attempt_provider_fallback(exc: Exception) -> bool:
     if isinstance(exc, (ChatTaskCancelled, ToolLoopExecutionError)):
         return False
+    if isinstance(exc, CompletionTerminalError):
+        return exc.evidence.retry_permitted
     if isinstance(exc, LLMConfigError):
         return True
     if isinstance(exc, HTTPException):
@@ -751,6 +743,21 @@ def _should_attempt_provider_fallback(exc: Exception) -> bool:
                 return True
         return exc.status_code >= 500
     return True
+
+
+def _provider_fallback_allowed(
+    exc: Exception,
+    *,
+    selection_source: str | None,
+    provider_pinned: bool,
+    visible_output_emitted: bool,
+) -> bool:
+    return bool(
+        selection_source != "explicit"
+        and not provider_pinned
+        and not visible_output_emitted
+        and _should_attempt_provider_fallback(exc)
+    )
 
 
 def _fallback_provider_candidates(
@@ -889,9 +896,7 @@ def _generate_assistant_message_audio_artifact(
                 generation_provider=result.provider,
             ),
         )
-        audio_url = str(
-            asset.get("stream_url") or asset.get("src_url") or ""
-        ).strip()
+        audio_url = str(asset.get("stream_url") or asset.get("src_url") or "").strip()
         logger.info(
             "[chat-worker] assistant_message_audio_ready thread_id=%s message_id=%s task_id=%s plugin_id=%s provider=%s asset_id=%s final_status=%s audio_url_present=%s bytes=%s",
             thread_id,
@@ -945,9 +950,7 @@ def _generate_assistant_message_audio_artifact(
         failed_asset.get("status") or "failed",
         bool(
             str(
-                failed_asset.get("stream_url")
-                or failed_asset.get("src_url")
-                or ""
+                failed_asset.get("stream_url") or failed_asset.get("src_url") or ""
             ).strip()
         ),
         result.error_code or "none",
@@ -1256,9 +1259,7 @@ def _coerce_build_messages_result(
     provider = str(payload[1] or "").strip().lower()
     model = str(payload[2] or "").strip()
     bundle = (
-        dict(payload[3])
-        if len(payload) > 3 and isinstance(payload[3], dict)
-        else {}
+        dict(payload[3]) if len(payload) > 3 and isinstance(payload[3], dict) else {}
     )
     if len(payload) >= 7:
         trace = payload[6] if isinstance(payload[6], dict) else None
@@ -1341,9 +1342,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
     requested_provider = _normalize_provider_override(task.provider)
     requested_model = _normalize_model_override(task.model)
     temperature = getattr(task, "temperature", None)
-    selection_source = (
-        str(getattr(task, "selection_source", "") or "").strip() or None
-    )
+    selection_source = str(getattr(task, "selection_source", "") or "").strip() or None
     provider_pinned = bool(getattr(task, "provider_pinned", False))
     model_resolved_provider: str | None = None
 
@@ -1352,9 +1351,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
 
     if model:
         try:
-            resolved_provider = resolve_provider_for_model(
-                model, settings=settings
-            )
+            resolved_provider = resolve_provider_for_model(model, settings=settings)
         except Exception:
             if provider is None:
                 raise
@@ -1366,9 +1363,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
             )
             resolved_provider = None
         if resolved_provider:
-            model_resolved_provider = _normalize_provider_override(
-                resolved_provider
-            )
+            model_resolved_provider = _normalize_provider_override(resolved_provider)
             if provider and provider != resolved_provider:
                 valid, reason = validate_provider_model_selection(
                     provider_id=provider,
@@ -1376,12 +1371,8 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
                     settings=settings,
                 )
                 if not valid:
-                    raise LLMConfigError(
-                        reason or "Requested model is not available"
-                    )
-            provider = _normalize_provider_override(
-                provider or resolved_provider
-            )
+                    raise LLMConfigError(reason or "Requested model is not available")
+            provider = _normalize_provider_override(provider or resolved_provider)
         elif provider is None:
             raise LLMConfigError(f"Requested model '{model}' is not available")
 
@@ -1394,8 +1385,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
 
     if provider is None:
         provider = _normalize_provider_override(
-            settings.LLM_PROVIDER
-            or getattr(dependencies, "CHAT_PROVIDER", None)
+            settings.LLM_PROVIDER or getattr(dependencies, "CHAT_PROVIDER", None)
         )
         if provider and selection_source is None:
             selection_source = "default"
@@ -1408,9 +1398,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
             selection_source = "default"
 
     if model is None:
-        model = _normalize_model_override(
-            getattr(profile, "model_override", None)
-        )
+        model = _normalize_model_override(getattr(profile, "model_override", None))
     if model is None and provider:
         model = _normalize_model_override(
             default_model_for_provider(provider, settings)
@@ -1456,9 +1444,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
         requested_provider=requested_provider,
         requested_model=requested_model,
         selection_source=selection_source
-        or (
-            "explicit" if (requested_provider or requested_model) else "default"
-        ),
+        or ("explicit" if (requested_provider or requested_model) else "default"),
         provider_pinned=provider_pinned,
     )
 
@@ -1469,9 +1455,7 @@ def _sync_build_messages_compat_seams() -> None:
     _chat_completion_service.ContextBroker = ContextBroker
     _chat_completion_service.chat_with_ai = _chat_with_ai_compat
     _chat_completion_service.stream_local = _stream_local_compat
-    _chat_completion_service.build_guardian_system_prompt = (
-        build_guardian_system_prompt
-    )
+    _chat_completion_service.build_guardian_system_prompt = build_guardian_system_prompt
     _chat_completion_service.build_context_system_message_with_meta = (
         _build_context_system_message_with_meta_compat
     )
@@ -1563,9 +1547,7 @@ def _run_chat_completion_task_compat(
     persist_assistant_message: bool = True,
     state_callback: Any = None,
 ) -> dict[str, Any]:
-    build_result = asyncio.run(
-        _build_messages_for_llm_compat(task, user_id=user_id)
-    )
+    build_result = asyncio.run(_build_messages_for_llm_compat(task, user_id=user_id))
     (
         messages_for_llm,
         provider,
@@ -1616,9 +1598,7 @@ def _run_chat_completion_task_compat(
         provider=provider,
         model=model,
     )
-    trace_source_mode = (
-        trace.get("source_mode") if isinstance(trace, dict) else None
-    )
+    trace_source_mode = trace.get("source_mode") if isinstance(trace, dict) else None
     effective_policy = (
         trace.get("effective_policy") if isinstance(trace, dict) else None
     )
@@ -1630,9 +1610,7 @@ def _run_chat_completion_task_compat(
         retrieval_override=(
             trace.get("retrieval_override") if isinstance(trace, dict) else None
         ),
-        widen_reason=(
-            trace.get("widen_reason") if isinstance(trace, dict) else None
-        ),
+        widen_reason=(trace.get("widen_reason") if isinstance(trace, dict) else None),
     )
     if retrieval_posture is not None:
         payload_summary["retrieval_posture"] = retrieval_posture
@@ -1657,9 +1635,7 @@ def _run_chat_completion_task_compat(
     ) or _normalize_model_override(task.model)
     attempted_provider = requested_provider or provider
     attempted_model = requested_model or model
-    selection_source = (
-        str(getattr(task, "selection_source", "") or "").strip() or None
-    )
+    selection_source = str(getattr(task, "selection_source", "") or "").strip() or None
     model_resolution: dict[str, Any] | None = None
     if provider == "local":
         try:
@@ -1687,6 +1663,7 @@ def _run_chat_completion_task_compat(
         completed=False,
     )
     completion_result: dict[str, Any] | None = None
+    visible_output_emitted = False
 
     def _execute_completion(
         execution_provider: str,
@@ -1695,7 +1672,8 @@ def _run_chat_completion_task_compat(
         streaming_emitted = False
 
         def _publish_streaming(first_output_kind: str) -> None:
-            nonlocal streaming_emitted
+            nonlocal streaming_emitted, visible_output_emitted
+            visible_output_emitted = True
             if streaming_emitted:
                 return
             streaming_emitted = True
@@ -1766,10 +1744,11 @@ def _run_chat_completion_task_compat(
         completion_truth["executed"] = True
     except Exception as exc:
         failure_meta = _task_error_metadata(exc)
-        should_rescue = bool(
-            selection_source != "explicit"
-            and not provider_pinned
-            and _should_attempt_provider_fallback(exc)
+        should_rescue = _provider_fallback_allowed(
+            exc,
+            selection_source=selection_source,
+            provider_pinned=provider_pinned,
+            visible_output_emitted=visible_output_emitted,
         )
         fallback_candidates = _fallback_provider_candidates(
             attempted_provider=provider,
@@ -1810,9 +1789,7 @@ def _run_chat_completion_task_compat(
                 fallback_model,
             )
             try:
-                assistant_text = _execute_completion(
-                    fallback_provider, fallback_model
-                )
+                assistant_text = _execute_completion(fallback_provider, fallback_model)
                 fallback_reason = (
                     "cloud_failure_local_rescue"
                     if fallback_provider == "local" and provider != "local"
@@ -1848,12 +1825,10 @@ def _run_chat_completion_task_compat(
         settings,
         attempted=True,
         executed=bool(
-            completion_truth["executed"]
-            and attempted_provider == final_provider
+            completion_truth["executed"] and attempted_provider == final_provider
         ),
         completed=bool(
-            completion_truth["executed"]
-            and attempted_provider == final_provider
+            completion_truth["executed"] and attempted_provider == final_provider
         ),
     )
     final_provider_truth = build_provider_truth(
@@ -1946,9 +1921,7 @@ def _run_chat_completion_task_compat(
         "model_selection": model_selection,
         "upstream_status": failure_meta.get("upstream_status"),
         "provider_error": failure_meta.get("provider_error"),
-        "transport_classification": failure_meta.get(
-            "transport_classification"
-        ),
+        "transport_classification": failure_meta.get("transport_classification"),
         "provider_failure_kind": failure_meta.get("failure_kind"),
         "provider_failure_message": failure_meta.get("message"),
         "completion_truth": completion_truth,
@@ -2006,6 +1979,7 @@ def _run_chat_completion_task_compat(
             "command_run_id",
             "command_status",
             "command_error",
+            "terminal_evidence",
         ):
             value = completion_result.get(key)
             if value is not None:
@@ -2040,20 +2014,26 @@ def _run_chat_completion_task_compat(
     )
     payload_summary["image_attachment_count"] = image_attachment_count
     payload_summary["image_routing_path"] = image_routing_path
-    payload_summary[
-        "image_routing_absence_reason"
-    ] = image_routing_absence_reason
+    payload_summary["image_routing_absence_reason"] = image_routing_absence_reason
     result["image_attachment_count"] = image_attachment_count
     result["image_routing_path"] = image_routing_path
     result["image_routing_absence_reason"] = image_routing_absence_reason
     if isinstance(final_trace, dict):
         final_trace["image_attachment_count"] = image_attachment_count
         final_trace["image_routing_path"] = image_routing_path
-        final_trace[
-            "image_routing_absence_reason"
-        ] = image_routing_absence_reason
+        final_trace["image_routing_absence_reason"] = image_routing_absence_reason
         result["trace"] = final_trace
     _sanitize_assistant_result_payload(result)
+
+    terminal_evidence = require_successful_terminal(result)
+    result["terminal_evidence"] = terminal_evidence.as_dict()
+    payload_summary["terminal_evidence"] = terminal_evidence.as_dict()
+    if callable(cancel_check) and cancel_check():
+        raise ChatTaskCancelled(
+            provider=final_provider,
+            model=final_model,
+            visible_output_emitted=bool(terminal_evidence.visible_output_emitted),
+        )
 
     if not persist_assistant_message:
         return result
@@ -2141,9 +2121,7 @@ def _run_chat_completion_task_compat(
                 "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_suppression": result.get("retrieval_suppression"),
                 "retrieval_executed": result.get("retrieval_executed"),
-                "retrieval_absence_reason": result.get(
-                    "retrieval_absence_reason"
-                ),
+                "retrieval_absence_reason": result.get("retrieval_absence_reason"),
                 "image_routing_path": result.get("image_routing_path"),
                 "image_routing_absence_reason": result.get(
                     "image_routing_absence_reason"
@@ -2193,9 +2171,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     turn_id = _extract_turn_id(task)
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     lifecycle_timings: dict[str, Any] = {}
-    queued_at = (
-        str(getattr(task, "created_at", "") or "").strip() or _utc_now_iso()
-    )
+    queued_at = str(getattr(task, "created_at", "") or "").strip() or _utc_now_iso()
     lifecycle_timings["queued_at"] = queued_at
     _publish_task_state(
         task,
@@ -2221,16 +2197,12 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
     ) -> None:
         state_details = dict(details or {})
         first_output_kind = (
-            str(state_details.pop("first_output_kind", "") or "")
-            .strip()
-            .lower()
+            str(state_details.pop("first_output_kind", "") or "").strip().lower()
         )
         timestamp = _utc_now_iso()
         if state == TaskLifecycleState.AWAITING_MODEL:
             state_details.setdefault("awaiting_model_at", timestamp)
-            lifecycle_timings["awaiting_model_at"] = state_details[
-                "awaiting_model_at"
-            ]
+            lifecycle_timings["awaiting_model_at"] = state_details["awaiting_model_at"]
         elif state == TaskLifecycleState.AWAITING_FIRST_TOKEN:
             state_details.setdefault("awaiting_first_token_at", timestamp)
             lifecycle_timings["awaiting_first_token_at"] = state_details[
@@ -2242,17 +2214,11 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 state_details.setdefault(
                     "first_output_at", state_details["first_token_at"]
                 )
-                lifecycle_timings["first_token_at"] = state_details[
-                    "first_token_at"
-                ]
-                lifecycle_timings["first_output_at"] = state_details[
-                    "first_output_at"
-                ]
+                lifecycle_timings["first_token_at"] = state_details["first_token_at"]
+                lifecycle_timings["first_output_at"] = state_details["first_output_at"]
             else:
                 state_details.setdefault("first_output_at", timestamp)
-                lifecycle_timings["first_output_at"] = state_details[
-                    "first_output_at"
-                ]
+                lifecycle_timings["first_output_at"] = state_details["first_output_at"]
         elif state == TaskLifecycleState.COMPLETED:
             state_details.setdefault("completed_at", timestamp)
             lifecycle_timings["completed_at"] = state_details["completed_at"]
@@ -2338,9 +2304,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
             if existing_message_id is not None:
                 duration_ms = int((time.monotonic() - started) * 1000)
-                terminal_timings = _finalize_lifecycle_timings(
-                    lifecycle_timings
-                )
+                terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
                 logger.warning(
                     "[chat-worker] duplicate_turn_prevented thread_id=%s turn_id=%s task_id=%s message_id=%s",
                     task.thread_id,
@@ -2384,9 +2348,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "task.progress",
                 {
                     "run_id": run_id,
-                    "token": (
-                        token[:4096] if isinstance(token, str) else token
-                    ),
+                    "token": (token[:4096] if isinstance(token, str) else token),
                     "thread_id": task.thread_id,
                 },
             ),
@@ -2405,15 +2367,17 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             persist_assistant_message=True,
             state_callback=_state_callback,
         )
+        terminal_evidence = require_successful_terminal(result)
+        if result.get("persistence_outcome") != "persisted":
+            raise RuntimeError("assistant_persistence_not_confirmed")
+        result["terminal_evidence"] = terminal_evidence.as_dict()
         result_trace = (
             result.get("trace") if isinstance(result.get("trace"), dict) else {}
         )
         result_latest_turn_message_id = _coerce_message_id(
             result.get("latest_turn_message_id")
         )
-        if result_latest_turn_message_id is None and isinstance(
-            result_trace, dict
-        ):
+        if result_latest_turn_message_id is None and isinstance(result_trace, dict):
             result_latest_turn_message_id = _coerce_message_id(
                 result_trace.get("latest_turn_message_id")
             )
@@ -2423,9 +2387,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         result_retrieval_target = result.get("retrieval_target")
         if result_retrieval_target is None and isinstance(result_trace, dict):
             result_retrieval_target = result_trace.get("retrieval_target")
-        lifecycle_timings_payload = _finalize_lifecycle_timings(
-            lifecycle_timings
-        )
+        lifecycle_timings_payload = _finalize_lifecycle_timings(lifecycle_timings)
         result.update(lifecycle_timings_payload)
         result_retrieval_posture = result.get("retrieval_posture")
         if not isinstance(result_retrieval_posture, dict):
@@ -2454,9 +2416,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         else:
             result_trace = dict(lifecycle_timings_payload)
             if isinstance(result_retrieval_posture, dict):
-                result_trace["retrieval_posture"] = dict(
-                    result_retrieval_posture
-                )
+                result_trace["retrieval_posture"] = dict(result_retrieval_posture)
         result["trace"] = result_trace
         message_id = _coerce_message_id(result.get("message_id"))
         if message_id is None:
@@ -2503,9 +2463,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                         task.task_id,
                         message_id,
                     )
-                    _record_turn_metadata_persist_failure(
-                        "persist_returned_false"
-                    )
+                    _record_turn_metadata_persist_failure("persist_returned_false")
             except Exception as exc:
                 logger.warning(
                     "[chat-worker] turn_id_metadata_persist_failed reason=exception thread_id=%s turn_id=%s task_id=%s message_id=%s err=%s",
@@ -2522,10 +2480,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 thread_id=task.thread_id,
                 turn_id=turn_id,
             )
-            if (
-                canonical_message_id is not None
-                and canonical_message_id != message_id
-            ):
+            if canonical_message_id is not None and canonical_message_id != message_id:
                 logger.warning(
                     "[chat-worker] completion_duplicate_turn_detected thread_id=%s turn_id=%s task_id=%s canonical_message_id=%s duplicate_message_id=%s",
                     task.thread_id,
@@ -2560,18 +2515,14 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             assistant_message_id=message_id,
             worker_started_at=worker_started_at,
             completion_persisted_at=completion_persisted_at,
-            thread_record=thread_record
-            if isinstance(thread_record, dict)
-            else None,
+            thread_record=thread_record if isinstance(thread_record, dict) else None,
         )
         try:
             from guardian.memory_graph.graph_write_hook import (
                 build_graph_write_candidate,
             )
 
-            thread_scope, project_scope = _resolve_graph_write_scope(
-                task.thread_id
-            )
+            thread_scope, project_scope = _resolve_graph_write_scope(task.thread_id)
             if thread_scope is None or project_scope is None:
                 raise ValueError("graph_write_scope_unavailable")
 
@@ -2597,14 +2548,12 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             )
         audio_autogenerate_scheduled = False
         try:
-            audio_autogenerate_scheduled = (
-                _schedule_assistant_message_audio_generation(
-                    thread_id=task.thread_id,
-                    message_id=message_id,
-                    assistant_text=assistant_text,
-                    task_id=task.task_id,
-                    turn_id=turn_id,
-                )
+            audio_autogenerate_scheduled = _schedule_assistant_message_audio_generation(
+                thread_id=task.thread_id,
+                message_id=message_id,
+                assistant_text=assistant_text,
+                task_id=task.task_id,
+                turn_id=turn_id,
             )
         except Exception:
             logger.warning(
@@ -2649,26 +2598,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "model_selection": result.get("model_selection"),
                 "upstream_status": result.get("upstream_status"),
                 "provider_error": result.get("provider_error"),
-                "transport_classification": result.get(
-                    "transport_classification"
-                ),
+                "transport_classification": result.get("transport_classification"),
                 "provider_failure_kind": result.get("provider_failure_kind"),
-                "provider_failure_message": result.get(
-                    "provider_failure_message"
-                ),
+                "provider_failure_message": result.get("provider_failure_message"),
                 "completion_truth": result.get("completion_truth"),
-                "attempted_provider_truth": result.get(
-                    "attempted_provider_truth"
-                ),
+                "attempted_provider_truth": result.get("attempted_provider_truth"),
                 "final_provider_truth": result.get("final_provider_truth"),
                 "retrieval_policy": result.get("retrieval_policy"),
                 "retrieval_posture": result.get("retrieval_posture"),
                 "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_suppression": result.get("retrieval_suppression"),
                 "retrieval_executed": result.get("retrieval_executed"),
-                "retrieval_absence_reason": result.get(
-                    "retrieval_absence_reason"
-                ),
+                "retrieval_absence_reason": result.get("retrieval_absence_reason"),
                 "image_routing_path": result.get("image_routing_path"),
                 "image_routing_absence_reason": result.get(
                     "image_routing_absence_reason"
@@ -2676,6 +2617,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "execution": result.get("execution"),
                 "tool_loop_execution": result.get("tool_loop_execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
+                "terminal_evidence": result.get("terminal_evidence"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
@@ -2699,8 +2641,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             turn_id,
             message_id,
         )
-    except ChatTaskCancelled:
+    except ChatTaskCancelled as exc:
         terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
+        cancellation_metadata = _task_error_metadata(exc)
         _safe_publish(
             task.task_id,
             "task.cancelled",
@@ -2710,6 +2653,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "origin": task.origin,
                 "turn_id": turn_id,
                 "latest_turn_message_id": latest_turn_message_id,
+                "failure_kind": cancellation_metadata.get("failure_kind"),
+                "terminal_evidence": cancellation_metadata.get("terminal_evidence"),
                 **terminal_timings,
             },
         )
@@ -2765,6 +2710,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "completion_truth",
             "attempted_provider_truth",
             "final_provider_truth",
+            "terminal_evidence",
             "messageId",
             "requestId",
             "toolTurnId",
@@ -2776,15 +2722,18 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         ):
             value = error_metadata.get(key)
             if value is not None:
-                normalized_key = (
-                    "provider_failure_message" if key == "message" else key
-                )
+                normalized_key = "provider_failure_message" if key == "message" else key
                 failure_payload[normalized_key] = value
+        terminal_evidence = error_metadata.get("terminal_evidence")
+        if isinstance(terminal_evidence, dict) and terminal_evidence.get(
+            "visible_output_emitted"
+        ):
+            failure_payload["first_output_observed"] = True
+            failure_payload["failed_after_state"] = TaskLifecycleState.STREAMING.value
+            failure_payload["provider_request_started"] = True
         runtime_status = _classify_runtime_status(error_detail)
         if runtime_status is None:
-            runtime_status = _classify_runtime_status_from_metadata(
-                error_metadata
-            )
+            runtime_status = _classify_runtime_status_from_metadata(error_metadata)
         if runtime_status:
             failure_payload["runtime_status"] = runtime_status
         if task.provider:
@@ -2865,9 +2814,7 @@ def run_forever() -> None:
                 logger.debug("[chat-worker] redis idle timeout; continuing")
                 continue
             except RedisConnectionError as exc:
-                logger.warning(
-                    "[chat-worker] dequeue error; continuing: %s", exc
-                )
+                logger.warning("[chat-worker] dequeue error; continuing: %s", exc)
                 time.sleep(1.0)
                 continue
 
@@ -2904,9 +2851,7 @@ def run_forever() -> None:
                     },
                 )
                 clear_cancelled(task.task_id)
-                logger.info(
-                    "[task] cancelled type=%s id=%s", task.type, task.task_id
-                )
+                logger.info("[task] cancelled type=%s id=%s", task.type, task.task_id)
                 continue
             executor.submit(_run_chat_task, task)
 
