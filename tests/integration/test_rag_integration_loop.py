@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 
 from guardian.core import dependencies
+from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.queue import redis_queue, task_events
 from guardian.queue.redis_queue import dequeue, dequeue_chat_embed
 from guardian.routes import chat as chat_routes
@@ -188,6 +190,15 @@ async def test_rag_integration_memory_loop(monkeypatch):
         )
         for token in output.split():
             yield token + " "
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=True,
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="test-model",
+        )
 
     # Keep this test hermetic: avoid Postgres/Docker DNS ("db") dependencies during prompt build.
     # The RAG loop wiring is what we want to validate here, not DB-backed prompt assembly.
@@ -312,17 +323,13 @@ async def test_rag_integration_memory_loop(monkeypatch):
         monkeypatch.setattr(
             spb,
             "build_system_messages",
-            lambda *_a, **_k: [
-                {"role": "system", "content": system_prompt_text}
-            ],
+            lambda *_a, **_k: [{"role": "system", "content": system_prompt_text}],
             raising=False,
         )
         monkeypatch.setattr(
             spb,
             "build_system_prompt_messages",
-            lambda *_a, **_k: [
-                {"role": "system", "content": system_prompt_text}
-            ],
+            lambda *_a, **_k: [{"role": "system", "content": system_prompt_text}],
             raising=False,
         )
         monkeypatch.setattr(
@@ -357,17 +364,13 @@ async def test_rag_integration_memory_loop(monkeypatch):
         monkeypatch.setattr(
             mpb,
             "build_system_messages",
-            lambda *_a, **_k: [
-                {"role": "system", "content": system_prompt_text}
-            ],
+            lambda *_a, **_k: [{"role": "system", "content": system_prompt_text}],
             raising=False,
         )
         monkeypatch.setattr(
             mpb,
             "build_system_prompt_messages",
-            lambda *_a, **_k: [
-                {"role": "system", "content": system_prompt_text}
-            ],
+            lambda *_a, **_k: [{"role": "system", "content": system_prompt_text}],
             raising=False,
         )
     except Exception:
@@ -485,8 +488,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
                 if str(event.get("type")) == "task.failed"
             ]
             pytest.fail(
-                "Hermetic RAG loop task failed unexpectedly: "
-                + " | ".join(errors)
+                "Hermetic RAG loop task failed unexpectedly: " + " | ".join(errors)
             )
         assert "task.running" in event_types
         assert "task.completed" in event_types
@@ -494,9 +496,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
 
         messages = chatlog.list_messages(1, limit=50, offset=0)
         assistant_messages = [
-            message
-            for message in messages
-            if message.get("role") == "assistant"
+            message for message in messages if message.get("role") == "assistant"
         ]
         assert assistant_messages
         assistant_text = str(assistant_messages[-1].get("content") or "")

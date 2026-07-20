@@ -3,7 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from fastapi import HTTPException
+
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
+from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.workers import chat_worker
 
 TURN_ID = "11111111-1111-4111-8111-111111111111"
@@ -26,7 +30,16 @@ class _TokenStream:
         self._tokens = list(tokens)
 
     def __iter__(self):
-        return iter(self._tokens)
+        yield from self._tokens
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=bool(self._tokens),
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="test-model",
+        )
 
     def close(self):
         return None
@@ -158,6 +171,7 @@ def _prepare_worker_harness(
             lambda *_args, **_kwargs: _TokenStream(stream_tokens),
         )
     else:
+
         def _unexpected_stream_local(*_args, **_kwargs):
             raise AssertionError("stream_local should not be used")
 
@@ -211,9 +225,7 @@ def test_chat_worker_emits_chunk_events_for_streaming_local_flow(monkeypatch):
     ]
 
     chunk_payloads = [
-        payload
-        for event_type, payload in published
-        if event_type == "task.chunk"
+        payload for event_type, payload in published if event_type == "task.chunk"
     ]
     assert [payload["delta"] for payload in chunk_payloads] == ["Hel", "lo"]
     assert chunk_payloads[0]["thread_id"] == task.thread_id
@@ -255,9 +267,109 @@ def test_chat_worker_does_not_fabricate_chunks_for_non_streaming_flow(
         TaskLifecycleState.STREAMING.value,
         TaskLifecycleState.COMPLETED.value,
     ]
-    assert not any(
-        event_type == "task.chunk" for event_type, _payload in published
+    assert not any(event_type == "task.chunk" for event_type, _payload in published)
+    assert any(event_type == "task.completed" for event_type, _payload in published)
+
+
+def test_pre_output_fallback_success_persists_exactly_one_assistant(monkeypatch):
+    published = _prepare_worker_harness(
+        monkeypatch,
+        provider="groq",
+        model="cloud-model",
+        stream_tokens=["rescued"],
     )
-    assert any(
-        event_type == "task.completed" for event_type, _payload in published
+    task = _build_task(
+        task_id="task-pre-output-fallback",
+        provider="groq",
+        model="cloud-model",
     )
+    task.selection_source = "default"
+    task.provider_pinned = False
+    persisted: list[str] = []
+    monkeypatch.setattr(
+        chat_worker.dependencies,
+        "chatlog_db",
+        SimpleNamespace(
+            create_message=lambda _thread_id, _role, text: persisted.append(text) or 42,
+            write_audit_log=lambda *_args, **_kwargs: None,
+        ),
+    )
+    cloud_error = HTTPException(
+        status_code=502,
+        detail={"failure_kind": "provider_unavailable"},
+    )
+
+    def _cloud_fails(*_args, **_kwargs):
+        raise cloud_error
+
+    monkeypatch.setattr(chat_worker, "chat_with_ai", _cloud_fails)
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "chat_with_ai",
+        _cloud_fails,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_fallback_provider_candidates",
+        lambda **_kwargs: [("local", "test-model")],
+    )
+
+    chat_worker._run_chat_task(task)
+
+    assert persisted == ["rescued"]
+    assert [event for event, _payload in published].count("task.completed") == 1
+
+
+def test_failure_after_visible_chunk_forbids_fallback_and_persistence(
+    monkeypatch,
+):
+    published = _prepare_worker_harness(
+        monkeypatch,
+        provider="local",
+        model="test-model",
+        stream_tokens=["unused"],
+    )
+    task = _build_task(task_id="task-visible-failure")
+    task.selection_source = "default"
+    task.provider_pinned = False
+    persisted: list[str] = []
+    fallback_calls: list[str] = []
+
+    def _partial_then_error():
+        yield "partial"
+        raise HTTPException(
+            status_code=502,
+            detail={"failure_kind": "provider_unavailable"},
+        )
+
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "stream_local",
+        lambda *_args, **_kwargs: _partial_then_error(),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_fallback_provider_candidates",
+        lambda **_kwargs: [("groq", "fallback-model")],
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: fallback_calls.append("called") or "fallback",
+    )
+    monkeypatch.setattr(
+        chat_worker.dependencies,
+        "chatlog_db",
+        SimpleNamespace(
+            create_message=lambda *_args, **_kwargs: persisted.append("created") or 42,
+            write_audit_log=lambda *_args, **_kwargs: None,
+        ),
+    )
+
+    chat_worker._run_chat_task(task)
+
+    event_types = [event for event, _payload in published]
+    assert "task.failed" in event_types
+    assert "task.completed" not in event_types
+    assert fallback_calls == []
+    assert persisted == []

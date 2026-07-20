@@ -15,6 +15,7 @@ from requests import exceptions as req_exc
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.core.event_contracts import _coerce_text
+from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_model_id,
@@ -35,6 +36,7 @@ from guardian.providers.deepseek_adapter import (
     parse_response as parse_deepseek_response,
 )
 from guardian.protocol_tokens import (
+    CompletionTerminalStatus,
     ErrorCode,
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
@@ -128,9 +130,7 @@ COMPLETION_OUTPUT_KIND_TOOL_DECISION = "tool_decision"
 COMPLETION_OUTPUT_KIND_MALFORMED_TOOL_DECISION = "malformed_tool_decision"
 
 
-def _normalize_tool_decision_payload(
-    payload: dict[str, Any]
-) -> dict[str, Any] | None:
+def _normalize_tool_decision_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     command_id = str(
         payload.get("command_id") or payload.get("commandId") or ""
     ).strip()
@@ -149,9 +149,7 @@ def _normalize_tool_decision_payload(
         "command_id": command_id,
         "arguments": dict(arguments),
     }
-    tool_name = str(
-        payload.get("tool_name") or payload.get("toolName") or ""
-    ).strip()
+    tool_name = str(payload.get("tool_name") or payload.get("toolName") or "").strip()
     if tool_name:
         normalized["tool_name"] = tool_name
     summary = str(payload.get("summary") or payload.get("reason") or "").strip()
@@ -180,9 +178,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
 
     if isinstance(raw_output, dict):
         kind = (
-            str(raw_output.get("kind") or raw_output.get("type") or "")
-            .strip()
-            .lower()
+            str(raw_output.get("kind") or raw_output.get("type") or "").strip().lower()
         )
         if (
             kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
@@ -224,9 +220,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
         return _assistant(text)
 
     if isinstance(parsed, dict):
-        kind = (
-            str(parsed.get("kind") or parsed.get("type") or "").strip().lower()
-        )
+        kind = str(parsed.get("kind") or parsed.get("type") or "").strip().lower()
         if (
             kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
             or parsed.get("tool_decision") is not None
@@ -248,9 +242,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
                 "raw": raw_output,
             }
         assistant_text = (
-            parsed.get("assistant_text")
-            or parsed.get("content")
-            or parsed.get("text")
+            parsed.get("assistant_text") or parsed.get("content") or parsed.get("text")
         )
         if assistant_text is not None:
             return _assistant(assistant_text)
@@ -379,18 +371,12 @@ def _tool_decision_from_content_blocks(
         if block_type not in {"tool_use", "tool_call"}:
             continue
         command_id = str(
-            block.get("name")
-            or block.get("command_id")
-            or block.get("tool_name")
-            or ""
+            block.get("name") or block.get("command_id") or block.get("tool_name") or ""
         ).strip()
         if not command_id:
             continue
         arguments = _coerce_tool_arguments(
-            block.get("input")
-            or block.get("arguments")
-            or block.get("params")
-            or {}
+            block.get("input") or block.get("arguments") or block.get("params") or {}
         )
         reason = str(block.get("text") or block.get("summary") or "").strip()
         return NormalizedCompletionOutput(
@@ -448,9 +434,7 @@ def normalize_completion_output(
         content_blocks = getattr(output, "content_blocks", None)
         candidate = None
         if isinstance(raw_payload, dict):
-            candidate = _tool_decision_from_mapping(
-                raw_payload, provider=provider
-            )
+            candidate = _tool_decision_from_mapping(raw_payload, provider=provider)
             if candidate is not None:
                 return candidate
             choices = raw_payload.get("choices")
@@ -630,9 +614,7 @@ def _local_extended_thinking_patterns(settings: Settings) -> tuple[str, ...]:
 
 
 def _local_no_think_patterns(settings: Settings) -> tuple[str, ...]:
-    raw = str(
-        getattr(settings, "LOCAL_NO_THINK_MODEL_PATTERNS", "") or ""
-    ).strip()
+    raw = str(getattr(settings, "LOCAL_NO_THINK_MODEL_PATTERNS", "") or "").strip()
     if not raw:
         raw = "qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3"
     return tuple(
@@ -641,9 +623,7 @@ def _local_no_think_patterns(settings: Settings) -> tuple[str, ...]:
 
 
 def _local_no_think_skip_patterns(settings: Settings) -> tuple[str, ...]:
-    raw = str(
-        getattr(settings, "LOCAL_NO_THINK_SKIP_MODEL_PATTERNS", "") or ""
-    ).strip()
+    raw = str(getattr(settings, "LOCAL_NO_THINK_SKIP_MODEL_PATTERNS", "") or "").strip()
     if not raw:
         raw = (
             "thinking-2507,qwen3.5-thinking,qwen-3.5-thinking,"
@@ -655,9 +635,7 @@ def _local_no_think_skip_patterns(settings: Settings) -> tuple[str, ...]:
     )
 
 
-def _match_pattern(
-    value: str, patterns: tuple[str, ...]
-) -> tuple[bool, str | None]:
+def _match_pattern(value: str, patterns: tuple[str, ...]) -> tuple[bool, str | None]:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return False, None
@@ -710,9 +688,7 @@ def resolve_local_reasoning_directive(
         return LocalReasoningDirective(mode="default", source="default")
 
     instruction = (
-        str(
-            getattr(resolved, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or ""
-        ).strip()
+        str(getattr(resolved, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or "").strip()
         or "/no_think"
     )
     return LocalReasoningDirective(
@@ -720,8 +696,7 @@ def resolve_local_reasoning_directive(
         source="profile",
         instruction=instruction,
         profile_reason=(
-            "model matched LOCAL_NO_THINK_MODEL_PATTERNS "
-            f"via '{matched_pattern}'"
+            "model matched LOCAL_NO_THINK_MODEL_PATTERNS " f"via '{matched_pattern}'"
         ),
     )
 
@@ -744,8 +719,7 @@ def _resolve_reasoning_override_instruction(
     if normalized in {"no_think", "fast", "/no_think"}:
         instruction = (
             str(
-                getattr(settings, "LOCAL_NO_THINK_INSTRUCTION", "/no_think")
-                or ""
+                getattr(settings, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or ""
             ).strip()
             or "/no_think"
         )
@@ -893,9 +867,7 @@ def apply_local_reasoning_directive(
         return messages, directive
 
     adapted = [
-        dict(message)
-        for message in (messages or [])
-        if isinstance(message, dict)
+        dict(message) for message in (messages or []) if isinstance(message, dict)
     ]
     target_index = _find_last_message_index(adapted, "user")
     if target_index < 0:
@@ -948,9 +920,7 @@ def _transform_messages_for_ollama_vision(
     result: list[dict[str, Any]] = []
     for message in messages or []:
         content = message.get("content")
-        if not isinstance(content, list) or not _content_has_image_payload(
-            content
-        ):
+        if not isinstance(content, list) or not _content_has_image_payload(content):
             result.append(message)
             continue
         text_parts, image_base64_list = [], []
@@ -961,9 +931,7 @@ def _transform_messages_for_ollama_vision(
                 if txt:
                     text_parts.append(txt)
             elif part_type == "image_url":
-                img_url = str(
-                    (part.get("image_url") or {}).get("url") or ""
-                ).strip()
+                img_url = str((part.get("image_url") or {}).get("url") or "").strip()
                 if img_url:
                     encoded = _encode_image_url_to_base64(img_url)
                     if encoded:
@@ -1007,9 +975,7 @@ def _encode_image_url_to_base64(url: str) -> str | None:
             settings = get_settings()
             host = getattr(settings, "GUARDIAN_INTERNAL_HOST", "localhost")
             port = getattr(settings, "GUARDIAN_INTERNAL_PORT", "8000")
-            resp = requests.get(
-                f"http://{host}:{port}{parsed.path}", timeout=10
-            )
+            resp = requests.get(f"http://{host}:{port}{parsed.path}", timeout=10)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
         elif parsed.scheme in ("http", "https"):
@@ -1135,9 +1101,7 @@ def _format_local_connect_error(
         or "timeout" in lowered
     ):
         timeout_kind = (
-            "read timeout"
-            if isinstance(err, req_exc.ReadTimeout)
-            else "timeout"
+            "read timeout" if isinstance(err, req_exc.ReadTimeout) else "timeout"
         )
         profile_hint = (
             " If this local model intentionally spends a long time reasoning before streaming, "
@@ -1177,8 +1141,7 @@ def _local_chat_model_is_authoritative(settings: Settings) -> bool:
     if manifest is None:
         return False
     return (
-        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER"))
-        == "local"
+        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER")) == "local"
     )
 
 
@@ -1191,16 +1154,16 @@ def _local_execution_model_candidates(
     requested_whooshd_model = whooshd_runtime_model_id(requested_model)
     raw_candidates: tuple[tuple[str, Any], ...]
     if strict and requested_whooshd_model:
-        raw_candidates = (
-            ("whooshd_model_profile", requested_whooshd_model),
-        )
+        raw_candidates = (("whooshd_model_profile", requested_whooshd_model),)
     elif strict:
         raw_candidates = (
             ("LOCAL_CHAT_MODEL", getattr(settings, "LOCAL_CHAT_MODEL", None)),
         )
         # Include LOCAL_VISION_MODEL only when the requested model matches it
         vision_model = getattr(settings, "LOCAL_VISION_MODEL", None)
-        if vision_model and normalize_model_id(requested_model) == normalize_model_id(vision_model):
+        if vision_model and normalize_model_id(requested_model) == normalize_model_id(
+            vision_model
+        ):
             raw_candidates += (("LOCAL_VISION_MODEL", vision_model),)
     else:
         raw_candidates = (
@@ -1268,9 +1231,7 @@ def resolve_local_execution_model(
             strict=strict,
             requested_model=requested or None,
             failure_kind=LOCAL_MODEL_MISSING_FAILURE_KIND,
-            message=(
-                f"{source_name} is not configured for local chat execution"
-            ),
+            message=(f"{source_name} is not configured for local chat execution"),
             endpoint_resolution=endpoint_resolution,
         )
     configured_model, source = candidates[0]
@@ -1291,18 +1252,18 @@ def resolve_local_execution_model(
     ):
         available_models = {
             normalized
-            for normalized in (
-                normalize_model_id(item) for item in (names or [])
-            )
+            for normalized in (normalize_model_id(item) for item in (names or []))
             if normalized
         }
         if strict and configured_model not in available_models:
-            vendor = str(
-                getattr(resolved, "LOCAL_PROVIDER_VENDOR", "") or ""
-            ).strip().lower()
-            inventory_source = str(
-                resolved_endpoint.get("inventory_source") or ""
-            ).strip() or None
+            vendor = (
+                str(getattr(resolved, "LOCAL_PROVIDER_VENDOR", "") or "")
+                .strip()
+                .lower()
+            )
+            inventory_source = (
+                str(resolved_endpoint.get("inventory_source") or "").strip() or None
+            )
             availability_reason = (
                 WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON
                 if vendor == "whooshd"
@@ -1425,9 +1386,7 @@ def _local_provider_failure_detail(
             attempted_base_urls=normalized_base_urls,
             state="degraded",
             failure_kind=failure_kind,
-            reason=_summarize_local_attempt_failures(
-                list(attempted_endpoints or [])
-            )
+            reason=_summarize_local_attempt_failures(list(attempted_endpoints or []))
             or message,
         )
     return detail
@@ -1483,9 +1442,7 @@ def _classify_transport_error(exc: Exception) -> str:
     if isinstance(exc, req_exc.Timeout) or "timed out" in lowered:
         return GuardianProviderTransportClassification.TIMEOUT.value
     if "connection refused" in lowered:
-        return (
-            GuardianProviderTransportClassification.CONNECTION_REFUSED.value
-        )
+        return GuardianProviderTransportClassification.CONNECTION_REFUSED.value
     if "name or service not known" in lowered or "failed to resolve" in lowered:
         return GuardianProviderTransportClassification.DNS_ERROR.value
     return GuardianProviderTransportClassification.REQUEST_ERROR.value
@@ -1525,9 +1482,7 @@ def build_openai_vision_content(
     return parts
 
 
-def _filter_callable_kwargs(
-    func: Any, kwargs: dict[str, Any]
-) -> dict[str, Any]:
+def _filter_callable_kwargs(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Drop keyword arguments unsupported by a callable.
 
     This keeps the dispatch layer backward-compatible with older test doubles
@@ -1725,9 +1680,7 @@ def chat_with_ai(
 def _resolve_local_base(settings: Settings) -> str:
     base_url = (settings.LOCAL_BASE_URL or "").strip()
     if not base_url:
-        raise HTTPException(
-            status_code=400, detail="LOCAL_BASE_URL is not configured"
-        )
+        raise HTTPException(status_code=400, detail="LOCAL_BASE_URL is not configured")
     normalized_base = base_url.rstrip("/")
 
     from guardian.core.supported_profile import get_active_supported_profile
@@ -1860,9 +1813,7 @@ def describe_local_endpoint_resolution(
     selected = str(selected_base_url or "").strip() or None
     payload: dict[str, Any] = {
         "state": state
-        or (
-            "available" if selected else "degraded" if attempted else "unknown"
-        ),
+        or ("available" if selected else "degraded" if attempted else "unknown"),
         "attempted_sequence": attempted,
         "attempts": [
             {
@@ -1889,8 +1840,7 @@ def describe_local_endpoint_resolution(
 
 def _resolve_local_base_candidates(settings: Settings) -> list[str]:
     return [
-        candidate.base_url
-        for candidate in _resolve_local_endpoint_candidates(settings)
+        candidate.base_url for candidate in _resolve_local_endpoint_candidates(settings)
     ]
 
 
@@ -1939,9 +1889,7 @@ def _summarize_local_attempt_failures(failures: list[str]) -> str:
 
 
 def _all_local_attempt_failures_are_404(failures: list[str]) -> bool:
-    return bool(failures) and all(
-        "(HTTP 404" in failure for failure in failures
-    )
+    return bool(failures) and all("(HTTP 404" in failure for failure in failures)
 
 
 def _parse_local_catalog_payload(payload: Any) -> list[str]:
@@ -1957,10 +1905,7 @@ def _parse_local_catalog_payload(payload: Any) -> list[str]:
                 model_name = item.strip()
             elif isinstance(item, dict):
                 model_name = str(
-                    item.get("name")
-                    or item.get("model")
-                    or item.get("id")
-                    or ""
+                    item.get("name") or item.get("model") or item.get("id") or ""
                 ).strip()
             else:
                 model_name = ""
@@ -1992,9 +1937,7 @@ def discover_local_model_inventory(
             else f"{candidate.base_url}/v1"
         )
         local_base = (
-            local_base_v1[:-3]
-            if local_base_v1.endswith("/v1")
-            else local_base_v1
+            local_base_v1[:-3] if local_base_v1.endswith("/v1") else local_base_v1
         )
         candidate_names: list[str] = []
         successful_inventory_urls: list[str] = []
@@ -2058,18 +2001,12 @@ def discover_local_model_inventory(
         deduped.append(clean)
 
     if not deduped:
-        fallback, _source, _strict = _configured_local_model_resolution(
-            settings
-        )
+        fallback, _source, _strict = _configured_local_model_resolution(settings)
         if fallback:
             deduped = [fallback]
 
     resolution_state = (
-        "available"
-        if selected_base_url
-        else "degraded"
-        if deduped
-        else "unavailable"
+        "available" if selected_base_url else "degraded" if deduped else "unavailable"
     )
     if resolution_state == "degraded" and failure_kind is None:
         failure_kind = "local_discovery_failed"
@@ -2079,25 +2016,26 @@ def discover_local_model_inventory(
         attempted_base_urls=attempted_base_urls,
         state=resolution_state,
         failure_kind=failure_kind,
-        reason=_summarize_local_attempt_failures(attempt_failures)
-        if attempt_failures
-        else None,
+        reason=(
+            _summarize_local_attempt_failures(attempt_failures)
+            if attempt_failures
+            else None
+        ),
     )
     if selected_inventory_url:
         resolution["inventory_url"] = selected_inventory_url
     if selected_inventory_endpoint:
         resolution["inventory_endpoint"] = selected_inventory_endpoint
-        vendor = str(
-            getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
-        ).strip().lower()
+        vendor = (
+            str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
+        )
         if vendor:
-            resolution["inventory_source"] = (
-                f"{vendor}:{selected_inventory_endpoint}"
-            )
+            resolution["inventory_source"] = f"{vendor}:{selected_inventory_endpoint}"
     return deduped, resolution
 
 
 # ── ThreadWake segment metadata emission (Whoosh'd Phase F integration) ───
+
 
 def _build_threadwake_segments(
     messages: list[dict],
@@ -2129,7 +2067,9 @@ def _build_threadwake_segments(
         name = msg.get("name", f"message:{idx}:{role}")
 
         # Deterministic content hash
-        canonical = _json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        canonical = _json.dumps(
+            content, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
         content_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
         # Segment type inference
@@ -2154,15 +2094,17 @@ def _build_threadwake_segments(
             stability = "dynamic"
             scope = "thread"
 
-        segments.append({
-            "name": name,
-            "message_index": idx,
-            "segment_type": segment_type,
-            "stability": stability,
-            "scope": scope,
-            "content_hash": content_hash,
-            "cacheable": stability != "dynamic",
-        })
+        segments.append(
+            {
+                "name": name,
+                "message_index": idx,
+                "segment_type": segment_type,
+                "stability": stability,
+                "scope": scope,
+                "content_hash": content_hash,
+                "cacheable": stability != "dynamic",
+            }
+        )
 
     return segments
 
@@ -2290,14 +2232,14 @@ def call_local(
                         "provider": "local",
                         "model": model,
                         "endpoint_kind": kind,
-                        "has_images": _messages_contain_image_payload(
-                            adapted_messages
-                        ),
+                        "has_images": _messages_contain_image_payload(adapted_messages),
                         "message_count": len(adapted_messages),
                         "content_part_counts": [
-                            len(m.get("content", []))
-                            if isinstance(m.get("content"), list)
-                            else 0
+                            (
+                                len(m.get("content", []))
+                                if isinstance(m.get("content"), list)
+                                else 0
+                            )
                             for m in adapted_messages
                         ],
                         "stream": False,
@@ -2322,8 +2264,7 @@ def call_local(
                     prompt = "\n\n".join(
                         str(m.get("content") or "").strip()
                         for m in adapted_messages
-                        if isinstance(m, dict)
-                        and str(m.get("content") or "").strip()
+                        if isinstance(m, dict) and str(m.get("content") or "").strip()
                     ).strip()
                     payload_generate: Dict[str, Any] = {
                         "model": model,
@@ -2349,9 +2290,7 @@ def call_local(
 
             if not (200 <= resp.status_code < 300):
                 detail = _extract_provider_error_message(resp, secret=api_key)
-                attempt_failures.append(
-                    f"{url} (HTTP {resp.status_code}: {detail})"
-                )
+                attempt_failures.append(f"{url} (HTTP {resp.status_code}: {detail})")
                 continue
 
             try:
@@ -2361,10 +2300,7 @@ def call_local(
                 continue
 
             # Ollama /api/chat format
-            if (
-                isinstance(data.get("message"), dict)
-                and "content" in data["message"]
-            ):
+            if isinstance(data.get("message"), dict) and "content" in data["message"]:
                 return data["message"]["content"]
 
             # Ollama /api/generate format
@@ -2401,9 +2337,7 @@ def call_local(
                 settings=settings,
                 model=model,
                 endpoint=last_transport_url,
-                failure_kind=_provider_transport_failure_kind(
-                    last_transport_error
-                ),
+                failure_kind=_provider_transport_failure_kind(last_transport_error),
                 message=detail,
                 provider_error=_sanitize_provider_error(
                     str(last_transport_error),
@@ -2519,6 +2453,7 @@ def stream_local(
     )
 
     response: Optional[requests.Response] = None
+    response_kind = ""
     current_url = ""
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
@@ -2548,9 +2483,11 @@ def stream_local(
                             ),
                             "message_count": len(adapted_messages),
                             "content_part_counts": [
-                                len(m.get("content", []))
-                                if isinstance(m.get("content"), list)
-                                else 0
+                                (
+                                    len(m.get("content", []))
+                                    if isinstance(m.get("content"), list)
+                                    else 0
+                                )
                                 for m in adapted_messages
                             ],
                             "stream": True,
@@ -2567,17 +2504,15 @@ def stream_local(
                     else:
                         ollama_messages = adapted_messages
                         if _messages_contain_image_payload(adapted_messages):
-                            ollama_messages = (
-                                _transform_messages_for_ollama_vision(
-                                    adapted_messages
-                                )
+                            ollama_messages = _transform_messages_for_ollama_vision(
+                                adapted_messages
                             )
                         payload_ollama = {
                             "model": model,
                             "messages": ollama_messages,
-                            "temperature": 0.7
-                            if temperature is None
-                            else float(temperature),
+                            "temperature": (
+                                0.7 if temperature is None else float(temperature)
+                            ),
                             "stream": True,
                         }
                         resp = requests.post(
@@ -2604,9 +2539,7 @@ def stream_local(
                     continue
 
                 if not (200 <= resp.status_code < 300):
-                    detail = _extract_provider_error_message(
-                        resp, secret=api_key
-                    )
+                    detail = _extract_provider_error_message(resp, secret=api_key)
                     attempt_failures.append(
                         f"{url} (HTTP {resp.status_code}: {detail})"
                     )
@@ -2614,6 +2547,7 @@ def stream_local(
                     continue
 
                 response = resp
+                response_kind = kind
                 break
             if response is not None:
                 break
@@ -2650,9 +2584,8 @@ def stream_local(
                         attempted_base_urls=attempted_base_urls,
                     ),
                 ) from last_transport_error
-            elif (
-                local_model_resolution.strict
-                and _all_local_attempt_failures_are_404(attempt_failures)
+            elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
+                attempt_failures
             ):
                 endpoint_resolution = describe_local_endpoint_resolution(
                     settings,
@@ -2683,6 +2616,8 @@ def stream_local(
             )
 
         try:
+            finish_reason: str | None = None
+            visible_output_emitted = False
             for raw_line in response.iter_lines(decode_unicode=False):
                 if not raw_line:
                     continue
@@ -2694,14 +2629,46 @@ def stream_local(
                 if not data:
                     continue
                 if data == "[DONE]":
-                    break
+                    return CompletionTerminalEvidence(
+                        status=CompletionTerminalStatus.SUCCESS,
+                        visible_output_emitted=visible_output_emitted,
+                        explicit_provider_terminal_observed=True,
+                        finish_reason=finish_reason,
+                        transport_ended_cleanly=True,
+                        provider="local",
+                        model=model,
+                    )
                 try:
                     chunk = json.loads(data)
                 except Exception:
-                    continue
+                    return CompletionTerminalEvidence(
+                        status=CompletionTerminalStatus.MALFORMED_TERMINAL,
+                        visible_output_emitted=visible_output_emitted,
+                        explicit_provider_terminal_observed=False,
+                        finish_reason=finish_reason,
+                        transport_ended_cleanly=False,
+                        provider="local",
+                        model=model,
+                        failure_kind="malformed_stream_frame",
+                        retry_permitted=not visible_output_emitted,
+                    )
                 try:
+                    if isinstance(chunk.get("error"), (dict, str)):
+                        return CompletionTerminalEvidence(
+                            status=CompletionTerminalStatus.PROVIDER_ERROR,
+                            visible_output_emitted=visible_output_emitted,
+                            explicit_provider_terminal_observed=True,
+                            finish_reason=finish_reason,
+                            transport_ended_cleanly=True,
+                            provider="local",
+                            model=model,
+                            failure_kind="provider_error_frame",
+                            retry_permitted=not visible_output_emitted,
+                        )
                     # OpenAI-compatible SSE or Ollama /api/chat streaming
                     choice = chunk.get("choices", [{}])[0]
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = str(choice.get("finish_reason"))
                     delta = choice.get("delta") or {}
                     token = (
                         delta.get("content")
@@ -2716,9 +2683,43 @@ def stream_local(
                         # Ollama /api/generate streaming shape.
                         token = chunk.get("response")
                     if token:
+                        visible_output_emitted = True
                         yield token
+                    if response_kind != "openai" and chunk.get("done") is True:
+                        return CompletionTerminalEvidence(
+                            status=CompletionTerminalStatus.SUCCESS,
+                            visible_output_emitted=visible_output_emitted,
+                            explicit_provider_terminal_observed=True,
+                            finish_reason=str(
+                                chunk.get("done_reason") or finish_reason or "stop"
+                            ),
+                            transport_ended_cleanly=True,
+                            provider="local",
+                            model=model,
+                        )
                 except Exception:
-                    continue
+                    return CompletionTerminalEvidence(
+                        status=CompletionTerminalStatus.MALFORMED_TERMINAL,
+                        visible_output_emitted=visible_output_emitted,
+                        explicit_provider_terminal_observed=False,
+                        finish_reason=finish_reason,
+                        transport_ended_cleanly=False,
+                        provider="local",
+                        model=model,
+                        failure_kind="malformed_stream_frame",
+                        retry_permitted=not visible_output_emitted,
+                    )
+            return CompletionTerminalEvidence(
+                status=CompletionTerminalStatus.STREAM_INCOMPLETE,
+                visible_output_emitted=visible_output_emitted,
+                explicit_provider_terminal_observed=False,
+                finish_reason=finish_reason,
+                transport_ended_cleanly=False,
+                provider="local",
+                model=model,
+                failure_kind="missing_stream_terminal",
+                retry_permitted=not visible_output_emitted,
+            )
         except req_exc.RequestException as exc:
             detail = _format_local_connect_error(
                 current_url,
@@ -2770,9 +2771,7 @@ def call_groq(
 
     api_key = settings.GROQ_API_KEY
     if not api_key:
-        raise HTTPException(
-            status_code=400, detail="GROQ_API_KEY is not configured"
-        )
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY is not configured")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -2952,9 +2951,7 @@ def _call_openai_compatible_chat(
                 model=model,
                 endpoint=url,
                 failure_kind=(
-                    "provider_http_error"
-                    if typed_failure_kinds
-                    else "http_error"
+                    "provider_http_error" if typed_failure_kinds else "http_error"
                 ),
                 message=(
                     f"{provider_display_name} request failed "
@@ -2983,9 +2980,7 @@ def _call_openai_compatible_chat(
                 model=model,
                 endpoint=url,
                 failure_kind=(
-                    "provider_payload_error"
-                    if typed_failure_kinds
-                    else "parse_error"
+                    "provider_payload_error" if typed_failure_kinds else "parse_error"
                 ),
                 message=f"{provider_display_name} response parse failed: {detail}",
                 provider_error=detail,
@@ -3033,10 +3028,14 @@ def call_deepseek(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     api_key = str(settings.DEEPSEEK_API_KEY or "").strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="DEEPSEEK_API_KEY is not configured")
+        raise HTTPException(
+            status_code=400, detail="DEEPSEEK_API_KEY is not configured"
+        )
     base = str(settings.DEEPSEEK_BASE_URL or _DEFAULT_DEEPSEEK_BASE).strip().rstrip("/")
     request_tools = tools
-    if tools and any(isinstance(item, dict) and item.get("command_id") for item in tools):
+    if tools and any(
+        isinstance(item, dict) and item.get("command_id") for item in tools
+    ):
         request_tools, _aliases = build_tool_definitions(tools)
     payload = build_deepseek_payload(
         model=model,
@@ -3050,20 +3049,30 @@ def call_deepseek(
         response = requests.post(
             url,
             json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
             timeout=30.0,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)
-        raise HTTPException(status_code=502, detail=f"DeepSeek request failed: {detail}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"DeepSeek request failed: {detail}"
+        ) from exc
     if not (200 <= response.status_code < 300):
         detail = _extract_provider_error_message(response, secret=api_key)
-        raise HTTPException(status_code=502, detail=f"DeepSeek request failed ({response.status_code}): {detail}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"DeepSeek request failed ({response.status_code}): {detail}",
+        )
     try:
         raw_payload = response.json()
         parsed = parse_deepseek_response(raw_payload)
         aliases: dict[str, str] = {}
-        if tools and any(isinstance(item, dict) and item.get("command_id") for item in tools):
+        if tools and any(
+            isinstance(item, dict) and item.get("command_id") for item in tools
+        ):
             _definitions, aliases = build_tool_definitions(tools)
         if aliases:
             parsed = dataclasses.replace(
@@ -3071,7 +3080,9 @@ def call_deepseek(
                 tool_calls=normalize_deepseek_tool_calls(parsed, aliases),
             )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="DeepSeek response parse failed") from exc
+        raise HTTPException(
+            status_code=502, detail="DeepSeek response parse failed"
+        ) from exc
     return parsed
 
 
@@ -3259,9 +3270,7 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
                             if image_block is not None:
                                 blocks.append(image_block)
                                 continue
-                            if str(
-                                source.get("type") or ""
-                            ).strip().lower() in {
+                            if str(source.get("type") or "").strip().lower() in {
                                 "base64",
                                 "url",
                             }:
@@ -3348,9 +3357,7 @@ def _normalize_messages_for_anthropic_with_meta(
         normalized.append({"role": role, "content": content_blocks})
 
     if not normalized:
-        normalized = [
-            {"role": "user", "content": [{"type": "text", "text": ""}]}
-        ]
+        normalized = [{"role": "user", "content": [{"type": "text", "text": ""}]}]
 
     if prompt_meta:
         segments = prompt_meta.get("segments")
@@ -3459,9 +3466,7 @@ def call_minimax(
             "model": model,
             "messages": anthropic_messages,
             "temperature": 0.7 if temperature is None else float(temperature),
-            "max_tokens": int(
-                getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
-            ),
+            "max_tokens": int(getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)),
         }
         if system_prompt:
             payload["system"] = system_prompt

@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
+from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.workers import chat_worker
 
 TURN_ID = "11111111-1111-4111-8111-111111111111"
@@ -23,7 +25,16 @@ class _FakeRedis:
 
 class _TokenStream:
     def __iter__(self):
-        return iter(["Hel", "lo"])
+        yield from ["Hel", "lo"]
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=True,
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="test-model",
+        )
 
     def close(self):
         return None
@@ -251,6 +262,18 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
             "message_id": 42,
             "provider": "local",
             "model": "test-model",
+            "persistence_outcome": "persisted",
+            "terminal_evidence": {
+                "status": "success",
+                "visible_output_emitted": False,
+                "explicit_provider_terminal_observed": True,
+                "finish_reason": "stop",
+                "transport_ended_cleanly": True,
+                "provider": "local",
+                "model": "test-model",
+                "failure_kind": None,
+                "retry_permitted": False,
+            },
             "retrieval_provenance": {
                 "requested_source_mode": "Personal_Knowledge",
                 "normalized_source_mode": "personal_knowledge",
@@ -274,13 +297,11 @@ def test_chat_worker_completed_event_persists_retrieval_provenance(monkeypatch):
     chat_worker._run_chat_task(task)
 
     completed_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.completed"
+        payload for event_type, payload in published if event_type == "task.completed"
     )
     assert completed_payload["retrieval_provenance"]["retrieval_status"] == (
         "obsidian_only_success"
     )
-    assert completed_payload["retrieval_provenance"][
-        "requested_source_mode"
-    ] == ("Personal_Knowledge")
+    assert completed_payload["retrieval_provenance"]["requested_source_mode"] == (
+        "Personal_Knowledge"
+    )

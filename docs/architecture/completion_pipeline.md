@@ -17,6 +17,7 @@
   - load thread messages
   - assemble retrieval context
   - build provider-ready message lists
+  - normalize provider completion into content-free terminal evidence
 - Queue and coordination layer: `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`
   - chat queue transport
   - task-event streams
@@ -46,7 +47,8 @@ UI
      -> worker dequeues
         -> shared completion service builds messages/context
         -> provider execution
-        -> optional cloud-to-local rescue
+        -> optional pre-output cloud-to-local rescue
+        -> accepted provider terminal evidence
         -> Postgres assistant row
         -> task.completed / task.failed / task.cancelled
         -> turn lock release
@@ -96,7 +98,7 @@ UI
    - The chat worker dequeues from `codexify:queue:chat`.
    - It publishes `task.running` and then calls the shared completion service path to build messages, retrieval context, and prompt state.
 
-7. Provider execution can rescue from cloud failure to local.
+7. Provider execution can rescue from cloud failure to local before output.
    - When the resolved execution provider is non-local, the worker first tries that provider/model pair.
    - If that cloud attempt fails, the worker may rescue once to local inference when:
      - the selection was not explicit, or
@@ -106,6 +108,9 @@ UI
      - final provider/model
      - `fallback_reason="cloud_failure_local_rescue"` when rescue occurs
    - This is execution degradation, not silent success. The terminal payload carries the fallback evidence.
+   - Rescue is forbidden once any user-visible token, chunk, or response body has
+     been emitted. A failure after visible output terminates the attempt without
+     restarting generation or trying another provider.
 
 8. Progress visibility and terminal visibility are different.
    - `task.progress` is progress-only visibility. Losing it degrades operator/UI insight but does not prove task failure.
@@ -118,9 +123,22 @@ UI
    - A stalled visible stream can still belong to a healthy provider and a running request, and a recovered stream may surface the original terminal result without implying a replay.
    - Recovery must preserve transcript integrity and avoid duplicate assistant messages.
 
-9. Assistant persistence is the worker’s authoritative success boundary.
-   - On success, the worker persists the assistant message to Postgres, writes metadata such as attempted/final provider data, and publishes `task.completed`.
+9. Explicit terminal success gates assistant persistence.
+   - Streamed visibility is not durable completion. Partial output remains
+     ephemeral UI evidence until the provider adapter supplies accepted terminal
+     success.
+   - The shared terminal envelope distinguishes `success`, `cancelled`,
+     `stream_incomplete`, `provider_error`, `malformed_terminal`, and
+     `execution_timeout` without storing response content.
+   - On accepted terminal success, the worker persists the assistant message to
+     Postgres, writes metadata such as attempted/final provider data, and then
+     publishes `task.completed`.
+   - Missing `[DONE]` where the OpenAI-compatible adapter requires it,
+     unexpected EOF, malformed frames, provider error frames, timeout, connection
+     loss, parser failure, or cancellation cannot create assistant history.
    - If generation succeeds but assistant persistence fails, the worker treats that as non-authoritative success and emits `task.failed` instead of pretending the turn completed.
+   - Embedding, evaluation, graph-candidate construction, and audio generation
+     begin only after terminal success and successful assistant persistence.
 
 10. Turn lock release happens in `finally`.
    - The worker releases the turn lock owned by the task regardless of terminal outcome.
@@ -136,6 +154,27 @@ UI
   - Use this term for the current degraded acceptance class where execution was accepted but lifecycle visibility is weaker than normal, for example when the route cannot publish `task.created` after a successful enqueue.
   - The current code does not return a literal `accepted_degraded` string in the route payload, but the runtime now distinguishes this operational case from a cleanly observed acceptance.
   - In other words: acceptance can be real while observability is degraded.
+
+## Completion Terminal Evidence
+
+Terminal evidence is internal attempt metadata, not assistant content. It records
+provider/model identity, terminal status, visible-output state, explicit-terminal
+observation, finish reason when available, clean transport completion, bounded
+failure classification, and whether pre-output retry remains permitted.
+
+| Completion path | Accepted terminal evidence |
+| --- | --- |
+| Whoosh'd / OpenAI-compatible local stream | `[DONE]`; a finish reason may be retained but does not replace the required marker |
+| Ollama-native local stream | structured `done=true`, with `done_reason` when present |
+| Local non-streaming response | validated complete response body |
+| OpenAI, Groq, and Alibaba non-streaming response | validated OpenAI-compatible response body; finish reason retained when surfaced |
+| DeepSeek tool/plain response | parsed structured response; each bounded tool-loop provider call must terminate successfully |
+| MiniMax OpenAI/Anthropic response | parsed structured response; native finish/stop reason retained when surfaced |
+
+Plain iterator exhaustion is not successful local streaming completion. The
+terminal envelope must be present and successful before persistence. Cancellation
+is checked before execution, during local streaming, after synchronous provider
+return, and again immediately before persistence.
 
 ## Contract Alignment Note
 
@@ -178,6 +217,10 @@ UI
 - Queue backlog not progressing: `/health/chat` can flag risk, but queue progression is a heuristic based on sampled depth change, not dequeue proof.
 - Task-event publish failure: execution may continue while operator/UI visibility degrades.
 - Provider failure with rescue: completion may succeed on local after a cloud attempt fails; the terminal payload carries that downgrade.
+- Provider failure after output: partial chunks remain ephemeral; no fallback,
+  assistant row, `task.completed`, or completion-only side effect is allowed.
+- Missing or malformed stream terminal: the attempt fails closed even when text
+  was already visible.
 
 ## Debugging Anchors
 

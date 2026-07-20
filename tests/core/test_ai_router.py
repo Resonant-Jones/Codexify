@@ -21,6 +21,7 @@ import guardian.core.provider_registry as provider_registry
 import guardian.core.supported_profile as supported_profile
 from guardian.core.config import Settings
 from guardian.protocol_tokens import (
+    CompletionTerminalStatus,
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
 )
@@ -60,6 +61,16 @@ class _MockStreamingResponse:
         self.closed = True
 
 
+def _drain_stream_with_terminal(stream):
+    tokens: list[str] = []
+    iterator = iter(stream)
+    while True:
+        try:
+            tokens.append(next(iterator))
+        except StopIteration as stop:
+            return tokens, stop.value
+
+
 def _mock_local_inventory_request(
     available_models: list[str],
 ):
@@ -97,9 +108,7 @@ def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return _MockResponse(
-            {"choices": [{"message": {"content": "Alibaba reply"}}]}
-        )
+        return _MockResponse({"choices": [{"message": {"content": "Alibaba reply"}}]})
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
@@ -190,9 +199,7 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return _MockResponse(
-            {"choices": [{"message": {"content": "DeepSeek routed"}}]}
-        )
+        return _MockResponse({"choices": [{"message": {"content": "DeepSeek routed"}}]})
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
@@ -238,9 +245,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
         calls.append(url)
         if "127.0.0.1:11434" in url:
             raise requests.exceptions.ConnectionError("connection refused")
-        return _MockRawResponse(
-            {"message": {"content": "Local fallback reply"}}
-        )
+        return _MockRawResponse({"message": {"content": "Local fallback reply"}})
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
@@ -262,9 +267,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
 
     assert result == "Local fallback reply"
     assert calls[0].startswith("http://127.0.0.1:11434")
-    assert any(
-        "host.docker.internal:11434" in attempted_url for attempted_url in calls
-    )
+    assert any("host.docker.internal:11434" in attempted_url for attempted_url in calls)
 
 
 def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
@@ -305,9 +308,73 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
 
     assert tokens == ["Whoosh", "d"]
     assert captured["json"]["model"] == "gemma-4-12b-it-optiq-4bit"
-    assert captured["url"] == (
-        "http://host.docker.internal:8000/v1/chat/completions"
+    assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
+
+
+def test_stream_local_preserves_done_terminal_evidence(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+
+    monkeypatch.setattr(
+        ai_router.requests,
+        "post",
+        lambda *_args, **_kwargs: _MockStreamingResponse(
+            [
+                b'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}',
+                b"data: [DONE]",
+            ]
+        ),
     )
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="test-model",
+        LOCAL_LLM_MODEL="test-model",
+    )
+
+    tokens, terminal = _drain_stream_with_terminal(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "test-model",
+            settings=settings,
+        )
+    )
+
+    assert tokens == ["answer"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    assert terminal.explicit_provider_terminal_observed is True
+    assert terminal.finish_reason == "stop"
+
+
+def test_stream_local_classifies_eof_without_done_as_incomplete(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+
+    monkeypatch.setattr(
+        ai_router.requests,
+        "post",
+        lambda *_args, **_kwargs: _MockStreamingResponse(
+            [b'data: {"choices":[{"delta":{"content":"partial"}}]}']
+        ),
+    )
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_CHAT_MODEL="test-model",
+        LOCAL_LLM_MODEL="test-model",
+    )
+
+    tokens, terminal = _drain_stream_with_terminal(
+        stream_local(
+            [{"role": "user", "content": "hello"}],
+            "test-model",
+            settings=settings,
+        )
+    )
+
+    assert tokens == ["partial"]
+    assert terminal.status is CompletionTerminalStatus.STREAM_INCOMPLETE
+    assert terminal.retry_permitted is False
 
 
 def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selection(
@@ -347,9 +414,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selectio
 
     assert tokens == ["QAT"]
     assert captured["json"]["model"] == "gemma-4-12b-it-qat-4bit"
-    assert captured["url"] == (
-        "http://host.docker.internal:8000/v1/chat/completions"
-    )
+    assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
 
 
 def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
@@ -416,9 +481,7 @@ def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
 
     assert result == "Local chain reply"
     assert calls[0].startswith("http://primary.local:11434")
-    assert any(
-        "secondary.local:11434" in attempted_url for attempted_url in calls
-    )
+    assert any("secondary.local:11434" in attempted_url for attempted_url in calls)
 
 
 def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
@@ -553,7 +616,7 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
             provider="local",
             model="library2/ministral-3:8b",
             settings=settings,
-    )
+        )
 
     assert exc.value.status_code == 400
     assert exc.value.detail["error"] == LOCAL_MODEL_RESOLUTION_ERROR
@@ -707,10 +770,7 @@ def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert (
-        detail["failure_kind"]
-        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
-    )
+    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -751,10 +811,7 @@ def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert (
-        detail["failure_kind"]
-        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
-    )
+    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -783,10 +840,7 @@ def test_call_alibaba_missing_key_surfaces_auth_config_failure():
     assert exc.value.status_code == 400
     assert exc.value.detail["provider"] == "alibaba"
     assert exc.value.detail["failure_kind"] == "auth_config_error"
-    assert (
-        exc.value.detail["provider_error"]
-        == "ALIBABA_API_KEY is not configured"
-    )
+    assert exc.value.detail["provider_error"] == "ALIBABA_API_KEY is not configured"
 
 
 def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
@@ -821,10 +875,7 @@ def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "alibaba"
-    assert (
-        detail["failure_kind"]
-        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
-    )
+    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -864,10 +915,7 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "minimax"
-    assert (
-        detail["failure_kind"]
-        == GuardianProviderFailureKind.TRANSPORT_ERROR.value
-    )
+    assert detail["failure_kind"] == GuardianProviderFailureKind.TRANSPORT_ERROR.value
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.CONNECTION_REFUSED.value

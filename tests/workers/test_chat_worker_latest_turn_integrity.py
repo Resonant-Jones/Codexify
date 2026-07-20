@@ -85,13 +85,23 @@ def test_worker_preserves_latest_turn_message_id_through_completion(
     )
 
     def fake_run_chat_completion_task(task, **_kwargs):
-        observed_target_ids.append(
-            getattr(task, "latest_turn_message_id", None)
-        )
+        observed_target_ids.append(getattr(task, "latest_turn_message_id", None))
         return {
             "message_id": 42,
             "provider": "local",
             "model": "test-model",
+            "persistence_outcome": "persisted",
+            "terminal_evidence": {
+                "status": "success",
+                "visible_output_emitted": False,
+                "explicit_provider_terminal_observed": True,
+                "finish_reason": "stop",
+                "transport_ended_cleanly": True,
+                "provider": "local",
+                "model": "test-model",
+                "failure_kind": None,
+                "retry_permitted": False,
+            },
             "assistant_text": "answer B",
             "selection_source": "default",
             "latest_turn_message_id": 4,
@@ -121,9 +131,7 @@ def test_worker_preserves_latest_turn_message_id_through_completion(
     assert "task.running" in event_types
     assert "task.completed" in event_types
     completed_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.completed"
+        payload for event_type, payload in published if event_type == "task.completed"
     )
     assert completed_payload["latest_turn_message_id"] == 4
     assert completed_payload["retrieval_query"] == "question B"
@@ -182,9 +190,7 @@ def test_worker_missing_target_turn_surfaces_explicit_failure(
     event_types = [event_type for event_type, _payload in published]
     assert "task.failed" in event_types
     failure_payload = next(
-        payload
-        for event_type, payload in published
-        if event_type == "task.failed"
+        payload for event_type, payload in published if event_type == "task.failed"
     )
     assert failure_payload["latest_turn_message_id"] == 99
     assert "thread_target_turn_missing" in failure_payload["error"]

@@ -66,6 +66,18 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
             "message_id": 42,
             "provider": "local",
             "model": "test-model",
+            "persistence_outcome": "persisted",
+            "terminal_evidence": {
+                "status": "success",
+                "visible_output_emitted": False,
+                "explicit_provider_terminal_observed": True,
+                "finish_reason": "stop",
+                "transport_ended_cleanly": True,
+                "provider": "local",
+                "model": "test-model",
+                "failure_kind": None,
+                "retry_permitted": False,
+            },
             "selection_source": "default",
             "catalog_version_hash": "abc123",
         },
@@ -73,9 +85,7 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
-        lambda task_id, event_type, data: published.append(
-            (task_id, event_type, data)
-        ),
+        lambda task_id, event_type, data: published.append((task_id, event_type, data)),
     )
     monkeypatch.setattr(
         chat_worker, "_persist_turn_id_metadata", lambda **_kwargs: False
@@ -102,15 +112,11 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
-    monkeypatch.setattr(
-        chat_worker, "run_chat_completion_task", _run_completion
-    )
+    monkeypatch.setattr(chat_worker, "run_chat_completion_task", _run_completion)
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
-        lambda task_id, event_type, data: published.append(
-            (task_id, event_type, data)
-        ),
+        lambda task_id, event_type, data: published.append((task_id, event_type, data)),
     )
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 55
@@ -152,9 +158,7 @@ def test_existing_assistant_message_completes_idempotently_and_releases_lock(
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
-        lambda task_id, event_type, data: published.append(
-            (task_id, event_type, data)
-        ),
+        lambda task_id, event_type, data: published.append((task_id, event_type, data)),
     )
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: 1
@@ -199,9 +203,7 @@ def test_missing_assistant_message_marks_task_failed_and_releases_lock(
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
-        lambda task_id, event_type, data: published.append(
-            (task_id, event_type, data)
-        ),
+        lambda task_id, event_type, data: published.append((task_id, event_type, data)),
     )
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
@@ -256,6 +258,18 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
             "message_id": 77,
             "provider": "groq",
             "model": "llama3",
+            "persistence_outcome": "persisted",
+            "terminal_evidence": {
+                "status": "success",
+                "visible_output_emitted": False,
+                "explicit_provider_terminal_observed": True,
+                "finish_reason": "stop",
+                "transport_ended_cleanly": True,
+                "provider": "groq",
+                "model": "llama3",
+                "failure_kind": None,
+                "retry_permitted": False,
+            },
             "attempted_provider": "groq",
             "attempted_model": "llama3",
             "resolved_provider": "groq",
@@ -272,9 +286,7 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
     monkeypatch.setattr(
         chat_worker,
         "_safe_publish",
-        lambda task_id, event_type, data: published.append(
-            (task_id, event_type, data)
-        ),
+        lambda task_id, event_type, data: published.append((task_id, event_type, data)),
     )
     monkeypatch.setattr(
         chat_worker,
@@ -284,8 +296,7 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
     monkeypatch.setattr(
         chat_worker,
         "_persist_message_extra_meta",
-        lambda **kwargs: persisted_meta.append(kwargs.get("payload") or {})
-        or True,
+        lambda **kwargs: persisted_meta.append(kwargs.get("payload") or {}) or True,
     )
     monkeypatch.setattr(
         chat_worker,
