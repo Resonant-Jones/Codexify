@@ -15,8 +15,9 @@ tags:
 
 ## Status
 
-Proposed. Architecture and product review are required before acceptance or any
-runtime Task Spec may rely on this decision.
+Accepted. Resonant Jones gave human architecture acceptance through GitHub
+Issue #606 on 2026-07-19. Dependent bounded contract Task Specs may rely on
+this decision.
 
 ## Date
 
@@ -474,8 +475,8 @@ Separate architecture-impact Task Specs must provide, in dependency order:
 12. system overview, flows, data/storage, module ownership, runtime/UI diagrams,
     and current-state updates only after their evidence gates are satisfied.
 
-No implementation Task Spec may treat this ADR as accepted until architecture
-and product review records acceptance.
+Dependent bounded contract Task Specs may now rely on this accepted ADR. This
+does not implement or prove Email runtime support.
 
 ## Non-goals
 
