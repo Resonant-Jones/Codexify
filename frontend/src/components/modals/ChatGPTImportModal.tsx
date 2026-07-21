@@ -1,11 +1,12 @@
 /**
- * ChatGPTImportModal – Import ChatGPT export JSON file
+ * ChatGPTImportModal – Import ChatGPT conversation export files
  *
  * Handles file selection and upload to the migration endpoint.
  * Displays loading, success, and error states.
  */
 
 import React, { useState, useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import api, {
   normalizeChatGptImportStats,
@@ -34,6 +35,8 @@ export interface MigrationStats {
 }
 
 const LARGE_IMPORT_BYTES = 50 * 1024 * 1024;
+const CHATGPT_EXPORT_ACCEPT =
+  ".json,.dat,application/json,application/octet-stream";
 
 const formatFileSize = (size: number) => {
   if (size >= 1024 * 1024) {
@@ -137,7 +140,7 @@ export function ChatGPTImportModal({
       } catch (eventErr) {
         console.warn("[migration] thread refresh event failed", eventErr);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Migration error:", err);
       setStatus("error");
       const normalized = normalizeImportRuntimeError(err, {
@@ -173,8 +176,8 @@ export function ChatGPTImportModal({
             className="text-sm mt-1 opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            Upload or drop a file. The backend validates content and imports
-            only supported ChatGPT export JSON.
+            Drag and drop or choose a ChatGPT conversation export. Legacy JSON
+            and modern OpenAI .dat files are supported.
           </p>
         </div>
 
@@ -209,14 +212,15 @@ export function ChatGPTImportModal({
             <input
               ref={fileRef}
               type="file"
+              accept={CHATGPT_EXPORT_ACCEPT}
               className="hidden"
               onChange={handleFileSelect}
               disabled={status === "uploading"}
             />
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs opacity-70">
-                Drag and drop any file here, or choose one manually.
-                Validation is based on file content.
+                Drop a conversation JSON or .dat file here, or choose one
+                manually. The backend verifies the file contents.
               </div>
               <Button
                 type="button"
