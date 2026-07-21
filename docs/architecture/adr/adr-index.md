@@ -79,6 +79,7 @@ Use this note as the local map for all ADRs.
 39. [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]] — governs future Space participant resolution, roster semantics, participant source mapping, role/capability posture, mixed-trust handling, and bounded presence for Contacts, Circles, accepted Invites, local accounts, remote nodes, and AI-mediated actors.
 40. [[046-axis-node-portable-reasoning-interface-contract|ADR-046 Axis Node Portable Reasoning Interface Contract]] — docs/context contract for portable, source-governed Axis reasoning without implementing a runtime agent or widening release support.
 41. [[047-codexify-email-routing-identity-mailbox-governance-provider-adapter-contract|ADR-047 Codexify Email User-Owned Routing Identity, Mailbox Governance, and Provider Adapter Contract]] — accepted governing boundary for human-owned routing identities, logical mailboxes, collaborator consent, provider adapters, immutable approval, idempotency, reconciliation, and durable receipts without implementing Email runtime support.
+42. [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]] — accepted architecture record establishing Pi, Codex, and Claude as peer execution systems under Guardian without changing current runtime behavior or release claims.
 
 ---
 
@@ -112,6 +113,9 @@ Use this note as the local map for all ADRs.
 - [[047-codexify-email-routing-identity-mailbox-governance-provider-adapter-contract|ADR-047 Codexify Email User-Owned Routing Identity, Mailbox Governance, and Provider Adapter Contract]]
   - Governs the human-account authority, user-owned routing identity, logical mailbox, collaborator consent, provider adapter, secret custody, untrusted-content, immutable approval, idempotency, reconciliation, and durable receipt boundaries required before Codexify Email implementation.
   - Related anchors: [[../00-current-state|00 Current State]], [[../../Campaign/codexify-email-agent-native-campaign-index|Codexify Email Agent-Native Campaign Index]], [[../inspections/codexify-email-implementation-targets|Codexify Email Implementation-Target Inspection]], [[../account-export-restore-contract|Account Export Restore Contract]], [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]], [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]], and [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]].
+- [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]]
+  - Governs the accepted peer topology for the Pi, Codex, and Claude execution channels under Guardian, including Task Spec boundaries, result normalization, execution-system/model identity separation, migration posture, and current-release truth.
+  - Related anchors: [[../00-current-state|00 Current State]], [[../guardian-build-loop-doctrine|Guardian Build Loop Doctrine]], [[../pi-invocation-boundary-contract|Pi Invocation Boundary Contract]], [[../delegation-runtime|Delegation Runtime Contract]], [[../delegation-operator-manual|Delegation Operator Manual]], and [[020-guardian-mediated-coding-agent-execution-contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]].
 
 ## Relationship to the main architecture docs
 
