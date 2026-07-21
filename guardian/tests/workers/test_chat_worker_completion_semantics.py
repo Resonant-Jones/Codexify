@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 from fastapi import HTTPException
 
 from guardian.core.config import Settings
+from guardian.core.ai_router import ProviderResponse
+from guardian.providers.whooshd_control_plane import parse_whooshd_runtime_provenance
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -582,6 +584,68 @@ def test_completion_result_includes_execution_metadata_without_fallback(
         "fallback_triggered": False,
         "tool_turn_used": False,
     }
+
+
+def test_runtime_provenance_persists_after_successful_completion(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.create_message.return_value = 323
+    monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    monkeypatch.setattr(chat_worker, "_embed_message", lambda *a, **k: None)
+    persisted_extra_meta: dict[str, object] = {}
+    monkeypatch.setattr(
+        chat_worker,
+        "_persist_message_extra_meta",
+        lambda **kwargs: persisted_extra_meta.update(kwargs) or True,
+    )
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "hello"}],
+            "groq",
+            "qwen3.5:27b",
+            {},
+            None,
+            None,
+            {},
+        )
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    provenance = parse_whooshd_runtime_provenance(
+        {
+            "schema_version": "whooshd.runtime.v1",
+            "request_id": "request-22",
+            "runtime_kind": "stub",
+            "adapter_name": "stub",
+            "resolution_source": "configured_stub",
+            "execution_mode": "stub",
+            "model_lifecycle": "ready",
+        }
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "chat_with_ai",
+        lambda *_a, **_k: ProviderResponse(
+            "ready", provider="groq", runtime_provenance=provenance
+        ),
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        ChatCompletionTask(
+            user_id="local",
+            thread_id=1,
+            provider="groq",
+            model="qwen3.5:27b",
+            selection_source="explicit",
+        )
+    )
+
+    assert result["runtime_provenance"]["request_id"] == "request-22"
+    assert (
+        persisted_extra_meta["payload"]["whooshd_runtime_provenance"][
+            "runtime_kind"
+        ]
+        == "stub"
+    )
 
 
 def test_explicit_provider_failure_does_not_rescue(monkeypatch):

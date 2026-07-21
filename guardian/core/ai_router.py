@@ -35,6 +35,17 @@ from guardian.providers.deepseek_adapter import (
     normalize_tool_calls as normalize_deepseek_tool_calls,
     parse_response as parse_deepseek_response,
 )
+from guardian.providers.whooshd_control_plane import (
+    WHOOSHD_CONTROL_PLANE_VERSION,
+    WHOOSHD_CONTROL_VERSION_HEADER,
+    WHOOSHD_RUNTIME_PROVENANCE_HEADER,
+    WhooshdContractVersionError,
+    WhooshdErrorDiagnostic,
+    WhooshdRuntimeProvenance,
+    parse_whooshd_error,
+    parse_whooshd_runtime_provenance,
+    provider_failure_kind as whooshd_provider_failure_kind,
+)
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
     ErrorCode,
@@ -119,11 +130,13 @@ class ProviderResponse(str):
         raw_payload: Any | None = None,
         content_blocks: Any | None = None,
         provider: str | None = None,
+        runtime_provenance: WhooshdRuntimeProvenance | None = None,
     ):
         obj = super().__new__(cls, text or "")
         obj.raw_payload = raw_payload  # type: ignore[attr-defined]
         obj.content_blocks = content_blocks  # type: ignore[attr-defined]
         obj.provider = provider  # type: ignore[attr-defined]
+        obj.runtime_provenance = runtime_provenance  # type: ignore[attr-defined]
         return obj
 
 
@@ -271,6 +284,7 @@ class NormalizedCompletionOutput:
     tool_call_id: str | None = None
     tool_call_count: int = 0
     raw_assistant_message: dict[str, Any] | None = None
+    runtime_provenance: WhooshdRuntimeProvenance | None = None
 
 
 def _coerce_tool_arguments(raw: Any) -> dict[str, Any]:
@@ -432,6 +446,7 @@ def normalize_completion_output(
 
     if isinstance(output, ProviderResponse):
         provider = getattr(output, "provider", None)
+        runtime_provenance = getattr(output, "runtime_provenance", None)
         raw_payload = getattr(output, "raw_payload", None)
         content_blocks = getattr(output, "content_blocks", None)
         candidate = None
@@ -475,6 +490,7 @@ def normalize_completion_output(
             raw_payload=raw_payload,
             content_blocks=content_blocks,
             provider=provider,
+            runtime_provenance=runtime_provenance,
         )
 
     if isinstance(output, dict):
@@ -1362,6 +1378,7 @@ def _local_provider_failure_detail(
     transport_classification: str | None = None,
     attempted_endpoints: list[str] | None = None,
     attempted_base_urls: list[str] | None = None,
+    whooshd_error: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail = _provider_failure_detail(
         provider="local",
@@ -1391,7 +1408,46 @@ def _local_provider_failure_detail(
             reason=_summarize_local_attempt_failures(list(attempted_endpoints or []))
             or message,
         )
+    if whooshd_error:
+        detail["whooshd_error"] = dict(whooshd_error)
     return detail
+
+
+def _whooshd_contract_version_failure(
+    *,
+    settings: Settings,
+    model: str,
+    endpoint: str,
+    runtime_policy: LocalRuntimePolicy,
+    received_version: str,
+    attempted_endpoints: list[str] | None = None,
+    attempted_base_urls: list[str] | None = None,
+) -> HTTPException:
+    """Build a bounded failure for an explicitly unsupported provider version."""
+
+    code = "contract_version_unsupported"
+    return HTTPException(
+        status_code=502,
+        detail=_local_provider_failure_detail(
+            settings=settings,
+            model=model,
+            endpoint=endpoint,
+            failure_kind=whooshd_provider_failure_kind(code),
+            message="Whoosh'd control-plane version is unsupported.",
+            provider_error=code,
+            runtime_policy=runtime_policy,
+            attempted_endpoints=attempted_endpoints,
+            attempted_base_urls=attempted_base_urls,
+            whooshd_error={
+                "contract_version": WHOOSHD_CONTROL_PLANE_VERSION,
+                "code": code,
+                "http_status": 400,
+                "retryable": False,
+                "category": "request_contract",
+                "received_version": received_version,
+            },
+        ),
+    )
 
 
 def _image_turn_vision_unsupported_detail(
@@ -2166,6 +2222,7 @@ def call_local(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
     payload: Dict[str, Any] = {
         "model": model,
@@ -2215,6 +2272,7 @@ def call_local(
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
+    last_whooshd_error: WhooshdErrorDiagnostic | None = None
     last_transport_url: str = ""
 
     for base_url in base_urls:
@@ -2281,6 +2339,27 @@ def call_local(
                 attempt_failures.append(f"{url} ({classification}: {exc})")
                 continue
 
+            last_transport_url = url
+            try:
+                whooshd_error = parse_whooshd_error(resp)
+            except WhooshdContractVersionError as exc:
+                raise _whooshd_contract_version_failure(
+                    settings=settings,
+                    model=model,
+                    endpoint=url,
+                    runtime_policy=runtime_policy,
+                    received_version=exc.received_version,
+                    attempted_endpoints=[
+                        f"{url} (contract_version_unsupported)"
+                    ],
+                    attempted_base_urls=attempted_base_urls,
+                ) from exc
+            if whooshd_error is not None:
+                last_whooshd_error = whooshd_error
+                attempt_failures.append(
+                    f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                )
+                continue
             if resp.status_code == 404:
                 if is_gateway:
                     attempt_failures.append(
@@ -2301,25 +2380,63 @@ def call_local(
                 attempt_failures.append(f"{url} (invalid JSON: {exc})")
                 continue
 
+            runtime_provenance = parse_whooshd_runtime_provenance(
+                data.get("runtime_provenance")
+            ) if isinstance(data, dict) else None
+
             # Ollama /api/chat format
             if isinstance(data.get("message"), dict) and "content" in data["message"]:
-                return data["message"]["content"]
+                return ProviderResponse(
+                    data["message"]["content"],
+                    raw_payload=data,
+                    provider="local",
+                    runtime_provenance=runtime_provenance,
+                )
 
             # Ollama /api/generate format
             if "response" in data and isinstance(data.get("response"), str):
-                return data.get("response") or ""
+                return ProviderResponse(
+                    data.get("response") or "",
+                    raw_payload=data,
+                    provider="local",
+                    runtime_provenance=runtime_provenance,
+                )
 
             # OpenAI-compatible format
             choices = data.get("choices")
             if isinstance(choices, list) and choices:
                 message = choices[0].get("message")
                 if isinstance(message, dict) and "content" in message:
-                    return message.get("content") or ""
+                    return ProviderResponse(
+                        message.get("content") or "",
+                        raw_payload=data,
+                        provider="local",
+                        runtime_provenance=runtime_provenance,
+                    )
 
             attempt_failures.append(
                 f"{url} (response did not include assistant content)"
             )
 
+    if last_whooshd_error is not None:
+        detail = (
+            f"Whoosh'd request failed with {last_whooshd_error.code}."
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_local_provider_failure_detail(
+                settings=settings,
+                model=model,
+                endpoint=last_transport_url or (base_urls[-1] if base_urls else ""),
+                failure_kind=whooshd_provider_failure_kind(last_whooshd_error.code),
+                message=detail,
+                provider_error=last_whooshd_error.code,
+                runtime_policy=runtime_policy,
+                attempted_endpoints=attempt_failures,
+                attempted_base_urls=attempted_base_urls,
+                whooshd_error=last_whooshd_error.as_dict(),
+            ),
+        )
     if last_transport_error is not None:
         detail = _format_local_connect_error(
             last_transport_url,
@@ -2439,6 +2556,7 @@ def stream_local(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
     payload: Dict[str, Any] = {
         "model": model,
@@ -2477,6 +2595,7 @@ def stream_local(
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
+    last_whooshd_error: WhooshdErrorDiagnostic | None = None
 
     try:
         for base_url in base_urls:
@@ -2547,6 +2666,28 @@ def stream_local(
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
 
+                try:
+                    whooshd_error = parse_whooshd_error(resp)
+                except WhooshdContractVersionError as exc:
+                    resp.close()
+                    raise _whooshd_contract_version_failure(
+                        settings=settings,
+                        model=model,
+                        endpoint=url,
+                        runtime_policy=runtime_policy,
+                        received_version=exc.received_version,
+                        attempted_endpoints=[
+                            f"{url} (contract_version_unsupported)"
+                        ],
+                        attempted_base_urls=attempted_base_urls,
+                    ) from exc
+                if whooshd_error is not None:
+                    last_whooshd_error = whooshd_error
+                    attempt_failures.append(
+                        f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                    )
+                    resp.close()
+                    continue
                 if resp.status_code == 404:
                     if is_gateway:
                         attempt_failures.append(
@@ -2572,6 +2713,26 @@ def stream_local(
                 break
 
         if response is None:
+            if last_whooshd_error is not None:
+                raise HTTPException(
+                    status_code=502,
+                    detail=_local_provider_failure_detail(
+                        settings=settings,
+                        model=model,
+                        endpoint=current_url,
+                        failure_kind=whooshd_provider_failure_kind(
+                            last_whooshd_error.code
+                        ),
+                        message=(
+                            f"Whoosh'd request failed with {last_whooshd_error.code}."
+                        ),
+                        provider_error=last_whooshd_error.code,
+                        runtime_policy=runtime_policy,
+                        attempted_endpoints=attempt_failures,
+                        attempted_base_urls=attempted_base_urls,
+                        whooshd_error=last_whooshd_error.as_dict(),
+                    ),
+                )
             if last_transport_error is not None:
                 detail = _format_local_connect_error(
                     current_url,
@@ -2637,6 +2798,20 @@ def stream_local(
         try:
             finish_reason: str | None = None
             visible_output_emitted = False
+            runtime_provenance: dict[str, Any] | None = None
+            response_headers = getattr(response, "headers", {}) or {}
+            header_provenance = response_headers.get(
+                WHOOSHD_RUNTIME_PROVENANCE_HEADER
+            )
+            if header_provenance:
+                try:
+                    parsed_header = parse_whooshd_runtime_provenance(
+                        json.loads(str(header_provenance))
+                    )
+                except Exception:
+                    parsed_header = None
+                if parsed_header is not None:
+                    runtime_provenance = parsed_header.as_dict()
             for raw_line in response.iter_lines(decode_unicode=False):
                 if not raw_line:
                     continue
@@ -2656,6 +2831,7 @@ def stream_local(
                         transport_ended_cleanly=True,
                         provider="local",
                         model=model,
+                        runtime_provenance=runtime_provenance,
                     )
                 try:
                     chunk = json.loads(data)
@@ -2670,8 +2846,16 @@ def stream_local(
                         model=model,
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
+                        runtime_provenance=runtime_provenance,
                     )
                 try:
+                    parsed_provenance = parse_whooshd_runtime_provenance(
+                        chunk.get("runtime_provenance")
+                        if isinstance(chunk, dict)
+                        else None
+                    )
+                    if parsed_provenance is not None:
+                        runtime_provenance = parsed_provenance.as_dict()
                     if isinstance(chunk.get("error"), (dict, str)):
                         return CompletionTerminalEvidence(
                             status=CompletionTerminalStatus.PROVIDER_ERROR,
@@ -2683,6 +2867,7 @@ def stream_local(
                             model=model,
                             failure_kind="provider_error_frame",
                             retry_permitted=not visible_output_emitted,
+                            runtime_provenance=runtime_provenance,
                         )
                     # OpenAI-compatible SSE or Ollama /api/chat streaming
                     choice = chunk.get("choices", [{}])[0]
@@ -2715,6 +2900,7 @@ def stream_local(
                             transport_ended_cleanly=True,
                             provider="local",
                             model=model,
+                            runtime_provenance=runtime_provenance,
                         )
                 except Exception:
                     return CompletionTerminalEvidence(
@@ -2727,6 +2913,7 @@ def stream_local(
                         model=model,
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
+                        runtime_provenance=runtime_provenance,
                     )
             return CompletionTerminalEvidence(
                 status=CompletionTerminalStatus.STREAM_INCOMPLETE,
@@ -2738,6 +2925,7 @@ def stream_local(
                 model=model,
                 failure_kind="missing_stream_terminal",
                 retry_permitted=not visible_output_emitted,
+                runtime_provenance=runtime_provenance,
             )
         except req_exc.RequestException as exc:
             detail = _format_local_connect_error(

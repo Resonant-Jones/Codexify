@@ -669,7 +669,15 @@ def _execute_completion_attempt(
             terminal = terminal.with_visible_output(visible_output_emitted)
         if not terminal.successful:
             raise CompletionTerminalError(terminal)
-        return CompletionAttemptResult("".join(collected), terminal)
+        return CompletionAttemptResult(
+            "".join(collected),
+            terminal,
+            runtime_provenance=(
+                dict(terminal.runtime_provenance)
+                if isinstance(getattr(terminal, "runtime_provenance", None), dict)
+                else None
+            ),
+        )
 
     try:
         output = chat_with_ai(
@@ -699,7 +707,16 @@ def _execute_completion_attempt(
         model=model,
         finish_reason=_provider_output_finish_reason(output),
     )
-    return CompletionAttemptResult(output, terminal)
+    output_provenance = getattr(output, "runtime_provenance", None)
+    return CompletionAttemptResult(
+        output,
+        terminal,
+        runtime_provenance=(
+            output_provenance.as_dict()
+            if hasattr(output_provenance, "as_dict")
+            else None
+        ),
+    )
 
 
 async def _build_messages_for_llm_compat(
@@ -4384,6 +4401,7 @@ def _execute_bounded_tool_turn_completion(
         tool_turn_state_value: str,
         loop_stop_reason_value: str,
         terminal_evidence: CompletionTerminalEvidence,
+        runtime_provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload_summary = dict(base_payload_summary or {})
         payload_summary.update(
@@ -4455,6 +4473,8 @@ def _execute_bounded_tool_turn_completion(
             payload_summary["command_error"] = command_error
         if execution is not None:
             payload_summary["execution"] = execution
+        if runtime_provenance is not None:
+            payload_summary["runtime_provenance"] = dict(runtime_provenance)
         result = _tool_turn_completion_result(
             task=task,
             assistant_text=assistant_text,
@@ -4474,6 +4494,8 @@ def _execute_bounded_tool_turn_completion(
         )
         result["terminal_evidence"] = terminal_evidence.as_dict()
         payload_summary["terminal_evidence"] = terminal_evidence.as_dict()
+        if runtime_provenance is not None:
+            result["runtime_provenance"] = dict(runtime_provenance)
         return result
 
     first_attempt = _execute_completion_attempt(
@@ -4504,6 +4526,14 @@ def _execute_bounded_tool_turn_completion(
             tool_turn_state_value=ToolTurnState.IDLE.value,
             loop_stop_reason_value=ToolLoopStopReason.PLAIN_ANSWER.value,
             terminal_evidence=first_attempt.terminal,
+            runtime_provenance=(
+                first_attempt.runtime_provenance
+                or (
+                    normalized_first_output.runtime_provenance.as_dict()
+                    if normalized_first_output.runtime_provenance is not None
+                    else None
+                )
+            ),
         )
 
     tool_turn_id = str(uuid.uuid4())
@@ -4661,6 +4691,14 @@ def _execute_bounded_tool_turn_completion(
         tool_turn_state_value=tool_turn_state,
         loop_stop_reason_value=loop_stop_reason,
         terminal_evidence=second_attempt.terminal,
+        runtime_provenance=(
+            second_attempt.runtime_provenance
+            or (
+                normalized_second_output.runtime_provenance.as_dict()
+                if normalized_second_output.runtime_provenance is not None
+                else None
+            )
+        ),
     )
     if provider == "deepseek":
         result["_provider_replay_state"] = {
@@ -5048,6 +5086,9 @@ def run_chat_completion_task(
     )
     provider_replay_state = result.get("_provider_replay_state")
     result.pop("_provider_replay_state", None)
+    completion_runtime_provenance = result.get("runtime_provenance")
+    if not isinstance(completion_runtime_provenance, dict):
+        completion_runtime_provenance = None
     assistant_text = str(result.get("assistant_text") or "")
     _log_completion_diagnostics(
         task=task,
@@ -5217,6 +5258,7 @@ def run_chat_completion_task(
         "loopStopReason": payload_summary.get("loop_stop_reason"),
         "commandRunId": payload_summary.get("command_run_id"),
         "tool_loop": dict(payload_summary.get("tool_loop") or {}),
+        "runtime_provenance": completion_runtime_provenance,
     }
     if isinstance(trace, dict):
         result["latest_turn_message_id"] = trace.get("latest_turn_message_id")
@@ -5291,9 +5333,20 @@ def run_chat_completion_task(
         "assistant",
         assistant_text,
         extra_meta=(
-            {"provider_replay_state": provider_replay_state}
-            if provider == "deepseek" and isinstance(provider_replay_state, dict)
-            else None
+            {
+                **(
+                    {"provider_replay_state": provider_replay_state}
+                    if provider == "deepseek"
+                    and isinstance(provider_replay_state, dict)
+                    else {}
+                ),
+                **(
+                    {"whooshd_runtime_provenance": completion_runtime_provenance}
+                    if completion_runtime_provenance is not None
+                    else {}
+                ),
+            }
+            or None
         ),
     )
     result["message_id"] = message_id
