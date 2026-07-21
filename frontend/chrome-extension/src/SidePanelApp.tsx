@@ -14,8 +14,13 @@ import {
   buildOriginPermissionPattern,
   chromeOriginPermissionClient,
   createConnectionProfile,
+  createRemoteConnectionProfile,
+  isRemoteSessionUsable,
+  normalizeBackendBaseUrl,
+  type ConnectionAuthMode,
   type ConnectionProfile,
   type OriginPermissionClient,
+  type RemoteSessionCredential,
 } from "./connectionProfile"
 import {
   chromeConnectionStorage,
@@ -24,10 +29,12 @@ import {
 import {
   classifyCodexifyError,
   createCodexifyExtensionApi,
+  loginRemoteSession,
   type CodexifyExtensionApi,
   type CodexifyMessage,
   type CodexifyThread,
   type CompletionReceipt,
+  type RemoteLoginCredentials,
   type TaskLifecycleEvent,
 } from "./codexifyExtensionApi"
 
@@ -43,7 +50,14 @@ type MessageLoadState = "idle" | "loading" | "ready" | "failed"
 export interface SidePanelAppProps {
   storage?: ConnectionStorage
   permissionClient?: OriginPermissionClient
-  apiFactory?: (profile: ConnectionProfile) => CodexifyExtensionApi
+  apiFactory?: (
+    profile: ConnectionProfile,
+    remoteSession?: RemoteSessionCredential | null,
+  ) => CodexifyExtensionApi
+  remoteLogin?: (
+    backendBaseUrl: string,
+    credentials: RemoteLoginCredentials,
+  ) => Promise<RemoteSessionCredential>
   now?: () => string
 }
 
@@ -137,7 +151,7 @@ const CONNECTION_PRESENTATION: Record<ConnectionState, StatusPresentation> = {
 function displayError(error: unknown): string {
   const kind = classifyCodexifyError(error)
   if (kind === "unreachable") return "The Codexify runtime could not be reached."
-  if (kind === "authentication_rejected") return "The backend rejected this API key."
+  if (kind === "authentication_rejected") return "The backend rejected the saved credential."
   if (kind === "invalid_response") return "The backend returned an unexpected chat response."
   return error instanceof Error ? error.message : "The Codexify request failed."
 }
@@ -164,6 +178,7 @@ export function SidePanelApp({
   storage = chromeConnectionStorage,
   permissionClient = chromeOriginPermissionClient,
   apiFactory = createCodexifyExtensionApi,
+  remoteLogin = loginRemoteSession,
   now = currentIsoTimestamp,
 }: SidePanelAppProps): React.JSX.Element {
   const [bootState, setBootState] = useState<BootState>("loading")
@@ -171,7 +186,10 @@ export function SidePanelApp({
   const [connectionState, setConnectionState] = useState<ConnectionState>("checking")
   const [connectionAttempt, setConnectionAttempt] = useState<StatusPresentation | null>(null)
   const [backendInput, setBackendInput] = useState("")
+  const [authModeInput, setAuthModeInput] = useState<ConnectionAuthMode>("local")
   const [apiKeyInput, setApiKeyInput] = useState("")
+  const [usernameInput, setUsernameInput] = useState("")
+  const [passwordInput, setPasswordInput] = useState("")
   const [threads, setThreads] = useState<CodexifyThread[]>([])
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null)
   const [threadsLoading, setThreadsLoading] = useState(false)
@@ -272,10 +290,29 @@ export function SidePanelApp({
         setBootState("disconnected")
         return
       }
-
-      const api = apiFactory(savedProfile)
-      apiRef.current = api
       setProfile(savedProfile)
+
+      let remoteSession: RemoteSessionCredential | null = null
+      if (savedProfile.authMode === "remote") {
+        remoteSession = await storage.loadRemoteSession()
+        const nowEpochSeconds = Math.floor(Date.parse(now()) / 1000)
+        if (!isRemoteSessionUsable(remoteSession, savedProfile, nowEpochSeconds)) {
+          await storage.clearRemoteSession()
+          if (cancelled) return
+          setBackendInput(savedProfile.backendBaseUrl)
+          setAuthModeInput("remote")
+          setConnectionAttempt({
+            label: "Remote sign-in required",
+            detail: "The previous browser session ended or expired. Sign in again to reconnect.",
+            tone: "attention",
+          })
+          setBootState("disconnected")
+          return
+        }
+      }
+
+      const api = apiFactory(savedProfile, remoteSession)
+      apiRef.current = api
       setSelectedThreadId(savedProfile.selectedThreadId)
       setConnectionState("checking")
       setBootState("connected")
@@ -320,17 +357,22 @@ export function SidePanelApp({
     event.preventDefault()
     setConnectionAttempt(null)
 
-    let candidate: ConnectionProfile
+    const timestamp = now()
+    let normalizedBaseUrl: string
     let permissionPattern: string
     try {
-      const timestamp = now()
-      candidate = createConnectionProfile({
-        backendBaseUrl: backendInput,
-        apiKey: apiKeyInput,
-        connectedAt: timestamp,
-        lastVerifiedAt: timestamp,
-      })
-      permissionPattern = buildOriginPermissionPattern(candidate.backendBaseUrl)
+      normalizedBaseUrl = normalizeBackendBaseUrl(backendInput)
+      if (authModeInput === "local") {
+        createConnectionProfile({
+          backendBaseUrl: normalizedBaseUrl,
+          apiKey: apiKeyInput,
+          connectedAt: timestamp,
+          lastVerifiedAt: timestamp,
+        })
+      } else if (!usernameInput.trim() || !passwordInput) {
+        throw new Error("Enter the Codexify username and password.")
+      }
+      permissionPattern = buildOriginPermissionPattern(normalizedBaseUrl)
     } catch (error) {
       setConnectionAttempt({
         label: "Connection details rejected",
@@ -370,17 +412,53 @@ export function SidePanelApp({
     }
 
     setConnectionAttempt(CONNECTION_PRESENTATION.checking)
-    const api = apiFactory(candidate)
     try {
+      const previousProfile = profile?.backendBaseUrl === normalizedBaseUrl &&
+        profile.authMode === authModeInput
+        ? profile
+        : null
+      let remoteSession: RemoteSessionCredential | null = null
+      let candidate: ConnectionProfile
+      if (authModeInput === "local") {
+        candidate = createConnectionProfile({
+          backendBaseUrl: normalizedBaseUrl,
+          apiKey: apiKeyInput,
+          selectedThreadId: previousProfile?.selectedThreadId,
+          connectedAt: previousProfile?.connectedAt ?? timestamp,
+          lastVerifiedAt: timestamp,
+        })
+      } else {
+        remoteSession = await remoteLogin(normalizedBaseUrl, {
+          username: usernameInput.trim(),
+          password: passwordInput,
+        })
+        candidate = createRemoteConnectionProfile({
+          backendBaseUrl: normalizedBaseUrl,
+          sessionUserId: remoteSession.userId,
+          sessionExpiresAt: remoteSession.expiresAt,
+          selectedThreadId: previousProfile?.selectedThreadId,
+          connectedAt: previousProfile?.connectedAt ?? timestamp,
+          lastVerifiedAt: timestamp,
+        })
+      }
+
+      const api = apiFactory(candidate, remoteSession)
       await api.verifyConnection()
       const verifiedProfile = { ...candidate, lastVerifiedAt: now() }
       await storage.save(verifiedProfile)
+      if (verifiedProfile.authMode === "remote" && remoteSession) {
+        await storage.saveRemoteSession(remoteSession)
+      } else {
+        await storage.clearRemoteSession()
+      }
       apiRef.current = api
       setProfile(verifiedProfile)
       setConnectionState("ready")
       setBootState("connected")
       setBackendInput("")
       setApiKeyInput("")
+      setUsernameInput("")
+      setPasswordInput("")
       setSurfaceError(null)
       await hydrateChat(api, verifiedProfile.selectedThreadId)
     } catch (error) {
@@ -394,8 +472,28 @@ export function SidePanelApp({
             tone: "danger",
           })
     } finally {
+      if (authModeInput === "remote") setPasswordInput("")
       setOperationBusy(false)
     }
+  }
+
+  const prepareRemoteSignIn = async (): Promise<void> => {
+    if (!profile || profile.authMode !== "remote") return
+    activeTaskStopRef.current?.()
+    activeTaskStopRef.current = null
+    await storage.clearRemoteSession()
+    apiRef.current = null
+    setBackendInput(profile.backendBaseUrl)
+    setAuthModeInput("remote")
+    setApiKeyInput("")
+    setUsernameInput("")
+    setPasswordInput("")
+    setConnectionAttempt({
+      label: "Remote sign-in required",
+      detail: "Enter your Codexify account credentials to create a new browser session.",
+      tone: "attention",
+    })
+    setBootState("disconnected")
   }
 
   const handleRetryConnection = async (): Promise<void> => {
@@ -418,7 +516,17 @@ export function SidePanelApp({
       return
     }
 
-    const api = apiFactory(profile)
+    let remoteSession: RemoteSessionCredential | null = null
+    if (profile.authMode === "remote") {
+      remoteSession = await storage.loadRemoteSession()
+      const nowEpochSeconds = Math.floor(Date.parse(now()) / 1000)
+      if (!isRemoteSessionUsable(remoteSession, profile, nowEpochSeconds)) {
+        await prepareRemoteSignIn()
+        return
+      }
+    }
+
+    const api = apiFactory(profile, remoteSession)
     apiRef.current = api
     try {
       await api.verifyConnection()
@@ -439,6 +547,7 @@ export function SidePanelApp({
     try {
       activeTaskStopRef.current?.()
       activeTaskStopRef.current = null
+      await apiRef.current?.logout().catch(() => undefined)
       await storage.clear()
       await permissionClient.remove(permissionPattern).catch(() => false)
       apiRef.current = null
@@ -447,6 +556,11 @@ export function SidePanelApp({
       setSelectedThreadId(null)
       setMessages([])
       setComposerValue("")
+      setBackendInput("")
+      setAuthModeInput("local")
+      setApiKeyInput("")
+      setUsernameInput("")
+      setPasswordInput("")
       setCompletionState("idle")
       setCompletionReceipt(null)
       setThreadDrawerOpen(false)
@@ -574,6 +688,9 @@ export function SidePanelApp({
         onUnauthorized: () => {
           setConnectionState("authentication_rejected")
           setCompletionState("connection_lost")
+          if (profile?.authMode === "remote") {
+            void storage.clearRemoteSession()
+          }
         },
         onTerminal: (outcome) => {
           void handleTerminalTask(api, receipt, outcome)
@@ -620,20 +737,86 @@ export function SidePanelApp({
             required
           />
 
-          <label htmlFor="api-key">Authentication API key</label>
-          <input
-            id="api-key"
-            name="api-key"
-            type="password"
-            value={apiKeyInput}
-            onChange={(event) => setApiKeyInput(event.target.value)}
-            autoComplete="off"
-            required
-          />
+          <fieldset className="auth-mode-picker">
+            <legend>Authentication method</legend>
+            <div>
+              <button
+                className={authModeInput === "local" ? "auth-mode-button auth-mode-button--active" : "auth-mode-button"}
+                type="button"
+                aria-pressed={authModeInput === "local"}
+                onClick={() => {
+                  setAuthModeInput("local")
+                  setUsernameInput("")
+                  setPasswordInput("")
+                }}
+              >
+                Local API key
+              </button>
+              <button
+                className={authModeInput === "remote" ? "auth-mode-button auth-mode-button--active" : "auth-mode-button"}
+                type="button"
+                aria-pressed={authModeInput === "remote"}
+                onClick={() => {
+                  setAuthModeInput("remote")
+                  setApiKeyInput("")
+                }}
+              >
+                Remote session
+              </button>
+            </div>
+          </fieldset>
+
+          {authModeInput === "local" ? (
+            <>
+              <label htmlFor="api-key">Authentication API key</label>
+              <input
+                id="api-key"
+                name="api-key"
+                type="password"
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                autoComplete="off"
+                required
+              />
+            </>
+          ) : (
+            <>
+              <label htmlFor="remote-username">Codexify username</label>
+              <input
+                id="remote-username"
+                name="remote-username"
+                type="text"
+                value={usernameInput}
+                onChange={(event) => setUsernameInput(event.target.value)}
+                autoComplete="username"
+                required
+              />
+
+              <label htmlFor="remote-password">Codexify password</label>
+              <input
+                id="remote-password"
+                name="remote-password"
+                type="password"
+                value={passwordInput}
+                onChange={(event) => setPasswordInput(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </>
+          )}
 
           <p className="credential-notice">
-            Private local credential: the key is stored only in this extension&apos;s
-            <code> chrome.storage.local</code>, never Chrome Sync.
+            {authModeInput === "local" ? (
+              <>
+                Private local credential: the key is stored only in this extension&apos;s
+                <code> chrome.storage.local</code>, never Chrome Sync.
+              </>
+            ) : (
+              <>
+                Your password is never stored. The revocable session token stays only in
+                <code> chrome.storage.session</code> and clears when Chrome restarts or the extension reloads.
+              </>
+            )}
           </p>
 
           {connectionAttempt ? (
@@ -648,7 +831,11 @@ export function SidePanelApp({
           ) : null}
 
           <button className="primary-button" type="submit" disabled={operationBusy}>
-            {operationBusy ? "Connecting…" : "Save and connect"}
+            {operationBusy
+              ? "Connecting…"
+              : authModeInput === "remote"
+                ? "Sign in and connect"
+                : "Save and connect"}
           </button>
         </form>
       </main>
@@ -759,8 +946,18 @@ export function SidePanelApp({
               <strong>{connectionPresentation.label}</strong>
               <span>{connectionPresentation.detail}</span>
             </div>
-            <button className="quiet-button" type="button" onClick={() => void handleRetryConnection()}>
-              Retry
+            <button
+              className="quiet-button"
+              type="button"
+              onClick={() => void (
+                connectionState === "authentication_rejected" && profile?.authMode === "remote"
+                  ? prepareRemoteSignIn()
+                  : handleRetryConnection()
+              )}
+            >
+              {connectionState === "authentication_rejected" && profile?.authMode === "remote"
+                ? "Sign in again"
+                : "Retry"}
             </button>
           </div>
         ) : null}

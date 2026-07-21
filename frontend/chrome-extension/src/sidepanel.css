@@ -137,6 +137,49 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
+.auth-mode-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.auth-mode-picker legend {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.auth-mode-picker > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--chip-border);
+  border-radius: var(--radius-micro);
+  background: color-mix(in oklab, var(--panel-sheet) 76%, transparent);
+}
+
+.auth-mode-button {
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-micro) - 4px);
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.auth-mode-button--active {
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--panel-border));
+  background: color-mix(in oklab, var(--accent) 10%, var(--panel-sheet));
+  color: var(--text);
+}
+
 .connection-form input {
   width: 100%;
   min-height: 44px;

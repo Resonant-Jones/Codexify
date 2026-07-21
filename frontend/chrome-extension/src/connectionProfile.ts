@@ -1,26 +1,59 @@
 /// <reference path="./chrome.d.ts" />
 
-export const CONNECTION_PROFILE_VERSION = 1 as const
+export const CONNECTION_PROFILE_VERSION = 2 as const
+export const LEGACY_CONNECTION_PROFILE_VERSION = 1 as const
 
-export interface ConnectionProfile {
+export type ConnectionAuthMode = "local" | "remote"
+
+interface ConnectionProfileBase {
   version: typeof CONNECTION_PROFILE_VERSION
   backendBaseUrl: string
-  apiKey: string
   selectedThreadId: number | null
   connectedAt: string
   lastVerifiedAt: string
 }
 
-export interface ConnectionProfileInput {
-  backendBaseUrl: string
+export interface LocalConnectionProfile extends ConnectionProfileBase {
+  authMode: "local"
   apiKey: string
+  sessionUserId: null
+  sessionExpiresAt: null
+}
+
+export interface RemoteConnectionProfile extends ConnectionProfileBase {
+  authMode: "remote"
+  apiKey: null
+  sessionUserId: string
+  sessionExpiresAt: number
+}
+
+export type ConnectionProfile = LocalConnectionProfile | RemoteConnectionProfile
+
+interface ConnectionProfileInputBase {
+  backendBaseUrl: string
   selectedThreadId?: number | null
   connectedAt?: string
   lastVerifiedAt?: string
 }
 
+export interface LocalConnectionProfileInput extends ConnectionProfileInputBase {
+  apiKey: string
+}
+
+export interface RemoteConnectionProfileInput extends ConnectionProfileInputBase {
+  sessionUserId: string
+  sessionExpiresAt: number
+}
+
+export interface RemoteSessionCredential {
+  token: string
+  userId: string
+  expiresAt: number
+}
+
 export interface ConnectionProfileSummary {
   backendBaseUrl: string
+  authMode: ConnectionAuthMode
   selectedThreadId: number | null
   connectedAt: string
   lastVerifiedAt: string
@@ -66,6 +99,34 @@ function parseSupportedBackendUrl(rawValue: string): URL {
   return url
 }
 
+function normalizeSessionUserId(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    throw new ConnectionProfileError("The remote login did not return a user identity.")
+  }
+  return normalized
+}
+
+function normalizeSessionExpiry(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new ConnectionProfileError("The remote login returned an invalid session expiry.")
+  }
+  return value
+}
+
+function connectionProfileBase(
+  input: ConnectionProfileInputBase,
+  now: string,
+): ConnectionProfileBase {
+  return {
+    version: CONNECTION_PROFILE_VERSION,
+    backendBaseUrl: normalizeBackendBaseUrl(input.backendBaseUrl),
+    selectedThreadId: input.selectedThreadId ?? null,
+    connectedAt: input.connectedAt ?? now,
+    lastVerifiedAt: input.lastVerifiedAt ?? now,
+  }
+}
+
 export function normalizeBackendBaseUrl(rawValue: string): string {
   const url = parseSupportedBackendUrl(rawValue)
   const normalizedPath = url.pathname.replace(/\/+$/u, "")
@@ -81,45 +142,88 @@ export function buildOriginPermissionPattern(rawValue: string): string {
 }
 
 export function createConnectionProfile(
-  input: ConnectionProfileInput,
+  input: LocalConnectionProfileInput,
   now = new Date().toISOString(),
-): ConnectionProfile {
+): LocalConnectionProfile {
   const apiKey = input.apiKey.trim()
   if (!apiKey) {
     throw new ConnectionProfileError("Enter the authentication API key.")
   }
 
-  const connectedAt = input.connectedAt ?? now
   return {
-    version: CONNECTION_PROFILE_VERSION,
-    backendBaseUrl: normalizeBackendBaseUrl(input.backendBaseUrl),
+    ...connectionProfileBase(input, now),
+    authMode: "local",
     apiKey,
-    selectedThreadId: input.selectedThreadId ?? null,
-    connectedAt,
-    lastVerifiedAt: input.lastVerifiedAt ?? now,
+    sessionUserId: null,
+    sessionExpiresAt: null,
   }
+}
+
+export function createRemoteConnectionProfile(
+  input: RemoteConnectionProfileInput,
+  now = new Date().toISOString(),
+): RemoteConnectionProfile {
+  return {
+    ...connectionProfileBase(input, now),
+    authMode: "remote",
+    apiKey: null,
+    sessionUserId: normalizeSessionUserId(input.sessionUserId),
+    sessionExpiresAt: normalizeSessionExpiry(input.sessionExpiresAt),
+  }
+}
+
+export function createRemoteSessionCredential(
+  value: RemoteSessionCredential,
+): RemoteSessionCredential {
+  const token = value.token.trim()
+  if (!token) {
+    throw new ConnectionProfileError("The remote login did not return a session token.")
+  }
+  return {
+    token,
+    userId: normalizeSessionUserId(value.userId),
+    expiresAt: normalizeSessionExpiry(value.expiresAt),
+  }
+}
+
+export function isRemoteSessionUsable(
+  credential: RemoteSessionCredential | null,
+  profile: RemoteConnectionProfile,
+  nowEpochSeconds = Math.floor(Date.now() / 1000),
+): credential is RemoteSessionCredential {
+  return Boolean(
+    credential &&
+    credential.userId === profile.sessionUserId &&
+    credential.expiresAt === profile.sessionExpiresAt &&
+    credential.expiresAt > nowEpochSeconds &&
+    credential.token.trim(),
+  )
 }
 
 export function serializeConnectionProfile(
   profile: ConnectionProfile,
 ): ConnectionProfile {
-  return {
-    version: CONNECTION_PROFILE_VERSION,
-    backendBaseUrl: normalizeBackendBaseUrl(profile.backendBaseUrl),
-    apiKey: profile.apiKey,
+  if (profile.authMode === "local") {
+    return createConnectionProfile({
+      backendBaseUrl: profile.backendBaseUrl,
+      apiKey: profile.apiKey,
+      selectedThreadId: profile.selectedThreadId,
+      connectedAt: profile.connectedAt,
+      lastVerifiedAt: profile.lastVerifiedAt,
+    })
+  }
+  return createRemoteConnectionProfile({
+    backendBaseUrl: profile.backendBaseUrl,
+    sessionUserId: profile.sessionUserId,
+    sessionExpiresAt: profile.sessionExpiresAt,
     selectedThreadId: profile.selectedThreadId,
     connectedAt: profile.connectedAt,
     lastVerifiedAt: profile.lastVerifiedAt,
-  }
+  })
 }
 
-export function deserializeConnectionProfile(value: unknown): ConnectionProfile | null {
-  if (!value || typeof value !== "object") return null
-
-  const record = value as Record<string, unknown>
-  if (record.version !== CONNECTION_PROFILE_VERSION) return null
+function readProfileBase(record: Record<string, unknown>): ConnectionProfileInputBase | null {
   if (typeof record.backendBaseUrl !== "string") return null
-  if (typeof record.apiKey !== "string" || !record.apiKey.trim()) return null
   if (typeof record.connectedAt !== "string" || typeof record.lastVerifiedAt !== "string") {
     return null
   }
@@ -132,17 +236,45 @@ export function deserializeConnectionProfile(value: unknown): ConnectionProfile 
     return null
   }
 
+  return {
+    backendBaseUrl: record.backendBaseUrl,
+    selectedThreadId,
+    connectedAt: record.connectedAt,
+    lastVerifiedAt: record.lastVerifiedAt,
+  }
+}
+
+export function deserializeConnectionProfile(value: unknown): ConnectionProfile | null {
+  if (!value || typeof value !== "object") return null
+
+  const record = value as Record<string, unknown>
+  const base = readProfileBase(record)
+  if (!base) return null
+
   try {
-    return createConnectionProfile({
-      backendBaseUrl: record.backendBaseUrl,
-      apiKey: record.apiKey,
-      selectedThreadId,
-      connectedAt: record.connectedAt,
-      lastVerifiedAt: record.lastVerifiedAt,
-    })
+    if (record.version === LEGACY_CONNECTION_PROFILE_VERSION) {
+      if (typeof record.apiKey !== "string") return null
+      return createConnectionProfile({ ...base, apiKey: record.apiKey })
+    }
+    if (record.version !== CONNECTION_PROFILE_VERSION) return null
+
+    if (record.authMode === "local") {
+      if (typeof record.apiKey !== "string") return null
+      return createConnectionProfile({ ...base, apiKey: record.apiKey })
+    }
+    if (record.authMode === "remote") {
+      if (typeof record.sessionUserId !== "string") return null
+      if (typeof record.sessionExpiresAt !== "number") return null
+      return createRemoteConnectionProfile({
+        ...base,
+        sessionUserId: record.sessionUserId,
+        sessionExpiresAt: record.sessionExpiresAt,
+      })
+    }
   } catch {
     return null
   }
+  return null
 }
 
 export function summarizeConnectionProfile(
@@ -150,10 +282,11 @@ export function summarizeConnectionProfile(
 ): ConnectionProfileSummary {
   return {
     backendBaseUrl: profile.backendBaseUrl,
+    authMode: profile.authMode,
     selectedThreadId: profile.selectedThreadId,
     connectedAt: profile.connectedAt,
     lastVerifiedAt: profile.lastVerifiedAt,
-    hasStoredCredential: Boolean(profile.apiKey),
+    hasStoredCredential: profile.authMode === "local" ? Boolean(profile.apiKey) : false,
   }
 }
 

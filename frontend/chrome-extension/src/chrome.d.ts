@@ -25,6 +25,7 @@ declare namespace chrome {
     }
 
     const local: StorageArea
+    const session: StorageArea
   }
 
   namespace permissions {

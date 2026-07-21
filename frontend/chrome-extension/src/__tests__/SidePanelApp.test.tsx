@@ -6,6 +6,7 @@ import {
   buildOriginPermissionPattern,
   type ConnectionProfile,
   type OriginPermissionClient,
+  type RemoteSessionCredential,
 } from "../connectionProfile"
 import type { ConnectionStorage } from "../chromeStorage"
 import type {
@@ -19,36 +20,76 @@ import type {
 const fixedTimestamp = "2026-07-21T12:00:00.000Z"
 const fixedNow = (): string => fixedTimestamp
 const placeholderCredential = (): string => ["unit", "test", "credential"].join("-")
+const placeholderPassword = (): string => ["unit", "test", "password"].join("-")
+const remoteSession: RemoteSessionCredential = {
+  token: ["unit", "test", "session"].join("-"),
+  userId: "remote-user",
+  expiresAt: 1_900_000_000,
+}
 
 function savedProfile(selectedThreadId: number | null = 7): ConnectionProfile {
   return {
     version: CONNECTION_PROFILE_VERSION,
     backendBaseUrl: "http://127.0.0.1:8888",
+    authMode: "local",
     apiKey: placeholderCredential(),
+    sessionUserId: null,
+    sessionExpiresAt: null,
     selectedThreadId,
     connectedAt: fixedTimestamp,
     lastVerifiedAt: fixedTimestamp,
   }
 }
 
-function memoryStorage(initial: ConnectionProfile | null): {
+function savedRemoteProfile(selectedThreadId: number | null = 7): ConnectionProfile {
+  return {
+    version: CONNECTION_PROFILE_VERSION,
+    backendBaseUrl: "https://codexify.test",
+    authMode: "remote",
+    apiKey: null,
+    sessionUserId: remoteSession.userId,
+    sessionExpiresAt: remoteSession.expiresAt,
+    selectedThreadId,
+    connectedAt: fixedTimestamp,
+    lastVerifiedAt: fixedTimestamp,
+  }
+}
+
+function memoryStorage(
+  initial: ConnectionProfile | null,
+  initialSession: RemoteSessionCredential | null = null,
+): {
   storage: ConnectionStorage
   current(): ConnectionProfile | null
+  currentSession(): RemoteSessionCredential | null
 } {
   let value = initial ? { ...initial } : null
+  let sessionValue = initialSession ? { ...initialSession } : null
   const storage: ConnectionStorage = {
     load: vi.fn(async () => (value ? { ...value } : null)),
     save: vi.fn(async (next) => {
       value = { ...next }
+    }),
+    loadRemoteSession: vi.fn(async () => (sessionValue ? { ...sessionValue } : null)),
+    saveRemoteSession: vi.fn(async (next) => {
+      sessionValue = { ...next }
+    }),
+    clearRemoteSession: vi.fn(async () => {
+      sessionValue = null
     }),
     updateSelectedThreadId: vi.fn(async (selectedThreadId) => {
       if (value) value = { ...value, selectedThreadId }
     }),
     clear: vi.fn(async () => {
       value = null
+      sessionValue = null
     }),
   }
-  return { storage, current: () => (value ? { ...value } : null) }
+  return {
+    storage,
+    current: () => (value ? { ...value } : null),
+    currentSession: () => (sessionValue ? { ...sessionValue } : null),
+  }
 }
 
 function permissionMock(): OriginPermissionClient & {
@@ -102,6 +143,7 @@ const receipt: CompletionReceipt = {
 function apiMock(overrides: Partial<CodexifyExtensionApi> = {}): CodexifyExtensionApi {
   return {
     verifyConnection: vi.fn(async () => undefined),
+    logout: vi.fn(async () => undefined),
     listThreads: vi.fn(async () => [thread]),
     createThread: vi.fn(async () => thread),
     listMessages: vi.fn(async () => [userMessage, assistantMessage]),
@@ -127,6 +169,7 @@ describe("Codexify Chrome side panel", () => {
 
     expect(await screen.findByRole("heading", { name: "Connect your private runtime" })).toBeVisible()
     expect(screen.getByLabelText("Authentication API key")).toHaveAttribute("type", "password")
+    expect(screen.getByRole("button", { name: "Remote session" })).toBeVisible()
     expect(screen.getByText(/never Chrome Sync/i)).toBeVisible()
   })
 
@@ -171,6 +214,96 @@ describe("Codexify Chrome side panel", () => {
     expect(order.slice(0, 3)).toEqual(["permission", "verify", "save"])
     expect(memory.current()?.apiKey).toBe(placeholderCredential())
     expect(screen.queryByDisplayValue(placeholderCredential())).not.toBeInTheDocument()
+  })
+
+  it("creates a remote session without storing the password or sending an API key profile", async () => {
+    const memory = memoryStorage(null)
+    const permissions = permissionMock()
+    const remoteLogin = vi.fn(async () => remoteSession)
+    const api = apiMock()
+    const apiFactory = vi.fn(() => api)
+
+    render(
+      <SidePanelApp
+        storage={memory.storage}
+        permissionClient={permissions}
+        apiFactory={apiFactory}
+        remoteLogin={remoteLogin}
+        now={fixedNow}
+      />,
+    )
+
+    fireEvent.change(await screen.findByLabelText("Backend URL"), {
+      target: { value: "https://codexify.test/" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Remote session" }))
+    fireEvent.change(screen.getByLabelText("Codexify username"), {
+      target: { value: remoteSession.userId },
+    })
+    fireEvent.change(screen.getByLabelText("Codexify password"), {
+      target: { value: placeholderPassword() },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in and connect" }))
+
+    expect(await screen.findByText("Connected")).toBeVisible()
+    expect(remoteLogin).toHaveBeenCalledWith("https://codexify.test", {
+      username: remoteSession.userId,
+      password: placeholderPassword(),
+    })
+    expect(memory.current()).toMatchObject({
+      authMode: "remote",
+      apiKey: null,
+      sessionUserId: remoteSession.userId,
+    })
+    expect(memory.currentSession()).toEqual(remoteSession)
+    expect(apiFactory).toHaveBeenCalledWith(
+      expect.objectContaining({ authMode: "remote", apiKey: null }),
+      remoteSession,
+    )
+    expect(JSON.stringify(memory.current())).not.toContain(remoteSession.token)
+    expect(JSON.stringify(memory.current())).not.toContain(placeholderPassword())
+  })
+
+  it("restores a remote chat shell from session-scoped storage", async () => {
+    const { storage } = memoryStorage(savedRemoteProfile(), remoteSession)
+    const api = apiMock()
+    const apiFactory = vi.fn(() => api)
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={apiFactory}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText("Persisted assistant reply")).toBeVisible()
+    expect(apiFactory).toHaveBeenCalledWith(
+      expect.objectContaining({ authMode: "remote" }),
+      remoteSession,
+    )
+  })
+
+  it("returns a remote profile without a live token to the sign-in form", async () => {
+    const memory = memoryStorage(savedRemoteProfile(), null)
+
+    render(
+      <SidePanelApp
+        storage={memory.storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => apiMock()}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText("Remote sign-in required")).toBeVisible()
+    expect(screen.getByLabelText("Backend URL")).toHaveValue("https://codexify.test")
+    expect(screen.getByRole("button", { name: "Remote session" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    expect(memory.storage.clearRemoteSession).toHaveBeenCalledTimes(1)
   })
 
   it("restores a connected chat shell and persisted messages", async () => {
@@ -283,5 +416,28 @@ describe("Codexify Chrome side panel", () => {
     expect(permissions.remove).toHaveBeenCalledWith(
       buildOriginPermissionPattern("http://127.0.0.1:8888"),
     )
+  })
+
+  it("revokes and clears a remote session on disconnect", async () => {
+    const memory = memoryStorage(savedRemoteProfile(), remoteSession)
+    const permissions = permissionMock()
+    const api = apiMock()
+
+    render(
+      <SidePanelApp
+        storage={memory.storage}
+        permissionClient={permissions}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /Existing thread/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }))
+
+    expect(await screen.findByRole("heading", { name: "Connect your private runtime" })).toBeVisible()
+    expect(api.logout).toHaveBeenCalledTimes(1)
+    expect(memory.current()).toBeNull()
+    expect(memory.currentSession()).toBeNull()
   })
 })

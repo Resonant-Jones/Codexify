@@ -8,9 +8,9 @@ The smallest viable network is one operator-controlled Chrome profile, one confi
 
 ## Implementation status
 
-The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the connection form, one extension-local profile, thread/message/completion adapters, per-task event observation, a side-panel chat shell, unit tests, and an installation runbook.
+The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the dual-mode connection form, one extension-local profile, local API-key and remote session/JWT transports, thread/message/completion adapters, per-task event observation, a side-panel chat shell, unit tests, and an installation runbook.
 
-This status is code-path and automated-build evidence until a live unpacked Chrome session completes the manual proof below. It is not evidence that the extension is a supported Codexify client.
+The original API-key-only build was accepted by Chrome through **Load unpacked**, and its toolbar action opened the native side panel in a live operator screenshot. That proof does not cover the new dual-auth build, remote login, account-scoped chat, completion, session restore, or logout. Those remain code-path and automated-build evidence until the live proof below is completed. None of this is evidence that the extension is a supported Codexify client.
 
 ## Governing architecture
 
@@ -21,21 +21,23 @@ This client is aligned with the following accepted ADRs:
 - [ADR-003: Message Identity vs Request Identity](./adr/003-Message-Identity-vs-Request-Identity.md): persisted message identity is distinct from per-attempt request and turn identity.
 - [ADR-005: Runtime Mode and Account Boundary Invariants](./adr/005-Runtime-Mode-and-Account-Boundary-Invariants.md): the client consumes the backend's current authentication/account boundary and creates no alternate identity scope.
 - [ADR-038: Chat Transport Visibility and Adaptive Stream Recovery Contract](./adr/038-Chat-Transport-Visibility-and-Adaptive-Stream-Recovery-Contract.md): task-event transport loss is visibility loss, not proof of request failure and not authority to replay.
+- [ADR-049: Chrome Side-Panel Dual-Auth Client Contract](./adr/049-chrome-side-panel-dual-auth-client-contract.md): the profile selects exactly one local API-key or remote session/JWT transport; remote passwords are not stored and remote session tokens remain browser-session-scoped.
 
 It also observes these proposed, docs-only guardrails without claiming to implement them:
 
 - [ADR-039: Operator / User Access Boundary](./adr/039-operator-user-access-boundary.md): this is explicitly a private Self Operator client, not a general hosted-user access surface.
 - [ADR-040: Network Profile Topology Resolution Contract](./adr/040-network-profile-topology-resolution-contract.md): the extension's single local connection record is not Codexify's deferred shared Network Profile model. It does not alter application settings, provider URLs, topology resolution, or automatic switching.
 
-No new ADR is required because the implementation does not change authentication semantics, backend exposure semantics, browser authority beyond a user-granted origin, chat semantics, storage schemas, queue behavior, or supported release claims. A durable shared authentication/profile contract, silent topology selection, broader browser authority, or backend exposure change would cross this task boundary and require a new architecture decision.
+ADR-049 was required when the client crossed from the original local API-key-only boundary into durable remote-session behavior. It accepts this bounded extension client path while leaving backend authentication/exposure semantics, shared Network Profile storage, chat semantics, queue behavior, and supported release claims unchanged. Silent topology selection, broader browser authority, credential sharing, or backend exposure changes remain outside this decision.
 
 ## Client/runtime topology
 
 ```mermaid
 flowchart LR
     O["Self Operator"] -->|"installs unpacked build and grants one origin"| C["Chrome side-panel extension page"]
-    C -->|"profile and selected thread"| S["chrome.storage.local"]
-    C -->|"X-API-Key, chat HTTP, per-task SSE"| G["Existing Codexify backend"]
+    C -->|"profile, local key, selected thread"| L["chrome.storage.local"]
+    C -->|"remote session token"| S["chrome.storage.session"]
+    C -->|"local: X-API-Key; remote: Bearer; chat HTTP and per-task SSE"| G["Existing Codexify backend"]
     G --> Q["Existing queue and worker"]
     Q --> P["Existing provider path"]
     Q --> D["Existing message persistence"]
@@ -52,7 +54,9 @@ The extension page owns active React state, HTTP requests, and the task-event su
 | Threads and messages | Existing Codexify backend | Backend-authoritative; the client refreshes derived views. Persisted assistant output is final truth. |
 | Completion attempt | Existing backend task/queue state | Acceptance is non-terminal. Per-task SSE is an observation plane; missing events do not rewrite task truth. |
 | `taskId`, `requestId`, `turnId`, discovery URLs | Completion acceptance receipt | Preserved for the attempt; never silently replaced by a replay. |
-| Backend URL, credential, selected thread, verification timestamps | One extension-local record in `chrome.storage.local` | Local to the installed extension. Explicit Save, thread selection, or Disconnect wins. No cross-device merge or Sync. |
+| Backend URL, auth mode, selected thread, verification timestamps | One extension-local record in `chrome.storage.local` | Local to the installed extension. Explicit Save, thread selection, or Disconnect wins. No cross-device merge or Sync. |
+| Local API key | `chrome.storage.local` for `authMode=local` only | Operator-controlled compatibility credential; never sent in remote mode or rendered after save. |
+| Remote session token and expiry | Backend session store plus `chrome.storage.session` client copy | Backend expiry/revocation is authoritative. Chrome restart, extension disable/reload/update, logout, or Disconnect clears the client copy. |
 
 No browser-only thread or transcript store exists. If the side panel and backend differ, a backend reload replaces the local derived view. The client does not synthesize an assistant message from event payloads.
 
@@ -63,25 +67,29 @@ No browser-only thread or transcript store exists. If the side panel and backend
 - **Chrome profile / host boundary:** an operator who controls the browser profile or host can inspect extension-local storage. The API key is not application-level encrypted.
 - **Extension boundary:** only packaged extension code executes. There are no content scripts or remotely hosted scripts.
 - **Network boundary:** the side-panel extension page connects directly to the configured backend. Loopback HTTP is suitable for same-device use; private HTTPS is preferred across LAN or overlay boundaries.
-- **Backend identity boundary:** the existing `X-API-Key` contract remains authoritative. The extension does not create users, sessions, cookies, roles, or browser-derived identity.
+- **Backend identity boundary:** the selected mode reuses either the existing local `X-API-Key` contract or the existing remote username/password-to-session contract. The backend remains authoritative for the authenticated subject, session expiry/revocation, and account scope. The extension creates no user, cookie, role, or browser-derived identity.
 
 The MVP assumes an honest operator, an uncompromised Chrome profile, and the existing backend's authenticated exposure posture. It does not defend a credential against a compromised host/browser profile, a malicious extension with local inspection authority, a hostile TLS endpoint, or an operator who explicitly grants the wrong origin. Network intermediaries can observe HTTP metadata and plaintext when non-TLS HTTP is used.
 
 ## Credential-storage posture
 
-The single profile contains:
+The single persistent profile contains:
 
 - `backendBaseUrl`
-- `apiKey`
+- `authMode`
+- `apiKey` only for local mode
+- remote session user/expiry metadata without the token
 - `selectedThreadId`
 - `connectedAt`
 - `lastVerifiedAt`
 
-It is stored under one versioned key in `chrome.storage.local`, never `chrome.storage.sync`. Writes request the `TRUSTED_CONTEXTS` storage access level. The saved key is held only in memory after restoration and is never rendered back into a form, debug summary, log, error, analytic event, test fixture secret, manifest, or generated build constant.
+It is stored under one versioned key in `chrome.storage.local`, never `chrome.storage.sync`. Writes request the `TRUSTED_CONTEXTS` storage access level. The saved local key is held only in memory after restoration and is never rendered back into a form, debug summary, log, error, analytic event, test fixture secret, manifest, or generated build constant.
 
-**Disconnect** closes the active event subscription, removes the stored profile, clears local chat state, and removes the granted backend-origin permission. Removing the extension also clears its local storage.
+Remote mode submits the username and password only to `POST /api/auth/login`. The password remains form/request-local and is never stored. The returned opaque token, user ID, and expiry are stored in `chrome.storage.session` at `TRUSTED_CONTEXTS`; the persistent profile contains only the non-secret user/expiry metadata needed to validate that the session belongs to that connection. Chrome documents session storage as in-memory, cleared on browser restart or extension disable/reload/update, and not exposed to content scripts by default.
 
-This posture is intentionally modest: extension-local storage provides scope and persistence, not secret encryption. A future requirement for hardware-backed credentials, session exchange, multiple users, delegated authority, or synced connection material would require a separate authentication design and ADR.
+**Disconnect** closes the active event subscription, best-effort revokes a remote session through `POST /api/auth/logout`, removes persistent and session-scoped credential state, clears local chat state, and removes the granted backend-origin permission. Local clearing still completes when the remote runtime cannot receive logout. Removing the extension also clears its storage.
+
+This posture is intentionally modest: extension storage provides scope and lifecycle boundaries, not secret encryption. A future requirement for hardware-backed credentials, refresh tokens, multiple simultaneous users, delegated authority, or synced connection material would require a separate authentication design and ADR.
 
 ## Exact permission posture
 
@@ -103,7 +111,7 @@ This follows Chrome's documented [optional permissions](https://developer.chrome
 
 ## Event ownership and lifecycle
 
-The side-panel page creates the authenticated per-task SSE transport after completion acceptance. It reuses the existing fetch-backed `GuardianEventSource`, including `Last-Event-ID` recovery and bounded reconnect behavior, while mapping existing task events into the compact UI.
+The side-panel page creates the authenticated per-task SSE transport after completion acceptance. It reuses the existing fetch-backed `GuardianEventSource`, including `Last-Event-ID` recovery and bounded reconnect behavior, while attaching the same mutually exclusive local API-key or remote Bearer header used by HTTP requests.
 
 The observable sequence is:
 
@@ -123,10 +131,12 @@ The MV3 service worker uses `chrome.sidePanel.setPanelBehavior({ openPanelOnActi
 The extension changes no routes and uses these current contracts directly:
 
 - `GET /ping` for a reachability-only probe.
+- `POST /api/auth/login` for remote username/password session establishment.
+- `POST /api/auth/logout` for remote session revocation.
 - `GET /api/chat/threads` and `POST /api/chat/threads` for persisted thread listing/creation.
 - `GET /api/chat/{threadId}/messages` and `POST /api/chat/{threadId}/messages` for authoritative transcript reads and user-message persistence.
 - `POST /api/chat/{threadId}/complete` with a generated `turn_id` and `X-Request-ID` for completion acceptance.
-- `GET /api/tasks/{taskId}/events` with `X-API-Key` for attempt lifecycle observation.
+- `GET /api/tasks/{taskId}/events` with the selected local API-key or remote Bearer credential for attempt lifecycle observation.
 - Completion receipt fields `task_id`, `thread_id`, `turn_id`, `acceptance_status`, `acceptance_warnings`, `messages_url`, and `trace_url`.
 
 Shared reuse is deliberately bounded:
@@ -135,11 +145,11 @@ Shared reuse is deliberately bounded:
 - `frontend/src/contracts/runtimeTokens.ts` supplies canonical chat-request tokens.
 - `frontend/src/lib/guardianEventSource.ts` supplies authenticated SSE parsing and reconnect behavior.
 
-`runtimeConfig.ts`, `api.ts`, and `useLiveEvents.ts` are not imported because their current interfaces own normal-web/Tauri environment resolution, Axios/auth-shell behavior, session-spine state, or application-global event coordination. `codexifyExtensionApi.ts` is therefore a contract-equivalent fetch adapter, not a copy of application navigation or provider state. No existing frontend source file was changed to create this seam.
+`runtimeConfig.ts`, `api.ts`, and `useLiveEvents.ts` are not imported because their current interfaces own normal-web/Tauri environment resolution, Axios/auth-shell behavior, browser `sessionStorage`, session-spine state, or application-global event coordination. `codexifyExtensionApi.ts` is therefore a contract-equivalent fetch adapter that preserves the same local-versus-remote header rule without importing application navigation or provider state. No existing frontend source file was changed to create this seam.
 
 ## Release-truth boundary
 
-`docs/architecture/00-current-state.md` remains unchanged. Local Docker Compose remains the supported runtime path, and this private client does not widen the beta claim to browser extensions, remote instances, Tailscale, hosted access, cloud providers, or the Chrome Web Store.
+`docs/architecture/00-current-state.md` remains unchanged. Local Docker Compose remains the supported runtime path, and this private client does not widen the beta claim to browser extensions, remote instances, Tailscale, hosted access, cloud providers, or the Chrome Web Store. ADR-049 authorizes a bounded internal client contract, not release support.
 
 An installable build proves only that the extension artifacts exist. Unit tests prove only focused client behavior. A live unpacked run proves only the backend URL class and runtime exercised in that run.
 
@@ -150,7 +160,9 @@ An installable build proves only that the extension artifacts exist. Unit tests 
 - Missing progress is never labeled failure.
 - Timed-out, disconnected, or orphaned work is never automatically replayed.
 - Persisted assistant messages, not event payloads, are the final transcript.
-- The API key and backend origin are operator input, never build input.
+- The local API key, remote username/password, session token, and backend origin are runtime input, never build input.
+- Local and remote credentials are mutually exclusive on every protected request.
+- Remote passwords are never stored; remote session tokens are never written to `chrome.storage.local` or Sync.
 - The full `AppShell` and normal web navigation are absent.
 - No active-page or browser-control authority exists.
 - The normal frontend build remains independent.
@@ -170,18 +182,19 @@ Manual live proof still required for a specific environment:
 - Chrome accepts `frontend/dist/chrome-extension` through **Load unpacked**.
 - The toolbar action opens the side panel.
 - Chrome prompts for only the configured backend origin.
+- Local mode verifies with `X-API-Key`; remote mode logs in with a provisioned Codexify account and verifies with Bearer auth, never both.
 - A live backend lists/creates threads, persists a message, accepts and executes a completion, emits terminal evidence, and returns the persisted assistant reply.
 - Side-panel reload restores the profile and selected thread.
-- Disconnect clears the credential.
+- Remote Disconnect attempts server-side revocation and clears the session-scoped token even if revocation cannot be delivered.
 
 ## Non-goals and deferred features
 
-Not implemented: page awareness, selection capture, content scripts, page summarization, screenshots, tabs, form filling, browser automation, context menus, document upload, Workspace/Shelf/Scratchpad/Inspector, voice, provider/model/profile selectors, persona editing, tools/command-bus UI, Web Store packaging, automatic updates, hosted authentication, backend changes, or release-support expansion.
+Not implemented: page awareness, selection capture, content scripts, page summarization, screenshots, tabs, form filling, browser automation, context menus, document upload, Workspace/Shelf/Scratchpad/Inspector, voice, provider/model/profile selectors, persona editing, tools/command-bus UI, Web Store packaging, automatic updates, hosted-auth redesign, backend changes, or release-support expansion.
 
 Deferred deliberately:
 
 - persistence/resubscription for an in-flight task across side-panel teardown;
 - multiple connection profiles or a shared ADR-040 Network Profile resolver;
-- stronger at-rest credential protection or session exchange;
+- refresh tokens, silent renewal, or stronger credential protection;
 - signed/distributed packaging and update policy;
 - live Chrome/backend proof receipts for each tested topology.
