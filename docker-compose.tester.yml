@@ -41,6 +41,12 @@ services:
       GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?GUARDIAN_JWT_SECRET must be set in .env.tester}"
       GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-http://localhost:5174}"
 
+  worker-chat:
+    environment:
+      # The base Compose profile is local-only; the isolated tester profile
+      # executes chat completions through its pinned DeepSeek lane.
+      LLM_PROVIDER: "deepseek"
+
   tailscale-codexify-test:
     image: "${TAILSCALE_TEST_IMAGE:-tailscale/tailscale:latest}"
     hostname: "${TAILSCALE_TEST_HOSTNAME:-codexify-test}"
