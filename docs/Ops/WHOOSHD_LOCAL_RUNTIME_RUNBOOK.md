@@ -27,6 +27,32 @@ For the supported local beta path:
 Model availability is live evidence. Codexify should only consider the selected
 model usable when Whoosh'd advertises it through `/v1/models` or `/api/tags`.
 
+## Runtime provenance
+
+Whoosh'd can return bounded `whooshd.runtime.v1` provenance for model inventory
+and successful completions. Codexify accepts the schema only when its required
+runtime, adapter, resolution-source, and execution-mode fields are recognized;
+unknown optional fields are ignored, while malformed known fields are not
+verified. A missing provenance field remains compatible with documented legacy
+Whoosh'd runtimes.
+
+The accepted fields are model aliases and request correlation (`request_id`,
+`requested_model_id`, `advertised_model_id`, `resolved_model_id`, and
+`backend_reported_model_id`), runtime identity, canonical resolution source,
+execution mode, streaming/queue/batch flags, model lifecycle, and
+`whooshd_version`. Codexify carries accepted evidence into the completion
+result and the persisted assistant `extra_meta` key
+`whooshd_runtime_provenance` only after successful terminal proof and message
+persistence. Failed, incomplete, cancelled, or unverified completions do not
+publish successful runtime provenance.
+
+For streaming responses, Whoosh'd uses the additive
+`X-Whooshd-Runtime-Provenance` response header so the established SSE body
+contract remains unchanged. The header and body are parsed from machine-readable
+fields only; human-readable provider messages are never used for runtime
+classification. Provenance is bounded operational metadata and does not prove
+that a live daemon, model, Docker bridge, or external log collector is healthy.
+
 ## Nodes And Boundaries
 
 | Boundary | Responsibility |

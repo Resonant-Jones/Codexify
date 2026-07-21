@@ -38,9 +38,12 @@ from guardian.providers.deepseek_adapter import (
 from guardian.providers.whooshd_control_plane import (
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
+    WHOOSHD_RUNTIME_PROVENANCE_HEADER,
     WhooshdContractVersionError,
     WhooshdErrorDiagnostic,
+    WhooshdRuntimeProvenance,
     parse_whooshd_error,
+    parse_whooshd_runtime_provenance,
     provider_failure_kind as whooshd_provider_failure_kind,
 )
 from guardian.protocol_tokens import (
@@ -127,11 +130,13 @@ class ProviderResponse(str):
         raw_payload: Any | None = None,
         content_blocks: Any | None = None,
         provider: str | None = None,
+        runtime_provenance: WhooshdRuntimeProvenance | None = None,
     ):
         obj = super().__new__(cls, text or "")
         obj.raw_payload = raw_payload  # type: ignore[attr-defined]
         obj.content_blocks = content_blocks  # type: ignore[attr-defined]
         obj.provider = provider  # type: ignore[attr-defined]
+        obj.runtime_provenance = runtime_provenance  # type: ignore[attr-defined]
         return obj
 
 
@@ -279,6 +284,7 @@ class NormalizedCompletionOutput:
     tool_call_id: str | None = None
     tool_call_count: int = 0
     raw_assistant_message: dict[str, Any] | None = None
+    runtime_provenance: WhooshdRuntimeProvenance | None = None
 
 
 def _coerce_tool_arguments(raw: Any) -> dict[str, Any]:
@@ -440,6 +446,7 @@ def normalize_completion_output(
 
     if isinstance(output, ProviderResponse):
         provider = getattr(output, "provider", None)
+        runtime_provenance = getattr(output, "runtime_provenance", None)
         raw_payload = getattr(output, "raw_payload", None)
         content_blocks = getattr(output, "content_blocks", None)
         candidate = None
@@ -483,6 +490,7 @@ def normalize_completion_output(
             raw_payload=raw_payload,
             content_blocks=content_blocks,
             provider=provider,
+            runtime_provenance=runtime_provenance,
         )
 
     if isinstance(output, dict):
@@ -2372,20 +2380,39 @@ def call_local(
                 attempt_failures.append(f"{url} (invalid JSON: {exc})")
                 continue
 
+            runtime_provenance = parse_whooshd_runtime_provenance(
+                data.get("runtime_provenance")
+            ) if isinstance(data, dict) else None
+
             # Ollama /api/chat format
             if isinstance(data.get("message"), dict) and "content" in data["message"]:
-                return data["message"]["content"]
+                return ProviderResponse(
+                    data["message"]["content"],
+                    raw_payload=data,
+                    provider="local",
+                    runtime_provenance=runtime_provenance,
+                )
 
             # Ollama /api/generate format
             if "response" in data and isinstance(data.get("response"), str):
-                return data.get("response") or ""
+                return ProviderResponse(
+                    data.get("response") or "",
+                    raw_payload=data,
+                    provider="local",
+                    runtime_provenance=runtime_provenance,
+                )
 
             # OpenAI-compatible format
             choices = data.get("choices")
             if isinstance(choices, list) and choices:
                 message = choices[0].get("message")
                 if isinstance(message, dict) and "content" in message:
-                    return message.get("content") or ""
+                    return ProviderResponse(
+                        message.get("content") or "",
+                        raw_payload=data,
+                        provider="local",
+                        runtime_provenance=runtime_provenance,
+                    )
 
             attempt_failures.append(
                 f"{url} (response did not include assistant content)"
@@ -2771,6 +2798,20 @@ def stream_local(
         try:
             finish_reason: str | None = None
             visible_output_emitted = False
+            runtime_provenance: dict[str, Any] | None = None
+            response_headers = getattr(response, "headers", {}) or {}
+            header_provenance = response_headers.get(
+                WHOOSHD_RUNTIME_PROVENANCE_HEADER
+            )
+            if header_provenance:
+                try:
+                    parsed_header = parse_whooshd_runtime_provenance(
+                        json.loads(str(header_provenance))
+                    )
+                except Exception:
+                    parsed_header = None
+                if parsed_header is not None:
+                    runtime_provenance = parsed_header.as_dict()
             for raw_line in response.iter_lines(decode_unicode=False):
                 if not raw_line:
                     continue
@@ -2790,6 +2831,7 @@ def stream_local(
                         transport_ended_cleanly=True,
                         provider="local",
                         model=model,
+                        runtime_provenance=runtime_provenance,
                     )
                 try:
                     chunk = json.loads(data)
@@ -2804,8 +2846,16 @@ def stream_local(
                         model=model,
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
+                        runtime_provenance=runtime_provenance,
                     )
                 try:
+                    parsed_provenance = parse_whooshd_runtime_provenance(
+                        chunk.get("runtime_provenance")
+                        if isinstance(chunk, dict)
+                        else None
+                    )
+                    if parsed_provenance is not None:
+                        runtime_provenance = parsed_provenance.as_dict()
                     if isinstance(chunk.get("error"), (dict, str)):
                         return CompletionTerminalEvidence(
                             status=CompletionTerminalStatus.PROVIDER_ERROR,
@@ -2817,6 +2867,7 @@ def stream_local(
                             model=model,
                             failure_kind="provider_error_frame",
                             retry_permitted=not visible_output_emitted,
+                            runtime_provenance=runtime_provenance,
                         )
                     # OpenAI-compatible SSE or Ollama /api/chat streaming
                     choice = chunk.get("choices", [{}])[0]
@@ -2849,6 +2900,7 @@ def stream_local(
                             transport_ended_cleanly=True,
                             provider="local",
                             model=model,
+                            runtime_provenance=runtime_provenance,
                         )
                 except Exception:
                     return CompletionTerminalEvidence(
@@ -2861,6 +2913,7 @@ def stream_local(
                         model=model,
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
+                        runtime_provenance=runtime_provenance,
                     )
             return CompletionTerminalEvidence(
                 status=CompletionTerminalStatus.STREAM_INCOMPLETE,
@@ -2872,6 +2925,7 @@ def stream_local(
                 model=model,
                 failure_kind="missing_stream_terminal",
                 retry_permitted=not visible_output_emitted,
+                runtime_provenance=runtime_provenance,
             )
         except req_exc.RequestException as exc:
             detail = _format_local_connect_error(

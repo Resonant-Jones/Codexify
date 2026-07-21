@@ -19,6 +19,7 @@ class CompletionTerminalEvidence:
     model: str
     failure_kind: str | None = None
     retry_permitted: bool = False
+    runtime_provenance: dict[str, Any] | None = None
 
     @property
     def successful(self) -> bool:
@@ -29,7 +30,7 @@ class CompletionTerminalEvidence:
 
     def as_dict(self) -> dict[str, Any]:
         """Return bounded metadata; response content is deliberately absent."""
-        return {
+        payload = {
             "status": self.status.value,
             "visible_output_emitted": self.visible_output_emitted,
             "explicit_provider_terminal_observed": (
@@ -42,6 +43,9 @@ class CompletionTerminalEvidence:
             "failure_kind": self.failure_kind,
             "retry_permitted": self.retry_permitted,
         }
+        if self.runtime_provenance is not None:
+            payload["runtime_provenance"] = dict(self.runtime_provenance)
+        return payload
 
     @classmethod
     def from_dict(cls, raw: Any) -> "CompletionTerminalEvidence | None":
@@ -51,6 +55,20 @@ class CompletionTerminalEvidence:
             status = CompletionTerminalStatus(str(raw.get("status") or ""))
         except ValueError:
             return None
+        runtime_provenance = None
+        if isinstance(raw.get("runtime_provenance"), dict):
+            # Re-apply the provider boundary when evidence crosses a
+            # persistence or retry boundary.  Stored metadata is not trusted
+            # merely because it was previously shaped like a dict.
+            from guardian.providers.whooshd_control_plane import (
+                parse_whooshd_runtime_provenance,
+            )
+
+            parsed_provenance = parse_whooshd_runtime_provenance(
+                raw["runtime_provenance"]
+            )
+            if parsed_provenance is not None:
+                runtime_provenance = parsed_provenance.as_dict()
         return cls(
             status=status,
             visible_output_emitted=bool(raw.get("visible_output_emitted")),
@@ -71,6 +89,7 @@ class CompletionTerminalEvidence:
                 else None
             ),
             retry_permitted=bool(raw.get("retry_permitted")),
+            runtime_provenance=runtime_provenance,
         )
 
 
@@ -78,6 +97,7 @@ class CompletionTerminalEvidence:
 class CompletionAttemptResult:
     output: Any
     terminal: CompletionTerminalEvidence
+    runtime_provenance: dict[str, Any] | None = None
 
 
 class CompletionTerminalError(RuntimeError):

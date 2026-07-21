@@ -14,7 +14,9 @@ from guardian.providers.whooshd_control_plane import (
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
     WhooshdContractVersionError,
+    WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
     parse_whooshd_error,
+    parse_whooshd_runtime_provenance,
     provider_failure_kind,
 )
 
@@ -128,6 +130,63 @@ def test_legacy_unversioned_response_is_not_assumed_to_be_v1():
     assert parse_whooshd_error(response) is None
 
 
+def test_runtime_provenance_accepts_known_fields_and_ignores_unknown_values():
+    provenance = parse_whooshd_runtime_provenance(
+        {
+            "schema_version": WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
+            "request_id": "request-9",
+            "requested_model_id": "requested/model",
+            "advertised_model_id": "advertised-model",
+            "resolved_model_id": "resolved-model",
+            "backend_reported_model_id": "backend-model",
+            "runtime_kind": "mlx_lm_server",
+            "adapter_name": "mlx-lm-server",
+            "resolution_source": "authoritative_registry",
+            "execution_mode": "managed_sidecar",
+            "streaming": False,
+            "queued": True,
+            "batched": False,
+            "model_lifecycle": "ready",
+            "whooshd_version": "0.1.0rc1",
+            "prompt": "prompt-sentinel",
+            "generated_output": "output-sentinel",
+            "private_path": "/Users/private/model.gguf",
+            "endpoint": "http://user:token@example.test/v1?api_key=secret",
+        }
+    )
+
+    assert provenance is not None
+    assert provenance.request_id == "request-9"
+    assert provenance.runtime_kind == "mlx_lm_server"
+    serialized = json.dumps(provenance.as_dict())
+    assert "prompt-sentinel" not in serialized
+    assert "output-sentinel" not in serialized
+    assert "/Users/private/model.gguf" not in serialized
+    assert "api_key=secret" not in serialized
+
+
+def test_malformed_runtime_provenance_is_not_verified():
+    assert parse_whooshd_runtime_provenance(
+        {
+            "schema_version": "whooshd.runtime.v2",
+            "runtime_kind": "stub",
+            "adapter_name": "stub",
+            "resolution_source": "stub_only_compatibility",
+            "execution_mode": "stub",
+        }
+    ) is None
+    assert parse_whooshd_runtime_provenance(
+        {
+            "schema_version": WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
+            "runtime_kind": "stub",
+            "adapter_name": "stub",
+            "resolution_source": "stub_only_compatibility",
+            "execution_mode": "stub",
+            "queued": "not-a-bool",
+        }
+    ) is None
+
+
 def test_call_local_sends_v1_header_and_uses_code_not_body(monkeypatch):
     captured: dict[str, object] = {}
 
@@ -230,3 +289,56 @@ def test_call_local_explicit_future_version_is_a_bounded_contract_failure(monkey
     assert "provider-response-secret" not in serialized
     assert "response-body-secret" not in serialized
     assert "prompt-secret" not in serialized
+
+
+def test_call_local_success_retains_bounded_runtime_provenance(monkeypatch):
+    body = {
+        "http_status": 200,
+        "id": "chatcmpl-1",
+        "model": "backend-model",
+        "choices": [
+            {"message": {"role": "assistant", "content": "assistant-output"}}
+        ],
+        "runtime_provenance": {
+            "schema_version": WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
+            "request_id": "request-11",
+            "requested_model_id": "requested-model",
+            "advertised_model_id": "advertised-model",
+            "resolved_model_id": "resolved-model",
+            "backend_reported_model_id": "backend-model",
+            "runtime_kind": "stub",
+            "adapter_name": "stub",
+            "resolution_source": "configured_stub",
+            "execution_mode": "stub",
+            "streaming": False,
+            "queued": False,
+            "batched": False,
+            "model_lifecycle": "ready",
+            "prompt": "prompt-secret",
+        },
+    }
+
+    monkeypatch.setattr(ai_router.requests, "post", lambda *a, **k: _Response(body))
+    monkeypatch.setattr(supported_profile, "get_active_supported_profile", lambda: None)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
+        LOCAL_LLM_MODEL="gemma-3-4b-it",
+        LOCAL_CHAT_MODEL="gemma-3-4b-it",
+        DEFAULT_LOCAL_MODEL="gemma-3-4b-it",
+        LLM_MODEL="gemma-3-4b-it",
+    )
+
+    output = ai_router.call_local(
+        [{"role": "user", "content": "prompt-input-secret"}],
+        "gemma-3-4b-it",
+        settings=settings,
+    )
+    normalized = ai_router.normalize_completion_output(output)
+    assert normalized.runtime_provenance is not None
+    assert normalized.runtime_provenance.request_id == "request-11"
+    assert "prompt-secret" not in json.dumps(normalized.runtime_provenance.as_dict())
+    assert "assistant-output" not in json.dumps(normalized.runtime_provenance.as_dict())

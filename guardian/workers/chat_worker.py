@@ -1940,6 +1940,10 @@ def _run_chat_completion_task_compat(
         "payload_summary": payload_summary,
     }
     if isinstance(completion_result, dict):
+        if isinstance(completion_result.get("runtime_provenance"), dict):
+            result["runtime_provenance"] = dict(
+                completion_result["runtime_provenance"]
+            )
         helper_tool_loop_execution = completion_result.get("execution")
         helper_payload_summary = completion_result.get("payload_summary")
         helper_trace = completion_result.get("trace")
@@ -2100,6 +2104,7 @@ def _run_chat_completion_task_compat(
                 "model": final_model,
                 "execution": execution,
                 "tool_loop_execution": result.get("tool_loop_execution"),
+                "whooshd_runtime_provenance": result.get("runtime_provenance"),
                 **tool_loop_observability,
             },
         )
@@ -2134,6 +2139,7 @@ def _run_chat_completion_task_compat(
                 ),
                 "execution": execution,
                 "tool_loop_execution": result.get("tool_loop_execution"),
+                "whooshd_runtime_provenance": result.get("runtime_provenance"),
                 **tool_loop_observability,
             },
         )
