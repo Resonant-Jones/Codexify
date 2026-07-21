@@ -35,6 +35,13 @@ from guardian.providers.deepseek_adapter import (
     normalize_tool_calls as normalize_deepseek_tool_calls,
     parse_response as parse_deepseek_response,
 )
+from guardian.providers.whooshd_control_plane import (
+    WHOOSHD_CONTROL_PLANE_VERSION,
+    WHOOSHD_CONTROL_VERSION_HEADER,
+    WhooshdErrorDiagnostic,
+    parse_whooshd_error,
+    provider_failure_kind as whooshd_provider_failure_kind,
+)
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
     ErrorCode,
@@ -1362,6 +1369,7 @@ def _local_provider_failure_detail(
     transport_classification: str | None = None,
     attempted_endpoints: list[str] | None = None,
     attempted_base_urls: list[str] | None = None,
+    whooshd_error: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail = _provider_failure_detail(
         provider="local",
@@ -1391,6 +1399,8 @@ def _local_provider_failure_detail(
             reason=_summarize_local_attempt_failures(list(attempted_endpoints or []))
             or message,
         )
+    if whooshd_error:
+        detail["whooshd_error"] = dict(whooshd_error)
     return detail
 
 
@@ -2166,6 +2176,7 @@ def call_local(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
     payload: Dict[str, Any] = {
         "model": model,
@@ -2215,6 +2226,7 @@ def call_local(
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
+    last_whooshd_error: WhooshdErrorDiagnostic | None = None
     last_transport_url: str = ""
 
     for base_url in base_urls:
@@ -2281,6 +2293,14 @@ def call_local(
                 attempt_failures.append(f"{url} ({classification}: {exc})")
                 continue
 
+            last_transport_url = url
+            whooshd_error = parse_whooshd_error(resp)
+            if whooshd_error is not None:
+                last_whooshd_error = whooshd_error
+                attempt_failures.append(
+                    f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                )
+                continue
             if resp.status_code == 404:
                 if is_gateway:
                     attempt_failures.append(
@@ -2320,6 +2340,25 @@ def call_local(
                 f"{url} (response did not include assistant content)"
             )
 
+    if last_whooshd_error is not None:
+        detail = (
+            f"Whoosh'd request failed with {last_whooshd_error.code}."
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_local_provider_failure_detail(
+                settings=settings,
+                model=model,
+                endpoint=last_transport_url or (base_urls[-1] if base_urls else ""),
+                failure_kind=whooshd_provider_failure_kind(last_whooshd_error.code),
+                message=detail,
+                provider_error=last_whooshd_error.code,
+                runtime_policy=runtime_policy,
+                attempted_endpoints=attempt_failures,
+                attempted_base_urls=attempted_base_urls,
+                whooshd_error=last_whooshd_error.as_dict(),
+            ),
+        )
     if last_transport_error is not None:
         detail = _format_local_connect_error(
             last_transport_url,
@@ -2439,6 +2478,7 @@ def stream_local(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
     payload: Dict[str, Any] = {
         "model": model,
@@ -2477,6 +2517,7 @@ def stream_local(
     attempt_failures: list[str] = []
     attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
+    last_whooshd_error: WhooshdErrorDiagnostic | None = None
 
     try:
         for base_url in base_urls:
@@ -2547,6 +2588,14 @@ def stream_local(
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
 
+                whooshd_error = parse_whooshd_error(resp)
+                if whooshd_error is not None:
+                    last_whooshd_error = whooshd_error
+                    attempt_failures.append(
+                        f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                    )
+                    resp.close()
+                    continue
                 if resp.status_code == 404:
                     if is_gateway:
                         attempt_failures.append(
@@ -2572,6 +2621,26 @@ def stream_local(
                 break
 
         if response is None:
+            if last_whooshd_error is not None:
+                raise HTTPException(
+                    status_code=502,
+                    detail=_local_provider_failure_detail(
+                        settings=settings,
+                        model=model,
+                        endpoint=current_url,
+                        failure_kind=whooshd_provider_failure_kind(
+                            last_whooshd_error.code
+                        ),
+                        message=(
+                            f"Whoosh'd request failed with {last_whooshd_error.code}."
+                        ),
+                        provider_error=last_whooshd_error.code,
+                        runtime_policy=runtime_policy,
+                        attempted_endpoints=attempt_failures,
+                        attempted_base_urls=attempted_base_urls,
+                        whooshd_error=last_whooshd_error.as_dict(),
+                    ),
+                )
             if last_transport_error is not None:
                 detail = _format_local_connect_error(
                     current_url,

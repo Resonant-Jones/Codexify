@@ -4,6 +4,10 @@
 
 This document captures everything Whoosh'd needs to know about Codexify in order to serve it well as a high-throughput MLX inference backend. It is extracted from Codexify's own architecture docs, runtime contracts, worker code, and operational surfaces.
 
+The bounded cross-repository HTTP error contract is documented separately in
+[Whoosh'd Control-Plane v1](../architecture/whooshd-control-plane-v1.md).
+That document is implementation/test evidence, not live-daemon proof.
+
 Every claim is tagged with a confidence level:
 - `confirmed` — backed by live code, architecture docs, or runtime proofs
 - `inferred` — reasonable deduction from available evidence but not explicitly stated
