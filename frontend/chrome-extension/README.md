@@ -34,13 +34,17 @@ The first launch should show the connection form, not the chat shell.
 
 ## First private connection
 
-1. Enter the base URL of an already-running Codexify backend, including its scheme and port when applicable.
-2. Enter the backend authentication API key.
-3. Select **Save and connect**.
+1. Enter the base URL of an already-running Codexify backend, including its scheme and port when applicable. Enter the origin/base URL, not a `/chat/<id>` page URL and not an `/api` route.
+2. Select one authentication method:
+   - **Local API key** for a same-device/local-auth runtime, then enter that runtime's Guardian API key.
+   - **Remote session** for a Tailscale/private-LAN runtime configured with remote auth, then enter a provisioned Codexify username and password.
+3. Select **Save and connect** or **Sign in and connect**.
 4. Review Chrome's host-access prompt. It must name only the configured backend origin.
-5. Grant access. The client first checks runtime reachability and then verifies authenticated thread access.
+5. Grant access. Remote mode exchanges the username/password through the existing `/api/auth/login` route, and the client then verifies authenticated thread access.
 
-The credential is stored in this extension's `chrome.storage.local`, never `chrome.storage.sync`. The stored key is not rendered back into the UI after connection. Extension-local storage is not application-level encrypted; anyone with control of the Chrome profile or host machine should be treated as able to inspect it.
+Local API keys are stored in this extension's `chrome.storage.local`, never `chrome.storage.sync`, and are not rendered back into the UI after connection. Remote passwords are never stored. Remote session tokens are stored in `chrome.storage.session`, which clears on browser restart and when the extension is disabled, reloaded, or updated. Extension storage is not application-level encrypted; anyone with control of the Chrome profile or host machine should be treated as able to inspect an active credential.
+
+The two modes are mutually exclusive. Local mode sends only `X-API-Key`; remote mode sends only `Authorization: Bearer <session>`. Tailscale provides private transport but does not replace Codexify login.
 
 Use loopback HTTP only for same-device local operation. Prefer private HTTPS for remote or overlay-network access.
 
@@ -53,6 +57,8 @@ After changing extension source:
 3. Select the reload icon on **Codexify Side Panel**.
 4. Close and reopen the Codexify side panel.
 
+Reloading an unpacked extension clears `chrome.storage.session`, so a remote connection must sign in again after each rebuild/reload. The saved backend URL and selected remote auth mode remain available.
+
 The build removes stale files from `frontend/dist/chrome-extension` before emitting the new artifacts.
 
 ## Disconnect and clear credentials
@@ -60,20 +66,21 @@ The build removes stale files from `frontend/dist/chrome-extension` before emitt
 1. Open the thread switcher.
 2. Select **Disconnect**.
 
-Disconnect removes the connection profile and API key from `chrome.storage.local`, clears side-panel chat state, and asks Chrome to remove the origin permission granted for that backend.
+Disconnect best-effort revokes a remote session, removes the persistent profile/local key and session-scoped token, clears side-panel chat state, and asks Chrome to remove the origin permission granted for that backend. Local clearing still completes if the remote runtime is unavailable.
 
-Removing the extension also clears its `chrome.storage.local` data.
+Removing the extension also clears its local and session-scoped storage data.
 
 ## Known MVP limitations
 
 - One extension-local connection profile only.
+- Remote sessions require a new login after Chrome restart or extension disable/reload/update; there is no refresh-token or silent-renewal flow.
 - Manual unpacked installation and manual rebuild/reload only.
 - The side panel observes task lifecycle events but renders only persisted assistant messages as final output; it does not fabricate token streaming.
 - Closing or reloading the side panel preserves the configured connection and selected thread, but does not persist an active task-event subscription. Reopen the selected thread to read any reply that completed while the panel was closed.
 - No page awareness, selected-text capture, content scripts, screenshots, tab control, browser automation, context menus, uploads, voice, provider/model selection, persona editing, or command-bus UI.
 - No full Codexify `AppShell`, workspace navigation, documents, gallery, settings application, or secondary inspector panels.
 - Backend availability, exposure, TLS, authentication, provider readiness, queue health, and worker execution remain operator responsibilities.
-- This build does not establish remote-access, cloud-provider, or release-support claims.
+- The private Tailscale/session mode does not establish public remote-access, cloud-provider, or release-support claims.
 
 ## Manual smoke proof
 
@@ -81,10 +88,11 @@ For a live proof, use an already-healthy backend and verify in order:
 
 1. The toolbar action opens the side panel.
 2. The host prompt is limited to the configured origin.
-3. Existing threads and persisted messages load.
-4. **New Chat** creates a backend thread.
-5. Sending persists the user message before completion acceptance.
-6. **Completion accepted** remains pending until task-terminal evidence arrives.
-7. The completed assistant reply is re-read from the backend transcript.
-8. Reloading the side panel restores the connection and selected thread.
-9. Disconnect returns to the connection form and clears the credential.
+3. The selected authentication mode succeeds without the other credential header being sent.
+4. Existing threads and persisted messages load.
+5. **New Chat** creates a backend thread.
+6. Sending persists the user message before completion acceptance.
+7. **Completion accepted** remains pending until task-terminal evidence arrives.
+8. The completed assistant reply is re-read from the backend transcript.
+9. Closing and reopening the side panel restores the connection and selected thread within the same Chrome session.
+10. Disconnect returns to the connection form and clears the credential.

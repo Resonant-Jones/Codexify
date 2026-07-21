@@ -1,5 +1,9 @@
 import { GuardianEventSource } from "../../src/lib/guardianEventSource"
-import type { ConnectionProfile } from "./connectionProfile"
+import {
+  createRemoteSessionCredential,
+  type ConnectionProfile,
+  type RemoteSessionCredential,
+} from "./connectionProfile"
 
 export type CodexifyApiErrorKind =
   | "unreachable"
@@ -64,12 +68,18 @@ export interface TaskLifecycleCallbacks {
 
 export interface CodexifyExtensionApi {
   verifyConnection(): Promise<void>
+  logout(): Promise<void>
   listThreads(): Promise<CodexifyThread[]>
   createThread(title?: string): Promise<CodexifyThread>
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
   persistUserMessage(threadId: number, content: string): Promise<void>
   requestCompletion(threadId: number): Promise<CompletionReceipt>
   subscribeToTask(taskId: string, callbacks: TaskLifecycleCallbacks): () => void
+}
+
+export interface RemoteLoginCredentials {
+  username: string
+  password: string
 }
 
 type JsonRecord = Record<string, unknown>
@@ -177,18 +187,114 @@ function terminalOutcome(type: string, state: string | null): TaskTerminalOutcom
   return null
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 15_000)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+export async function loginRemoteSession(
+  backendBaseUrl: string,
+  credentials: RemoteLoginCredentials,
+): Promise<RemoteSessionCredential> {
+  const username = credentials.username.trim()
+  if (!username || !credentials.password) {
+    throw new CodexifyApiError(
+      "authentication_rejected",
+      "Enter the Codexify username and password.",
+    )
+  }
+
+  let response: Response
+  try {
+    response = await fetchWithTimeout(`${backendBaseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username, password: credentials.password }),
+      cache: "no-store",
+      credentials: "omit",
+    })
+  } catch {
+    throw new CodexifyApiError(
+      "unreachable",
+      "The Codexify runtime could not be reached at this address.",
+    )
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new CodexifyApiError(
+      "authentication_rejected",
+      "The runtime rejected the Codexify username or password.",
+      response.status,
+    )
+  }
+  if (!response.ok) {
+    throw new CodexifyApiError(
+      "request_failed",
+      `The Codexify login request failed with status ${response.status}.`,
+      response.status,
+    )
+  }
+
+  const body = asRecord(safeJson(await response.text()))
+  const token = firstString(body, "token")
+  const userId = firstString(body, "user_id", "userId")
+  const expiresAt = Number(body.expires_at ?? body.expiresAt)
+  try {
+    return createRemoteSessionCredential({
+      token: token ?? "",
+      userId: userId ?? "",
+      expiresAt,
+    })
+  } catch {
+    throw new CodexifyApiError(
+      "invalid_response",
+      "The runtime returned an invalid remote session.",
+    )
+  }
+}
+
 export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
   private readonly backendBaseUrl: string
-  private readonly apiKey: string
+  private readonly authHeaders: Record<string, string>
 
-  constructor(profile: Pick<ConnectionProfile, "backendBaseUrl" | "apiKey">) {
+  constructor(
+    profile: ConnectionProfile,
+    remoteSession: RemoteSessionCredential | null = null,
+  ) {
     this.backendBaseUrl = profile.backendBaseUrl
-    this.apiKey = profile.apiKey
+    if (profile.authMode === "local") {
+      this.authHeaders = { "X-API-Key": profile.apiKey }
+      return
+    }
+    if (
+      !remoteSession ||
+      remoteSession.userId !== profile.sessionUserId ||
+      remoteSession.expiresAt !== profile.sessionExpiresAt
+    ) {
+      throw new CodexifyApiError(
+        "authentication_rejected",
+        "The remote session is missing or no longer matches this connection.",
+      )
+    }
+    this.authHeaders = { Authorization: `Bearer ${remoteSession.token}` }
   }
 
   async verifyConnection(): Promise<void> {
     await this.fetchReachabilityProbe()
     await this.listThreadsWithLimit(1)
+  }
+
+  async logout(): Promise<void> {
+    if (!("Authorization" in this.authHeaders)) return
+    await this.requestJson("/api/auth/logout", { method: "POST" })
   }
 
   async listThreads(): Promise<CodexifyThread[]> {
@@ -265,7 +371,7 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
 
   subscribeToTask(taskId: string, callbacks: TaskLifecycleCallbacks): () => void {
     const source = new GuardianEventSource(this.resolveUrl(`/api/tasks/${taskId}/events`), {
-      headers: { "X-API-Key": this.apiKey },
+      headers: { ...this.authHeaders },
       withCredentials: false,
       heartbeatTimeout: 45_000,
       retryInterval: 500,
@@ -335,7 +441,9 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
   private async requestJson(pathOrUrl: string, init: RequestInit = {}): Promise<unknown> {
     const headers = new Headers(init.headers)
     headers.set("Accept", "application/json")
-    headers.set("X-API-Key", this.apiKey)
+    for (const [name, value] of Object.entries(this.authHeaders)) {
+      headers.set(name, value)
+    }
     if (init.body !== undefined) headers.set("Content-Type", "application/json")
 
     let response: Response
@@ -355,7 +463,7 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     if (response.status === 401 || response.status === 403) {
       throw new CodexifyApiError(
         "authentication_rejected",
-        "The backend rejected this API key.",
+        "The backend rejected the saved credential.",
         response.status,
       )
     }
@@ -386,18 +494,15 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 15_000)
-    try {
-      return await fetch(url, { ...init, signal: controller.signal })
-    } finally {
-      window.clearTimeout(timeout)
-    }
+    return fetchWithTimeout(url, init)
   }
 }
 
-export function createCodexifyExtensionApi(profile: ConnectionProfile): CodexifyExtensionApi {
-  return new FetchCodexifyExtensionApi(profile)
+export function createCodexifyExtensionApi(
+  profile: ConnectionProfile,
+  remoteSession: RemoteSessionCredential | null = null,
+): CodexifyExtensionApi {
+  return new FetchCodexifyExtensionApi(profile, remoteSession)
 }
 
 export function classifyCodexifyError(error: unknown): CodexifyApiErrorKind {

@@ -3,13 +3,16 @@ import {
   buildOriginPermissionPattern,
   chromeOriginPermissionClient,
   CONNECTION_PROFILE_VERSION,
+  deserializeConnectionProfile,
   createConnectionProfile,
+  createRemoteConnectionProfile,
   normalizeBackendBaseUrl,
   serializeConnectionProfile,
   summarizeConnectionProfile,
 } from "../connectionProfile"
 import {
   CONNECTION_PROFILE_STORAGE_KEY,
+  CONNECTION_SESSION_STORAGE_KEY,
   createChromeConnectionStorage,
   type ChromeStorageAreaLike,
 } from "../chromeStorage"
@@ -90,6 +93,7 @@ describe("connection profile", () => {
     expect(serialized).toEqual(profile)
     expect(summary).toEqual({
       backendBaseUrl: "http://127.0.0.1:8888",
+      authMode: "local",
       selectedThreadId: null,
       connectedAt: fixedTimestamp,
       lastVerifiedAt: fixedTimestamp,
@@ -100,14 +104,36 @@ describe("connection profile", () => {
     for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled()
   })
 
+  it("migrates a version-one API-key profile into explicit local auth mode", () => {
+    expect(deserializeConnectionProfile({
+      version: 1,
+      backendBaseUrl: "http://127.0.0.1:8888/",
+      apiKey: placeholderCredential(),
+      selectedThreadId: 7,
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })).toEqual({
+      version: CONNECTION_PROFILE_VERSION,
+      backendBaseUrl: "http://127.0.0.1:8888",
+      authMode: "local",
+      apiKey: placeholderCredential(),
+      sessionUserId: null,
+      sessionExpiresAt: null,
+      selectedThreadId: 7,
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+  })
+
   it("uses chrome.storage.local in trusted extension contexts", async () => {
     const { area, read } = createChromeStorageAreaMock()
+    const { area: sessionArea } = createChromeStorageAreaMock()
     const permissions = {
       request: vi.fn(async () => true),
       contains: vi.fn(async () => true),
       remove: vi.fn(async () => true),
     }
-    vi.stubGlobal("chrome", { storage: { local: area }, permissions })
+    vi.stubGlobal("chrome", { storage: { local: area, session: sessionArea }, permissions })
     const storage = createChromeConnectionStorage()
     const profile = createConnectionProfile({
       backendBaseUrl: "https://vault.tailnet.ts.net",
@@ -124,6 +150,35 @@ describe("connection profile", () => {
     const pattern = buildOriginPermissionPattern(profile.backendBaseUrl)
     await expect(chromeOriginPermissionClient.request(pattern)).resolves.toBe(true)
     expect(permissions.request).toHaveBeenCalledWith({ origins: [pattern] })
+  })
+
+  it("keeps remote session tokens out of the persistent connection profile", async () => {
+    const local = createChromeStorageAreaMock()
+    const session = createChromeStorageAreaMock()
+    const storage = createChromeConnectionStorage(local.area, session.area)
+    const sessionCredential = {
+      token: ["unit", "session", "token"].join("-"),
+      userId: "remote-user",
+      expiresAt: 1_900_000_000,
+    }
+    const profile = createRemoteConnectionProfile({
+      backendBaseUrl: "https://vault.tailnet.ts.net",
+      sessionUserId: sessionCredential.userId,
+      sessionExpiresAt: sessionCredential.expiresAt,
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await storage.save(profile)
+    await storage.saveRemoteSession(sessionCredential)
+
+    expect(local.read()[CONNECTION_PROFILE_STORAGE_KEY]).toEqual(profile)
+    expect(JSON.stringify(local.read())).not.toContain(sessionCredential.token)
+    expect(session.read()[CONNECTION_SESSION_STORAGE_KEY]).toEqual(sessionCredential)
+    await expect(storage.loadRemoteSession()).resolves.toEqual(sessionCredential)
+    expect(session.area.setAccessLevel).toHaveBeenCalledWith({
+      accessLevel: "TRUSTED_CONTEXTS",
+    })
   })
 
   it("removes a malformed stored profile instead of retaining an unusable credential", async () => {
