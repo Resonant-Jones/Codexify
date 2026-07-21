@@ -124,6 +124,43 @@ Replace both angle-bracket placeholders before saving the policy; `<vaultnode-ho
 
 ## Starting the Tester Stack
 
+### Recommended lifecycle commands
+
+From the repository root:
+
+```bash
+# Install the per-user macOS LaunchAgent once.
+make tester-autostart-install
+
+# Enable persistence and start the isolated Tester stack.
+make tester-up
+
+# Inspect desired state, containers, and local health.
+make tester-status
+
+# Intentionally stop the stack and disable boot relaunch.
+make tester-down
+```
+
+`tester-up` creates a desired-up marker under
+`~/Library/Application Support/Codexify/tester/enabled`. The LaunchAgent runs
+once at login and starts the Tester only when that marker exists. Docker
+services themselves use `restart: unless-stopped`, so ordinary container
+failure and Docker Desktop restart recovery remain enabled.
+
+Use `make tester-down` for an intentional shutdown. It removes the marker
+*before* calling `docker compose down`, so the LaunchAgent will not resurrect
+the stack on a later login. The command preserves all Tester volumes.
+
+The LaunchAgent is deliberately a per-user `LaunchAgent`, not a root
+`LaunchDaemon`: Docker Desktop and the Tailscale sidecar belong to the logged-in
+operator session. It is a boot/login relaunch mechanism, not a public service
+manager.
+
+Raw `docker compose down` cannot be distinguished from an unexpected stop by
+launchd. If the stack must stay down, use `make tester-down` rather than the
+raw Compose command.
+
 ### Start dependencies first (db, redis, neo4j)
 
 ```bash

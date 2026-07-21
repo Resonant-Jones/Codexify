@@ -1,6 +1,6 @@
 # Codexify Makefile
 
-.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate canonical-audit-live-proof-receipt audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync
+.PHONY: all install dev-install test clean lint lint-fix lint-fix-unsafe format check docs docs-diagram-freshness docs-diagram-freshness-strict docs-diagram-freshness-auto docs-diagram-watch docs-diagram-regenerate build check-pytest dossier-collab desktop-dev desktop-build daily-audit morning-audit evening-audit guardian-brief guardian-evidence-packets-validate guardian-evidence-bounded-read guardian-evidence-reducer-dry-run guardian-evidence-reducer-input-bundles-validate guardian-evidence-reducer-input-bundle-dry-run guardian-evidence-packet-generate canonical-audit-evidence-validate canonical-audit-evidence-identity canonical-audit-runtime-identity canonical-audit-evidence-generate canonical-audit-live-proof-receipt audit-unity audit-risk audit-gates audit-gates-pre-merge audit-gates-pre-release audit-full audit-traps audit-ritual-weekly audit-ritual-monthly audit-ritual-quarterly heartbeat heartbeat-review heartbeat-stage heartbeat-inspect heartbeat-outbox heartbeat-full generate-marketing generate-marketing-automation public-export public-sync tester-up tester-down tester-status tester-autostart-install tester-autostart-uninstall
 
 # Python executable
 PYTHON      ?= python
@@ -136,6 +136,24 @@ run:
 # Start development server
 dev:
 	$(PYTHON) -m guardian.system_init --debug
+
+# Friends-and-family Tester lifecycle. `tester-down` clears the persisted
+# desired-up marker before stopping Compose so the LaunchAgent will not bring
+# the stack back after an intentional shutdown.
+tester-up:
+	bash scripts/ops/codexify_tester.sh up
+
+tester-down:
+	bash scripts/ops/codexify_tester.sh down
+
+tester-status:
+	bash scripts/ops/codexify_tester.sh status
+
+tester-autostart-install:
+	bash scripts/ops/install_codexify_tester_launchagent.sh install
+
+tester-autostart-uninstall:
+	bash scripts/ops/install_codexify_tester_launchagent.sh uninstall
 
 # Start Tauri desktop shell against frontend/src + external backend
 desktop-dev:
