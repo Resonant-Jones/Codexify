@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +35,17 @@ _ERROR_CODES = frozenset(
         "internal_error",
     }
 )
+_VERSION_RE = re.compile(r"^whooshd\.control\.v[0-9]+$")
+
+
+class WhooshdContractVersionError(ValueError):
+    """An explicitly declared, unsupported Whoosh'd response version."""
+
+    code = "contract_version_unsupported"
+
+    def __init__(self, received_version: str):
+        self.received_version = received_version
+        super().__init__(self.code)
 
 
 @dataclass(frozen=True)
@@ -68,20 +80,32 @@ def _header(response: Any, name: str) -> str | None:
     headers = getattr(response, "headers", None)
     if headers is None:
         return None
-    value = headers.get(name) or headers.get(name.lower())
-    return str(value).strip()[:80] if value else None
+    if name in headers:
+        value = headers.get(name)
+    else:
+        value = headers.get(name.lower())
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if len(candidate) > 80 or not _VERSION_RE.fullmatch(candidate):
+        return "invalid"
+    return candidate
 
 
 def parse_whooshd_error(response: Any) -> WhooshdErrorDiagnostic | None:
     """Parse a v1 error only when the response explicitly declares v1.
 
-    A missing or unknown version is intentionally treated as legacy rather
-    than guessed to be v1.  The response body is never copied into the
+    A missing version is intentionally treated as legacy rather than guessed
+    to be v1. An explicit non-v1 version raises a bounded contract error so it
+    cannot enter legacy fallback. The response body is never copied into the
     diagnostic; only bounded machine fields are retained.
     """
 
-    if _header(response, WHOOSHD_CONTROL_VERSION_HEADER) != WHOOSHD_CONTROL_PLANE_VERSION:
+    response_version = _header(response, WHOOSHD_CONTROL_VERSION_HEADER)
+    if response_version is None:
         return None
+    if response_version != WHOOSHD_CONTROL_PLANE_VERSION:
+        raise WhooshdContractVersionError(response_version)
     try:
         body = response.json()
     except Exception:
@@ -127,7 +151,12 @@ def provider_failure_kind(code: str) -> str:
         return "provider_timeout"
     if code in {"upstream_unavailable", "runtime_unavailable", "model_unavailable"}:
         return "transport_error"
-    if code in {"invalid_request", "unsupported_field", "unsupported_capability"}:
+    if code in {
+        "invalid_request",
+        "unsupported_field",
+        "unsupported_capability",
+        "contract_version_unsupported",
+    }:
         return "request_error"
     if code == "model_not_found":
         return "local_model_unavailable"

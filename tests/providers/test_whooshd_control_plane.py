@@ -13,6 +13,7 @@ import guardian.core.supported_profile as supported_profile
 from guardian.providers.whooshd_control_plane import (
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
+    WhooshdContractVersionError,
     parse_whooshd_error,
     provider_failure_kind,
 )
@@ -63,21 +64,39 @@ def test_v1_header_and_body_are_parsed_without_content_fields():
     assert "optional_future_field" not in serialized
 
 
-@pytest.mark.parametrize(
-    "version",
-    [None, "whooshd.control.v0", "whooshd.control.v2"],
-)
-def test_missing_mismatched_and_unsupported_versions_remain_legacy(version):
+def test_missing_version_remains_legacy():
     response = _Response(
         {
             "code": "runtime_unavailable",
             "http_status": 503,
             "retryable": True,
         },
-        version=version,
+        version=None,
     )
 
     assert parse_whooshd_error(response) is None
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["whooshd.control.v0", "whooshd.control.v2", "malformed-secret", "x" * 200],
+)
+def test_explicit_non_v1_version_fails_without_legacy_fallback(version):
+    response = _Response(
+        {
+            "code": "runtime_unavailable",
+            "http_status": 503,
+            "retryable": True,
+            "message": "response-body-secret",
+        },
+        version=version,
+    )
+
+    with pytest.raises(WhooshdContractVersionError) as exc:
+        parse_whooshd_error(response)
+
+    assert exc.value.received_version in {"whooshd.control.v0", "whooshd.control.v2", "invalid"}
+    assert "response-body-secret" not in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -90,6 +109,7 @@ def test_missing_mismatched_and_unsupported_versions_remain_legacy(version):
         ("model_not_found", "local_model_unavailable"),
         ("unsupported_field", "request_error"),
         ("unsupported_capability", "request_error"),
+        ("contract_version_unsupported", "request_error"),
     ],
 )
 def test_codexify_classifies_from_machine_readable_code_only(code, expected):
@@ -162,3 +182,51 @@ def test_call_local_sends_v1_header_and_uses_code_not_body(monkeypatch):
     assert "prompt-body-sentinel" not in serialized
     assert "provider-body-sentinel" not in serialized
     assert "prompt-input-sentinel" not in serialized
+
+
+def test_call_local_explicit_future_version_is_a_bounded_contract_failure(monkeypatch):
+    calls: list[str] = []
+
+    def _post(url, *, json, headers, timeout):
+        _ = (json, headers, timeout)
+        calls.append(url)
+        return _Response(
+            {
+                "http_status": 503,
+                "message": "provider-response-secret",
+                "details": {"body": "response-body-secret"},
+            },
+            version="whooshd.control.v2",
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", _post)
+    monkeypatch.setattr(supported_profile, "get_active_supported_profile", lambda: None)
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
+        LOCAL_LLM_MODEL="gemma-3-4b-it",
+        LOCAL_CHAT_MODEL="gemma-3-4b-it",
+        DEFAULT_LOCAL_MODEL="gemma-3-4b-it",
+        LLM_MODEL="gemma-3-4b-it",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        ai_router.call_local(
+            [{"role": "user", "content": "prompt-secret"}],
+            "gemma-3-4b-it",
+            settings=settings,
+        )
+
+    assert len(calls) == 1
+    assert exc.value.status_code == 502
+    detail = exc.value.detail
+    assert detail["failure_kind"] == "request_error"
+    assert detail["provider_error"] == "contract_version_unsupported"
+    assert detail["whooshd_error"]["received_version"] == "whooshd.control.v2"
+    serialized = json.dumps(detail)
+    assert "provider-response-secret" not in serialized
+    assert "response-body-secret" not in serialized
+    assert "prompt-secret" not in serialized

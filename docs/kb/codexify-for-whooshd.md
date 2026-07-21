@@ -8,6 +8,10 @@ The bounded cross-repository HTTP error contract is documented separately in
 [Whoosh'd Control-Plane v1](../architecture/whooshd-control-plane-v1.md).
 That document is implementation/test evidence, not live-daemon proof.
 
+Missing response-version headers remain the legacy compatibility path. An
+explicit non-v1 response version is a contract failure and must not enter the
+legacy fallback parser.
+
 Every claim is tagged with a confidence level:
 - `confirmed` — backed by live code, architecture docs, or runtime proofs
 - `inferred` — reasonable deduction from available evidence but not explicitly stated

@@ -12,8 +12,9 @@ Whoosh'd-owned responses advertise
 body only when that header is present and exactly supported. The parser reads
 machine fields only: `code`, `http_status`, `retryable`, bounded
 `retry_after_seconds`, `request_id`, and `category`. Unknown optional v1 fields
-are ignored. Missing, mismatched, or unsupported-major headers remain the
-legacy unversioned path; Codexify does not assume v1.
+are ignored. A missing response header remains the legacy unversioned path.
+An explicit mismatched or unsupported-major response header is a bounded
+contract failure; Codexify does not route it through legacy fallback.
 
 Codexify sends the same contract header on local inference requests. It does
 not forward or classify prompts, generated text, tool values, media, headers,
@@ -48,6 +49,11 @@ or raw provider bodies as contract diagnostics.
 `Retry-After` is available in both the body and HTTP header for warming,
 overload, and queue-full errors. Codexify does not automatically retry from
 this contract; existing orchestration policy remains authoritative.
+
+On the incoming request side, Whoosh'd preserves missing-header compatibility,
+accepts exact v1, and rejects explicit non-v1 values with
+`contract_version_unsupported` and HTTP 400. The response still advertises v1;
+only a bounded safe version identifier is retained.
 
 ## Streaming terminal rule
 

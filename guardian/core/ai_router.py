@@ -38,6 +38,7 @@ from guardian.providers.deepseek_adapter import (
 from guardian.providers.whooshd_control_plane import (
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
+    WhooshdContractVersionError,
     WhooshdErrorDiagnostic,
     parse_whooshd_error,
     provider_failure_kind as whooshd_provider_failure_kind,
@@ -1404,6 +1405,43 @@ def _local_provider_failure_detail(
     return detail
 
 
+def _whooshd_contract_version_failure(
+    *,
+    settings: Settings,
+    model: str,
+    endpoint: str,
+    runtime_policy: LocalRuntimePolicy,
+    received_version: str,
+    attempted_endpoints: list[str] | None = None,
+    attempted_base_urls: list[str] | None = None,
+) -> HTTPException:
+    """Build a bounded failure for an explicitly unsupported provider version."""
+
+    code = "contract_version_unsupported"
+    return HTTPException(
+        status_code=502,
+        detail=_local_provider_failure_detail(
+            settings=settings,
+            model=model,
+            endpoint=endpoint,
+            failure_kind=whooshd_provider_failure_kind(code),
+            message="Whoosh'd control-plane version is unsupported.",
+            provider_error=code,
+            runtime_policy=runtime_policy,
+            attempted_endpoints=attempted_endpoints,
+            attempted_base_urls=attempted_base_urls,
+            whooshd_error={
+                "contract_version": WHOOSHD_CONTROL_PLANE_VERSION,
+                "code": code,
+                "http_status": 400,
+                "retryable": False,
+                "category": "request_contract",
+                "received_version": received_version,
+            },
+        ),
+    )
+
+
 def _image_turn_vision_unsupported_detail(
     *,
     provider: str,
@@ -2294,7 +2332,20 @@ def call_local(
                 continue
 
             last_transport_url = url
-            whooshd_error = parse_whooshd_error(resp)
+            try:
+                whooshd_error = parse_whooshd_error(resp)
+            except WhooshdContractVersionError as exc:
+                raise _whooshd_contract_version_failure(
+                    settings=settings,
+                    model=model,
+                    endpoint=url,
+                    runtime_policy=runtime_policy,
+                    received_version=exc.received_version,
+                    attempted_endpoints=[
+                        f"{url} (contract_version_unsupported)"
+                    ],
+                    attempted_base_urls=attempted_base_urls,
+                ) from exc
             if whooshd_error is not None:
                 last_whooshd_error = whooshd_error
                 attempt_failures.append(
@@ -2588,7 +2639,21 @@ def stream_local(
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
 
-                whooshd_error = parse_whooshd_error(resp)
+                try:
+                    whooshd_error = parse_whooshd_error(resp)
+                except WhooshdContractVersionError as exc:
+                    resp.close()
+                    raise _whooshd_contract_version_failure(
+                        settings=settings,
+                        model=model,
+                        endpoint=url,
+                        runtime_policy=runtime_policy,
+                        received_version=exc.received_version,
+                        attempted_endpoints=[
+                            f"{url} (contract_version_unsupported)"
+                        ],
+                        attempted_base_urls=attempted_base_urls,
+                    ) from exc
                 if whooshd_error is not None:
                     last_whooshd_error = whooshd_error
                     attempt_failures.append(
