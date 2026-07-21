@@ -49,6 +49,13 @@ from guardian.routes.threads import api_router as api_threads_router
 from guardian.routes.threads import router as threads_router
 from guardian.routes.workspace import router as workspace_router
 from guardian.sync.api import router as sync_router
+from guardian.utils.log_safety import (
+    install_safe_logging,
+    sanitize_log_text,
+    sanitize_record,
+)
+
+install_safe_logging()
 
 # --- Rate Limiting Configuration ---
 _rate_limits_env = os.getenv("GUARDIAN_RATE_LIMITS", "100/minute").strip()
@@ -289,11 +296,13 @@ class ScrubFormatter(logging.Formatter):
         return out
 
     def format(self, record: logging.LogRecord) -> str:
-        rendered = super().format(record)
-        if not SCRUB_ENABLED:
-            return rendered
+        # Sanitize the record as well as the rendered string.  The record
+        # boundary protects handlers that do not use this formatter; the
+        # rendered pass preserves the existing path scrub behavior.
+        sanitize_record(record)
+        rendered = sanitize_log_text(super().format(record))
         try:
-            return self._scrub(rendered)
+            return self._scrub(rendered) if SCRUB_ENABLED else rendered
         except Exception:
             # never break logging due to scrubbing
             return rendered

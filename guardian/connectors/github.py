@@ -8,7 +8,10 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from guardian.utils.log_safety import install_safe_logging
+
 API_ROOT = "https://api.github.com"
+install_safe_logging()
 LOGGER = logging.getLogger(__name__)
 
 

@@ -41,7 +41,9 @@ from guardian.protocol_tokens import (
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
 )
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENAI_BASE = "https://api.openai.com"
@@ -2327,10 +2329,16 @@ def call_local(
         )
         attempt_summary = _summarize_local_attempt_failures(attempt_failures)
         detail = f"{detail} Attempted endpoints: {attempt_summary}"
-        if log_exceptions:
-            logger.error(detail)
-        else:
-            logger.warning(detail)
+        log_method = logger.error if log_exceptions else logger.warning
+        log_method(
+            "local inference request failed provider=%s model=%s "
+            "failure_kind=%s transport=%s attempt_count=%s",
+            "local",
+            model,
+            _provider_transport_failure_kind(last_transport_error),
+            _classify_transport_error(last_transport_error),
+            len(attempt_failures),
+        )
         raise HTTPException(
             status_code=502,
             detail=_local_provider_failure_detail(
@@ -2371,10 +2379,16 @@ def call_local(
                 "all supported local endpoints returned HTTP 404"
             ),
         )
-        if log_exceptions:
-            logger.error(detail_payload["message"])
-        else:
-            logger.warning(detail_payload["message"])
+        log_method = logger.error if log_exceptions else logger.warning
+        log_method(
+            "local inference unavailable provider=%s model=%s failure_kind=%s "
+            "status_code=%s attempt_count=%s",
+            "local",
+            model,
+            LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND,
+            404,
+            len(attempt_failures),
+        )
         raise HTTPException(status_code=502, detail=detail_payload)
     else:
         detail = f"Local inference request failed for model '{model}'."
@@ -2382,10 +2396,15 @@ def call_local(
     attempt_summary = _summarize_local_attempt_failures(attempt_failures)
     detail = f"{detail} Attempted endpoints: {attempt_summary}"
 
-    if log_exceptions:
-        logger.error(detail)
-    else:
-        logger.warning(detail)
+    log_method = logger.error if log_exceptions else logger.warning
+    log_method(
+        "local inference request failed provider=%s model=%s failure_kind=%s "
+        "attempt_count=%s",
+        "local",
+        model,
+        "request_failed",
+        len(attempt_failures),
+    )
     raise HTTPException(status_code=502, detail=detail)
 
 
@@ -2729,7 +2748,14 @@ def stream_local(
             )
             summary = _summarize_local_attempt_failures(attempt_failures)
             detail = f"{detail} Attempted endpoints: {summary}"
-            logger.warning(detail)
+            logger.warning(
+                "local streaming inference failed provider=%s model=%s "
+                "failure_kind=%s attempt_count=%s",
+                "local",
+                model,
+                _provider_transport_failure_kind(exc),
+                len(attempt_failures),
+            )
             raise HTTPException(
                 status_code=502,
                 detail=_local_provider_failure_detail(
@@ -2811,11 +2837,13 @@ def call_groq(
     if not (200 <= response.status_code < 300):
         detail = _extract_provider_error_message(response, secret=api_key)
         logger.error(
-            "GROQ backend non-2xx model=%s endpoint=%s status=%s detail=%s",
+            "GROQ backend non-2xx model=%s endpoint=%s status=%s "
+            "failure_kind=%s provider_error_present=%s",
             model,
             url,
             response.status_code,
-            detail,
+            "provider_http_error",
+            bool(detail),
         )
         raise HTTPException(
             status_code=502,
@@ -2937,12 +2965,14 @@ def _call_openai_compatible_chat(
     if not (200 <= response.status_code < 300):
         detail = _extract_provider_error_message(response, secret=clean_api_key)
         logger.error(
-            "%s backend non-2xx model=%s endpoint=%s status=%s detail=%s",
+            "%s backend non-2xx model=%s endpoint=%s status=%s "
+            "failure_kind=%s provider_error_present=%s",
             provider_display_name,
             model,
             url,
             response.status_code,
-            detail,
+            "provider_http_error",
+            bool(detail),
         )
         raise HTTPException(
             status_code=502,

@@ -79,7 +79,11 @@ def ollama_stream(
             try:
                 chunk = json.loads(raw_line)
             except json.JSONDecodeError:
-                logger.debug("Skipping non-JSON Ollama line: %r", raw_line)
+                logger.debug(
+                    "ollama_stream_invalid_frame chars=%s content_present=%s",
+                    len(raw_line),
+                    bool(raw_line),
+                )
                 continue
 
             if chunk.get("done"):

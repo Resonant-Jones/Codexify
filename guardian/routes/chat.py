@@ -114,7 +114,9 @@ from guardian.queue.turn_lock import (
 from guardian.routes.health import _classify_chat_worker_heartbeat
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."

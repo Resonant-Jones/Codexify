@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Tuple
 
 import click
 
+from guardian.utils.log_safety import install_safe_logging
+
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 # --- Import your roots ---
@@ -249,7 +252,11 @@ def write_tools_manifest(
     tools = generate_tools_manifest()
     with open(path, "w") as f:
         json.dump(tools, f, indent=2)
-    logger.info(f"Wrote tools manifest to {path} with {len(tools)} tools.")
+    logger.info(
+        "tools_manifest_written tools=%s path_present=%s",
+        len(tools),
+        bool(path),
+    )
 
 
 if __name__ == "__main__":

@@ -16,9 +16,11 @@ from guardian.tools.policy import (
     get_policy_mode,
     is_declared_non_docker_mode,
 )
+from guardian.utils.log_safety import install_safe_logging
 
 _PATH_TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 _FORWARDED_AUTH_HEADERS = ("authorization", "x-api-key", "x-user-id", "cookie")
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 RECURSION_BLOCKED_PREFIXES = ("/api/guardian/commands/",)

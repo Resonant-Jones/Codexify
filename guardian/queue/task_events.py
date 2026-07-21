@@ -16,7 +16,9 @@ from guardian.protocol_tokens import (
 )
 from guardian.queue.redis_queue import _with_reconnect  # type: ignore
 from guardian.queue.redis_queue import get_queue_redis_client
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 _STREAM_PREFIX = "codexify:task"

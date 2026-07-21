@@ -10,6 +10,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from guardian.utils.log_safety import install_safe_logging
+
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 try:

@@ -25,6 +25,7 @@ from guardian.connectors.external_transport_policy import (
     ExternalPolicyRule,
     evaluate_external_transport_policy,
 )
+from guardian.utils.log_safety import install_safe_logging
 
 # PostgreSQL imports for ingest endpoint
 try:
@@ -33,6 +34,7 @@ try:
 except ImportError:
     psycopg2 = None  # type: ignore
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 # Import shared dependencies from core module (avoids circular imports)
@@ -48,7 +50,10 @@ try:
         require_api_key,
     )
 except ImportError as e:
-    logger.warning(f"[connectors] Import warning: {e}")
+    logger.warning(
+        "[connectors] import failed exception_type=%s",
+        e.__class__.__name__,
+    )
     chatlog_db = None
     require_api_key = lambda x: x
     get_current_user = lambda: "local"

@@ -11,7 +11,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from guardian.queue.redis_queue import _with_reconnect
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TTL_SECONDS = 180

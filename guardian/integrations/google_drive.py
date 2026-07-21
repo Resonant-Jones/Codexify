@@ -43,7 +43,9 @@ def build_drive_service(logger=None):
         if cpath.exists() and is_service_account(cpath):
             if logger:
                 logger.info(
-                    "Drive auth: using Service Account at %s", str(cpath)
+                    "drive_auth_ready credential_kind=%s path_present=%s",
+                    "service_account",
+                    True,
                 )
             creds = SACredentials.from_service_account_file(
                 str(cpath), scopes=SCOPES
@@ -55,9 +57,11 @@ def build_drive_service(logger=None):
         if token_json.exists():
             if logger:
                 logger.info(
-                    "Drive auth: using OAuth token at %s (client at %s)",
-                    str(token_json),
-                    str(cpath),
+                    "drive_auth_ready credential_kind=%s token_path_present=%s "
+                    "client_path_present=%s",
+                    "oauth",
+                    True,
+                    True,
                 )
             creds = OAuthCredentials.from_authorized_user_file(
                 str(token_json), SCOPES
@@ -74,8 +78,9 @@ def build_drive_service(logger=None):
     if token_json.exists():
         if logger:
             logger.info(
-                "Drive auth: using OAuth token at %s (no client secret provided)",
-                str(token_json),
+                "drive_auth_ready credential_kind=%s token_path_present=%s",
+                "oauth",
+                True,
             )
         creds = OAuthCredentials.from_authorized_user_file(
             str(token_json), SCOPES
