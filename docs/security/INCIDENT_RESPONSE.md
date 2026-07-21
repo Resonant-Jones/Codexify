@@ -2,6 +2,9 @@
 
 This playbook defines the Codexify response flow when credentials are exposed in source control, logs, or artifacts.
 
+For the current runtime logging contract and bounded-metadata inventory, see
+[`content-credential-logging.md`](./content-credential-logging.md).
+
 ## 1) Identify Compromised Credentials
 Treat credentials as compromised if they appear in any commit, PR diff, CI artifact, screenshots, or shared logs.
 

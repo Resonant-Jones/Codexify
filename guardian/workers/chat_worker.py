@@ -89,7 +89,9 @@ from guardian.voice.audio_assets import (
     upsert_message_audio_asset_status,
 )
 from guardian.voice.runtime import assistant_message_audio_autogenerate_enabled
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 build_guardian_system_prompt = _chat_completion_service.build_guardian_system_prompt
@@ -1814,7 +1816,11 @@ def _run_chat_completion_task_compat(
         payload_summary["final_provider"] = final_provider
         payload_summary["final_model"] = final_model
 
-    logger.debug("[llm] raw_output=%s", assistant_text)
+    logger.debug(
+        "[llm] assistant_output_received chars=%s content_present=%s",
+        len(assistant_text or ""),
+        bool(str(assistant_text or "").strip()),
+    )
     assistant_text = extract_assistant_response(assistant_text)
 
     if not assistant_text.strip():

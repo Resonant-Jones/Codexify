@@ -111,6 +111,7 @@ from guardian.queue.redis_queue import (
 )
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.vector.store import VectorStore
+from guardian.utils.log_safety import install_safe_logging
 
 try:  # pragma: no cover - Remote Recall is an optional, gated lane
     from guardian.web.remote_recall import (
@@ -126,6 +127,7 @@ try:  # pragma: no cover - import is runtime-scoped for workspace freshness
 except Exception:  # pragma: no cover - fallback when embedder import fails
     _WorkspaceVectorEmbedder = None
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 RETRIEVAL_PLAN_TRACE_KEY = "retrieval_plan"
 DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY = "debug_latest_completion_task_id"

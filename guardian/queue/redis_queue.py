@@ -19,7 +19,9 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guardian.protocol_tokens import ErrorCode
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"

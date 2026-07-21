@@ -26,7 +26,9 @@ from guardian.ws.protocol import (
     parse_request_frame,
 )
 from guardian.ws.rate_limiter import TokenBucketRateLimiter
+from guardian.utils.log_safety import install_safe_logging
 
+install_safe_logging()
 logger = logging.getLogger(__name__)
 
 PAYLOAD_TOO_LARGE_CLOSE_CODE = 4409
