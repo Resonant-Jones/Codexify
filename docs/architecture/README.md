@@ -1,7 +1,7 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
 Start here note: if you need live release-state interpretation instead of structure, begin with [`00-current-state.md`](./00-current-state.md).
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -33,6 +33,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities.
+- [`chrome-side-panel-client.md`](./chrome-side-panel-client.md): architecture and trust boundary for the private unpacked Chrome side-panel chat client; internal-only and outside the supported beta release surface.
 - [`canonical-live-proof-receipt-contract.md`](./canonical-live-proof-receipt-contract.md): subordinate contract for the bounded read-only supported-Compose live observation receipt; not manifest acceptance, trusted `latest`, or release approval.
 - [Axis Node](../axis-node/README.md): repo-native shared reasoning infrastructure for source authority, evidence-backed task generation, and human collaboration. It is docs/context infrastructure only; it does not implement a runtime agent or widen the supported beta surface. Route any future Axis harness work through [ADR-046](./adr/046-axis-node-portable-reasoning-interface-contract.md) and the relevant Guardian/Pi execution contracts.
 
