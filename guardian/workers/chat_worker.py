@@ -1729,7 +1729,12 @@ def _run_chat_completion_task_compat(
         )
         assistant_output = str(completion_result.get("assistant_text") or "")
         if assistant_output:
+            had_streaming_output = streaming_emitted
             _publish_streaming("body")
+            if token_callback and not had_streaming_output:
+                visible_output = extract_assistant_response(assistant_output)
+                if visible_output:
+                    token_callback(visible_output)
         return assistant_output
 
     fallback_reason: str | None = None

@@ -2,10 +2,12 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import HTTPException
 
-from guardian.core.config import Settings
 from guardian.core.ai_router import ProviderResponse
+from guardian.core.completion_terminal import successful_non_stream_terminal
+from guardian.core.config import Settings
 from guardian.providers.whooshd_control_plane import parse_whooshd_runtime_provenance
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
@@ -45,6 +47,45 @@ def _build_task(
     return task
 
 
+@pytest.fixture(autouse=True)
+def _sync_worker_compat_seams():
+    """Reset compatibility aliases before each test, including patched builders."""
+    chat_worker._sync_build_messages_compat_seams()
+
+
+def _successful_task_result(
+    *,
+    message_id: int,
+    provider: str,
+    model: str,
+    assistant_text: str | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "message_id": message_id,
+        "provider": provider,
+        "model": model,
+        "persistence_outcome": "persisted",
+        "terminal_evidence": successful_non_stream_terminal(
+            provider=provider,
+            model=model,
+        ).as_dict(),
+    }
+    if assistant_text is not None:
+        result["assistant_text"] = assistant_text
+    return result
+
+
+def _successful_stream(
+    text: str,
+    *,
+    provider: str,
+    model: str,
+):
+    if text:
+        yield text
+    return successful_non_stream_terminal(provider=provider, model=model)
+
+
 def _stubbed_success_setup(monkeypatch):
     published: list[tuple[str, dict]] = []
     _isolate_turn_anchor(monkeypatch)
@@ -69,11 +110,11 @@ def _stubbed_success_setup(monkeypatch):
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
-        lambda *_a, **_k: {
-            "message_id": 501,
-            "provider": "groq",
-            "model": "moonshotai/kimi-k2-instruct-0905",
-        },
+        lambda *_a, **_k: _successful_task_result(
+            message_id=501,
+            provider="groq",
+            model="moonshotai/kimi-k2-instruct-0905",
+        ),
     )
     monkeypatch.setattr(
         chat_worker,
@@ -171,11 +212,11 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
 
     def _run_completion(*_args, **_kwargs):
         completion_calls["count"] += 1
-        return {
-            "message_id": 501,
-            "provider": "groq",
-            "model": "moonshotai/kimi-k2-instruct-0905",
-        }
+        return _successful_task_result(
+            message_id=501,
+            provider="groq",
+            model="moonshotai/kimi-k2-instruct-0905",
+        )
 
     monkeypatch.setattr(
         chat_worker, "run_chat_completion_task", _run_completion
@@ -229,11 +270,11 @@ def test_eval_enqueue_failure_is_non_fatal(monkeypatch, caplog):
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
-        lambda *_a, **_k: {
-            "message_id": 501,
-            "provider": "groq",
-            "model": "moonshotai/kimi-k2-instruct-0905",
-        },
+        lambda *_a, **_k: _successful_task_result(
+            message_id=501,
+            provider="groq",
+            model="moonshotai/kimi-k2-instruct-0905",
+        ),
     )
     monkeypatch.setattr(
         chat_worker,
@@ -412,7 +453,11 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     monkeypatch.setattr(
         chat_worker._chat_completion_service,
         "stream_local",
-        lambda *a, **k: "rescued locally",
+        lambda *a, **k: _successful_stream(
+            "rescued locally",
+            provider="local",
+            model=str(a[1] if len(a) > 1 else k.get("model") or "local"),
+        ),
     )
 
     def _chat_with_ai(_messages, *, model=None, provider=None, **_kwargs):
@@ -448,7 +493,7 @@ def test_auto_cloud_failure_rescues_to_local_once(monkeypatch):
     assert result["attempted_provider"] == "groq"
     assert result["upstream_status"] == 404
     assert result["fallback_reason"] == "cloud_failure_local_rescue"
-    assert result["execution"] == {
+    assert result["payload_summary"]["execution"] == {
         "attempted_provider": "groq",
         "attempted_model": "moonshotai/kimi-k2-instruct-0905",
         "final_provider": "local",
@@ -538,9 +583,27 @@ def test_completion_result_includes_execution_metadata_without_fallback(
 
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
     monkeypatch.setattr(
+        chat_worker,
+        "get_settings",
+        lambda: Settings(
+            LLM_PROVIDER="local",
+            ALLOW_CLOUD_PROVIDERS=True,
+            CODEXIFY_LOCAL_ONLY_MODE=False,
+            CODEXIFY_EGRESS_ALLOWLIST="groq,openai,minimax",
+            LOCAL_CHAT_MODEL="qwen3.5:27b",
+            LOCAL_LLM_MODEL="qwen3.5:27b",
+            DEFAULT_LOCAL_MODEL="qwen3.5:27b",
+            LLM_MODEL="qwen3.5:27b",
+        ),
+    )
+    monkeypatch.setattr(
         chat_worker._chat_completion_service,
         "stream_local",
-        lambda *a, **k: "ready",
+        lambda *a, **k: _successful_stream(
+            "ready",
+            provider="local",
+            model=str(a[1] if len(a) > 1 else k.get("model") or "local"),
+        ),
     )
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
@@ -554,7 +617,7 @@ def test_completion_result_includes_execution_metadata_without_fallback(
 
     result = chat_worker._run_chat_completion_task_compat(task)
 
-    assert result["execution"] == {
+    assert result["payload_summary"]["execution"] == {
         "attempted_provider": "local",
         "attempted_model": "qwen3.5:27b",
         "final_provider": "local",
@@ -731,15 +794,14 @@ def test_generation_success_but_persistence_failure_is_non_authoritative(
 
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
+        chat_worker,
+        "stream_local",
+        lambda *a, **k: _successful_stream(
+            "",
+            provider="local",
+            model=str(a[1] if len(a) > 1 else k.get("model") or "local"),
+        ),
     )
     monkeypatch.setattr(chat_worker, "chat_with_ai", lambda *_a, **_k: "ready")
 
@@ -791,8 +853,8 @@ def test_completion_persists_stripped_response_boundary(monkeypatch):
     async def _build_messages(_task):
         return (
             [{"role": "user", "content": "hello"}],
-            "local",
-            "qwen3.5:27b",
+            "groq",
+            "moonshotai/kimi-k2-instruct-0905",
             {},
             None,
             None,
@@ -814,16 +876,6 @@ def test_completion_persists_stripped_response_boundary(monkeypatch):
         ),
     )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
-    monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
-    )
     monkeypatch.setattr(
         chat_worker,
         "chat_with_ai",
@@ -839,8 +891,8 @@ def test_completion_persists_stripped_response_boundary(monkeypatch):
     task = ChatCompletionTask(
         user_id="local",
         thread_id=1,
-        provider="local",
-        model="qwen3.5:27b",
+        provider="groq",
+        model="moonshotai/kimi-k2-instruct-0905",
         selection_source="explicit",
     )
 
@@ -868,13 +920,22 @@ def test_stream_completion_ignores_reasoning_chunks(monkeypatch):
 
     class _ChunkStream:
         def __iter__(self):
-            return iter(
-                [
-                    {"delta": {"thinking": "private", "content": "Hello"}},
-                    {"delta": {"thinking": "hidden"}},
-                    {"delta": {"content": " world"}},
-                ]
-            )
+            raw_chunks = [
+                {"delta": {"thinking": "private", "content": "Hello"}},
+                {"delta": {"thinking": "hidden"}},
+                {"delta": {"content": " world"}},
+            ]
+
+            def _chunks():
+                for raw_chunk in raw_chunks:
+                    content = raw_chunk.get("delta", {}).get("content")
+                    if content:
+                        yield content
+                return successful_non_stream_terminal(
+                    provider="local", model="qwen3.5:27b"
+                )
+
+            return _chunks()
 
         def close(self):
             return None
@@ -909,41 +970,35 @@ def test_completion_fallback_response_ignores_reasoning_fields(monkeypatch):
     async def _build_messages(_task):
         return (
             [{"role": "user", "content": "hello"}],
-            "local",
-            "qwen3.5:27b",
+            "groq",
+            "moonshotai/kimi-k2-instruct-0905",
             {},
             None,
             None,
             {},
         )
 
-    class _EmptyStream:
-        def __iter__(self):
-            return iter(())
-
-        def close(self):
-            return None
-
     monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
-    monkeypatch.setattr(
-        chat_worker, "stream_local", lambda *a, **k: _EmptyStream()
-    )
     monkeypatch.setattr(
         chat_worker,
         "chat_with_ai",
-        lambda *_a, **_k: {
-            "content": "visible fallback",
-            "thinking": "private reasoning",
-            "reasoning": "internal only",
-        },
+        lambda *_a, **_k: ProviderResponse(
+            "visible fallback",
+            raw_payload={
+                "content": "visible fallback",
+                "thinking": "private reasoning",
+                "reasoning": "internal only",
+            },
+            provider="groq",
+        ),
     )
 
     callback_tokens: list[str] = []
     task = ChatCompletionTask(
         user_id="local",
         thread_id=1,
-        provider="local",
-        model="qwen3.5:27b",
+        provider="groq",
+        model="moonshotai/kimi-k2-instruct-0905",
         selection_source="explicit",
     )
 
@@ -1019,12 +1074,12 @@ def test_completion_schedules_background_audio_generation_without_blocking(
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
-        lambda *_a, **_k: {
-            "message_id": 777,
-            "assistant_text": "hello from the assistant",
-            "provider": "groq",
-            "model": "moonshotai/kimi-k2-instruct-0905",
-        },
+        lambda *_a, **_k: _successful_task_result(
+            message_id=777,
+            assistant_text="hello from the assistant",
+            provider="groq",
+            model="moonshotai/kimi-k2-instruct-0905",
+        ),
     )
 
     chat_worker._run_chat_task(task)
@@ -1063,12 +1118,12 @@ def test_audio_generation_schedule_failure_does_not_fail_text_reply(
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
-        lambda *_a, **_k: {
-            "message_id": 778,
-            "assistant_text": "still persist the reply",
-            "provider": "groq",
-            "model": "moonshotai/kimi-k2-instruct-0905",
-        },
+        lambda *_a, **_k: _successful_task_result(
+            message_id=778,
+            assistant_text="still persist the reply",
+            provider="groq",
+            model="moonshotai/kimi-k2-instruct-0905",
+        ),
     )
 
     chat_worker._run_chat_task(_build_task(thread_id=32))
