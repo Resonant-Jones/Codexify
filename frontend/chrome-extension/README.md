@@ -70,6 +70,16 @@ Disconnect best-effort revokes a remote session, removes the persistent profile/
 
 Removing the extension also clears its local and session-scoped storage data.
 
+## Markdown rendering
+
+Assistant messages are rendered as safe Markdown using the same `react-markdown` + `remark-gfm` stack as the main Codexify frontend.
+
+Supported features: paragraphs, soft and explicit line breaks, headings, bold, italics, strikethrough, ordered and unordered lists (including nested lists), inline code, fenced code blocks, blockquotes, links, horizontal rules, and GFM tables.
+
+Raw HTML is intentionally disabled — the renderer does not execute scripts, event handlers, embedded iframes, or arbitrary HTML supplied by the model. Unsafe link protocols (`javascript:`, `data:`, etc.) are stripped. Safe external links open in a new tab with `rel="noopener noreferrer"`.
+
+User-authored messages remain literal and are not reinterpreted as Markdown.
+
 ## Known MVP limitations
 
 - One extension-local connection profile only.
