@@ -37,6 +37,7 @@ import {
   type RemoteLoginCredentials,
   type TaskLifecycleEvent,
 } from "./codexifyExtensionApi"
+import { MarkdownMessage } from "./MarkdownMessage"
 
 type BootState = "loading" | "disconnected" | "connected"
 type ConnectionState =
@@ -1001,7 +1002,11 @@ export function SidePanelApp({
               data-message-id={message.id}
             >
               <span className="message-role">{message.role === "assistant" ? "Codexify" : "You"}</span>
-              <p>{message.content}</p>
+              {message.role === "assistant" ? (
+                <MarkdownMessage content={message.content} className="codexify-markdown" />
+              ) : (
+                <p>{message.content}</p>
+              )}
             </article>
           ))}
           <div ref={messageEndRef} />

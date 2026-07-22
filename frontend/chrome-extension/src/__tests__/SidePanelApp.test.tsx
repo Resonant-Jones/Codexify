@@ -124,7 +124,7 @@ const assistantMessage: CodexifyMessage = {
   id: "message-assistant",
   threadId: 7,
   role: "assistant",
-  content: "Persisted assistant reply",
+  content: "Persisted assistant reply with **bold** and `code`.",
   createdAt: "2026-07-21T12:00:02.000Z",
   turnId: "turn-unit",
 }
@@ -278,7 +278,7 @@ describe("Codexify Chrome side panel", () => {
       />,
     )
 
-    expect(await screen.findByText("Persisted assistant reply")).toBeVisible()
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
     expect(apiFactory).toHaveBeenCalledWith(
       expect.objectContaining({ authMode: "remote" }),
       remoteSession,
@@ -319,11 +319,58 @@ describe("Codexify Chrome side panel", () => {
       />,
     )
 
-    expect(await screen.findByText("Persisted assistant reply")).toBeVisible()
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
     expect(screen.getByText("Connected")).toBeVisible()
     expect(screen.getByRole("button", { name: /Existing thread/ })).toBeVisible()
     expect(screen.queryByDisplayValue(placeholderCredential())).not.toBeInTheDocument()
     expect(api.verifyConnection).toHaveBeenCalledTimes(1)
+
+    // Assistant messages render through MarkdownMessage.
+    expect(document.querySelector(".codexify-markdown")).toBeTruthy()
+    // Bold markdown is rendered as <strong>.
+    expect(document.querySelector(".codexify-markdown strong")).toBeTruthy()
+    // Inline code is rendered as <code>.
+    expect(document.querySelector(".codexify-markdown code")).toBeTruthy()
+
+    // User messages remain literal — no codexify-markdown wrapper.
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle).toBeTruthy()
+    expect(userArticle!.querySelector(".codexify-markdown")).toBeNull()
+    expect(userArticle!.querySelector("p")).toBeTruthy()
+    expect(userArticle!.textContent).toContain("Persisted user message")
+  })
+
+  it("renders assistant messages as Markdown and keeps user messages literal", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const mdAssistant: CodexifyMessage = {
+      ...assistantMessage,
+      content: "**Bold** and *italic* assistant reply.",
+    }
+    const api = apiMock({
+      listMessages: vi.fn(async () => [userMessage, mdAssistant]),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText(/Bold/)).toBeVisible()
+
+    // Assistant article has the codexify-markdown container.
+    const assistantArticle = document.querySelector('[data-message-id="message-assistant"]')
+    expect(assistantArticle!.querySelector(".codexify-markdown")).toBeTruthy()
+    expect(assistantArticle!.querySelector("strong")).toHaveTextContent("Bold")
+    expect(assistantArticle!.querySelector("em")).toHaveTextContent("italic")
+
+    // User article has a plain <p>, not the Markdown renderer.
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle!.querySelector(".codexify-markdown")).toBeNull()
+    expect(userArticle!.querySelector("p")).toBeTruthy()
   })
 
   it("rejects an empty composer submission without calling the backend", async () => {
@@ -389,8 +436,11 @@ describe("Codexify Chrome side panel", () => {
       })
     })
 
-    expect(await screen.findByText("Persisted assistant reply")).toBeVisible()
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
     expect(screen.getByText("Completed")).toBeVisible()
+
+    // After terminal completion, the assistant message still uses the Markdown renderer.
+    expect(document.querySelector(".codexify-markdown")).toBeTruthy()
   })
 
   it("disconnects by clearing the stored credential and granted origin", async () => {
