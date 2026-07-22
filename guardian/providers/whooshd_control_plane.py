@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -11,6 +11,9 @@ WHOOSHD_CONTROL_PLANE_VERSION = "whooshd.control.v1"
 WHOOSHD_CONTROL_VERSION_HEADER = "X-Whooshd-Contract-Version"
 WHOOSHD_RUNTIME_PROVENANCE_SCHEMA = "whooshd.runtime.v1"
 WHOOSHD_RUNTIME_PROVENANCE_HEADER = "X-Whooshd-Runtime-Provenance"
+WHOOSHD_REQUEST_ID_HEADER = "X-Whooshd-Request-ID"
+CODEXIFY_TASK_ID_HEADER = "X-Codexify-Task-ID"
+CODEXIFY_ATTEMPT_ID_HEADER = "X-Codexify-Attempt-ID"
 
 _ERROR_CODES = frozenset(
     {
@@ -60,6 +63,10 @@ _SAFE_LIFECYCLE_STATES = frozenset(
 )
 _RUNTIME_FIELD_NAMES = (
     "request_id",
+    "correlation_id",
+    "codexify_task_id",
+    "codexify_attempt_id",
+    "whooshd_request_id",
     "requested_model_id",
     "advertised_model_id",
     "resolved_model_id",
@@ -76,6 +83,7 @@ _RUNTIME_FIELD_NAMES = (
 )
 _PRIVATE_OR_URL_RE = re.compile(r"(?:^[/~]|^[A-Za-z]:[\\/]|://|[?&#])")
 _SAFE_RUNTIME_TEXT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
+_SAFE_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 class WhooshdContractVersionError(ValueError):
@@ -99,6 +107,10 @@ class WhooshdErrorDiagnostic:
     retry_after_seconds: float | None
     request_id: str | None
     category: str | None
+    correlation_id: str | None = None
+    codexify_task_id: str | None = None
+    codexify_attempt_id: str | None = None
+    whooshd_request_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -113,6 +125,14 @@ class WhooshdErrorDiagnostic:
             payload["request_id"] = self.request_id
         if self.category:
             payload["category"] = self.category
+        for key, value in {
+            "correlation_id": self.correlation_id,
+            "codexify_task_id": self.codexify_task_id,
+            "codexify_attempt_id": self.codexify_attempt_id,
+            "whooshd_request_id": self.whooshd_request_id,
+        }.items():
+            if value:
+                payload[key] = value
         return payload
 
 
@@ -135,6 +155,10 @@ class WhooshdRuntimeProvenance:
     batched: bool
     model_lifecycle: str | None
     whooshd_version: str | None
+    correlation_id: str | None = None
+    codexify_task_id: str | None = None
+    codexify_attempt_id: str | None = None
+    whooshd_request_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -155,6 +179,10 @@ class WhooshdRuntimeProvenance:
                 "batched": self.batched,
                 "model_lifecycle": self.model_lifecycle,
                 "whooshd_version": self.whooshd_version,
+                "correlation_id": self.correlation_id,
+                "codexify_task_id": self.codexify_task_id,
+                "codexify_attempt_id": self.codexify_attempt_id,
+                "whooshd_request_id": self.whooshd_request_id,
             }.items()
             if value is not None
         }
@@ -175,6 +203,13 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
             return None
         value = value.strip()
         if not value or len(value) > 256 or not _SAFE_RUNTIME_TEXT_RE.fullmatch(value):
+            return None
+        if name in {
+            "correlation_id",
+            "codexify_task_id",
+            "codexify_attempt_id",
+            "whooshd_request_id",
+        } and not _SAFE_CORRELATION_ID_RE.fullmatch(value):
             return None
         if _PRIVATE_OR_URL_RE.search(value):
             return None
@@ -236,7 +271,47 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
         batched=bool_values["batched"],
         model_lifecycle=lifecycle,
         whooshd_version=text_values["whooshd_version"],
+        correlation_id=text_values["correlation_id"],
+        codexify_task_id=text_values["codexify_task_id"],
+        codexify_attempt_id=text_values["codexify_attempt_id"],
+        whooshd_request_id=text_values["whooshd_request_id"],
     )
+
+
+def _safe_correlation_id(value: Any) -> str | None:
+    candidate = value.strip() if isinstance(value, str) else ""
+    return candidate if _SAFE_CORRELATION_ID_RE.fullmatch(candidate) else None
+
+
+def _response_header(response: Any, name: str) -> str | None:
+    headers = getattr(response, "headers", None) or {}
+    value = headers.get(name) or headers.get(name.lower())
+    return _safe_correlation_id(str(value).strip()) if value is not None else None
+
+
+def parse_whooshd_response_correlation(response: Any) -> dict[str, str]:
+    """Read only bounded correlation headers from a Whoosh'd response."""
+
+    values = {
+        "correlation_id": _response_header(response, "X-Request-ID"),
+        "whooshd_request_id": _response_header(response, WHOOSHD_REQUEST_ID_HEADER),
+        "codexify_task_id": _response_header(response, CODEXIFY_TASK_ID_HEADER),
+        "codexify_attempt_id": _response_header(
+            response, CODEXIFY_ATTEMPT_ID_HEADER
+        ),
+    }
+    return {key: value for key, value in values.items() if value}
+
+
+def merge_whooshd_response_correlation(
+    provenance: WhooshdRuntimeProvenance | None,
+    response: Any,
+) -> WhooshdRuntimeProvenance | None:
+    """Merge safe response headers without trusting arbitrary upstream data."""
+
+    if provenance is None:
+        return None
+    return replace(provenance, **parse_whooshd_response_correlation(response))
 
 
 def _header(response: Any, name: str) -> str | None:
@@ -296,14 +371,24 @@ def parse_whooshd_error(response: Any) -> WhooshdErrorDiagnostic | None:
         retry_after_value = None
     request_id = envelope.get("request_id")
     category = envelope.get("category")
+    correlation = {
+        name: _safe_correlation_id(envelope.get(name))
+        for name in (
+            "correlation_id",
+            "codexify_task_id",
+            "codexify_attempt_id",
+            "whooshd_request_id",
+        )
+    }
     return WhooshdErrorDiagnostic(
         contract_version=WHOOSHD_CONTROL_PLANE_VERSION,
         code=code,
         http_status=http_status,
         retryable=bool(envelope.get("retryable")),
         retry_after_seconds=retry_after_value,
-        request_id=str(request_id)[:128] if request_id else None,
+        request_id=_safe_correlation_id(request_id),
         category=str(category)[:80] if category else None,
+        **{key: value for key, value in correlation.items() if value},
     )
 
 

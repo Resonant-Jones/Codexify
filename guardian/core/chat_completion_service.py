@@ -63,6 +63,7 @@ from guardian.core.ai_router import (
     _image_turn_vision_unsupported_detail,
     build_openai_vision_content,
     chat_with_ai,
+    _filter_callable_kwargs,
     messages_contain_image_payload,
     normalize_completion_output,
     resolve_local_execution_model,
@@ -76,6 +77,11 @@ from guardian.core.completion_terminal import (
     CompletionTerminalError,
     require_successful_terminal,
     successful_non_stream_terminal,
+)
+from guardian.core.request_correlation import (
+    correlation_metadata,
+    generate_attempt_id,
+    normalize_request_id,
 )
 from guardian.core.chat_attachments import (
     extract_attachments_and_text,
@@ -407,7 +413,7 @@ def _tool_loop_identity_fields(
     command_run_id: str | None,
     message_id: int | None = None,
 ) -> dict[str, Any]:
-    request_id = str(getattr(task, "task_id", "") or "").strip() or None
+    request_id = _completion_request_id(task) or None
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     resolved_message_id = (
         message_id if message_id is not None else latest_turn_message_id
@@ -589,6 +595,10 @@ def _execute_completion_attempt(
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> CompletionAttemptResult:
+    request_id, _ = normalize_request_id(getattr(task, "request_id", None))
+    task.request_id = request_id
+    attempt_id = generate_attempt_id()
+    task.attempt_id = attempt_id
     if callable(cancel_check) and cancel_check():
         raise ChatTaskCancelled(provider=provider, model=model)
 
@@ -596,13 +606,39 @@ def _execute_completion_attempt(
     temperature = getattr(task, "temperature", None)
     settings = get_settings()
 
+    def _record_attempt_failure(exc: Exception) -> None:
+        metadata = {
+            "request_correlation": correlation_metadata(
+                request_id=request_id,
+                task_id=task.task_id,
+                attempt_id=attempt_id,
+            ),
+            "attempt_id": attempt_id,
+        }
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict):
+            detail.update(metadata)
+            return
+        existing = getattr(exc, "metadata", None)
+        merged = dict(existing) if isinstance(existing, dict) else {}
+        merged.update(metadata)
+        exc.metadata = merged
+
     if provider == "local":
         stream = stream_local(
             messages_for_llm,
             model,
-            reasoning_mode=reasoning_mode,
-            settings=settings,
-            temperature=temperature,
+            **_filter_callable_kwargs(
+                stream_local,
+                {
+                    "reasoning_mode": reasoning_mode,
+                    "settings": settings,
+                    "temperature": temperature,
+                    "request_id": request_id,
+                    "task_id": task.task_id,
+                    "attempt_id": attempt_id,
+                },
+            ),
         )
         if isinstance(stream, str):
             evidence = CompletionTerminalEvidence(
@@ -645,6 +681,7 @@ def _execute_completion_attempt(
         except ChatTaskCancelled:
             raise
         except Exception as exc:
+            _record_attempt_failure(exc)
             _terminal_failure_for_exception(
                 exc,
                 provider=provider,
@@ -668,7 +705,9 @@ def _execute_completion_attempt(
         else:
             terminal = terminal.with_visible_output(visible_output_emitted)
         if not terminal.successful:
-            raise CompletionTerminalError(terminal)
+            terminal_error = CompletionTerminalError(terminal)
+            _record_attempt_failure(terminal_error)
+            raise terminal_error
         return CompletionAttemptResult(
             "".join(collected),
             terminal,
@@ -677,22 +716,36 @@ def _execute_completion_attempt(
                 if isinstance(getattr(terminal, "runtime_provenance", None), dict)
                 else None
             ),
+            attempt_id=attempt_id,
         )
 
     try:
         output = chat_with_ai(
             messages_for_llm,
-            model=model,
-            provider=provider,
-            reasoning_mode=reasoning_mode,
-            temperature=temperature,
-            tools=getattr(task, "tools", None) if provider == "deepseek" else None,
-            settings=settings,
-            prompt_meta=(
-                (bundle or {}).get("_prompt_meta") if isinstance(bundle, dict) else None
+            **_filter_callable_kwargs(
+                chat_with_ai,
+                {
+                    "model": model,
+                    "provider": provider,
+                    "reasoning_mode": reasoning_mode,
+                    "temperature": temperature,
+                    "tools": getattr(task, "tools", None)
+                    if provider == "deepseek"
+                    else None,
+                    "settings": settings,
+                    "prompt_meta": (
+                        (bundle or {}).get("_prompt_meta")
+                        if isinstance(bundle, dict)
+                        else None
+                    ),
+                    "request_id": request_id,
+                    "task_id": task.task_id,
+                    "attempt_id": attempt_id,
+                },
             ),
         )
     except Exception as exc:
+        _record_attempt_failure(exc)
         _terminal_failure_for_exception(
             exc,
             provider=provider,
@@ -708,14 +761,17 @@ def _execute_completion_attempt(
         finish_reason=_provider_output_finish_reason(output),
     )
     output_provenance = getattr(output, "runtime_provenance", None)
+    runtime_provenance = (
+        output_provenance.as_dict()
+        if hasattr(output_provenance, "as_dict")
+        else None
+    )
     return CompletionAttemptResult(
         output,
         terminal,
-        runtime_provenance=(
-            output_provenance.as_dict()
-            if hasattr(output_provenance, "as_dict")
-            else None
-        ),
+        runtime_provenance=runtime_provenance,
+        attempt_id=attempt_id,
+        response_correlation=getattr(output, "response_correlation", None),
     )
 
 
@@ -1336,6 +1392,28 @@ def _completion_request_id(task: Any) -> str:
     if request_id:
         return request_id
     return str(getattr(task, "task_id", "") or "").strip()
+
+
+def _attempt_request_correlation(
+    task: Any,
+    *,
+    attempt_id: str | None,
+    runtime_provenance: dict[str, Any] | None = None,
+    response_correlation: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Build final bounded correlation metadata for one provider attempt."""
+
+    whooshd_request_id = None
+    if isinstance(runtime_provenance, dict):
+        whooshd_request_id = runtime_provenance.get("whooshd_request_id")
+    if not whooshd_request_id and isinstance(response_correlation, dict):
+        whooshd_request_id = response_correlation.get("whooshd_request_id")
+    return correlation_metadata(
+        request_id=_completion_request_id(task),
+        task_id=getattr(task, "task_id", None),
+        attempt_id=attempt_id,
+        whooshd_request_id=whooshd_request_id,
+    )
 
 
 def _build_candidate_trace(
@@ -4364,7 +4442,7 @@ def _execute_bounded_tool_turn_completion(
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     current_messages = [dict(message) for message in messages_for_llm]
-    request_id = str(getattr(task, "task_id", "") or "").strip() or None
+    request_id = _completion_request_id(task) or None
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     final_provider = provider
     final_model = model
@@ -4402,6 +4480,8 @@ def _execute_bounded_tool_turn_completion(
         loop_stop_reason_value: str,
         terminal_evidence: CompletionTerminalEvidence,
         runtime_provenance: dict[str, Any] | None = None,
+        attempt_id: str | None = None,
+        response_correlation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload_summary = dict(base_payload_summary or {})
         payload_summary.update(
@@ -4475,6 +4555,14 @@ def _execute_bounded_tool_turn_completion(
             payload_summary["execution"] = execution
         if runtime_provenance is not None:
             payload_summary["runtime_provenance"] = dict(runtime_provenance)
+        request_correlation = _attempt_request_correlation(
+            task,
+            attempt_id=attempt_id,
+            runtime_provenance=runtime_provenance,
+            response_correlation=response_correlation,
+        )
+        if request_correlation:
+            payload_summary["request_correlation"] = request_correlation
         result = _tool_turn_completion_result(
             task=task,
             assistant_text=assistant_text,
@@ -4496,6 +4584,8 @@ def _execute_bounded_tool_turn_completion(
         payload_summary["terminal_evidence"] = terminal_evidence.as_dict()
         if runtime_provenance is not None:
             result["runtime_provenance"] = dict(runtime_provenance)
+        if request_correlation:
+            result["request_correlation"] = request_correlation
         return result
 
     first_attempt = _execute_completion_attempt(
@@ -4534,6 +4624,8 @@ def _execute_bounded_tool_turn_completion(
                     else None
                 )
             ),
+            attempt_id=first_attempt.attempt_id,
+            response_correlation=first_attempt.response_correlation,
         )
 
     tool_turn_id = str(uuid.uuid4())
@@ -4699,6 +4791,8 @@ def _execute_bounded_tool_turn_completion(
                 else None
             )
         ),
+        attempt_id=second_attempt.attempt_id,
+        response_correlation=second_attempt.response_correlation,
     )
     if provider == "deepseek":
         result["_provider_replay_state"] = {
@@ -5089,6 +5183,9 @@ def run_chat_completion_task(
     completion_runtime_provenance = result.get("runtime_provenance")
     if not isinstance(completion_runtime_provenance, dict):
         completion_runtime_provenance = None
+    completion_request_correlation = result.get("request_correlation")
+    if not isinstance(completion_request_correlation, dict):
+        completion_request_correlation = None
     assistant_text = str(result.get("assistant_text") or "")
     _log_completion_diagnostics(
         task=task,
@@ -5112,6 +5209,10 @@ def run_chat_completion_task(
     if isinstance(model_resolution, dict):
         payload_summary["model_resolution"] = model_resolution
     payload_summary["model_selection"] = model_selection
+    if completion_request_correlation is not None:
+        payload_summary["request_correlation"] = dict(
+            completion_request_correlation
+        )
     result_payload_summary = result.get("payload_summary")
     merged_payload_summary = dict(payload_summary or {})
     if isinstance(result_payload_summary, dict):
@@ -5259,6 +5360,7 @@ def run_chat_completion_task(
         "commandRunId": payload_summary.get("command_run_id"),
         "tool_loop": dict(payload_summary.get("tool_loop") or {}),
         "runtime_provenance": completion_runtime_provenance,
+        "request_correlation": completion_request_correlation,
     }
     if isinstance(trace, dict):
         result["latest_turn_message_id"] = trace.get("latest_turn_message_id")
@@ -5343,6 +5445,11 @@ def run_chat_completion_task(
                 **(
                     {"whooshd_runtime_provenance": completion_runtime_provenance}
                     if completion_runtime_provenance is not None
+                    else {}
+                ),
+                **(
+                    {"request_correlation": completion_request_correlation}
+                    if completion_request_correlation is not None
                     else {}
                 ),
             }

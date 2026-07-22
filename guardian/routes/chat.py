@@ -56,6 +56,7 @@ from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )
 from guardian.core.chat_attachments import extract_attachments_and_text
+from guardian.core.request_correlation import normalize_request_id
 from guardian.core.chat_completion_service import (
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
@@ -509,8 +510,8 @@ def _request_id_from_request(request: Request | None) -> str | None:
     request_id = getattr(state, "request_id", None)
     if request_id is None:
         return None
-    normalized = str(request_id).strip()
-    return normalized or None
+    normalized, valid = normalize_request_id(request_id)
+    return normalized if valid else None
 
 
 def _publish_completion_start_event(
@@ -3026,6 +3027,9 @@ async def chat_complete(
     """
     Enqueue an assistant reply for the given thread and return a task id.
     """
+    root_request_id = _request_id_from_request(request)
+    if not root_request_id:
+        root_request_id, _ = normalize_request_id(request_id)
     turn_id = _normalize_turn_id(body.turn_id)
     requested_provider = str(body.provider or "").strip().lower() or None
     requested_model = str(body.model or "").strip() or None
@@ -3271,6 +3275,7 @@ async def chat_complete(
             ) from exc
 
     task = ChatCompletionTask(
+        request_id=root_request_id,
         user_id=account_id,
         thread_id=thread_id,
         latest_turn_message_id=latest_turn_message_id,
@@ -3317,7 +3322,7 @@ async def chat_complete(
         )
         raise _completion_service_unavailable("task_identity_invalid")
     task.task_id = task_identity
-    task.request_id = str(request_id or task_identity).strip() or task_identity
+    task.request_id = root_request_id
     task.turn_lock_owner = task_identity
 
     locked = _run_completion_redis_op(
@@ -3356,7 +3361,7 @@ async def chat_complete(
             "[chat.complete] enqueue failed",
             extra={
                 "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED",
-                "request_id": request_id,
+                "request_id": root_request_id,
                 "thread_id": thread_id,
                 "depth_mode": internal_depth_mode,
                 "turn_id": turn_id,
@@ -3453,6 +3458,7 @@ async def chat_complete(
 
     response = {
         "ok": True,
+        "request_id": root_request_id,
         "acceptance_status": acceptance_status,
         "acceptance_warnings": acceptance_warnings,
         "task_id": task_identity,

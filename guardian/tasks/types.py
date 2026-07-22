@@ -16,6 +16,10 @@ from guardian.protocol_tokens import (
     DELEGATION_SUMMARY_OUTCOME_TYPE,
     DelegationJobStatus,
 )
+from guardian.core.request_correlation import (
+    normalize_optional_identifier,
+    normalize_request_id,
+)
 
 
 def _utc_now_iso() -> str:
@@ -677,6 +681,13 @@ class ChatCompletionTask(BaseTask):
     preferred_name: str | None = None
     profession: str | None = None
     guardian_name: str | None = None
+    attempt_id: str = ""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.request_id, _ = normalize_request_id(self.request_id)
+        self.task_id = normalize_optional_identifier(self.task_id) or str(uuid.uuid4())
+        self.attempt_id = normalize_optional_identifier(self.attempt_id) or ""
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ChatCompletionTask:
@@ -729,6 +740,7 @@ class ChatCompletionTask(BaseTask):
             preferred_name=_coerce_optional_text(payload.get("preferred_name")),
             profession=_coerce_optional_text(payload.get("profession")),
             guardian_name=_coerce_optional_text(payload.get("guardian_name")),
+            attempt_id=_coerce_optional_text(payload.get("attempt_id")) or "",
             **base,
         )
 

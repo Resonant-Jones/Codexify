@@ -36,6 +36,8 @@ from guardian.providers.deepseek_adapter import (
     parse_response as parse_deepseek_response,
 )
 from guardian.providers.whooshd_control_plane import (
+    CODEXIFY_ATTEMPT_ID_HEADER,
+    CODEXIFY_TASK_ID_HEADER,
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
     WHOOSHD_RUNTIME_PROVENANCE_HEADER,
@@ -43,6 +45,8 @@ from guardian.providers.whooshd_control_plane import (
     WhooshdErrorDiagnostic,
     WhooshdRuntimeProvenance,
     parse_whooshd_error,
+    merge_whooshd_response_correlation,
+    parse_whooshd_response_correlation,
     parse_whooshd_runtime_provenance,
     provider_failure_kind as whooshd_provider_failure_kind,
 )
@@ -131,12 +135,14 @@ class ProviderResponse(str):
         content_blocks: Any | None = None,
         provider: str | None = None,
         runtime_provenance: WhooshdRuntimeProvenance | None = None,
+        response_correlation: dict[str, str] | None = None,
     ):
         obj = super().__new__(cls, text or "")
         obj.raw_payload = raw_payload  # type: ignore[attr-defined]
         obj.content_blocks = content_blocks  # type: ignore[attr-defined]
         obj.provider = provider  # type: ignore[attr-defined]
         obj.runtime_provenance = runtime_provenance  # type: ignore[attr-defined]
+        obj.response_correlation = response_correlation  # type: ignore[attr-defined]
         return obj
 
 
@@ -1578,6 +1584,9 @@ def chat_with_ai(
     prompt_meta: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1661,6 +1670,9 @@ def chat_with_ai(
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
                     "settings": settings,
+                    "request_id": request_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
                 },
             ),
         )
@@ -2197,6 +2209,9 @@ def call_local(
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
     log_exceptions: bool = True,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2224,6 +2239,12 @@ def call_local(
         "Content-Type": "application/json",
         WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    if task_id:
+        headers[CODEXIFY_TASK_ID_HEADER] = task_id
+    if attempt_id:
+        headers[CODEXIFY_ATTEMPT_ID_HEADER] = attempt_id
     payload: Dict[str, Any] = {
         "model": model,
         "messages": adapted_messages,
@@ -2383,6 +2404,11 @@ def call_local(
             runtime_provenance = parse_whooshd_runtime_provenance(
                 data.get("runtime_provenance")
             ) if isinstance(data, dict) else None
+            response_correlation = parse_whooshd_response_correlation(resp)
+            runtime_provenance = merge_whooshd_response_correlation(
+                runtime_provenance,
+                resp,
+            )
 
             # Ollama /api/chat format
             if isinstance(data.get("message"), dict) and "content" in data["message"]:
@@ -2391,6 +2417,7 @@ def call_local(
                     raw_payload=data,
                     provider="local",
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
 
             # Ollama /api/generate format
@@ -2400,6 +2427,7 @@ def call_local(
                     raw_payload=data,
                     provider="local",
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
 
             # OpenAI-compatible format
@@ -2412,6 +2440,7 @@ def call_local(
                         raw_payload=data,
                         provider="local",
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
 
             attempt_failures.append(
@@ -2533,6 +2562,9 @@ def stream_local(
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2558,6 +2590,12 @@ def stream_local(
         "Content-Type": "application/json",
         WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    if task_id:
+        headers[CODEXIFY_TASK_ID_HEADER] = task_id
+    if attempt_id:
+        headers[CODEXIFY_ATTEMPT_ID_HEADER] = attempt_id
     payload: Dict[str, Any] = {
         "model": model,
         "messages": adapted_messages,
@@ -2799,6 +2837,7 @@ def stream_local(
             finish_reason: str | None = None
             visible_output_emitted = False
             runtime_provenance: dict[str, Any] | None = None
+            parsed_response_provenance: WhooshdRuntimeProvenance | None = None
             response_headers = getattr(response, "headers", {}) or {}
             header_provenance = response_headers.get(
                 WHOOSHD_RUNTIME_PROVENANCE_HEADER
@@ -2811,7 +2850,13 @@ def stream_local(
                 except Exception:
                     parsed_header = None
                 if parsed_header is not None:
-                    runtime_provenance = parsed_header.as_dict()
+                    parsed_response_provenance = parsed_header
+            parsed_response_provenance = merge_whooshd_response_correlation(
+                parsed_response_provenance,
+                response,
+            )
+            if parsed_response_provenance is not None:
+                runtime_provenance = parsed_response_provenance.as_dict()
             for raw_line in response.iter_lines(decode_unicode=False):
                 if not raw_line:
                     continue
@@ -2855,6 +2900,10 @@ def stream_local(
                         else None
                     )
                     if parsed_provenance is not None:
+                        parsed_provenance = merge_whooshd_response_correlation(
+                            parsed_provenance,
+                            response,
+                        )
                         runtime_provenance = parsed_provenance.as_dict()
                     if isinstance(chunk.get("error"), (dict, str)):
                         return CompletionTerminalEvidence(
