@@ -311,6 +311,44 @@ curl -i -X POST http://localhost:8889/api/auth/login \
 
 Both should return `200 OK`. Register returns `{"ok":true,"user_id":"tester1","username":"tester1"}`. Login returns a `token`, `user_id`, and `expires_at`.
 
+### Provision or Reset a Tester Account
+
+This section documents the operator command for creating or resetting accounts inside the stabilized `codexify_tester` friends-and-family runtime. It is distinct from the older `python -m guardian.cli.private_preview_provision` command, which belongs to the allowlist-driven `private_preview` exposure contract and must not be run against this runtime.
+
+The command targets only the stabilized tester posture. Before running it, confirm the backend reports:
+
+- `GUARDIAN_AUTH_MODE=remote`
+- `GUARDIAN_EXPOSURE_MODE=local_safe`
+- `CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web`
+
+The command refuses to run unless all three are present and exact.
+
+The passphrase is read interactively through a hidden `getpass` prompt. Never place a passphrase in a shell argument, an environment file, chat, a screenshot, a log, or documentation. The command also refuses to run when standard input is not an interactive terminal, so it cannot silently read input from a pipe.
+
+`--role` is required when creating a new account. For an existing account, `--role` is optional: omitting it preserves the current canonical role, while supplying it explicitly changes the role. Only `admin` and `guest` are accepted.
+
+Canonical command shape (run inside the running backend container; the emails below are placeholders, not real identities):
+
+```bash
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com' --role admin
+```
+
+Create or reset a guest tester:
+
+```bash
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'guest@example.com' --role guest
+```
+
+Reset an existing account while preserving its current role (note the omitted `--role`):
+
+```bash
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com'
+```
+
+Do not run the old private-preview provisioner (`python -m guardian.cli.private_preview_provision`) against this runtime. It requires `GUARDIAN_EXPOSURE_MODE=private_preview` and is intentionally isolated to the older allowlist contract.
+
+This command changes credentials and roles only. It does not prove that login, dashboard access, or viewer isolation work; those remain separate operator checks.
+
 ## Stopping Without Deleting Volumes
 
 ```bash
