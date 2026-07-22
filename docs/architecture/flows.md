@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-05-08
+Last updated: 2026-07-21
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -269,6 +269,74 @@ sequenceDiagram
     EmbedW->>PG: mark processing
     EmbedW->>Vector: chunk and index
     EmbedW->>PG: mark ready or failed
+```
+
+## 3A) OpenAI Account Export Background Import
+
+Trigger:
+- In the ChatGPT import modal, the authenticated user drops a complete OpenAI export directory, selects a directory with the folder picker, or optionally supplies one complete ZIP.
+- The legacy one-file JSON or `.dat` action remains synchronous through `POST /api/upload-chatgpt-export`; it is a compatibility path, not the background account-export path.
+
+Sequence:
+1. The browser recursively enumerates the selected tree, normalizes each relative path, and hands the complete file list to the module-level account import coordinator. A directory gesture begins transfer immediately; closing the modal does not cancel coordinator work while the page remains open.
+2. `POST /api/imports/openai-account` creates an account-owned `receiving` job with declared file and byte counts.
+3. The coordinator sends bounded multipart batches to `POST /api/imports/openai-account/{job_id}/files`. The route rejects absolute, traversal, empty, conflicting, or over-limit paths and streams accepted request files into private persistent staging storage. Raw export files do not enter the signed `/media` tree.
+4. `POST /api/imports/openai-account/{job_id}/commit` verifies that declared and staged counts agree, commits the export fingerprint and `queued` state, and publishes the dedicated Redis task. Only after those steps succeed does it return queue acceptance and emit `account_import.accepted`.
+5. `guardian/workers/account_import_worker.py` materializes only that account/job manifest, validates staged hashes, safely expands a sole ZIP when present, and diagnoses the recursive export inventory.
+6. Conversation records pass through the existing provenance-preserving, idempotent ChatGPT importer in bounded batches. Each durable batch is verified by source IDs before the job checkpoint/count transaction commits.
+7. PNG, JPEG, GIF, and WebP assets are content-deduped and written through canonical media storage. Explicit user-message evidence maps to `uploaded`; explicit assistant/tool generation evidence maps to `generated`; absent or conflicting evidence maps to `unclassified`. Orphan images remain account-owned and visible rather than being dropped.
+8. After each job checkpoint transaction commits, the worker emits `account_import.batch_committed`. Conversation batches request the existing thread refresh; media batches request Gallery refresh. A page refresh reads committed entities from backend state, so SSE receipt is an acceleration path rather than the persistence boundary.
+9. The worker completes as `completed`, `completed_with_warnings` when recoverable files or relationships were skipped, or `failed` with bounded diagnostics. At startup it re-enqueues `queued` and `running` jobs so a task lost after destructive Redis dequeue can resume from the Postgres checkpoint.
+
+Truth boundaries:
+- Browser transfer is not durable server acceptance. An unfinished upload does not survive browser/page termination, and the UI says to keep the page open until acceptance.
+- Route acceptance proves complete staging, durable queued state, and successful queue publication. It does not prove worker execution, entity completion, SSE delivery, Gallery refresh, or UI receipt.
+- A batch event is emitted after entity persistence and job checkpoint persistence; it carries bounded IDs/metadata for refresh, not the export contents.
+- `completed_with_warnings` is not generic success: skipped and unresolved items remain on the job report.
+- This implementation and its automated/Compose-configuration checks are not live supported-path proof. `docs/architecture/00-current-state.md` remains unchanged and no release claim is expanded here.
+
+Concrete anchors:
+- `frontend/src/components/modals/ChatGPTImportModal.tsx`
+- `frontend/src/features/imports/accountImportCoordinator.ts`
+- `guardian/routes/migration.py`
+- `guardian/services/openai_account_import.py`
+- `guardian/queue/account_import_queue.py`
+- `guardian/workers/account_import_worker.py`
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as WebUI coordinator
+    participant API as migration route
+    participant Stage as private staging
+    participant PG as Postgres
+    participant Redis
+    participant Worker as account import worker
+    participant Media as canonical media storage
+    participant SSE as durable event outbox
+
+    User->>UI: drop/select complete export
+    UI->>API: create receiving job
+    loop bounded file batches
+        UI->>API: files + relative paths
+        API->>Stage: persist staged bytes
+        API->>PG: commit manifest counts
+    end
+    UI->>API: finalize staged export
+    API->>PG: commit fingerprint + queued
+    API->>Redis: enqueue account import
+    API-->>UI: accepted job id + queued
+    Worker->>Redis: dequeue task
+    Worker->>PG: running
+    loop committed conversation/media batches
+        Worker->>Media: persist deduped bytes for media batches
+        Worker->>PG: persist conversation/image metadata
+        Worker->>PG: commit durable job checkpoint
+        Worker->>SSE: batch_committed
+        SSE-->>UI: request thread/Gallery refresh
+    end
+    Worker->>PG: completed / warnings / failed
+    Worker->>SSE: terminal account import event
 ```
 
 ## 4) Tool Execution and Job Flow

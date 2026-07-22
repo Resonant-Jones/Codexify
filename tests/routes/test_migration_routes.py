@@ -752,3 +752,127 @@ def test_migration_succeeds_without_vector_store(
     # DB records were created
     assert mock_db.create_chat_thread.call_count == 1
     assert mock_db.create_message.call_count == 2
+
+
+class StubAccountImportService:
+    def __init__(self) -> None:
+        self.limits = type(
+            "Limits",
+            (),
+            {"max_batch_files": 10, "max_file_bytes": 1024, "max_batch_bytes": 4096},
+        )()
+        self.calls: list[tuple[str, object]] = []
+        self.job = {
+            "job_id": "job-account-1",
+            "source_system": "openai",
+            "status": "receiving",
+            "total_file_count": 2,
+            "total_byte_count": 5,
+            "uploaded_file_count": 0,
+            "uploaded_byte_count": 0,
+            "imported_thread_count": 0,
+            "imported_message_count": 0,
+            "imported_media_count": 0,
+            "duplicate_count": 0,
+            "skipped_count": 0,
+            "warning_count": 0,
+            "failure_count": 0,
+            "warning_details": [],
+            "error_details": [],
+        }
+
+    def create_job(self, **kwargs):
+        self.calls.append(("create", kwargs))
+        return dict(self.job)
+
+    def stage_files(self, **kwargs):
+        staged = kwargs["files"]
+        observed = []
+        for item in staged:
+            item.stream.seek(0)
+            observed.append((item.relative_path, item.stream.read()))
+        self.calls.append(("stage", {**kwargs, "files": observed}))
+        self.job.update(
+            {"uploaded_file_count": 2, "uploaded_byte_count": 5}
+        )
+        return dict(self.job)
+
+    def finalize_job(self, **kwargs):
+        self.calls.append(("commit", kwargs))
+        self.job["status"] = "queued"
+        return dict(self.job)
+
+    def get_job(self, **kwargs):
+        self.calls.append(("get", kwargs))
+        return dict(self.job)
+
+
+def test_account_import_routes_stage_relative_paths_and_accept_queue(
+    test_client,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = StubAccountImportService()
+    monkeypatch.setattr(
+        migration_routes,
+        "_get_account_import_service",
+        lambda: service,
+    )
+
+    created = test_client.post(
+        "/api/imports/openai-account",
+        json={"total_file_count": 2, "total_byte_count": 5},
+        headers={"X-User-Id": "spoofed_user"},
+    )
+    assert created.status_code == 200
+    assert service.calls[0][1]["user_id"] == SERVER_USER_ID
+
+    uploaded = test_client.post(
+        "/api/imports/openai-account/job-account-1/files",
+        files=[
+            ("files", ("conversations.json", b"[]", "application/json")),
+            ("files", ("image.png", b"png", "image/png")),
+            ("relative_paths", (None, "export/conversations.json")),
+            ("relative_paths", (None, "export/media/image.png")),
+        ],
+    )
+    assert uploaded.status_code == 200
+    assert service.calls[1][1]["user_id"] == SERVER_USER_ID
+    assert service.calls[1][1]["files"] == [
+        ("export/conversations.json", b"[]"),
+        ("export/media/image.png", b"png"),
+    ]
+
+    accepted = test_client.post(
+        "/api/imports/openai-account/job-account-1/commit"
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "queued"
+    status = test_client.get(
+        "/api/imports/openai-account/job-account-1"
+    )
+    assert status.status_code == 200
+    assert status.json()["job_id"] == "job-account-1"
+
+
+def test_account_import_route_rejects_traversal_before_staging(
+    test_client,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = StubAccountImportService()
+    monkeypatch.setattr(
+        migration_routes,
+        "_get_account_import_service",
+        lambda: service,
+    )
+
+    response = test_client.post(
+        "/api/imports/openai-account/job-account-1/files",
+        files=[
+            ("files", ("secret.json", b"[]", "application/json")),
+            ("relative_paths", (None, "../secret.json")),
+        ],
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "path_traversal_rejected"
+    assert all(name != "stage" for name, _payload in service.calls)

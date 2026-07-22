@@ -20,6 +20,8 @@ from guardian.pi.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    ACCOUNT_IMPORT_EVENT_TYPES,
+    ACCOUNT_IMPORT_STATUSES,
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
@@ -67,6 +69,8 @@ from guardian.protocol_tokens import (
     TRACE_SUPPRESSION_REASONS,
     WEB_EVIDENCE_GATE_DECISIONS,
     AcceptanceStatus,
+    AccountImportEventType,
+    AccountImportStatus,
     CampaignExecutionAttemptStatus,
     CampaignGoalStatus,
     CampaignStatus,
@@ -129,6 +133,31 @@ def test_completion_terminal_status_tokens() -> None:
         "execution_timeout",
     }
     assert CompletionTerminalStatus.SUCCESS.value == "success"
+
+
+def test_account_import_protocol_tokens() -> None:
+    assert ACCOUNT_IMPORT_STATUSES == {
+        "receiving",
+        "queued",
+        "running",
+        "completed",
+        "completed_with_warnings",
+        "failed",
+    }
+    assert AccountImportStatus.RECEIVING.value == "receiving"
+    assert AccountImportStatus.COMPLETED_WITH_WARNINGS.value == (
+        "completed_with_warnings"
+    )
+    assert ACCOUNT_IMPORT_EVENT_TYPES == {
+        "account_import.accepted",
+        "account_import.running",
+        "account_import.batch_committed",
+        "account_import.completed",
+        "account_import.failed",
+    }
+    assert AccountImportEventType.BATCH_COMMITTED.value == (
+        "account_import.batch_committed"
+    )
 
 
 def test_guardian_delegation_protocol_tokens() -> None:

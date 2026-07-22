@@ -915,6 +915,104 @@ export interface ChatGptImportStats {
   embedding_coverage_degraded: boolean;
 }
 
+export type AccountImportStatus =
+  | "receiving"
+  | "queued"
+  | "running"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed";
+
+export interface AccountImportJob {
+  job_id: string;
+  source_system: string;
+  source_export_fingerprint?: string | null;
+  status: AccountImportStatus;
+  total_file_count: number;
+  total_byte_count: number;
+  uploaded_file_count: number;
+  uploaded_byte_count: number;
+  imported_thread_count: number;
+  imported_message_count: number;
+  imported_media_count: number;
+  duplicate_count: number;
+  skipped_count: number;
+  warning_count: number;
+  failure_count: number;
+  warning_details: Array<Record<string, unknown>>;
+  error_details: Array<Record<string, unknown>>;
+  created_at?: string | null;
+  queued_at?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface AccountImportBrowserFile {
+  file: File;
+  relativePath: string;
+}
+
+const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
+
+function accountImportHeaders(userId?: string): Record<string, string> | undefined {
+  const normalized = String(userId || "").trim();
+  return normalized ? { "X-User-Id": normalized } : undefined;
+}
+
+export async function createOpenAIAccountImport(
+  declaration: { total_file_count: number; total_byte_count: number },
+  userId?: string
+): Promise<AccountImportJob> {
+  const response = await api.post<AccountImportJob>(
+    ACCOUNT_IMPORT_BASE_PATH,
+    { ...declaration, source_system: "openai" },
+    { headers: accountImportHeaders(userId) }
+  );
+  return response.data;
+}
+
+export async function uploadOpenAIAccountImportBatch(
+  jobId: string,
+  files: AccountImportBrowserFile[],
+  userId?: string
+): Promise<AccountImportJob> {
+  const formData = new FormData();
+  for (const item of files) {
+    formData.append("files", item.file, item.file.name);
+    formData.append("relative_paths", item.relativePath);
+  }
+  const response = await api.post<AccountImportJob>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
+    formData,
+    { headers: accountImportHeaders(userId), timeout: 0 }
+  );
+  return response.data;
+}
+
+export async function commitOpenAIAccountImport(
+  jobId: string,
+  userId?: string
+): Promise<AccountImportJob> {
+  const response = await api.post<AccountImportJob>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/commit`,
+    undefined,
+    { headers: accountImportHeaders(userId), timeout: 0 }
+  );
+  return response.data;
+}
+
+export async function fetchOpenAIAccountImport(
+  jobId: string,
+  userId?: string
+): Promise<AccountImportJob> {
+  const response = await api.get<AccountImportJob>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`,
+    { headers: accountImportHeaders(userId) }
+  );
+  return response.data;
+}
+
 export function normalizeChatGptImportStats(
   payload: any
 ): ChatGptImportStats {

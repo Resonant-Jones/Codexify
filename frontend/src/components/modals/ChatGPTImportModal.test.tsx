@@ -9,6 +9,22 @@ const apiMocks = vi.hoisted(() => ({
   preflightBackendAvailability: vi.fn(),
 }));
 
+const idleAccountImport = vi.hoisted(() => ({
+  phase: "idle",
+  job: null,
+  error: null,
+  technicalDetail: null,
+  selectedFileCount: 0,
+  selectedByteCount: 0,
+}));
+
+vi.mock("@/features/imports/accountImportCoordinator", () => ({
+  clearAccountImportCoordinatorResult: vi.fn(),
+  getAccountImportCoordinatorSnapshot: () => idleAccountImport,
+  startOpenAIAccountImport: vi.fn(),
+  subscribeAccountImportCoordinator: () => () => {},
+}));
+
 vi.mock("@/lib/api", () => ({
   default: { post: apiMocks.post },
   normalizeChatGptImportStats: (payload: unknown) => payload,

@@ -74,6 +74,11 @@ const DEFAULT_EVENT_TYPES = [
   "browser.approval.decided",
   "connector.status",
   "connector.sync",
+  "account_import.accepted",
+  "account_import.running",
+  "account_import.batch_committed",
+  "account_import.completed",
+  "account_import.failed",
 ];
 
 const INITIAL_RETRY_MS = 1000;

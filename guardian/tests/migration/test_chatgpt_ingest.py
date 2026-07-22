@@ -7,7 +7,9 @@ import pytest
 
 from backend.rag import chatgpt_migration
 from backend.rag.chatgpt_migration import ingest_chatgpt_export
+from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core import dependencies
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.queue.redis_queue import dequeue_chat_import_embed
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_embedding_worker, chat_worker
@@ -59,7 +61,15 @@ class DeterministicVectorStore:
             self._items.append({"text": text, "meta": meta})
         return len(items)
 
-    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        *,
+        namespace: str | None = None,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del namespace
         query_terms = {
             part.strip().lower() for part in query.split() if part.strip()
         }
@@ -81,6 +91,8 @@ class DeterministicVectorStore:
         hits: list[dict[str, Any]] = []
         for score, _idx, item in ranked[: max(int(k), 0)]:
             meta = dict(item.get("meta") or {})
+            if user_id and str(meta.get("user_id") or "") != user_id:
+                continue
             hits.append(
                 {
                     "text": item.get("text", ""),
@@ -354,6 +366,15 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
         )
         for token in output.split():
             yield token + " "
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.SUCCESS,
+            visible_output_emitted=True,
+            explicit_provider_terminal_observed=True,
+            finish_reason="stop",
+            transport_ended_cleanly=True,
+            provider="local",
+            model="test-local-model",
+        )
 
     monkeypatch.setattr(dependencies, "chatlog_db", chatlog)
     monkeypatch.setattr(dependencies, "_vector_store", vector_store)
@@ -366,6 +387,16 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     monkeypatch.setattr(chat_worker.dependencies, "_memory_store", memory_store)
     monkeypatch.setattr(chat_worker.dependencies, "_sensors", None)
     monkeypatch.setattr(chat_worker, "stream_local", fake_stream_local)
+    monkeypatch.setattr(
+        chat_worker,
+        "resolve_provider_for_model",
+        lambda *_args, **_kwargs: "local",
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "validate_provider_model_selection",
+        lambda **_kwargs: (True, None),
+    )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(
@@ -396,7 +427,7 @@ def test_imported_fact_is_recalled_in_post_import_completion(monkeypatch):
     chatlog.create_message(thread_id, "user", recall_prompt)
 
     task = ChatCompletionTask(
-        user_id="local",
+        user_id="tester",
         thread_id=thread_id,
         provider="local",
         model="test-local-model",

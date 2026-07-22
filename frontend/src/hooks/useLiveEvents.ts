@@ -54,6 +54,68 @@ import {
 
 const LAST_EVENT_DEBOUNCE_MS = 50;
 const CONNECTED_DEBOUNCE_MS = 200;
+const ACCOUNT_IMPORT_EVENT_TYPES = new Set([
+  "account_import.accepted",
+  "account_import.running",
+  "account_import.batch_committed",
+  "account_import.completed",
+  "account_import.failed",
+]);
+const handledAccountImportEvents = new Set<string>();
+const handledAccountImportEventOrder: string[] = [];
+
+export function dispatchAccountImportRefresh(event: LiveEventsHubEvent): void {
+  if (
+    typeof window === "undefined" ||
+    !ACCOUNT_IMPORT_EVENT_TYPES.has(event.type)
+  ) {
+    return;
+  }
+  const data = (event.data || {}) as Record<string, unknown>;
+  const identity = String(
+    event.id || `${event.type}:${JSON.stringify(data)}`
+  );
+  if (handledAccountImportEvents.has(identity)) return;
+  handledAccountImportEvents.add(identity);
+  handledAccountImportEventOrder.push(identity);
+  if (handledAccountImportEventOrder.length > 200) {
+    const expired = handledAccountImportEventOrder.shift();
+    if (expired) handledAccountImportEvents.delete(expired);
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("cfy:account-import:status", {
+      detail: {
+        job_id: data.job_id,
+        status: data.status,
+        event_type: event.type,
+      },
+    })
+  );
+
+  const batchKind = String(data.batch_kind || "");
+  if (
+    batchKind === "conversations" ||
+    event.type === "account_import.completed"
+  ) {
+    window.dispatchEvent(
+      new CustomEvent("cfy:threads:refresh", {
+        detail: {
+          kind: "refresh",
+          source: "openai-account-import",
+          job_id: data.job_id,
+        },
+      })
+    );
+  }
+  if (batchKind === "media" || event.type === "account_import.completed") {
+    window.dispatchEvent(
+      new CustomEvent("cfy:gallery:refresh", {
+        detail: { source: "openai-account-import", job_id: data.job_id },
+      })
+    );
+  }
+}
 
 export type { LiveEvent } from "@/lib/events/types";
 
@@ -224,6 +286,7 @@ export function useLiveEvents(options: { passive?: boolean } = {}): UseLiveEvent
       if (isSameEvent(lastEventRef.current, event)) {
         return;
       }
+      dispatchAccountImportRefresh(event);
       lastEventRef.current = event;
       if (!passive) {
         scheduleLastEventUpdate(event);

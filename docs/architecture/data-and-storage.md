@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-04-22
+Last updated: 2026-07-21
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -25,10 +25,11 @@ Source anchors:
 
 | System | What it stores today | Key anchors |
 |---|---|---|
-| Postgres | Projects, threads, messages, memories, media metadata, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
-| Redis | Chat queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
+| Postgres | Projects, threads, messages, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
-| File or object storage | Raw uploaded/generated media bytes and document/image/audio artifacts | `guardian/core/storage.py`, `guardian/routes/media.py` |
+| File or object storage | Uploaded/generated media bytes and document/image/audio artifacts exposed through the signed media surface | `guardian/core/storage.py`, `guardian/routes/media.py` |
+| Private import staging | Complete account-export bytes between browser transfer and worker completion; separate from the signed `/media` root | `guardian/core/storage.py`, `guardian/services/openai_account_import.py`, `docker-compose.yml` |
 | Neo4j | Optional graph context/logging and federation graph features | `guardian/context/broker.py`, `guardian/routes/federation.py`, `docker-compose.yml` |
 | Browser local/session storage | Auth tokens, runtime overrides, shell state, drafts, UI preferences, cached session spine | `frontend/src/lib/api.ts`, `frontend/src/lib/runtimeConfig.ts`, `frontend/src/state/session/SessionSpine.ts` |
 | In-process buses | Fallback event fanout and the lightweight sync subscription bus | `guardian/core/event_bus.py`, `guardian/sync/bus.py` |
@@ -59,6 +60,7 @@ Source anchors:
 | `project_document_links` | Project-level document scope for context assembly | used by `ContextBroker` to widen doc context |
 | `uploaded_images` | User-uploaded image metadata | soft delete via `deleted_at` |
 | `generated_images` | AI-generated image metadata | soft delete via `deleted_at` |
+| `openai_account_import_jobs` | Account-owned intake manifest, lifecycle counters, bounded diagnostics, and restart checkpoint | status constrained to canonical account-import tokens; owner and declared counts are required |
 | `tts_outputs` | Synthesized audio outputs | may be connected back to thread/project/message context |
 | `message_audio_assets` | Message-to-audio attachment map | lets chat output pick up voice artifacts |
 
@@ -100,6 +102,8 @@ Source anchors:
   - scheduler/worker logic assumes a run row exists before execution starts.
 - `media_assets -> uploaded_documents/uploaded_images/generated_images`
   - dedupe and alias behavior depend on canonical asset identity outliving individual references.
+- `openai_account_import_jobs -> media_assets`
+  - imported media keeps the job ID, export fingerprint, source-relative path, message/thread identifiers, and append-only import-lineage evidence; deleting a job clears the direct FK without erasing media.
 - `personal_facts -> personal_fact_evidence/personal_fact_revisions`
   - fact mutation and evidence display rely on these dependent rows staying consistent.
 
@@ -116,6 +120,15 @@ Source anchors:
   - assistant message persistence triggers a best-effort trace snapshot + eval enqueue, but completion success still depends only on the existing chat acceptance/persistence path.
 - Postgres is the source of truth for conversation, document metadata, command runs, and audit state.
   - Anchors: `guardian/core/db.py`, `guardian/db/models.py`
+- Postgres is the source of truth for account-import lifecycle and restart checkpoints.
+  - Redis publication is required for route acceptance but is not the durable lifecycle record.
+  - The dedicated worker re-enqueues `queued`/`running` jobs on startup because the shared Redis list dequeue is destructive.
+  - Entity batches commit before `account_import.batch_committed` is emitted; an event is not allowed to manufacture persistence truth.
+- Imported image provenance is evidence-bound.
+  - explicit user-message attachment evidence is `uploaded`
+  - explicit assistant/tool generation metadata is `generated`
+  - absent or conflicting evidence is `unclassified`
+  - filenames alone never establish source provenance
 - Federation and collaboration access are explicit, not ambient.
   - Anchors: `guardian/routes/federation.py`, `guardian/realtime/collaboration.py`, `guardian/db/models.py`
 
@@ -131,6 +144,7 @@ Source anchors:
 - `cron_runs` delete with their parent cron job.
 - Connector runs and raw documents delete with connector configs.
 - `/api/events` can delete durable outbox rows through the last delivered event ID for a tenant, so outbox retention is consumption-shaped rather than archival.
+- Private account-import staging is retained after terminal completion in this slice so job diagnostics and restart evidence are not invalidated. Automated staging garbage collection is deferred and must be account/job aware when added.
 - Memory retention pruning is `Unverified`; a config surface exists, but a repo-scanned maintenance path was not confirmed.
 
 ## Data Risk Hotspots
@@ -140,6 +154,7 @@ Source anchors:
   - `uploaded_documents.parsed_text`
   - `generated_documents.content`
   - `personal_facts` and related evidence
+  - private staged OpenAI export files, which may contain complete account history and attachments
 - Secret-bearing surfaces:
   - `oauth_connections` stores encrypted access and refresh token material
   - browser storage can hold session or API key material depending on mode
@@ -171,6 +186,9 @@ Redis currently carries multiple distinct responsibilities for the main chat loo
   - short-lived turn-anchor cache used to correlate a completed assistant message back to a turn when DB metadata lookup is unavailable or delayed
 - `codexify:queue:chat-embed`
   - background embedding queue for chat messages adjacent to the main completion path
+- `codexify:queue:account-import`
+  - dedicated OpenAI account-export work queue; payloads contain only job/account identity, while file manifests and checkpoints remain in Postgres
+  - startup recovery republishes durable `queued`/`running` jobs after worker restart; this is resume support, not exactly-once queue delivery
 - health-probe queue keys
   - `/health/chat` creates an ephemeral probe queue and performs a bounded push/pop round trip
   - this proves Redis queue operations are reachable for that probe, not end-to-end completion progress

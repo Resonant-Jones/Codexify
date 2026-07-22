@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import FrozenSet
 
 
 class AcceptanceStatus(str, Enum):
@@ -330,6 +329,27 @@ class EmbeddingLifecycleStatus(str, Enum):
     FAILED = "failed"
 
 
+class AccountImportStatus(str, Enum):
+    """Canonical lifecycle states for durable account-export imports."""
+
+    RECEIVING = "receiving"
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    COMPLETED_WITH_WARNINGS = "completed_with_warnings"
+    FAILED = "failed"
+
+
+class AccountImportEventType(str, Enum):
+    """Canonical domain events emitted after durable import transitions."""
+
+    ACCEPTED = "account_import.accepted"
+    RUNNING = "account_import.running"
+    BATCH_COMMITTED = "account_import.batch_committed"
+    COMPLETED = "account_import.completed"
+    FAILED = "account_import.failed"
+
+
 class CampaignGoalStatus(str, Enum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -548,6 +568,12 @@ ORCHESTRATOR_REASON_CODES: frozenset[str] = frozenset(
 EMBEDDING_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
     {status.value for status in EmbeddingLifecycleStatus}
 )
+ACCOUNT_IMPORT_STATUSES: frozenset[str] = frozenset(
+    {status.value for status in AccountImportStatus}
+)
+ACCOUNT_IMPORT_EVENT_TYPES: frozenset[str] = frozenset(
+    {event_type.value for event_type in AccountImportEventType}
+)
 CAMPAIGN_GOAL_STATUSES: frozenset[str] = frozenset(
     {status.value for status in CampaignGoalStatus}
 )
@@ -615,6 +641,8 @@ __all__ = [
     "OrchestratorDecisionToken",
     "OrchestratorReasonCode",
     "EmbeddingLifecycleStatus",
+    "AccountImportStatus",
+    "AccountImportEventType",
     "CampaignGoalStatus",
     "CampaignStatus",
     "CampaignExecutionAttemptStatus",
@@ -662,6 +690,8 @@ __all__ = [
     "ORCHESTRATOR_DECISION_TOKENS",
     "ORCHESTRATOR_REASON_CODES",
     "EMBEDDING_LIFECYCLE_STATUSES",
+    "ACCOUNT_IMPORT_STATUSES",
+    "ACCOUNT_IMPORT_EVENT_TYPES",
     "CAMPAIGN_GOAL_STATUSES",
     "CAMPAIGN_STATUSES",
     "CAMPAIGN_EXECUTION_ATTEMPT_STATUSES",
