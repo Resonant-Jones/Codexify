@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.resonant.codexify-tester</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>__CODEXIFY_TESTER_RUNNER__</string>
+      <string>auto-start</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>__CODEXIFY_TESTER_STDOUT__</string>
+
+    <key>StandardErrorPath</key>
+    <string>__CODEXIFY_TESTER_STDERR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/chriscastillo/.local/bin</string>
+      <key>CODEXIFY_TESTER_REPO_ROOT</key>
+      <string>__CODEXIFY_REPO_ROOT__</string>
+    </dict>
+
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+  </dict>
+</plist>

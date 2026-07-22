@@ -10,19 +10,20 @@ personal facts / embedding deferral for archive-scale reliability.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from backend.rag.openai_export_adapter import (
     OpenAIExportDetector,
     OpenAILegacyExportAdapter,
     OpenAIShardedExportAdapter,
-    import_openai_export_path,
 )
 from backend.rag.import_checkpoint import (
     ImportCheckpointManager,
@@ -35,6 +36,7 @@ _DIAGNOSTIC_DIR = Path("logs/openai_import")
 _DEFAULT_BATCH_CONVERSATIONS = 10
 _DEFAULT_BATCH_MESSAGES = 500
 _DB_HEALTH_BACKOFF_SECONDS = 2.0
+_CHATLOG_OVERRIDE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -135,6 +137,88 @@ def _count_messages_in_conversation(conv: dict[str, Any]) -> int:
         return len(messages)
 
     return 0
+
+
+def _confirmed_conversation_counts(
+    conversations: list[dict[str, Any]],
+    *,
+    user_id: str,
+) -> dict[str, int]:
+    """Confirm durable source conversations after the ingestion commit.
+
+    The existing ingestion function is deliberately idempotent and may report
+    zero newly-created rows during crash replay. Durable checkpoint accounting
+    therefore derives from the committed provenance rows, not insertion counts.
+    """
+
+    source_ids = [
+        str(conv.get("conversation_id") or conv.get("id") or "").strip()
+        for conv in conversations
+    ]
+    source_ids = [value for value in source_ids if value]
+    if not source_ids:
+        return {}
+
+    from guardian.core import dependencies
+
+    chatlog_db = dependencies.chatlog_db or dependencies.init_database()
+    if chatlog_db is None:
+        raise RuntimeError(
+            "Conversation commit verification database is unavailable"
+        )
+
+    # Focused importer tests use an in-memory chatlog facade. Confirm against
+    # its thread metadata without weakening the production Postgres check.
+    threads = getattr(chatlog_db, "threads", None)
+    messages = getattr(chatlog_db, "messages", None)
+    if isinstance(threads, dict) and isinstance(messages, list):
+        confirmed: dict[str, int] = {}
+        for thread_id, thread in threads.items():
+            if not isinstance(thread, dict) or str(thread.get("user_id")) != user_id:
+                continue
+            metadata = thread.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            source_id = str(metadata.get("source_thread_id") or "")
+            if source_id not in source_ids:
+                continue
+            confirmed[source_id] = sum(
+                1
+                for message in messages
+                if isinstance(message, dict)
+                and int(message.get("thread_id") or 0) == int(thread_id)
+            )
+        return confirmed
+
+    if not hasattr(chatlog_db, "_connect"):
+        raise RuntimeError(
+            "Conversation commit verification database is unavailable"
+        )
+    try:
+        with chatlog_db._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    cm.extra_meta->>'source_thread_id' AS source_thread_id,
+                    COUNT(DISTINCT cm.id) AS message_count
+                FROM chat_messages cm
+                JOIN chat_threads ct ON ct.id = cm.thread_id
+                WHERE ct.user_id = %s
+                  AND cm.extra_meta->>'source_thread_id' = ANY(%s)
+                GROUP BY cm.extra_meta->>'source_thread_id'
+                """,
+                (user_id, source_ids),
+            )
+            rows = cursor.fetchall()
+    except Exception as exc:
+        raise RuntimeError(
+            "Conversation batch committed, but provenance verification failed"
+        ) from exc
+    return {
+        str(row["source_thread_id"]): int(row["message_count"] or 0)
+        for row in rows
+        if row.get("source_thread_id")
+    }
 
 
 def _extract_messages_from_conversation(
@@ -286,6 +370,8 @@ def import_openai_export_conversations(
     batch_conversations: int = _DEFAULT_BATCH_CONVERSATIONS,
     disable_personal_facts: bool = False,
     messages_only: bool = False,
+    completed_conversation_ids: set[str] | None = None,
+    on_batch_committed: Callable[[dict[str, Any]], None] | None = None,
 ) -> ImportDiagnostics:
     """Import OpenAI export conversations into Codexify chat tables.
 
@@ -297,6 +383,9 @@ def import_openai_export_conversations(
         batch_conversations: Conversations to process per DB batch commit.
         disable_personal_facts: Skip personal facts extraction (Stage A).
         messages_only: Only import thread/messages, no derived processing.
+        completed_conversation_ids: Durable worker checkpoint IDs to skip.
+        on_batch_committed: Callback invoked only after the conversation batch
+            import has committed through the existing ingestion path.
     """
     start_ts = time.monotonic()
     root = Path(root_path).expanduser().resolve()
@@ -453,6 +542,8 @@ def import_openai_export_conversations(
             batch_size=max(1, batch_conversations),
             disable_personal_facts=disable_personal_facts,
             messages_only=messages_only,
+            completed_conversation_ids=set(completed_conversation_ids or ()),
+            on_batch_committed=on_batch_committed,
         )
     except Exception as exc:
         diagnostics.errors.append(f"Import failed: {exc}")
@@ -485,6 +576,8 @@ def _import_with_checkpoints(
     batch_size: int,
     disable_personal_facts: bool,
     messages_only: bool,
+    completed_conversation_ids: set[str],
+    on_batch_committed: Callable[[dict[str, Any]], None] | None,
 ) -> None:
     """Import conversations in bounded batches with checkpointing."""
     total = len(all_conversations)
@@ -500,7 +593,7 @@ def _import_with_checkpoints(
             conv_id = str(
                 conv.get("conversation_id") or conv.get("id") or ""
             )
-            if ckpt.is_completed(conv_id):
+            if conv_id in completed_conversation_ids or ckpt.is_completed(conv_id):
                 diagnostics.conversations_skipped_checkpoint += 1
                 continue
             pending.append(conv)
@@ -533,11 +626,32 @@ def _import_with_checkpoints(
         diagnostics.conversations_imported += batch_stats.get("threads_imported", 0)
         diagnostics.messages_imported += batch_stats.get("messages_imported", 0)
 
-        # Mark each conversation in the batch
+        committed_counts = _confirmed_conversation_counts(
+            pending,
+            user_id=user_id,
+        )
+        committed_ids = [
+            str(conv.get("conversation_id") or conv.get("id") or "")
+            for conv in pending
+            if str(conv.get("conversation_id") or conv.get("id") or "")
+            in committed_counts
+        ]
+        attempted_ids = [
+            str(conv.get("conversation_id") or conv.get("id") or "")
+            for conv in pending
+            if str(conv.get("conversation_id") or conv.get("id") or "")
+        ]
+        skipped_ids = [
+            value for value in attempted_ids if value not in committed_counts
+        ]
+
+        # Mark each confirmed conversation in the local diagnostic checkpoint.
         for conv in pending:
             conv_id = str(
                 conv.get("conversation_id") or conv.get("id") or ""
             )
+            if conv_id not in committed_counts:
+                continue
             msg_count = _count_messages_in_conversation(conv)
             try:
                 ckpt.mark_imported(
@@ -552,10 +666,45 @@ def _import_with_checkpoints(
                     "Failed to write checkpoint for %s: %s", conv_id, exc
                 )
 
+        if on_batch_committed is not None:
+            on_batch_committed(
+                {
+                    "batch_number": batch_num,
+                    "batch_total": batch_count,
+                    "conversation_ids": [value for value in committed_ids if value],
+                    "conversation_counts": [
+                        {
+                            "conversation_id": value,
+                            "message_count": committed_counts[value],
+                        }
+                        for value in committed_ids
+                    ],
+                    "skipped_conversation_ids": skipped_ids,
+                    "threads_imported": int(
+                        batch_stats.get("threads_imported", 0)
+                    ),
+                    "messages_imported": int(
+                        batch_stats.get("messages_imported", 0)
+                    ),
+                }
+            )
+        completed_conversation_ids.update(
+            value for value in attempted_ids if value
+        )
+        if skipped_ids:
+            diagnostics.conversations_failed += len(skipped_ids)
+            diagnostics.skipped_records.extend(
+                {
+                    "conversation_id": value,
+                    "reason": "not_confirmed_after_ingestion",
+                }
+                for value in skipped_ids
+            )
+
         progress = min(batch_idx + batch_size, total)
         logger.info(
             "Progress: %d/%d conversations (%.1f%%) | "
-            "threads=%d messages=%d",
+            "thread_count=%d message_count=%d",
             progress,
             total,
             100.0 * progress / total,
@@ -579,32 +728,88 @@ def _import_conversation_batch(
     Uses the existing ingest_chatgpt_conversation_records function but
     wraps it with optional personal facts / embedding staging.
     """
-    from backend.rag.chatgpt_migration import (
-        ingest_chatgpt_conversation_records,
-    )
+    from backend.rag.chatgpt_migration import ingest_chatgpt_conversation_records
+    from guardian.core import dependencies
 
     # Resolve effective embedding mode
     effective_embedding = embedding_mode
     if messages_only:
         effective_embedding = "off"
 
-    # Build import kwargs
-    kwargs: dict[str, Any] = {
-        "user_id": user_id,
-        "embedding_mode": effective_embedding,
-    }
+    chatlog_db = dependencies.chatlog_db or dependencies.init_database()
+    if chatlog_db is None:
+        raise RuntimeError("Database not available")
 
-    if disable_personal_facts:
-        kwargs["disable_personal_facts"] = True
+    class AccountScopedChatlogProxy:
+        def __init__(self, delegate: Any) -> None:
+            self._delegate = delegate
 
-    # Run the batch through the existing import pipeline
-    # Each conversation is already handled with idempotent upsert
-    return ingest_chatgpt_conversation_records(
-        conversations,
-        user_id=user_id,
-        embedding_mode=effective_embedding,
-        disable_personal_facts=disable_personal_facts,
-    )
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._delegate, name)
+
+        def ensure_project(self, name: str, description: str = "") -> int:
+            projects = list(self._delegate.list_projects())
+            owned = [
+                project
+                for project in projects
+                if str(project.get("user_id") or user_id) == user_id
+            ]
+            existing = next(
+                (project for project in owned if project.get("name") == name),
+                None,
+            )
+            if existing is not None:
+                return int(existing["id"])
+            conflict = any(project.get("name") == name for project in projects)
+            scoped_name = (
+                f"{name} ({hashlib.sha256(user_id.encode('utf-8')).hexdigest()[:8]})"
+                if conflict
+                else name
+            )
+            existing = next(
+                (
+                    project
+                    for project in owned
+                    if project.get("name") == scoped_name
+                ),
+                None,
+            )
+            if existing is not None:
+                return int(existing["id"])
+            create_project = getattr(self._delegate, "create_project", None)
+            if callable(create_project):
+                return int(
+                    create_project(
+                        scoped_name,
+                        description,
+                        user_id=user_id,
+                    )
+                )
+            return int(self._delegate.ensure_project(scoped_name, description))
+
+        def list_projects(self) -> list[dict[str, Any]]:
+            return [
+                project
+                for project in self._delegate.list_projects()
+                if str(project.get("user_id") or user_id) == user_id
+            ]
+
+    proxy = AccountScopedChatlogProxy(chatlog_db)
+    # The legacy ingestion entrypoint reads the dependency singleton. This
+    # dedicated worker/CLI adapter scopes that read for one short batch and
+    # restores it before releasing the lock.
+    with _CHATLOG_OVERRIDE_LOCK:
+        previous = dependencies.chatlog_db
+        dependencies.chatlog_db = proxy
+        try:
+            return ingest_chatgpt_conversation_records(
+                conversations,
+                user_id=user_id,
+                embedding_mode=effective_embedding,
+                disable_personal_facts=disable_personal_facts,
+            )
+        finally:
+            dependencies.chatlog_db = previous
 
 
 def _write_diagnostics(

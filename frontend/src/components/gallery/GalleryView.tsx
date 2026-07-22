@@ -22,23 +22,29 @@ export type GalleryItem = {
   tag?: string;
 };
 
+type GallerySourceFilter = "all" | "uploaded" | "generated";
+
 // ──────── Demo Gallery Items ────────
 const DEMO_GALLERY_ITEMS: GalleryItem[] = [
   {
     src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23ff6b6b;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23ee5a6f;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g1)'/%3E%3C/svg%3E",
     prompt: "Demo: Warm Gradient",
+    tag: "demo",
   },
   {
     src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234c2a7d;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%236d28d9;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g2)'/%3E%3C/svg%3E",
     prompt: "Demo: Deep Purple",
+    tag: "demo",
   },
   {
     src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g3' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2360a5fa;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%233b82f6;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g3)'/%3E%3C/svg%3E",
     prompt: "Demo: Cool Blue",
+    tag: "demo",
   },
   {
     src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g4' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2310b981;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23059669;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='256' height='256' fill='url(%23g4)'/%3E%3C/svg%3E",
     prompt: "Demo: Fresh Green",
+    tag: "demo",
   },
 ];
 
@@ -75,7 +81,8 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showImageGen, setShowImageGen] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<"uploaded" | "generated">("uploaded");
+  const [sourceFilter, setSourceFilter] = useState<GallerySourceFilter>("all");
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const activeThreadId = useMemo(() => {
     if (typeof window === "undefined") return null;
     const match = window.location.pathname.match(/\/chat\/(\d+)/i);
@@ -86,41 +93,64 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
 
   // Fetch images from backend on mount
   useEffect(() => {
+    let cancelled = false;
     setIsLoading(true);
-    const params = new URLSearchParams();
-    params.set("tag", sourceFilter);
-    if (projectId !== null) params.set("project_id", String(projectId));
-    const qs = params.toString();
-    fetch(
-      `/api/media/images${qs ? `?${qs}` : ""}`,
-      buildAuthenticatedFetchInit({ method: "GET" })
-    )
-      .then((resp) => {
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return resp.json();
-      })
-      .then((data) => {
-        // Convert backend image objects to GalleryItem format
-        const images = Array.isArray(data.images)
-          ? data.images.map((img: any) => ({
-              id: img.id,
-              src: resolveMediaAssetSrc(img),
-              prompt: img.filename || "Untitled",
-              project: img.project_id,
-              tag: img.source_tag || img.tag || sourceFilter,
-            }))
-              .filter((img: GalleryItem) => !!img.src)
+    const requestedTags =
+      sourceFilter === "all"
+        ? (["uploaded", "generated", "unclassified"] as const)
+        : ([sourceFilter] as const);
+    Promise.all(
+      requestedTags.map(async (requestedTag) => {
+        const params = new URLSearchParams();
+        params.set("tag", requestedTag);
+        params.set("limit", "100");
+        if (sourceFilter !== "all" && projectId !== null) {
+          params.set("project_id", String(projectId));
+        }
+        const response = await fetch(
+          `/api/media/images?${params.toString()}`,
+          buildAuthenticatedFetchInit({ method: "GET" })
+        );
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return Array.isArray(data.images)
+          ? data.images
+              .map((img: any) => {
+                const tag =
+                  img.source_tag ||
+                  img.tag ||
+                  requestedTag;
+                return {
+                  id: img.id,
+                  src: resolveMediaAssetSrc(img),
+                  prompt: img.filename || "Untitled",
+                  project: img.project_id,
+                  tag,
+                } satisfies GalleryItem;
+              })
+              .filter((img: GalleryItem) => Boolean(img.src))
           : [];
-        setBackendImages(images);
+      })
+    )
+      .then((groups) => {
+        if (cancelled) return;
+        const deduped = new Map<string, GalleryItem>();
+        for (const image of groups.flat()) {
+          const key = image.id ? `id:${image.id}` : `src:${image.src}`;
+          if (!deduped.has(key)) deduped.set(key, image);
+        }
+        setBackendImages(Array.from(deduped.values()));
       })
       .catch(() => {
-        // Silently fail, fall back to demo gallery
-        setBackendImages([]);
+        if (!cancelled) setBackendImages([]);
       })
       .finally(() => {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       });
-  }, [projectId, sourceFilter]);
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, refreshVersion, sourceFilter]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -132,7 +162,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
           src: resolveMediaAssetSrc(item),
           prompt: item?.prompt || item?.filename || "Generated image",
           project: item?.project || item?.project_id,
-          tag: item?.tag || item?.source_tag || "uploaded",
+          tag: item?.tag || item?.source_tag || "unclassified",
         }))
         .filter((item: GalleryItem) => item.src);
       if (additions.length === 0) return;
@@ -147,6 +177,13 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
       window.removeEventListener("cfy:gallery:add", onAdd as EventListener);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refresh = () => setRefreshVersion((value) => value + 1);
+    window.addEventListener("cfy:gallery:refresh", refresh);
+    return () => window.removeEventListener("cfy:gallery:refresh", refresh);
+  }, []);
+
   // Merge prop items with backend images
   const allItems = useMemo(
     () => [...propItems, ...backendImages],
@@ -155,17 +192,29 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
 
   // Filter by source tag and project when selected.
   const visible = useMemo(() => {
-    const tagFiltered = allItems.filter(
-      (item) => (item.tag || "uploaded") === sourceFilter
-    );
-    const projectFiltered = projectId
-      ? tagFiltered.filter((item) => item.project === projectId)
+    const tagFiltered =
+      sourceFilter === "all"
+        ? allItems
+        : allItems.filter(
+            (item) => (item.tag || "unclassified") === sourceFilter
+          );
+    const projectFiltered = projectId && sourceFilter !== "all"
+      ? tagFiltered.filter(
+          (item) => String(item.project || "") === String(projectId)
+        )
       : tagFiltered;
     return projectFiltered.filter((item) => {
       const key = item.id ? `id:${item.id}` : `src:${item.src}`;
       return !deletedKeys.includes(key);
     });
   }, [allItems, deletedKeys, projectId, sourceFilter]);
+
+  const unclassifiedCount = useMemo(
+    () =>
+      visible.filter((item) => (item.tag || "unclassified") === "unclassified")
+        .length,
+    [visible]
+  );
 
   // Setup uploader for image uploads
   const uploader = useUploader({
@@ -195,7 +244,7 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
   const hasRealGallery = visible && visible.length > 0;
   const galleryToRender = useMemo(() => {
     if (hasRealGallery) return visible;
-    // Only show demo items in the uploaded tab so filters stay honest.
+    // Only show demo items in Uploaded so All remains backend-truthful.
     if (showDemoGallery && sourceFilter === "uploaded") return DEMO_GALLERY_ITEMS;
     return [];
   }, [visible, hasRealGallery, showDemoGallery, sourceFilter]);
@@ -222,6 +271,17 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
           <div className="text-lg font-semibold">Gallery</div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setSourceFilter("all")}
+                className={`rounded-full px-3 py-1 border ${
+                  sourceFilter === "all"
+                    ? "border-[var(--accent-strong)] text-[var(--text)]"
+                    : "border-[var(--panel-border)] opacity-70"
+                }`}
+              >
+                All
+              </button>
               <button
                 type="button"
                 onClick={() => setSourceFilter("uploaded")}
@@ -254,7 +314,12 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
             </button>
           </div>
         </div>
-        {!hasRealGallery && showDemoGallery && (
+        {sourceFilter === "all" && unclassifiedCount > 0 && (
+          <div className="rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] px-3 py-2 text-xs opacity-80">
+            Unclassified: {unclassifiedCount} imported {unclassifiedCount === 1 ? "asset has" : "assets have"} no provable uploaded or generated origin.
+          </div>
+        )}
+        {!hasRealGallery && showDemoGallery && sourceFilter === "uploaded" && (
           <div className="rounded-[var(--tile-radius,19px)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] border border-[var(--panel-border)] p-3 flex items-center justify-between gap-3">
             <p className="text-xs opacity-75">Demo gallery images. They'll disappear once you add your own.</p>
             <button

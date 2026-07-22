@@ -4,12 +4,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from guardian.core.dependencies import (
-    _vector_store,
     chatlog_db,
     get_request_user_id,
     require_api_key,
@@ -18,9 +18,22 @@ from guardian.services.account_restore import (
     AccountRestoreError,
     AccountRestoreService,
 )
+from guardian.services.openai_account_import import (
+    AccountImportError,
+    OpenAIAccountImportService,
+    StagedImportFile,
+    normalize_import_relative_path,
+)
 from backend.rag.openai_export_adapter import (
     diagnose_openai_export_path,
     import_openai_export_path,
+)
+from backend.rag.chatgpt_migration import (
+    ingest_chatgpt_export,
+    ingest_claude_export,
+)
+from backend.rag.chatgpt_migration import (
+    retry_chatgpt_import_embeddings as retry_chatgpt_import_embeddings_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +58,161 @@ class EmbeddingRetryStats(BaseModel):
     embeddings_persisted: int = 0
     embeddings_failed: int = 0
     embedding_coverage_degraded: bool = False
+
+
+class AccountImportCreateRequest(BaseModel):
+    total_file_count: int = Field(gt=0)
+    total_byte_count: int = Field(ge=0)
+    source_system: str = "openai"
+
+
+def _get_account_import_service() -> OpenAIAccountImportService:
+    return OpenAIAccountImportService()
+
+
+def _raise_account_import_error(exc: AccountImportError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    ) from exc
+
+
+@router.post("/api/imports/openai-account")
+async def create_openai_account_import(
+    request: AccountImportCreateRequest,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Create an account-owned durable staged import job."""
+
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        return await run_in_threadpool(
+            service.create_job,
+            user_id=user_id,
+            total_file_count=request.total_file_count,
+            total_byte_count=request.total_byte_count,
+            source_system=request.source_system,
+        )
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/imports/openai-account/{job_id}/files")
+async def upload_openai_account_import_batch(
+    job_id: str,
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] = Form(...),
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Stage one bounded batch while preserving caller-supplied relative paths."""
+
+    _ = api_key
+    if len(files) != len(relative_paths):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "upload_path_count_mismatch",
+                "message": "Every uploaded file requires one matching relative path.",
+            },
+        )
+    staged_files: list[StagedImportFile] = []
+    batch_bytes = 0
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        if not files or len(files) > service.limits.max_batch_files:
+            raise AccountImportError(
+                "Upload batch file count is outside configured limits.",
+                code="batch_file_limit_exceeded",
+                status_code=413,
+            )
+        normalized_paths = [
+            normalize_import_relative_path(path) for path in relative_paths
+        ]
+        for upload, relative_path in zip(files, normalized_paths):
+            file_bytes = 0
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                file_bytes += len(chunk)
+                batch_bytes += len(chunk)
+                if file_bytes > service.limits.max_file_bytes:
+                    raise AccountImportError(
+                        "An import file exceeds the configured per-file limit.",
+                        code="file_size_limit_exceeded",
+                        status_code=413,
+                    )
+                if batch_bytes > service.limits.max_batch_bytes:
+                    raise AccountImportError(
+                        "Upload batch exceeds the configured byte limit.",
+                        code="batch_size_limit_exceeded",
+                        status_code=413,
+                    )
+            await upload.seek(0)
+            staged_files.append(
+                StagedImportFile(
+                    relative_path=relative_path,
+                    content_type=upload.content_type,
+                    stream=upload.file,
+                )
+            )
+        return await run_in_threadpool(
+            service.stage_files,
+            job_id=job_id,
+            user_id=user_id,
+            files=staged_files,
+        )
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/imports/openai-account/{job_id}/commit")
+async def commit_openai_account_import(
+    job_id: str,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Finalize a complete staged upload and accept it into the worker queue."""
+
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        return await run_in_threadpool(
+            service.finalize_job,
+            job_id=job_id, user_id=user_id
+        )
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/imports/openai-account/{job_id}")
+async def get_openai_account_import(
+    job_id: str,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Read one account-owned import job and its bounded diagnostics."""
+
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        return await run_in_threadpool(
+            service.get_job,
+            job_id=job_id, user_id=user_id
+        )
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/api/imports/account/metadata")
@@ -105,15 +273,6 @@ async def import_account_metadata(
         return JSONResponse(
             status_code=error.status_code, content=error.to_payload()
         )
-
-
-from backend.rag.chatgpt_migration import (
-    ingest_chatgpt_export,
-    ingest_claude_export,
-)
-from backend.rag.chatgpt_migration import (
-    retry_chatgpt_import_embeddings as retry_chatgpt_import_embeddings_service,
-)
 
 
 def _detect_export_format_parsed(data: Any) -> str:
@@ -290,7 +449,7 @@ async def upload_chatgpt_export(
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("Migration failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 

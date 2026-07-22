@@ -284,6 +284,7 @@ services:
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
       - ./.chroma:/app/.chroma
       - ./data/media:/app/data/media
+      - ./data/imports:/app/data/imports
       - ./docker:/app/docker
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
@@ -310,6 +311,7 @@ services:
       # Single-user dev default (used when identity fallback is enabled).
       CODEXIFY_SINGLE_USER_ID: "${CODEXIFY_SINGLE_USER_ID:-local}"
       STORAGE_BASE_PATH: /app/data/media
+      IMPORT_STAGING_BASE_PATH: /app/data/imports
       NEO4J_BOLT_URL: bolt://neo4j:7687
       ENABLE_CONNECTOR_WORKER: "false"
       REDIS_URL: redis://redis:6379/0
@@ -608,6 +610,38 @@ services:
       - ./models/bge-large-en-v1.5:/models/bge-large-en-v1.5:ro
     restart: unless-stopped
     command: ["-m", "guardian.workers.voice_worker"]
+
+  worker-account-import:
+    image: *backend_runtime_image
+    pull_policy: never
+    working_dir: /app
+    entrypoint: ["python"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
+    environment:
+      <<: [*postgres_env, *local_llm]
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      STORAGE_BASE_PATH: /app/data/media
+      IMPORT_STAGING_BASE_PATH: /app/data/imports
+      STORAGE_URL_PREFIX: /media
+      REDIS_URL: redis://redis:6379/0
+      ACCOUNT_IMPORT_QUEUE_NAME: codexify:queue:account-import
+    volumes:
+      - ./guardian:/app/codexify
+      - ./guardian:/app/guardian
+      - ./backend:/app/backend
+      - ./config:/app/config:ro
+      - ./data/media:/app/data/media
+      - ./data/imports:/app/data/imports
+    restart: unless-stopped
+    command: ["-m", "guardian.workers.account_import_worker"]
 
   worker-document-embed:
     image: *backend_runtime_image

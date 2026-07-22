@@ -7,8 +7,8 @@ No raw DDL creation in application code.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Optional
+from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -52,6 +52,7 @@ from guardian.extensions.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    ACCOUNT_IMPORT_STATUSES,
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
@@ -62,6 +63,7 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_INTERACTION_MODES,
     GUARDIAN_DELEGATION_INTENT_STATUSES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
+    AccountImportStatus,
     DelegationJobStatus,
     EmbeddingLifecycleStatus,
 )
@@ -1726,6 +1728,111 @@ class Message(Base):
 
 
 # =========================
+# Durable Account Imports
+# =========================
+
+
+class OpenAIAccountImportJob(Base):
+    """Account-owned durable intake and worker checkpoint for an OpenAI export."""
+
+    __tablename__ = "openai_account_import_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    source_system: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="openai"
+    )
+    source_export_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default=AccountImportStatus.RECEIVING.value,
+    )
+    staging_locator: Mapped[str] = mapped_column(Text, nullable=False)
+    total_file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_byte_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uploaded_file_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    uploaded_byte_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    imported_thread_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    imported_message_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    imported_media_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    duplicate_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    skipped_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    warning_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    failure_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    warning_details: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    error_details: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    staged_manifest: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    checkpoint: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    queued_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(value) for value in sorted(ACCOUNT_IMPORT_STATUSES))})",
+            name="openai_account_import_jobs_status_check",
+        ),
+        CheckConstraint(
+            "total_file_count > 0 AND total_byte_count >= 0",
+            name="openai_account_import_jobs_declared_counts_check",
+        ),
+    )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Media Tables (Images & Documents)
 # =========================
 
@@ -1756,6 +1863,20 @@ class MediaAsset(Base):
     src_url: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(128))
     filesize: Mapped[int | None] = mapped_column(BigInteger)
+    import_job_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("openai_account_import_jobs.id", ondelete="SET NULL"),
+    )
+    source_relative_path: Mapped[str | None] = mapped_column(Text)
+    source_export_id: Mapped[str | None] = mapped_column(String(255))
+    source_message_id: Mapped[str | None] = mapped_column(String(255))
+    source_thread_id: Mapped[str | None] = mapped_column(String(255))
+    import_lineage: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
     ingested_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1815,10 +1936,10 @@ class GeneratedImage(Base):
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    thread_id: Mapped[int] = mapped_column(
+    thread_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     src_url: Mapped[str] = mapped_column(
@@ -1845,7 +1966,7 @@ class GeneratedImage(Base):
 
     # Relationships
     project: Mapped[Project] = relationship("Project")
-    thread: Mapped[ChatThread] = relationship("ChatThread")
+    thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -1862,10 +1983,10 @@ class UploadedImage(Base):
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    thread_id: Mapped[int] = mapped_column(
+    thread_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("chat_threads.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     src_url: Mapped[str] = mapped_column(
@@ -1894,7 +2015,7 @@ class UploadedImage(Base):
 
     # Relationships
     project: Mapped[Project] = relationship("Project")
-    thread: Mapped[ChatThread] = relationship("ChatThread")
+    thread: Mapped[ChatThread | None] = relationship("ChatThread")
 
     __mapper_args__ = {"eager_defaults": True}
 
@@ -3681,6 +3802,7 @@ Index("ix_media_assets_thread", MediaAsset.thread_id)
 Index("ix_media_assets_content_hash", MediaAsset.content_hash)
 Index("ix_media_assets_deterministic_id", MediaAsset.deterministic_id)
 Index("ix_media_assets_ingested", MediaAsset.ingested_at.desc())
+Index("ix_media_assets_import_job", MediaAsset.import_job_id)
 Index(
     "ix_media_assets_kind_provenance",
     MediaAsset.media_kind,
@@ -3711,6 +3833,14 @@ Index("ix_uploaded_images_thread", UploadedImage.thread_id)
 Index("ix_uploaded_images_user", UploadedImage.user_id)
 Index("ix_uploaded_images_mime", UploadedImage.mime_type)
 Index("ix_uploaded_images_created", UploadedImage.created_at.desc())
+
+Index("ix_openai_account_import_jobs_user", OpenAIAccountImportJob.user_id)
+Index("ix_openai_account_import_jobs_status", OpenAIAccountImportJob.status)
+Index(
+    "ix_openai_account_import_jobs_fingerprint",
+    OpenAIAccountImportJob.user_id,
+    OpenAIAccountImportJob.source_export_fingerprint,
+)
 
 Index("ix_generated_documents_project", GeneratedDocument.project_id)
 Index("ix_generated_documents_thread", GeneratedDocument.thread_id)

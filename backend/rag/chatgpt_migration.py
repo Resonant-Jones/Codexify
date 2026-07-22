@@ -12,7 +12,6 @@ from guardian.personal_facts.guardrail_policy import (
     CandidateInput,
     classify_personal_fact_candidate,
 )
-from guardian.personal_facts.guardrail_tokens import GuardrailReason
 from guardian.queue.redis_queue import enqueue_chat_import_embed
 
 from .personal_fact_extraction import (
@@ -512,6 +511,7 @@ def _ingest_canonical_messages(
             source_message_id=source_message_id,
         )
         temporal_meta = {
+            "user_id": user_id,
             "source_thread_id": msg["source_thread_id"],
             "source_message_id": source_message_id,
             "turn_index": msg["turn_index"],
@@ -609,6 +609,7 @@ def _ingest_canonical_messages(
                 if not embed_text:
                     continue
                 meta = {
+                    "user_id": user_id,
                     "thread_id": thread_id,
                     "role": msg["role"],
                     "message_id": mid,
@@ -911,6 +912,7 @@ def _fetch_retryable_chatgpt_embedding_items(
                 "text": text,
                 "meta": _sanitize_embed_meta(
                     {
+                        "user_id": user_id,
                         "thread_id": row.get("thread_id"),
                         "role": row.get("role"),
                         "message_id": message_id,
@@ -1021,7 +1023,7 @@ def _log_chatgpt_embedding_batch(
 ) -> None:
     level = logger.warning if failed_count > 0 else logger.info
     level(
-        "ChatGPT %s embedding handoff batch batch_index=%d batch_total=%d candidate_count=%d queued_count=%d failed_count=%d elapsed_ms=%.1f failure_class=%s",
+        "ChatGPT %s embedding handoff batch batch_index=%d batch_total=%d embedding_item_count=%d queued_count=%d failed_count=%d elapsed_ms=%.1f failure_class=%s",
         operation,
         batch_index,
         batch_total,

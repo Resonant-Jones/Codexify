@@ -6,10 +6,12 @@ import hashlib
 import json
 import logging
 import mimetypes
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,33 @@ _MANIFEST_HINT_KEYS = {
 _MANIFEST_DIR_PATTERNS = (
     "__export_file_manifests__",
 )
+
+_IMAGE_REFERENCE_KEYS = {
+    "asset_pointer",
+    "attachment_id",
+    "download_url",
+    "file_id",
+    "file_name",
+    "file_path",
+    "filename",
+    "image_id",
+    "upload_id",
+}
+_IMAGE_CONTEXT_KEYS = {
+    "attachment",
+    "attachments",
+    "image",
+    "images",
+    "image_asset_pointer",
+}
+_GENERATION_EVIDENCE_KEYS = {
+    "dalle",
+    "dalle_prompt",
+    "generated",
+    "generated_image",
+    "generation",
+    "image_generation",
+}
 
 
 @dataclass
@@ -174,6 +203,319 @@ class OpenAIExportDiagnosticReport:
             if self.summary_path
             else None,
         }
+
+
+@dataclass(frozen=True)
+class OpenAIExportImageRelationship:
+    """One explicit export message/thread relationship for an image."""
+
+    source_thread_id: str | None = None
+    source_message_id: str | None = None
+    evidence_kind: str = "unlinked"
+
+
+@dataclass(frozen=True)
+class OpenAIExportImageEvidence:
+    """Positive provenance and source linkage for one referenced export image."""
+
+    source_tag: str
+    source_thread_id: str | None = None
+    source_message_id: str | None = None
+    prompt: str | None = None
+    model: str | None = None
+    evidence_kind: str = "unlinked"
+    relationships: tuple[OpenAIExportImageRelationship, ...] = ()
+
+
+def _reference_aliases(value: str) -> set[str]:
+    raw = unquote(str(value or "").strip()).replace("\\", "/")
+    if not raw:
+        return set()
+    parsed = urlparse(raw)
+    candidates = {raw}
+    if parsed.scheme:
+        joined = f"{parsed.netloc}{parsed.path}".strip("/")
+        if joined:
+            candidates.add(joined)
+    for candidate in list(candidates):
+        clean = candidate.split("?", 1)[0].split("#", 1)[0].strip("/")
+        if not clean:
+            continue
+        candidates.add(clean)
+        basename = clean.rsplit("/", 1)[-1]
+        candidates.add(basename)
+        stem = Path(basename).stem
+        if stem:
+            candidates.add(stem)
+    return {candidate.casefold() for candidate in candidates if candidate}
+
+
+def _message_role(message: dict[str, Any]) -> str:
+    author = message.get("author")
+    if isinstance(author, dict):
+        role = author.get("role") or author.get("name")
+    else:
+        role = message.get("role") or message.get("sender") or author
+    return str(role or "").strip().lower()
+
+
+def _has_generation_evidence(value: Any, *, parent_key: str = "") -> bool:
+    def is_positive(candidate: Any) -> bool:
+        if isinstance(candidate, (dict, list)):
+            return bool(candidate)
+        if candidate is None or candidate is False:
+            return False
+        if isinstance(candidate, str) and candidate.strip().lower() in {
+            "",
+            "0",
+            "false",
+            "no",
+            "none",
+            "null",
+        }:
+            return False
+        return bool(candidate)
+
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            normalized_key = re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_")
+            if normalized_key in _GENERATION_EVIDENCE_KEYS:
+                if is_positive(nested):
+                    return True
+            if normalized_key in {"model", "model_slug", "tool_name"}:
+                normalized_value = str(nested or "").lower()
+                if "dall-e" in normalized_value or "dalle" in normalized_value:
+                    return True
+            if _has_generation_evidence(nested, parent_key=normalized_key):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_has_generation_evidence(item, parent_key=parent_key) for item in value)
+    if parent_key in _GENERATION_EVIDENCE_KEYS:
+        return is_positive(value)
+    return False
+
+
+def _collect_image_reference_values(
+    value: Any,
+    *,
+    in_image_context: bool = False,
+) -> set[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        content_type = str(value.get("content_type") or "").strip().lower()
+        local_context = in_image_context or content_type == "image_asset_pointer"
+        for key, nested in value.items():
+            normalized_key = str(key).strip().lower()
+            nested_context = local_context or normalized_key in _IMAGE_CONTEXT_KEYS
+            if isinstance(nested, str) and (
+                normalized_key in _IMAGE_REFERENCE_KEYS
+                or (nested_context and normalized_key in {"id", "name", "url"})
+            ):
+                found.add(nested)
+            found.update(
+                _collect_image_reference_values(
+                    nested,
+                    in_image_context=nested_context,
+                )
+            )
+    elif isinstance(value, list):
+        for nested in value:
+            found.update(
+                _collect_image_reference_values(
+                    nested,
+                    in_image_context=in_image_context,
+                )
+            )
+    return found
+
+
+def _extract_generation_prompt(message: dict[str, Any]) -> str | None:
+    stack: list[Any] = [message]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized_key = str(key).strip().lower()
+                if normalized_key in {"dalle_prompt", "generation_prompt"}:
+                    prompt = str(nested or "").strip()
+                    if prompt:
+                        return prompt[:4000]
+                if normalized_key == "prompt" and _has_generation_evidence(value):
+                    prompt = str(nested or "").strip()
+                    if prompt:
+                        return prompt[:4000]
+                stack.append(nested)
+        elif isinstance(value, list):
+            stack.extend(value)
+    return None
+
+
+def _extract_generation_model(message: dict[str, Any]) -> str | None:
+    stack: list[Any] = [message]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if str(key).strip().lower() in {"model", "model_slug"}:
+                    model = str(nested or "").strip()
+                    if model:
+                        return model[:255]
+                stack.append(nested)
+        elif isinstance(value, list):
+            stack.extend(value)
+    return None
+
+
+def build_openai_export_image_evidence_index(
+    inventory: OpenAIExportInventory,
+) -> dict[str, list[OpenAIExportImageEvidence]]:
+    """Index image references using only explicit message/export evidence.
+
+    Assistant/tool references are not considered generated unless generation
+    metadata is present. A user-linked reference is positive upload evidence.
+    """
+
+    adapter: OpenAILegacyExportAdapter | OpenAIShardedExportAdapter
+    if inventory.sharded_detected:
+        adapter = OpenAIShardedExportAdapter()
+    elif inventory.legacy_detected:
+        adapter = OpenAILegacyExportAdapter()
+    else:
+        return {}
+
+    try:
+        conversations = adapter.extract_conversations(inventory)
+    except Exception:
+        logger.exception("Unable to build OpenAI image evidence index")
+        return {}
+
+    image_alias_counts: dict[str, int] = {}
+    for record in inventory.files:
+        if record.detected_kind not in {
+            "image_png",
+            "image_jpeg",
+            "image_gif",
+            "image_webp",
+        }:
+            continue
+        for alias in _reference_aliases(record.path):
+            image_alias_counts[alias] = image_alias_counts.get(alias, 0) + 1
+    ambiguous_image_aliases = {
+        alias for alias, count in image_alias_counts.items() if count > 1
+    }
+
+    index: dict[str, list[OpenAIExportImageEvidence]] = {}
+    for conversation in conversations:
+        source_thread_id = _coerce_nonempty(
+            conversation.get("conversation_id") or conversation.get("id")
+        ) or None
+        mapping = conversation.get("mapping")
+        if not isinstance(mapping, dict):
+            continue
+        for node_id, node in mapping.items():
+            if not isinstance(node, dict):
+                continue
+            message = node.get("message")
+            if not isinstance(message, dict):
+                continue
+            references = _collect_image_reference_values(message)
+            if not references:
+                continue
+            role = _message_role(message)
+            generated = role in {"assistant", "tool"} and _has_generation_evidence(
+                message
+            )
+            uploaded = role in {"user", "human"}
+            if not generated and not uploaded:
+                continue
+            evidence = OpenAIExportImageEvidence(
+                source_tag="generated" if generated else "uploaded",
+                source_thread_id=source_thread_id,
+                source_message_id=_coerce_nonempty(message.get("id") or node_id)
+                or None,
+                prompt=_extract_generation_prompt(message) if generated else None,
+                model=_extract_generation_model(message) if generated else None,
+                evidence_kind=(
+                    "generation_metadata" if generated else "user_message_attachment"
+                ),
+            )
+            for reference in references:
+                for alias in _reference_aliases(reference):
+                    if alias in ambiguous_image_aliases:
+                        continue
+                    bucket = index.setdefault(alias, [])
+                    if evidence not in bucket:
+                        bucket.append(evidence)
+    return index
+
+
+def resolve_openai_export_image_evidence(
+    relative_path: str,
+    evidence_index: dict[str, list[OpenAIExportImageEvidence]],
+) -> OpenAIExportImageEvidence:
+    """Resolve one asset without guessing from its filename aesthetics."""
+
+    normalized = unquote(str(relative_path or "").strip()).replace("\\", "/")
+    clean = normalized.split("?", 1)[0].split("#", 1)[0].strip("/")
+    basename = clean.rsplit("/", 1)[-1]
+    stem = Path(basename).stem
+    tiers = [
+        [clean.casefold()] if clean else [],
+        [basename.casefold()] if basename else [],
+        [stem.casefold()] if stem else [],
+    ]
+    matches: list[OpenAIExportImageEvidence] = []
+    for aliases in tiers:
+        tier_matches: list[OpenAIExportImageEvidence] = []
+        for alias in aliases:
+            for evidence in evidence_index.get(alias, []):
+                if evidence not in tier_matches:
+                    tier_matches.append(evidence)
+        if tier_matches:
+            matches = tier_matches
+            break
+    relationships = tuple(
+        OpenAIExportImageRelationship(
+            source_thread_id=evidence.source_thread_id,
+            source_message_id=evidence.source_message_id,
+            evidence_kind=evidence.evidence_kind,
+        )
+        for evidence in matches
+    )
+    tags = {evidence.source_tag for evidence in matches}
+    if len(tags) != 1:
+        thread_ids = {
+            evidence.source_thread_id
+            for evidence in matches
+            if evidence.source_thread_id
+        }
+        message_ids = {
+            evidence.source_message_id
+            for evidence in matches
+            if evidence.source_message_id
+        }
+        return OpenAIExportImageEvidence(
+            source_tag="unclassified",
+            source_thread_id=(
+                next(iter(thread_ids)) if len(thread_ids) == 1 else None
+            ),
+            source_message_id=(
+                next(iter(message_ids)) if len(message_ids) == 1 else None
+            ),
+            evidence_kind="conflicting_references" if matches else "unlinked",
+            relationships=relationships,
+        )
+    selected = matches[0]
+    return OpenAIExportImageEvidence(
+        source_tag=selected.source_tag,
+        source_thread_id=selected.source_thread_id,
+        source_message_id=selected.source_message_id,
+        prompt=selected.prompt,
+        model=selected.model,
+        evidence_kind=selected.evidence_kind,
+        relationships=relationships,
+    )
 
 
 class OpenAIExportFileClassifier:

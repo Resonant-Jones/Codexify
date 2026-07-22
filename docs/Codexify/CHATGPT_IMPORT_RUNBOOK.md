@@ -91,8 +91,9 @@ Notes:
    - success stats (`threads_imported`, `messages_imported`), or
    - a clear format error (for example: HTML/ZIP/metadata-only JSON).
 
-**Note**: The WebUI upload path is designed for single-file `conversations.json`
-exports. For full archive folders, use the CLI.
+**Note**: The WebUI upload path accepts a single legacy `conversations.json`
+file or a single modern OpenAI `.dat` conversation shard. Full sharded export
+folders still require the CLI.
 
 ---
 
@@ -100,8 +101,10 @@ exports. For full archive folders, use the CLI.
 
 Accepted:
 
-- Any filename or extension, as long as file content matches supported
-  ChatGPT export JSON schema.
+- A single legacy `conversations.json` file whose content matches the supported
+  ChatGPT export schema.
+- A single modern OpenAI `.dat` conversation shard containing readable
+  JSON/JSONL conversation records.
 - Sharded export folders with `conversations__*.part-*` directories and
   `.dat` files.
 - Legacy `conversations.json` at the export root.

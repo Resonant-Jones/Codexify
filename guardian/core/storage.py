@@ -8,12 +8,13 @@ Follows the same provider pattern as TTS services.
 import logging
 import mimetypes
 import os
+import shutil
 import sys
 import tempfile
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import BinaryIO, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,23 @@ class StorageProvider(ABC):
         """
         pass
 
+    def upload_stream(
+        self,
+        source: BinaryIO,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a seekable stream.
+
+        Providers may override this to avoid materializing large files in
+        memory. The compatibility fallback keeps the existing byte-oriented
+        provider contract working.
+        """
+
+        source.seek(0)
+        return self.upload(source.read(), filename, content_type, metadata)
+
     @abstractmethod
     def download(self, file_path: str) -> bytes:
         """
@@ -101,6 +119,12 @@ class StorageProvider(ABC):
             FileNotFoundError: If file doesn't exist
         """
         pass
+
+    def download_to_path(self, file_path: str, destination: Path) -> None:
+        """Download into a local path without requiring callers to hold bytes."""
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(self.download(file_path))
 
     @abstractmethod
     def delete(self, file_path: str) -> bool:
@@ -216,6 +240,26 @@ class LocalStorageProvider(StorageProvider):
         except Exception as e:
             raise UploadError(f"Failed to upload {filename}: {e}")
 
+    def upload_stream(
+        self,
+        source: BinaryIO,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Copy a stream into local storage without loading it all at once."""
+
+        _ = content_type, metadata
+        try:
+            file_path = self.base_path / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            source.seek(0)
+            with file_path.open("wb") as destination:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+            return f"{self.url_prefix}/{filename}"
+        except Exception as exc:
+            raise UploadError(f"Failed to upload {filename}: {exc}") from exc
+
     def download(self, file_path: str) -> bytes:
         """Download file from local filesystem."""
         # Strip URL prefix if present
@@ -232,6 +276,20 @@ class LocalStorageProvider(StorageProvider):
                 return f.read()
         except Exception as e:
             raise StorageError(f"Failed to read {file_path}: {e}")
+
+    def download_to_path(self, file_path: str, destination: Path) -> None:
+        """Copy a local stored object to a worker-owned destination."""
+
+        if file_path.startswith(self.url_prefix):
+            file_path = file_path[len(self.url_prefix) :].lstrip("/")
+        source = self.base_path / file_path
+        if not source.is_file():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+        except Exception as exc:
+            raise StorageError(f"Failed to copy {file_path}: {exc}") from exc
 
     def delete(self, file_path: str) -> bool:
         """Delete file from local filesystem."""
@@ -393,9 +451,29 @@ class StorageManager:
 
         return self.provider.upload(file_data, filename, content_type, metadata)
 
+    def upload_stream(
+        self,
+        source: BinaryIO,
+        filename: str,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a seekable stream through the configured provider."""
+
+        if content_type is None:
+            content_type, _ = mimetypes.guess_type(filename)
+        return self.provider.upload_stream(
+            source, filename, content_type, metadata
+        )
+
     def download_file(self, file_path: str) -> bytes:
         """Download a file."""
         return self.provider.download(file_path)
+
+    def download_to_path(self, file_path: str, destination: Path) -> None:
+        """Download directly into a local worker path."""
+
+        self.provider.download_to_path(file_path, destination)
 
     def delete_file(self, file_path: str) -> bool:
         """Delete a file."""
@@ -508,3 +586,27 @@ def create_storage_from_env() -> "StorageManager":
     url_prefix = os.getenv("STORAGE_URL_PREFIX", "/media")
     base_path = ensure_storage_base_path()
     return StorageManager("local", base_path=base_path, url_prefix=url_prefix)
+
+
+def create_import_staging_storage_from_env() -> "StorageManager":
+    """Create private, persistent storage for staged account exports.
+
+    The staging root is deliberately separate from ``STORAGE_BASE_PATH`` so
+    raw account-export files are never mounted beneath the signed ``/media``
+    serving surface.
+    """
+
+    configured = os.getenv("IMPORT_STAGING_BASE_PATH")
+    is_pytest = "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST")
+    if configured:
+        base_path = Path(configured)
+    elif is_pytest:
+        base_path = Path(tempfile.gettempdir()) / "codexify_import_staging"
+    else:
+        base_path = Path("/app/data/imports")
+    base_path.mkdir(parents=True, exist_ok=True)
+    return StorageManager(
+        "local",
+        base_path=base_path,
+        url_prefix="/internal",
+    )
