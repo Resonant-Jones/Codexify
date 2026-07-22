@@ -82,6 +82,12 @@ function setSnapshot(next: AccountImportCoordinatorSnapshot): void {
   notify();
 }
 
+function extractHttpStatus(error: unknown): number | null {
+  const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+  if (typeof status === "number") return status;
+  return null;
+}
+
 function phaseForJob(job: AccountImportJob): AccountImportCoordinatorPhase {
   if (job.status === "queued") return "accepted";
   if (job.status === "running") return "running";
@@ -138,6 +144,17 @@ async function refreshJob(
     }
   } catch (error) {
     if (run !== refreshRun) return;
+    if (extractHttpStatus(error) === 404) {
+      setSnapshot({
+        ...snapshot,
+        phase: "failed",
+        job: null,
+        error:
+          "This saved account import job is no longer available for this account or server. The stale browser reference was cleared. Start the import again if needed.",
+        technicalDetail: `HTTP 404 for job ${jobId}`,
+      });
+      return;
+    }
     const normalized = normalizeImportRuntimeError(error, { phase: "upload" });
     setSnapshot({
       ...snapshot,
