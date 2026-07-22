@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
+
+import pytest
 
 from guardian.core import ai_router
 from guardian.core import chat_completion_service
 from guardian.core.ai_router import LocalModelResolution, call_local, stream_local
+from guardian.core.chat_completion_service import ChatTaskCancelled
+from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.providers.whooshd_control_plane import (
     parse_whooshd_response_correlation,
 )
@@ -45,6 +51,36 @@ class _StreamingResponse:
 
     def close(self):
         return None
+
+
+class _BlockingStreamingResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self):
+        self.headers = {
+            "X-Request-ID": "req-root-cancel",
+            "X-Whooshd-Request-ID": "whooshd-local-cancel",
+            "X-Codexify-Task-ID": "task-cancel",
+            "X-Codexify-Attempt-ID": "attempt-cancel",
+        }
+        self.started = threading.Event()
+        self.closed = threading.Event()
+        self.json_called = False
+
+    def json(self):
+        self.json_called = True
+        raise AssertionError("stream body must not be parsed before monitoring")
+
+    def iter_lines(self, decode_unicode=False):
+        _ = decode_unicode
+        self.started.set()
+        self.closed.wait(timeout=5)
+        if False:  # pragma: no cover - keeps this a generator for the test
+            yield b""
+
+    def close(self):
+        self.closed.set()
 
 
 def _prepare_local(monkeypatch):
@@ -194,6 +230,168 @@ def test_streaming_provider_headers_preserve_ids(monkeypatch):
     assert headers["X-Request-ID"] == "req-root-8"
     assert headers["X-Codexify-Task-ID"] == "task-8"
     assert headers["X-Codexify-Attempt-ID"] == "attempt-8"
+
+
+def test_streaming_cancellation_propagates_to_whooshd_local_request(monkeypatch):
+    _prepare_local(monkeypatch)
+    response = _BlockingStreamingResponse()
+    cancel_requested = threading.Event()
+    cancel_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_post(url, **kwargs):
+        if kwargs.get("stream"):
+            return response
+        cancel_calls.append((url, kwargs))
+        return _Response({})
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+    result: dict[str, object] = {}
+
+    def consume():
+        iterator = iter(
+            stream_local(
+                [{"role": "user", "content": "prompt-sentinel"}],
+                "stub-model",
+                settings=_settings(),
+                request_id="req-root-cancel",
+                task_id="task-cancel",
+                attempt_id="attempt-cancel",
+                cancel_check=cancel_requested.is_set,
+            )
+        )
+        try:
+            while True:
+                next(iterator)
+        except StopIteration as stop:
+            result["terminal"] = stop.value
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    assert response.started.wait(timeout=2)
+    cancel_requested.set()
+    consumer.join(timeout=3)
+
+    assert not consumer.is_alive()
+    terminal = result["terminal"]
+    assert isinstance(terminal, CompletionTerminalEvidence)
+    assert terminal.status is CompletionTerminalStatus.CANCELLED
+    assert terminal.visible_output_emitted is False
+    assert response.json_called is False
+    assert cancel_calls[0][0] == (
+        "http://whooshd.test/runtime/requests/whooshd-local-cancel/cancel"
+    )
+    assert cancel_calls[0][1]["headers"]["X-Request-ID"] == "req-root-cancel"
+    assert "prompt-sentinel" not in json.dumps(cancel_calls)
+
+
+def test_cancellation_finds_whooshd_id_before_stream_headers_arrive(monkeypatch):
+    _prepare_local(monkeypatch)
+    settings = _settings()
+    settings.LOCAL_PROVIDER_VENDOR = "whooshd"
+    response = _BlockingStreamingResponse()
+    cancel_requested = threading.Event()
+    initial_post_started = threading.Event()
+    release_initial_post = threading.Event()
+    cancel_seen = threading.Event()
+    cancel_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_get(url, timeout):
+        assert url == "http://whooshd.test/runtime/requests"
+        _ = timeout
+        return _Response(
+            {
+                "requests": [
+                    {
+                        "request_id": "whooshd-local-preheader",
+                        "correlation_id": "req-root-preheader",
+                        "codexify_task_id": "task-preheader",
+                        "codexify_attempt_id": "attempt-preheader",
+                        "status": "streaming",
+                    }
+                ]
+            }
+        )
+
+    def fake_post(url, **kwargs):
+        if kwargs.get("stream"):
+            initial_post_started.set()
+            release_initial_post.wait(timeout=3)
+            return response
+        cancel_calls.append((url, kwargs))
+        cancel_seen.set()
+        return _Response({})
+
+    monkeypatch.setattr(ai_router.requests, "get", fake_get)
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+    result: dict[str, object] = {}
+
+    def consume():
+        iterator = iter(
+            stream_local(
+                [{"role": "user", "content": "prompt-sentinel"}],
+                "stub-model",
+                settings=settings,
+                request_id="req-root-preheader",
+                task_id="task-preheader",
+                attempt_id="attempt-preheader",
+                cancel_check=cancel_requested.is_set,
+            )
+        )
+        try:
+            while True:
+                next(iterator)
+        except StopIteration as stop:
+            result["terminal"] = stop.value
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    assert initial_post_started.wait(timeout=2)
+    cancel_requested.set()
+    assert cancel_seen.wait(timeout=2)
+    release_initial_post.set()
+    consumer.join(timeout=3)
+
+    assert not consumer.is_alive()
+    terminal = result["terminal"]
+    assert isinstance(terminal, CompletionTerminalEvidence)
+    assert terminal.status is CompletionTerminalStatus.CANCELLED
+    assert cancel_calls[0][0].endswith(
+        "/runtime/requests/whooshd-local-preheader/cancel"
+    )
+
+
+def test_cancelled_local_terminal_uses_existing_task_cancellation_path(monkeypatch):
+    def cancelled_stream(*_args, **_kwargs):
+        if False:  # pragma: no cover - keeps this a generator
+            yield ""
+        return CompletionTerminalEvidence(
+            status=CompletionTerminalStatus.CANCELLED,
+            visible_output_emitted=False,
+            explicit_provider_terminal_observed=False,
+            finish_reason=None,
+            transport_ended_cleanly=False,
+            provider="local",
+            model="stub-model",
+            failure_kind="cancelled",
+            retry_permitted=False,
+        )
+
+    monkeypatch.setattr(chat_completion_service, "stream_local", cancelled_stream)
+    task = ChatCompletionTask(
+        task_id="task-cancel-path",
+        request_id="req-cancel-path",
+        user_id="user-1",
+        thread_id=1,
+    )
+
+    with pytest.raises(ChatTaskCancelled):
+        chat_completion_service._execute_completion_attempt(
+            task=task,
+            messages_for_llm=[],
+            provider="local",
+            model="stub-model",
+            bundle=None,
+        )
 
 
 def test_response_correlation_accepts_only_bounded_machine_ids():

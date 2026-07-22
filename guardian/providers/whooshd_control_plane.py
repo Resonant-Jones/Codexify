@@ -330,7 +330,11 @@ def _header(response: Any, name: str) -> str | None:
     return candidate
 
 
-def parse_whooshd_error(response: Any) -> WhooshdErrorDiagnostic | None:
+def parse_whooshd_error(
+    response: Any,
+    *,
+    include_body: bool = True,
+) -> WhooshdErrorDiagnostic | None:
     """Parse a v1 error only when the response explicitly declares v1.
 
     A missing version is intentionally treated as legacy rather than guessed
@@ -344,6 +348,8 @@ def parse_whooshd_error(response: Any) -> WhooshdErrorDiagnostic | None:
         return None
     if response_version != WHOOSHD_CONTROL_PLANE_VERSION:
         raise WhooshdContractVersionError(response_version)
+    if not include_body:
+        return None
     try:
         body = response.json()
     except Exception:

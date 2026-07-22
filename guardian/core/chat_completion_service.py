@@ -637,6 +637,7 @@ def _execute_completion_attempt(
                     "request_id": request_id,
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
+                    "cancel_check": cancel_check,
                 },
             ),
         )
@@ -705,6 +706,12 @@ def _execute_completion_attempt(
         else:
             terminal = terminal.with_visible_output(visible_output_emitted)
         if not terminal.successful:
+            if terminal.status is CompletionTerminalStatus.CANCELLED:
+                raise ChatTaskCancelled(
+                    provider=provider,
+                    model=model,
+                    visible_output_emitted=visible_output_emitted,
+                )
             terminal_error = CompletionTerminalError(terminal)
             _record_attempt_failure(terminal_error)
             raise terminal_error
