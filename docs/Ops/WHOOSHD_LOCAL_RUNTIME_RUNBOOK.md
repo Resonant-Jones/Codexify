@@ -37,8 +37,9 @@ verified. A missing provenance field remains compatible with documented legacy
 Whoosh'd runtimes.
 
 The accepted fields are model aliases and request correlation (`request_id`,
-`requested_model_id`, `advertised_model_id`, `resolved_model_id`, and
-`backend_reported_model_id`), runtime identity, canonical resolution source,
+`correlation_id`, `codexify_task_id`, `codexify_attempt_id`,
+`whooshd_request_id`, `requested_model_id`, `advertised_model_id`,
+`resolved_model_id`, and `backend_reported_model_id`), runtime identity, canonical resolution source,
 execution mode, streaming/queue/batch flags, model lifecycle, and
 `whooshd_version`. Codexify carries accepted evidence into the completion
 result and the persisted assistant `extra_meta` key
@@ -52,6 +53,15 @@ contract remains unchanged. The header and body are parsed from machine-readable
 fields only; human-readable provider messages are never used for runtime
 classification. Provenance is bounded operational metadata and does not prove
 that a live daemon, model, Docker bridge, or external log collector is healthy.
+
+Codexify request correlation uses one immutable root `request_id`, a separate
+`task_id`, and a new `attempt_id` for each provider attempt. Whoosh'd assigns a
+distinct local `whooshd_request_id`. All four identifiers are bounded and
+content-free; malformed or oversized inbound values are replaced or omitted.
+The root/task/attempt headers are sent to Whoosh'd, and response headers are
+available before streaming output. Missing correlation headers remain legacy
+compatible; this is correlation metadata, not a tracing or OpenTelemetry
+contract.
 
 ## Nodes And Boundaries
 

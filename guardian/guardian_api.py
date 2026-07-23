@@ -81,6 +81,7 @@ from guardian.core.outbox import (
     parse_outbox_batch_size,
     parse_outbox_poll_interval,
 )
+from guardian.core.request_correlation import normalize_request_id
 from guardian.core.public_exposure import (
     DEFAULT_EXPOSURE_MODE,
     DEFAULT_PROFILE,
@@ -902,14 +903,17 @@ app.openapi = _custom_openapi
 def _get_request_id(request: Request) -> str:
     request_id = getattr(request.state, "request_id", None)
     if request_id:
-        return request_id
+        normalized, valid = normalize_request_id(request_id)
+        request.state.request_id = normalized
+        if not valid:
+            request.state.request_id_invalid = True
+        return normalized
     header_id = request.headers.get("X-Request-ID")
-    if header_id:
-        request.state.request_id = header_id
-        return header_id
-    request_id = str(uuid4())
-    request.state.request_id = request_id
-    return request_id
+    normalized, valid = normalize_request_id(header_id)
+    request.state.request_id = normalized
+    if not valid and header_id:
+        request.state.request_id_invalid = True
+    return normalized
 
 
 # =========================

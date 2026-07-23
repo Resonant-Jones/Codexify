@@ -98,6 +98,8 @@ class CompletionAttemptResult:
     output: Any
     terminal: CompletionTerminalEvidence
     runtime_provenance: dict[str, Any] | None = None
+    attempt_id: str | None = None
+    response_correlation: dict[str, Any] | None = None
 
 
 class CompletionTerminalError(RuntimeError):

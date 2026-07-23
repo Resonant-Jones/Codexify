@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -16,6 +17,18 @@ def _task_with_turn_id() -> ChatCompletionTask:
     )
 
 
+def _successful_result(message_id: int, *, model: str = "local") -> dict:
+    return {
+        "message_id": message_id,
+        "provider": "local",
+        "model": model,
+        "persistence_outcome": "persisted",
+        "terminal_evidence": successful_non_stream_terminal(
+            provider="local", model=model
+        ).as_dict(),
+    }
+
+
 def test_metadata_persist_failure_does_not_fail_task(monkeypatch, caplog):
     published: list[str] = []
 
@@ -25,7 +38,7 @@ def test_metadata_persist_failure_does_not_fail_task(monkeypatch, caplog):
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
-        lambda *args, **kwargs: {"message_id": 77, "provider": "local"},
+        lambda *args, **kwargs: _successful_result(77),
     )
     monkeypatch.setattr(
         chat_worker,
@@ -75,7 +88,7 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
 
     def fake_run_chat_completion_task(task, **kwargs):
         run_calls.append(bool(kwargs.get("persist_assistant_message")))
-        return {"message_id": 321, "provider": "local", "model": "x"}
+        return _successful_result(321, model="x")
 
     monkeypatch.setattr(
         chat_worker, "run_chat_completion_task", fake_run_chat_completion_task

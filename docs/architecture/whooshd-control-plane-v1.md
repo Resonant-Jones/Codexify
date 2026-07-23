@@ -20,6 +20,31 @@ Codexify sends the same contract header on local inference requests. It does
 not forward or classify prompts, generated text, tool values, media, headers,
 or raw provider bodies as contract diagnostics.
 
+## Request correlation
+
+The request-correlation slice is deliberately smaller than distributed tracing:
+
+| Identifier | Owner and meaning |
+|---|---|
+| `request_id` | Immutable Codexify root request identity, created or accepted at ingress |
+| `task_id` | Codexify queue/worker task identity |
+| `attempt_id` | New identity for each provider execution attempt, including fallback |
+| `whooshd_request_id` | Whoosh'd-local lifecycle identity; distinct from the Codexify root |
+
+Identifiers are bounded to 128 characters and `A-Za-z0-9._:-`. Invalid or
+oversized inbound values are replaced or omitted; they are never echoed as raw
+header values, logged, or persisted. Codexify sends the root, task, and attempt
+as `X-Request-ID`, `X-Codexify-Task-ID`, and `X-Codexify-Attempt-ID`. Whoosh'd
+echoes the bounded root and task/attempt values and adds
+`X-Whooshd-Request-ID` after it creates a local lifecycle record.
+
+The same bounded fields are carried through queueing, retries, fallback,
+streaming, batch contexts, runtime provenance, terminal evidence, worker
+events, and successful assistant `extra_meta`. Successful persistence is the
+commit point for successful assistant correlation metadata; failed or
+incomplete attempts do not become successful assistant records. This does not
+add OpenTelemetry, span propagation, or a new event-payload contract.
+
 ## Cross-repository error matrix
 
 | Condition / code | HTTP | Retryable | Retry-After | Codexify mapping | Whoosh'd legacy path |
@@ -61,7 +86,9 @@ When Whoosh'd reports a stream failure after visible output, the canonical
 error is an SSE error event and a successful `[DONE]` event is not fabricated.
 Codexify preserves the established incomplete-stream classification and does
 not fall back after visible output. Successful streams retain their existing
-terminal behavior.
+terminal behavior. Response correlation headers are available before visible
+stream output; the stream body remains unchanged apart from its established
+error event behavior.
 
 ## Proof boundary
 

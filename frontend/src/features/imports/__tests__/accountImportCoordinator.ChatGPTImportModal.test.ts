@@ -116,6 +116,46 @@ describe("account import coordinator continuity", () => {
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
+  it("stops polling and clears stale reference on HTTP 404", async () => {
+    vi.useFakeTimers();
+
+    window.localStorage.setItem(
+      "cfy.accountImport:v1",
+      JSON.stringify({ v: 1, jobId: "stale-404-job", status: "queued" })
+    );
+
+    apiMocks.fetch.mockRejectedValue({
+      response: { status: 404 },
+    });
+
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+
+    coordinator.getAccountImportCoordinatorSnapshot();
+
+    await vi.runAllTimersAsync();
+
+    const snap = coordinator.getAccountImportCoordinatorSnapshot();
+    expect(snap.phase).toBe("failed");
+    expect(snap.job).toBeNull();
+    expect(snap.error).toMatch(/no longer available/);
+    expect(snap.error).not.toContain("[object Object]");
+    expect(snap.technicalDetail).toMatch(/HTTP 404/);
+    expect(snap.technicalDetail).toMatch(/stale-404-job/);
+
+    expect(window.localStorage.getItem("cfy.accountImport:v1")).toBeNull();
+    expect(apiMocks.fetch).toHaveBeenCalledTimes(1);
+    expect(apiMocks.fetch).toHaveBeenCalledWith("stale-404-job", undefined);
+
+    // Advance well past multiple polling intervals — no further calls.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(apiMocks.fetch).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
   it("reports a genuinely unfinished restored transfer without claiming acceptance", async () => {
     window.localStorage.setItem(
       "cfy.accountImport:v1",

@@ -57,6 +57,7 @@ from guardian.core.llm_catalog import (
     resolve_provider_for_model,
 )
 from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
+from guardian.core.request_correlation import correlation_metadata
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_provider,
@@ -562,6 +563,9 @@ def _task_state_payload(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "state": state.value,
+        "request_id": task.request_id,
+        "task_id": task.task_id,
+        "attempt_id": getattr(task, "attempt_id", "") or None,
         "task_type": task.type,
         "thread_id": task.thread_id,
         "origin": task.origin,
@@ -1729,7 +1733,12 @@ def _run_chat_completion_task_compat(
         )
         assistant_output = str(completion_result.get("assistant_text") or "")
         if assistant_output:
+            had_streaming_output = streaming_emitted
             _publish_streaming("body")
+            if token_callback and not had_streaming_output:
+                visible_output = extract_assistant_response(assistant_output)
+                if visible_output:
+                    token_callback(visible_output)
         return assistant_output
 
     fallback_reason: str | None = None
@@ -1934,6 +1943,11 @@ def _run_chat_completion_task_compat(
         "attempted_provider_truth": attempted_provider_truth,
         "final_provider_truth": final_provider_truth,
         "execution": execution,
+        "request_correlation": (
+            completion_result.get("request_correlation")
+            if isinstance(completion_result, dict)
+            else None
+        ),
         "bundle": bundle,
         "trace": trace,
         "thread_id": task.thread_id,
@@ -1990,6 +2004,7 @@ def _run_chat_completion_task_compat(
             "command_status",
             "command_error",
             "terminal_evidence",
+            "request_correlation",
         ):
             value = completion_result.get(key)
             if value is not None:
@@ -2105,6 +2120,7 @@ def _run_chat_completion_task_compat(
                 "execution": execution,
                 "tool_loop_execution": result.get("tool_loop_execution"),
                 "whooshd_runtime_provenance": result.get("runtime_provenance"),
+                "request_correlation": result.get("request_correlation"),
                 **tool_loop_observability,
             },
         )
@@ -2140,6 +2156,7 @@ def _run_chat_completion_task_compat(
                 "execution": execution,
                 "tool_loop_execution": result.get("tool_loop_execution"),
                 "whooshd_runtime_provenance": result.get("runtime_provenance"),
+                "request_correlation": result.get("request_correlation"),
                 **tool_loop_observability,
             },
         )
@@ -2630,6 +2647,10 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "tool_loop_execution": result.get("tool_loop_execution"),
                 "persistence_outcome": result.get("persistence_outcome"),
                 "terminal_evidence": result.get("terminal_evidence"),
+                "request_id": task.request_id,
+                "task_id": task.task_id,
+                "attempt_id": getattr(task, "attempt_id", "") or None,
+                "request_correlation": result.get("request_correlation"),
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
@@ -2667,6 +2688,12 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 "latest_turn_message_id": latest_turn_message_id,
                 "failure_kind": cancellation_metadata.get("failure_kind"),
                 "terminal_evidence": cancellation_metadata.get("terminal_evidence"),
+                "request_id": task.request_id,
+                "task_id": task.task_id,
+                "attempt_id": getattr(task, "attempt_id", "") or None,
+                "request_correlation": cancellation_metadata.get(
+                    "request_correlation"
+                ),
                 **terminal_timings,
             },
         )
@@ -2693,6 +2720,9 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "origin": task.origin,
             "turn_id": turn_id,
             "latest_turn_message_id": latest_turn_message_id,
+            "request_id": task.request_id,
+            "task_id": task.task_id,
+            "attempt_id": getattr(task, "attempt_id", "") or None,
             **terminal_timings,
         }
         if failed_after_state:
@@ -2723,6 +2753,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "attempted_provider_truth",
             "final_provider_truth",
             "terminal_evidence",
+            "request_correlation",
             "messageId",
             "requestId",
             "toolTurnId",
@@ -2752,6 +2783,14 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             failure_payload["provider"] = task.provider
         if task.model:
             failure_payload["model"] = task.model
+        failure_payload.setdefault(
+            "request_correlation",
+            correlation_metadata(
+                request_id=task.request_id,
+                task_id=task.task_id,
+                attempt_id=getattr(task, "attempt_id", None),
+            ),
+        )
         _safe_publish(
             task.task_id,
             "task.failed",

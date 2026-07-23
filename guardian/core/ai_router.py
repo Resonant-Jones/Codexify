@@ -4,9 +4,11 @@ import inspect
 import json
 import logging
 import os
+import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import requests
 from fastapi import HTTPException
@@ -36,6 +38,8 @@ from guardian.providers.deepseek_adapter import (
     parse_response as parse_deepseek_response,
 )
 from guardian.providers.whooshd_control_plane import (
+    CODEXIFY_ATTEMPT_ID_HEADER,
+    CODEXIFY_TASK_ID_HEADER,
     WHOOSHD_CONTROL_PLANE_VERSION,
     WHOOSHD_CONTROL_VERSION_HEADER,
     WHOOSHD_RUNTIME_PROVENANCE_HEADER,
@@ -43,6 +47,8 @@ from guardian.providers.whooshd_control_plane import (
     WhooshdErrorDiagnostic,
     WhooshdRuntimeProvenance,
     parse_whooshd_error,
+    merge_whooshd_response_correlation,
+    parse_whooshd_response_correlation,
     parse_whooshd_runtime_provenance,
     provider_failure_kind as whooshd_provider_failure_kind,
 )
@@ -70,6 +76,161 @@ LOCAL_MODEL_UNAVAILABLE_FAILURE_KIND = "local_model_unavailable"
 WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON = (
     "configured_model_not_advertised_by_whooshd"
 )
+_SAFE_WHOOSHD_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class _WhooshdCancellationMonitor:
+    """Propagate task cancellation to one active Whoosh'd request."""
+
+    def __init__(
+        self,
+        *,
+        response: requests.Response | None,
+        base_url: str,
+        request_id: str | None,
+        task_id: str | None,
+        attempt_id: str | None,
+        cancel_check,
+    ) -> None:
+        self._response = response
+        self._base_url = base_url
+        self._cancel_check = cancel_check
+        self._stop = threading.Event()
+        self.cancelled = threading.Event()
+        self._whooshd_request_id = _whooshd_request_id_from_response(response)
+        self._cancel_url = _whooshd_cancel_url(base_url, self._whooshd_request_id)
+        self._headers = {
+            WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
+        }
+        if request_id:
+            self._headers["X-Request-ID"] = request_id
+        if task_id:
+            self._headers[CODEXIFY_TASK_ID_HEADER] = task_id
+        if attempt_id:
+            self._headers[CODEXIFY_ATTEMPT_ID_HEADER] = attempt_id
+        self._thread = threading.Thread(
+            target=self._watch,
+            name="whooshd-cancel-monitor",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.5)
+
+    def set_response(self, response: requests.Response) -> None:
+        self._response = response
+        if not self._whooshd_request_id:
+            self._whooshd_request_id = _whooshd_request_id_from_response(response)
+        if not self._cancel_url:
+            self._cancel_url = _whooshd_cancel_url(
+                self._base_url,
+                self._whooshd_request_id,
+            )
+        if self.cancelled.is_set():
+            try:
+                response.close()
+            except Exception:
+                pass
+
+    def _discover_request_id(self) -> str | None:
+        try:
+            response = requests.get(
+                _whooshd_runtime_requests_url(self._base_url),
+                timeout=1,
+            )
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        items = payload.get("requests")
+        if not isinstance(items, list):
+            return None
+        for item in items[-256:]:
+            if not isinstance(item, dict):
+                continue
+            if self._request_matches(item):
+                candidate = item.get("request_id")
+                if isinstance(candidate, str) and _SAFE_WHOOSHD_REQUEST_ID_RE.fullmatch(
+                    candidate
+                ):
+                    return candidate
+        return None
+
+    def _request_matches(self, item: dict[str, Any]) -> bool:
+        return all(
+            not expected or item.get(field) == expected
+            for field, expected in (
+                ("correlation_id", self._headers.get("X-Request-ID")),
+                ("codexify_task_id", self._headers.get(CODEXIFY_TASK_ID_HEADER)),
+                ("codexify_attempt_id", self._headers.get(CODEXIFY_ATTEMPT_ID_HEADER)),
+            )
+        )
+
+    def _watch(self) -> None:
+        while not self._stop.wait(0.05):
+            try:
+                requested = bool(self._cancel_check())
+            except Exception:
+                requested = False
+            if not requested:
+                continue
+            if not self._whooshd_request_id:
+                self._whooshd_request_id = self._discover_request_id()
+                if self._whooshd_request_id:
+                    self._cancel_url = _whooshd_cancel_url(
+                        self._base_url,
+                        self._whooshd_request_id,
+                    )
+            if not self._cancel_url:
+                continue
+            self.cancelled.set()
+            try:
+                cancel_response = requests.post(
+                    self._cancel_url,
+                    headers=self._headers,
+                    timeout=2,
+                )
+                cancel_response.close()
+            except req_exc.RequestException:
+                pass
+            try:
+                if self._response is not None:
+                    self._response.close()
+            except Exception:
+                pass
+            return
+
+
+def _whooshd_request_id_from_response(
+    response: requests.Response | None,
+) -> str | None:
+    if response is None:
+        return None
+    return parse_whooshd_response_correlation(response).get("whooshd_request_id")
+
+
+def _whooshd_base_url(base_url: str) -> str:
+    parsed = urlparse(str(base_url))
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[:-3].rstrip("/")
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")).rstrip("/")
+
+
+def _whooshd_cancel_url(base_url: str, request_id: str | None) -> str | None:
+    """Build a path-only cancellation URL from bounded request metadata."""
+    if not request_id:
+        return None
+    return f"{_whooshd_base_url(base_url)}/runtime/requests/{request_id}/cancel"
+
+
+def _whooshd_runtime_requests_url(base_url: str) -> str:
+    return f"{_whooshd_base_url(base_url)}/runtime/requests"
 
 
 @dataclass(frozen=True)
@@ -131,12 +292,14 @@ class ProviderResponse(str):
         content_blocks: Any | None = None,
         provider: str | None = None,
         runtime_provenance: WhooshdRuntimeProvenance | None = None,
+        response_correlation: dict[str, str] | None = None,
     ):
         obj = super().__new__(cls, text or "")
         obj.raw_payload = raw_payload  # type: ignore[attr-defined]
         obj.content_blocks = content_blocks  # type: ignore[attr-defined]
         obj.provider = provider  # type: ignore[attr-defined]
         obj.runtime_provenance = runtime_provenance  # type: ignore[attr-defined]
+        obj.response_correlation = response_correlation  # type: ignore[attr-defined]
         return obj
 
 
@@ -1578,6 +1741,9 @@ def chat_with_ai(
     prompt_meta: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -1661,6 +1827,9 @@ def chat_with_ai(
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
                     "settings": settings,
+                    "request_id": request_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
                 },
             ),
         )
@@ -2197,6 +2366,9 @@ def call_local(
     temperature: Optional[float] = None,
     timeout: Optional[float] = None,
     log_exceptions: bool = True,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2224,6 +2396,12 @@ def call_local(
         "Content-Type": "application/json",
         WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    if task_id:
+        headers[CODEXIFY_TASK_ID_HEADER] = task_id
+    if attempt_id:
+        headers[CODEXIFY_ATTEMPT_ID_HEADER] = attempt_id
     payload: Dict[str, Any] = {
         "model": model,
         "messages": adapted_messages,
@@ -2383,6 +2561,11 @@ def call_local(
             runtime_provenance = parse_whooshd_runtime_provenance(
                 data.get("runtime_provenance")
             ) if isinstance(data, dict) else None
+            response_correlation = parse_whooshd_response_correlation(resp)
+            runtime_provenance = merge_whooshd_response_correlation(
+                runtime_provenance,
+                resp,
+            )
 
             # Ollama /api/chat format
             if isinstance(data.get("message"), dict) and "content" in data["message"]:
@@ -2391,6 +2574,7 @@ def call_local(
                     raw_payload=data,
                     provider="local",
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
 
             # Ollama /api/generate format
@@ -2400,6 +2584,7 @@ def call_local(
                     raw_payload=data,
                     provider="local",
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
 
             # OpenAI-compatible format
@@ -2412,6 +2597,7 @@ def call_local(
                         raw_payload=data,
                         provider="local",
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
 
             attempt_failures.append(
@@ -2533,6 +2719,10 @@ def stream_local(
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    request_id: str | None = None,
+    task_id: str | None = None,
+    attempt_id: str | None = None,
+    cancel_check=None,
 ):
     settings = _resolve_settings(settings)
     local_model_resolution = resolve_local_execution_model(
@@ -2558,6 +2748,12 @@ def stream_local(
         "Content-Type": "application/json",
         WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
     }
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    if task_id:
+        headers[CODEXIFY_TASK_ID_HEADER] = task_id
+    if attempt_id:
+        headers[CODEXIFY_ATTEMPT_ID_HEADER] = attempt_id
     payload: Dict[str, Any] = {
         "model": model,
         "messages": adapted_messages,
@@ -2583,6 +2779,10 @@ def stream_local(
     base_urls = _resolve_local_base_candidates(settings)
 
     timeout = runtime_policy.request_timeout
+    whooshd_monitoring = (
+        str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
+        == "whooshd"
+    )
 
     compat_first = bool(getattr(settings, "LOCAL_COMPAT_FIRST", False))
     compat_first = compat_first or bool(
@@ -2596,6 +2796,7 @@ def stream_local(
     attempted_base_urls: list[str] = []
     last_transport_error: req_exc.RequestException | None = None
     last_whooshd_error: WhooshdErrorDiagnostic | None = None
+    cancel_monitor: _WhooshdCancellationMonitor | None = None
 
     try:
         for base_url in base_urls:
@@ -2609,6 +2810,17 @@ def stream_local(
             )
             for kind, url in attempt_urls:
                 current_url = url
+                candidate_cancel_monitor: _WhooshdCancellationMonitor | None = None
+                if callable(cancel_check) and whooshd_monitoring:
+                    candidate_cancel_monitor = _WhooshdCancellationMonitor(
+                        response=None,
+                        base_url=base_url,
+                        request_id=request_id,
+                        task_id=task_id,
+                        attempt_id=attempt_id,
+                        cancel_check=cancel_check,
+                    )
+                    candidate_cancel_monitor.start()
                 try:
                     logger.info(
                         "chat.inference.request.built",
@@ -2661,13 +2873,22 @@ def stream_local(
                             timeout=timeout,
                         )
                 except req_exc.RequestException as exc:
+                    if candidate_cancel_monitor is not None:
+                        candidate_cancel_monitor.stop()
                     last_transport_error = exc
                     classification = _classify_transport_error(exc)
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
 
+                if candidate_cancel_monitor is not None:
+                    candidate_cancel_monitor.set_response(resp)
+                    cancel_monitor = candidate_cancel_monitor
+
                 try:
-                    whooshd_error = parse_whooshd_error(resp)
+                    whooshd_error = parse_whooshd_error(
+                        resp,
+                        include_body=resp.status_code >= 300,
+                    )
                 except WhooshdContractVersionError as exc:
                     resp.close()
                     raise _whooshd_contract_version_failure(
@@ -2799,6 +3020,7 @@ def stream_local(
             finish_reason: str | None = None
             visible_output_emitted = False
             runtime_provenance: dict[str, Any] | None = None
+            parsed_response_provenance: WhooshdRuntimeProvenance | None = None
             response_headers = getattr(response, "headers", {}) or {}
             header_provenance = response_headers.get(
                 WHOOSHD_RUNTIME_PROVENANCE_HEADER
@@ -2811,8 +3033,38 @@ def stream_local(
                 except Exception:
                     parsed_header = None
                 if parsed_header is not None:
-                    runtime_provenance = parsed_header.as_dict()
+                    parsed_response_provenance = parsed_header
+            parsed_response_provenance = merge_whooshd_response_correlation(
+                parsed_response_provenance,
+                response,
+            )
+            if parsed_response_provenance is not None:
+                runtime_provenance = parsed_response_provenance.as_dict()
+            if callable(cancel_check):
+                if cancel_monitor is None:
+                    cancel_monitor = _WhooshdCancellationMonitor(
+                        response=response,
+                        base_url=base_url,
+                        request_id=request_id,
+                        task_id=task_id,
+                        attempt_id=attempt_id,
+                        cancel_check=cancel_check,
+                    )
+                    cancel_monitor.start()
             for raw_line in response.iter_lines(decode_unicode=False):
+                if cancel_monitor and cancel_monitor.cancelled.is_set():
+                    return CompletionTerminalEvidence(
+                        status=CompletionTerminalStatus.CANCELLED,
+                        visible_output_emitted=visible_output_emitted,
+                        explicit_provider_terminal_observed=False,
+                        finish_reason=finish_reason,
+                        transport_ended_cleanly=False,
+                        provider="local",
+                        model=model,
+                        failure_kind="cancelled",
+                        retry_permitted=False,
+                        runtime_provenance=runtime_provenance,
+                    )
                 if not raw_line:
                     continue
                 line = raw_line.decode("utf-8", errors="replace")
@@ -2855,6 +3107,10 @@ def stream_local(
                         else None
                     )
                     if parsed_provenance is not None:
+                        parsed_provenance = merge_whooshd_response_correlation(
+                            parsed_provenance,
+                            response,
+                        )
                         runtime_provenance = parsed_provenance.as_dict()
                     if isinstance(chunk.get("error"), (dict, str)):
                         return CompletionTerminalEvidence(
@@ -2915,6 +3171,19 @@ def stream_local(
                         retry_permitted=not visible_output_emitted,
                         runtime_provenance=runtime_provenance,
                     )
+            if cancel_monitor and cancel_monitor.cancelled.is_set():
+                return CompletionTerminalEvidence(
+                    status=CompletionTerminalStatus.CANCELLED,
+                    visible_output_emitted=visible_output_emitted,
+                    explicit_provider_terminal_observed=False,
+                    finish_reason=finish_reason,
+                    transport_ended_cleanly=False,
+                    provider="local",
+                    model=model,
+                    failure_kind="cancelled",
+                    retry_permitted=False,
+                    runtime_provenance=runtime_provenance,
+                )
             return CompletionTerminalEvidence(
                 status=CompletionTerminalStatus.STREAM_INCOMPLETE,
                 visible_output_emitted=visible_output_emitted,
@@ -2928,6 +3197,19 @@ def stream_local(
                 runtime_provenance=runtime_provenance,
             )
         except req_exc.RequestException as exc:
+            if cancel_monitor and cancel_monitor.cancelled.is_set():
+                return CompletionTerminalEvidence(
+                    status=CompletionTerminalStatus.CANCELLED,
+                    visible_output_emitted=False,
+                    explicit_provider_terminal_observed=False,
+                    finish_reason=None,
+                    transport_ended_cleanly=False,
+                    provider="local",
+                    model=model,
+                    failure_kind="cancelled",
+                    retry_permitted=False,
+                    runtime_provenance=runtime_provenance,
+                )
             detail = _format_local_connect_error(
                 current_url,
                 exc,
@@ -2963,6 +3245,8 @@ def stream_local(
                 ),
             ) from exc
     finally:
+        if cancel_monitor is not None:
+            cancel_monitor.stop()
         if response is not None:
             try:
                 response.close()
