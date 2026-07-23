@@ -20,6 +20,7 @@ class CompletionTerminalEvidence:
     failure_kind: str | None = None
     retry_permitted: bool = False
     runtime_provenance: dict[str, Any] | None = None
+    response_correlation: dict[str, Any] | None = None
 
     @property
     def successful(self) -> bool:
@@ -45,6 +46,8 @@ class CompletionTerminalEvidence:
         }
         if self.runtime_provenance is not None:
             payload["runtime_provenance"] = dict(self.runtime_provenance)
+        if self.response_correlation is not None:
+            payload["response_correlation"] = dict(self.response_correlation)
         return payload
 
     @classmethod
@@ -69,6 +72,15 @@ class CompletionTerminalEvidence:
             )
             if parsed_provenance is not None:
                 runtime_provenance = parsed_provenance.as_dict()
+        response_correlation = None
+        if raw.get("response_correlation") is not None:
+            from guardian.providers.whooshd_control_plane import (
+                bounded_response_correlation,
+            )
+
+            bounded = bounded_response_correlation(raw.get("response_correlation"))
+            if bounded:
+                response_correlation = bounded
         return cls(
             status=status,
             visible_output_emitted=bool(raw.get("visible_output_emitted")),
@@ -90,6 +102,7 @@ class CompletionTerminalEvidence:
             ),
             retry_permitted=bool(raw.get("retry_permitted")),
             runtime_provenance=runtime_provenance,
+            response_correlation=response_correlation,
         )
 
 

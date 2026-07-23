@@ -724,6 +724,11 @@ def _execute_completion_attempt(
                 else None
             ),
             attempt_id=attempt_id,
+            response_correlation=(
+                dict(terminal.response_correlation)
+                if isinstance(getattr(terminal, "response_correlation", None), dict)
+                else None
+            ),
         )
 
     try:

@@ -2821,6 +2821,7 @@ def stream_local(
                         cancel_check=cancel_check,
                     )
                     candidate_cancel_monitor.start()
+                resp: Optional[requests.Response] = None
                 try:
                     logger.info(
                         "chat.inference.request.built",
@@ -2880,55 +2881,66 @@ def stream_local(
                     attempt_failures.append(f"{url} ({classification}: {exc})")
                     continue
 
-                if candidate_cancel_monitor is not None:
-                    candidate_cancel_monitor.set_response(resp)
-                    cancel_monitor = candidate_cancel_monitor
-
+                # A candidate cancellation monitor must not become the active
+                # monitor until its response is accepted. Rejected candidates
+                # (unsupported endpoints, retryable statuses, or contract errors)
+                # are stopped here so no daemon polling thread survives a later
+                # accepted fallback attempt.
+                accepted = False
                 try:
-                    whooshd_error = parse_whooshd_error(
-                        resp,
-                        include_body=resp.status_code >= 300,
-                    )
-                except WhooshdContractVersionError as exc:
-                    resp.close()
-                    raise _whooshd_contract_version_failure(
-                        settings=settings,
-                        model=model,
-                        endpoint=url,
-                        runtime_policy=runtime_policy,
-                        received_version=exc.received_version,
-                        attempted_endpoints=[
-                            f"{url} (contract_version_unsupported)"
-                        ],
-                        attempted_base_urls=attempted_base_urls,
-                    ) from exc
-                if whooshd_error is not None:
-                    last_whooshd_error = whooshd_error
-                    attempt_failures.append(
-                        f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
-                    )
-                    resp.close()
-                    continue
-                if resp.status_code == 404:
-                    if is_gateway:
+                    try:
+                        whooshd_error = parse_whooshd_error(
+                            resp,
+                            include_body=resp.status_code >= 300,
+                        )
+                    except WhooshdContractVersionError as exc:
+                        raise _whooshd_contract_version_failure(
+                            settings=settings,
+                            model=model,
+                            endpoint=url,
+                            runtime_policy=runtime_policy,
+                            received_version=exc.received_version,
+                            attempted_endpoints=[
+                                f"{url} (contract_version_unsupported)"
+                            ],
+                            attempted_base_urls=attempted_base_urls,
+                        ) from exc
+                    if whooshd_error is not None:
+                        last_whooshd_error = whooshd_error
                         attempt_failures.append(
-                            f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
+                            f"{url} (HTTP {resp.status_code}: {whooshd_error.code})"
+                        )
+                    elif resp.status_code == 404:
+                        if is_gateway:
+                            attempt_failures.append(
+                                f"{url} (HTTP 404: endpoint requires OpenAI-compatible /v1/chat/completions)"
+                            )
+                        else:
+                            attempt_failures.append(f"{url} (HTTP 404)")
+                    elif not (200 <= resp.status_code < 300):
+                        detail = _extract_provider_error_message(
+                            resp, secret=api_key
+                        )
+                        attempt_failures.append(
+                            f"{url} (HTTP {resp.status_code}: {detail})"
                         )
                     else:
-                        attempt_failures.append(f"{url} (HTTP 404)")
-                    resp.close()
-                    continue
+                        accepted = True
+                finally:
+                    if not accepted:
+                        if candidate_cancel_monitor is not None:
+                            candidate_cancel_monitor.stop()
+                        if resp is not None:
+                            resp.close()
 
-                if not (200 <= resp.status_code < 300):
-                    detail = _extract_provider_error_message(resp, secret=api_key)
-                    attempt_failures.append(
-                        f"{url} (HTTP {resp.status_code}: {detail})"
-                    )
-                    resp.close()
+                if not accepted:
                     continue
 
                 response = resp
                 response_kind = kind
+                if candidate_cancel_monitor is not None:
+                    candidate_cancel_monitor.set_response(resp)
+                    cancel_monitor = candidate_cancel_monitor
                 break
             if response is not None:
                 break
@@ -3020,6 +3032,7 @@ def stream_local(
             finish_reason: str | None = None
             visible_output_emitted = False
             runtime_provenance: dict[str, Any] | None = None
+            response_correlation: dict[str, Any] | None = None
             parsed_response_provenance: WhooshdRuntimeProvenance | None = None
             response_headers = getattr(response, "headers", {}) or {}
             header_provenance = response_headers.get(
@@ -3040,6 +3053,13 @@ def stream_local(
             )
             if parsed_response_provenance is not None:
                 runtime_provenance = parsed_response_provenance.as_dict()
+            # Capture response correlation independently of runtime provenance so
+            # header-only Whoosh'd request IDs survive even when the upstream did
+            # not emit a bounded runtime-provenance block. Keeps streaming aligned
+            # with the non-streaming path in ``call_local``. An empty mapping is
+            # normalized to ``None`` so absent correlation is never persisted as a
+            # synthesized identifier.
+            response_correlation = parse_whooshd_response_correlation(response) or None
             if callable(cancel_check):
                 if cancel_monitor is None:
                     cancel_monitor = _WhooshdCancellationMonitor(
@@ -3064,6 +3084,7 @@ def stream_local(
                         failure_kind="cancelled",
                         retry_permitted=False,
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
                 if not raw_line:
                     continue
@@ -3084,6 +3105,7 @@ def stream_local(
                         provider="local",
                         model=model,
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
                 try:
                     chunk = json.loads(data)
@@ -3099,6 +3121,7 @@ def stream_local(
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
                 try:
                     parsed_provenance = parse_whooshd_runtime_provenance(
@@ -3124,6 +3147,7 @@ def stream_local(
                             failure_kind="provider_error_frame",
                             retry_permitted=not visible_output_emitted,
                             runtime_provenance=runtime_provenance,
+                            response_correlation=response_correlation,
                         )
                     # OpenAI-compatible SSE or Ollama /api/chat streaming
                     choice = chunk.get("choices", [{}])[0]
@@ -3157,6 +3181,7 @@ def stream_local(
                             provider="local",
                             model=model,
                             runtime_provenance=runtime_provenance,
+                            response_correlation=response_correlation,
                         )
                 except Exception:
                     return CompletionTerminalEvidence(
@@ -3170,6 +3195,7 @@ def stream_local(
                         failure_kind="malformed_stream_frame",
                         retry_permitted=not visible_output_emitted,
                         runtime_provenance=runtime_provenance,
+                        response_correlation=response_correlation,
                     )
             if cancel_monitor and cancel_monitor.cancelled.is_set():
                 return CompletionTerminalEvidence(
@@ -3183,6 +3209,7 @@ def stream_local(
                     failure_kind="cancelled",
                     retry_permitted=False,
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
             return CompletionTerminalEvidence(
                 status=CompletionTerminalStatus.STREAM_INCOMPLETE,
@@ -3195,6 +3222,7 @@ def stream_local(
                 failure_kind="missing_stream_terminal",
                 retry_permitted=not visible_output_emitted,
                 runtime_provenance=runtime_provenance,
+                response_correlation=response_correlation,
             )
         except req_exc.RequestException as exc:
             if cancel_monitor and cancel_monitor.cancelled.is_set():
@@ -3209,6 +3237,7 @@ def stream_local(
                     failure_kind="cancelled",
                     retry_permitted=False,
                     runtime_provenance=runtime_provenance,
+                    response_correlation=response_correlation,
                 )
             detail = _format_local_connect_error(
                 current_url,
