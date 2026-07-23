@@ -7,6 +7,7 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from guardian.core import ai_router
 from guardian.core import chat_completion_service
@@ -413,3 +414,381 @@ def test_response_correlation_accepts_only_bounded_machine_ids():
 
     unsafe = _Response({}, headers={"X-Request-ID": "prompt secret"})
     assert parse_whooshd_response_correlation(unsafe) == {}
+
+
+def _drain_stream(stream):
+    tokens: list[str] = []
+    iterator = iter(stream)
+    while True:
+        try:
+            tokens.append(next(iterator))
+        except StopIteration as stop:
+            return tokens, stop.value
+
+
+_FULL_RUNTIME_PROVENANCE = {
+    "schema_version": "whooshd.runtime.v1",
+    "runtime_kind": "stub",
+    "adapter_name": "stub-adapter",
+    "resolution_source": "configured_stub",
+    "execution_mode": "stub",
+    "streaming": True,
+    "queued": False,
+    "batched": False,
+    "request_id": "whooshd-internal-7",
+}
+_FULL_RUNTIME_PROVENANCE_HEADER = json.dumps(_FULL_RUNTIME_PROVENANCE)
+
+_SSE_OK = [
+    b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+    b"data: [DONE]",
+]
+
+
+def test_stream_local_preserves_header_only_whooshd_request_id(monkeypatch):
+    _prepare_local(monkeypatch)
+
+    def fake_post(url, json, headers, stream, timeout):
+        return _StreamingResponse(
+            _SSE_OK,
+            headers={
+                "X-Whooshd-Request-ID": "whooshd-stream-only",
+                "X-Request-ID": "req-stream-only",
+            },
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_settings(),
+            request_id="req-stream-only",
+            task_id="task-stream-only",
+            attempt_id="attempt-stream-only",
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert isinstance(terminal, CompletionTerminalEvidence)
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    # No runtime provenance block was emitted, so none is synthesized.
+    assert terminal.runtime_provenance is None
+    # Header-only Whoosh'd request ID survives stream termination.
+    assert terminal.response_correlation == {
+        "whooshd_request_id": "whooshd-stream-only",
+        "correlation_id": "req-stream-only",
+    }
+
+
+def test_stream_local_keeps_full_runtime_provenance_and_correlation(monkeypatch):
+    _prepare_local(monkeypatch)
+
+    def fake_post(url, json, headers, stream, timeout):
+        return _StreamingResponse(
+            _SSE_OK,
+            headers={
+                "X-Whooshd-Runtime-Provenance": _FULL_RUNTIME_PROVENANCE_HEADER,
+                "X-Whooshd-Request-ID": "whooshd-stream-full",
+                "X-Request-ID": "req-stream-full",
+            },
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_settings(),
+            request_id="req-stream-full",
+            task_id="task-stream-full",
+            attempt_id="attempt-stream-full",
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    # Complete provenance continues to be parsed and is not regressed.
+    assert terminal.runtime_provenance is not None
+    assert terminal.runtime_provenance["request_id"] == "whooshd-internal-7"
+    assert terminal.runtime_provenance["whooshd_request_id"] == "whooshd-stream-full"
+    # Independent response correlation is still captured alongside provenance.
+    assert terminal.response_correlation == {
+        "whooshd_request_id": "whooshd-stream-full",
+        "correlation_id": "req-stream-full",
+    }
+
+
+def test_stream_local_does_not_synthesize_correlation_without_headers(monkeypatch):
+    _prepare_local(monkeypatch)
+
+    def fake_post(url, json, headers, stream, timeout):
+        return _StreamingResponse(_SSE_OK)
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_settings(),
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    assert terminal.runtime_provenance is None
+    # No headers means no correlation and no fabricated identifier.
+    assert terminal.response_correlation is None
+
+
+def test_stream_terminal_response_correlation_reaches_completion_attempt(monkeypatch):
+    terminal = CompletionTerminalEvidence(
+        status=CompletionTerminalStatus.SUCCESS,
+        visible_output_emitted=True,
+        explicit_provider_terminal_observed=True,
+        finish_reason="stop",
+        transport_ended_cleanly=True,
+        provider="local",
+        model="stub-model",
+        response_correlation={"whooshd_request_id": "whooshd-plumbing-1"},
+    )
+
+    def fake_stream(*_args, **_kwargs):
+        if False:  # pragma: no cover - keeps this a generator
+            yield ""
+        return terminal
+
+    monkeypatch.setattr(chat_completion_service, "stream_local", fake_stream)
+    task = ChatCompletionTask(
+        task_id="task-plumbing",
+        request_id="req-plumbing",
+        user_id="user-1",
+        thread_id=1,
+    )
+
+    attempt = chat_completion_service._execute_completion_attempt(
+        task=task,
+        messages_for_llm=[{"role": "user", "content": "hi"}],
+        provider="local",
+        model="stub-model",
+        bundle=None,
+    )
+
+    assert attempt.response_correlation == {"whooshd_request_id": "whooshd-plumbing-1"}
+
+
+class _RejectedStreamResponse:
+    """A non-streaming-shaped response used for rejected candidate attempts."""
+
+    def __init__(self, status_code: int, body: dict | None = None):
+        self.status_code = status_code
+        self.text = ""
+        self._body = body or {}
+        self.headers: dict[str, str] = {}
+        self.closed = False
+
+    def json(self):
+        return self._body
+
+    def iter_lines(self, decode_unicode=False):
+        _ = decode_unicode
+        return iter(())
+
+    def close(self):
+        self.closed = True
+
+
+class _RecordingCancelMonitor(ai_router._WhooshdCancellationMonitor):
+    """Records lifecycle calls so tests can prove rejected monitors are stopped."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.stop_calls = 0
+        self.set_response_calls = 0
+
+    def set_response(self, response):
+        self.set_response_calls += 1
+        return super().set_response(response)
+
+    def stop(self):
+        self.stop_calls += 1
+        return super().stop()
+
+    def thread_is_alive(self):
+        return self._thread.is_alive()
+
+
+def _install_recording_monitors(monkeypatch):
+    created: list[_RecordingCancelMonitor] = []
+
+    def factory(**kwargs):
+        monitor = _RecordingCancelMonitor(**kwargs)
+        created.append(monitor)
+        return monitor
+
+    monkeypatch.setattr(ai_router, "_WhooshdCancellationMonitor", factory)
+    return created
+
+
+def _whooshd_vendor_settings():
+    settings = _settings()
+    settings.LOCAL_PROVIDER_VENDOR = "whooshd"
+    return settings
+
+
+def _prepare_local_fallback(monkeypatch):
+    monkeypatch.setattr(
+        ai_router,
+        "resolve_local_execution_model",
+        lambda **_: LocalModelResolution(
+            model="stub-model",
+            source="test",
+            strict=False,
+        ),
+    )
+    # Non-/v1 base so /api/chat and /v1/chat/completions are both candidates.
+    monkeypatch.setattr(
+        ai_router,
+        "_resolve_local_base_candidates",
+        lambda _settings: ["http://whooshd.test"],
+    )
+
+
+def test_rejected_candidate_stops_cancellation_monitor_before_fallback(monkeypatch):
+    _prepare_local_fallback(monkeypatch)
+    created = _install_recording_monitors(monkeypatch)
+    accepted: dict[str, object] = {}
+
+    def fake_post(url, **kwargs):
+        if "/api/chat" in url:
+            return _RejectedStreamResponse(404)
+        accepted["url"] = url
+        return _StreamingResponse(
+            _SSE_OK,
+            headers={"X-Whooshd-Request-ID": "whooshd-accepted-1"},
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_whooshd_vendor_settings(),
+            request_id="req-fallback-1",
+            task_id="task-fallback-1",
+            attempt_id="attempt-fallback-1",
+            cancel_check=lambda: False,
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    assert accepted["url"].endswith("/v1/chat/completions")
+    # Two candidate monitors were created (one per candidate URL).
+    assert len(created) == 2
+    # Only the accepted response's monitor is promoted via set_response.
+    assert sum(m.set_response_calls for m in created) == 1
+    assert created[1].set_response_calls == 1
+    assert created[0].set_response_calls == 0
+    # Every candidate monitor (rejected + accepted) is stopped, leaving no
+    # daemon polling thread behind after the fallback succeeds.
+    assert all(m.stop_calls >= 1 for m in created)
+    assert all(not m.thread_is_alive() for m in created)
+    # Accepted stream still carries live Whoosh'd correlation.
+    assert terminal.response_correlation == {"whooshd_request_id": "whooshd-accepted-1"}
+
+
+def test_candidate_monitor_stopped_on_transport_exception_before_acceptance(monkeypatch):
+    _prepare_local_fallback(monkeypatch)
+    created = _install_recording_monitors(monkeypatch)
+    accepted: dict[str, object] = {}
+
+    def fake_post(url, **kwargs):
+        if "/api/chat" in url:
+            raise ai_router.req_exc.ConnectionError("boom")
+        accepted["url"] = url
+        return _StreamingResponse(_SSE_OK)
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_whooshd_vendor_settings(),
+            cancel_check=lambda: False,
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    assert accepted["url"].endswith("/v1/chat/completions")
+    assert len(created) == 2
+    # The rejected (exception) candidate never reaches acceptance, and only the
+    # accepted candidate's monitor is promoted.
+    assert created[0].set_response_calls == 0
+    assert created[1].set_response_calls == 1
+    assert all(m.stop_calls >= 1 for m in created)
+    assert all(not m.thread_is_alive() for m in created)
+
+
+def test_candidate_monitor_stopped_on_retryable_status_before_acceptance(monkeypatch):
+    _prepare_local_fallback(monkeypatch)
+    created = _install_recording_monitors(monkeypatch)
+
+    def fake_post(url, **kwargs):
+        if "/api/chat" in url:
+            # Non-2xx, non-404, non-whooshd-error: exercises the generic
+            # retryable-status rejection path.
+            return _RejectedStreamResponse(503, body={"error": "unavailable"})
+        return _StreamingResponse(_SSE_OK)
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    tokens, terminal = _drain_stream(
+        stream_local(
+            [{"role": "user", "content": "hi"}],
+            "stub-model",
+            settings=_whooshd_vendor_settings(),
+            cancel_check=lambda: False,
+        )
+    )
+
+    assert tokens == ["ok"]
+    assert terminal.status is CompletionTerminalStatus.SUCCESS
+    assert len(created) == 2
+    assert created[0].set_response_calls == 0
+    assert created[1].set_response_calls == 1
+    assert all(m.stop_calls >= 1 for m in created)
+    assert all(not m.thread_is_alive() for m in created)
+
+
+def test_all_rejected_candidates_stop_their_cancellation_monitors(monkeypatch):
+    _prepare_local_fallback(monkeypatch)
+    created = _install_recording_monitors(monkeypatch)
+
+    def fake_post(url, **kwargs):
+        return _RejectedStreamResponse(404)
+
+    monkeypatch.setattr(ai_router.requests, "post", fake_post)
+
+    with pytest.raises(HTTPException):
+        list(
+            stream_local(
+                [{"role": "user", "content": "hi"}],
+                "stub-model",
+                settings=_whooshd_vendor_settings(),
+                cancel_check=lambda: False,
+            )
+        )
+
+    # Every candidate was rejected, so every candidate monitor is stopped and
+    # none is promoted as the active cancellation monitor.
+    assert len(created) >= 1
+    assert all(m.set_response_calls == 0 for m in created)
+    assert all(m.stop_calls >= 1 for m in created)
+    assert all(not m.thread_is_alive() for m in created)

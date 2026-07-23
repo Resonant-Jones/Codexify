@@ -303,6 +303,32 @@ def parse_whooshd_response_correlation(response: Any) -> dict[str, str]:
     return {key: value for key, value in values.items() if value}
 
 
+_RESPONSE_CORRELATION_FIELDS = (
+    "correlation_id",
+    "whooshd_request_id",
+    "codexify_task_id",
+    "codexify_attempt_id",
+)
+
+
+def bounded_response_correlation(values: Any) -> dict[str, str]:
+    """Re-apply the bounded correlation filter to a pre-built mapping.
+
+    Used when correlation metadata crosses a persistence or retry boundary:
+    a stored dict is not trusted merely because it was previously shaped
+    like ``parse_whooshd_response_correlation`` output.
+    """
+
+    if not isinstance(values, dict):
+        return {}
+    bounded: dict[str, str] = {}
+    for field in _RESPONSE_CORRELATION_FIELDS:
+        validated = _safe_correlation_id(values.get(field))
+        if validated:
+            bounded[field] = validated
+    return bounded
+
+
 def merge_whooshd_response_correlation(
     provenance: WhooshdRuntimeProvenance | None,
     response: Any,
