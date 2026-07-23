@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-20
+2026-07-22
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Integrated live-proof receipts into canonical evidence manifest generation; qualifying `PASS` receipts now support deterministic `CURRENT_LIVE_PROOF` manifests with receipt identity preserved as hashed evidence and explicit lineage. The generated manifest remains unpromoted; durable storage, cross-record freshness, and trusted `latest` remain deferred.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
 - Removed the legacy document generation UI from the frontend.
 - Fixed mobile composer viewport settling.
