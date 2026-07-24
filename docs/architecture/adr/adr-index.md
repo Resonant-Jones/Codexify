@@ -80,6 +80,7 @@ Use this note as the local map for all ADRs.
 40. [[046-axis-node-portable-reasoning-interface-contract|ADR-046 Axis Node Portable Reasoning Interface Contract]] — docs/context contract for portable, source-governed Axis reasoning without implementing a runtime agent or widening release support.
 41. [[047-codexify-email-routing-identity-mailbox-governance-provider-adapter-contract|ADR-047 Codexify Email User-Owned Routing Identity, Mailbox Governance, and Provider Adapter Contract]] — accepted governing boundary for human-owned routing identities, logical mailboxes, collaborator consent, provider adapters, immutable approval, idempotency, reconciliation, and durable receipts without implementing Email runtime support.
 42. [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]] — accepted architecture record establishing Pi, Codex, and Claude as peer execution systems under Guardian without changing current runtime behavior or release claims.
+43. [[ADR-049-admin-account-observability-and-invite-attribution|ADR-049 Admin Account Observability and Invite Attribution]] — proposed (docs-only) architecture record establishing Guardian-owned, privacy-bounded, presence-based account observability with coarse geography, first-touch first-party invite attribution, explicit retention, and content-free measurement. Does not implement runtime behavior or widen release claims.
 
 ---
 
@@ -116,6 +117,10 @@ Use this note as the local map for all ADRs.
 - [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]]
   - Governs the accepted peer topology for the Pi, Codex, and Claude execution channels under Guardian, including Task Spec boundaries, result normalization, execution-system/model identity separation, migration posture, and current-release truth.
   - Related anchors: [[../00-current-state|00 Current State]], [[../guardian-build-loop-doctrine|Guardian Build Loop Doctrine]], [[../pi-invocation-boundary-contract|Pi Invocation Boundary Contract]], [[../delegation-runtime|Delegation Runtime Contract]], [[../delegation-operator-manual|Delegation Operator Manual]], and [[020-guardian-mediated-coding-agent-execution-contract|ADR-020 Guardian Mediated Coding Agent Execution Contract]].
+- [[ADR-049-admin-account-observability-and-invite-attribution|ADR-049 Admin Account Observability and Invite Attribution]]
+  - Governs the privacy-bounded, Guardian-owned admin account observability surface: presence-based activity measurement, coarse geography, first-touch first-party invite attribution, explicit retention, content-free measurement, and dual-authority operator access. Docs-only; does not implement runtime behavior or widen release claims.
+  - Companion contract: [[../admin-account-observability-contract|Admin Account Observability Contract]].
+  - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]], [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]], [[../guardian-dashboard-snapshot-contract|Guardian Dashboard Snapshot Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], and [[../data-and-storage|Data and Storage]].
 
 ## Relationship to the main architecture docs
 
