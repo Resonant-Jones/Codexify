@@ -377,3 +377,14 @@ supported-path claim.
 - git diff --check: passed.
 - test -f and required content checks: passed.
 - python3 scripts/validate_docs.py: passed.
+
+## Follow-through note
+
+- The exact-ID read proof fixture contract now exists at
+  `docs/architecture/project-pulse-exact-id-read-proof-fixture-contract.md`.
+- The static fixture at `docs/architecture/fixtures/project-pulse-exact-id-read-proof.v1.json`
+  provides source material for future proof and schema work.
+- It does not resolve the adapter gap.
+- It does not implement Project Pulse.
+- The recommended next slice remains `Define Project Pulse output artifact schema`
+  after the fixture contract is complete.

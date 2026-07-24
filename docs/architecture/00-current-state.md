@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-22
+2026-07-23
 
 ## Interpretation rule
 This file is authoritative for:
@@ -25,6 +25,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Separated live Continuity database proof from broader operator routes.
 - Restored thread-first project retrieval.
 - Removed Zac's last name from the email campaign materials.
+- Added a docs/proof-only Project Pulse exact-ID read proof fixture contract and static fixture after implementation-target inspection. This does not implement Project Pulse, routes, services, adapter methods, schemas, migrations, UI, CLI, workers, command bus, provider calls, retrieval changes, graph use, browser capture, export/restore, tests, runtime fixture loading, database seeds, writes, or supported-beta activation.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
