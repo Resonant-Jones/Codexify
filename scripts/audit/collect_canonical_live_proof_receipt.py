@@ -995,16 +995,6 @@ def validate_receipt(
     }
 
 
-def receipt_projection(receipt: Mapping[str, Any]) -> dict[str, Any]:
-    """Public canonical receipt identity projection (excludes receipt_id)."""
-    return _receipt_projection(receipt)
-
-
-def receipt_id(receipt: Mapping[str, Any]) -> str:
-    """Public deterministic receipt identity from the canonical projection."""
-    return _receipt_id(receipt)
-
-
 def _output_destination(root: Path, output_path: str) -> Path:
     raw = str(output_path or "").strip().replace("\\", "/")
     if not raw or Path(raw).is_absolute() or PureWindowsPath(raw).is_absolute():

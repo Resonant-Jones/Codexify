@@ -154,17 +154,17 @@ does not write a registry, manifest, promotion receipt, or trusted pointer.
 
 ## Relationship to canonical evidence
 
-The receipt preserves provenance as an intermediate proof artifact. The
-manifest producer now accepts a qualifying `PASS` receipt via
-`live_proof_receipt_path` for `CURRENT_LIVE_PROOF` manifest generation.
-Receipt bytes and identity are preserved as hashed manifest evidence with
-explicit lineage. Receipt `PASS` is necessary but not sufficient for canonical
-authority; a `PASS` receipt cannot upgrade provisional authority. The
-generated manifest remains unpromoted evidence.
+The receipt preserves provenance for a later manifest-integration task. The
+current canonical evidence manifest producer still rejects
+`CURRENT_LIVE_PROOF`; the current canonical evidence schema, producer, and
+validator are unchanged by this seam. A future task must explicitly define how
+a qualifying receipt is attached to a manifest without weakening ADR-041 or
+ADR-042.
 
-Still deferred are durable evidence storage, freshness evaluation,
-cross-record resolution, supersession and contradiction resolution, promotion
-receipts, trusted `latest`, consumer migration, and release approval.
+Still deferred are manifest acceptance of `CURRENT_LIVE_PROOF`, durable evidence
+storage, freshness evaluation, cross-record resolution, supersession and
+contradiction resolution, promotion receipts, trusted pointers, consumer
+migration, and release approval.
 
 ## Non-goals
 

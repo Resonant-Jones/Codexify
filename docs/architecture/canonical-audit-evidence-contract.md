@@ -227,36 +227,25 @@ schema-validated, secret-safe execution receipt with distinct `PASS`, `FAIL`,
 `BLOCKED`, and `ERROR` outcomes. The subordinate [Canonical Live Proof Receipt
 Contract](./canonical-live-proof-receipt-contract.md) governs this seam. The
 receipt is not accepted canonical evidence, proof storage, promotion approval,
-trusted `latest`, or release approval.
-
-The manifest producer now accepts an optional `live_proof_receipt_path` for
-`CURRENT_LIVE_PROOF` proof class. A qualifying canonical `PASS` receipt supports
-deterministic `CURRENT_LIVE_PROOF` manifest generation. The receipt is loaded,
-validated against its schema, and verified for correct `receipt_id`, schema
-version, proof class, and `PASS` outcome. Machine, repository, runtime, and
-target identity are compared against freshly collected observations. Receipt
-authority must agree with derived manifest authority. A `PASS` receipt cannot
-upgrade provisional authority to canonical. The receipt's exact bytes are
-represented as a hashed manifest artifact with `application/json` media type
-and `canonical_live_proof_receipt` role. Receipt lineage is explicit in
-`relationships.derived_from`. The generated manifest remains unpromoted
-evidence: durable storage, cross-record freshness, supersession, contradiction
-resolution, promotion receipts, trusted `latest`, consumer migration, and
-release approval remain deferred.
+trusted `latest`, or release approval, and the current manifest producer does
+not consume it.
 
 ## Deferred implementation work
 
-Artifact collection beyond the live receipt, freshness evaluation, evidence
-storage, cross-record resolution, supersession validation, contradiction
-resolution, pointer storage, promotion receipts, trusted pointers, consumer
-migration, and live VaultNode proof remain separately scoped work.
-`CURRENT_LIVE_PROOF` now requires a valid `PASS` receipt; other supported proof
-classes continue to carry nullable runtime fields when static runtime identity
-is not requested and use the existing explicit execution metadata path.
-A receipt is not manifest acceptance.
+Manifest integration and acceptance of the bounded live receipt, artifact
+collection beyond that receipt, complete canonical manifest production beyond
+the current validated assembly, freshness evaluation, evidence storage,
+cross-record resolution, supersession validation, contradiction resolution,
+pointer storage, promotion receipts, trusted pointers, consumer migration, and
+live VaultNode proof remain separately scoped work. `CURRENT_LIVE_PROOF` is
+still rejected by the manifest producer; other supported proof classes may
+carry nullable runtime fields when static runtime identity is not requested. A
+requested static runtime identity must be complete, but it is still not live
+proof without a separately produced receipt, and a receipt is not manifest
+acceptance.
 
 ## Non-goals
 
 This contract does not implement producer or consumer migration, a registry,
-pointer, schedule, autonomous audit execution, release approval, or feature
-expansion.
+pointer, schedule, autonomous audit execution, manifest integration of the
+bounded receipt, release approval, or feature expansion.
