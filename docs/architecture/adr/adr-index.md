@@ -123,15 +123,21 @@ Use this note as the local map for all ADRs.
 - [[ADR-049-admin-account-observability-and-invite-attribution|ADR-049 Admin Account Observability and Invite Attribution]]
   - Governs the privacy-bounded, Guardian-owned admin account observability surface: presence-based activity measurement, coarse geography, first-touch first-party invite attribution, explicit retention, content-free measurement, and dual-authority operator access. The token/schema foundation exists; collection, APIs, aggregates, retention workers, and UI remain absent and no release claim is widened.
   - Companion contract: [[../admin-account-observability-contract|Admin Account Observability Contract]].
+<<<<<<< HEAD
   - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]], [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]], [[../guardian-dashboard-snapshot-contract|Guardian Dashboard Snapshot Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], and [[../data-and-storage|Data and Storage]].
+=======
+>>>>>>> 5a079e653 (feat: add campaign control-plane dry run)
 - [[050-event-driven-campaign-control-plane|ADR-050 Event-Driven Campaign Control Plane]]
   - Governs GitHub-native dry-run campaign packet validation, PR lineage, deterministic eligibility, workflow-summary receipts, read-only permissions, and the separation of deterministic proof from advisory model review.
   - Companion contract: [[../campaign-control-plane-contract|Campaign Control-Plane Contract]].
   - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]], [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]], [[../guardian-dashboard-snapshot-contract|Guardian Dashboard Snapshot Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], and [[../data-and-storage|Data and Storage]].
+<<<<<<< HEAD
 - [[051-chrome-side-panel-dual-auth-client-contract|ADR-051 Chrome Side-Panel Dual-Auth Client Contract]]
   - Governs the private unpacked Chrome side-panel chat client with mutually exclusive local API-key and remote session/JWT transport modes; remote passwords are never stored and tokens remain browser-session-scoped.
 - [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052 Whoosh'd Gemma and Approved DeepSeek Startup Profile]]
   - Governs the operator-controlled startup profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, including bounded concurrent startup proof without widening release claims.
+=======
+>>>>>>> 5a079e653 (feat: add campaign control-plane dry run)
 
 ## Relationship to the main architecture docs
 
