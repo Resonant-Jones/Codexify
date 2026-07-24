@@ -2,6 +2,8 @@
 
 Implementation status (2026-05-08): backend-only Pi invocation boundary contracts now exist under `guardian/pi` for `PiInvocationEnvelope`, `PiInvocationReceipt`, `PiInvocationArtifact`, `PiHarnessResult`, and `PiInvocationValidationResult`, with pure deterministic validation helpers for envelope, receipt, and harness-result provenance/permission checks.
 
+As of 2026-07-24, a bounded development-tooling delegation skill exists at `skills/pi-deepseek-delegation/` (canonical source) that uses Pi's built-in `deepseek` provider for read-only analysis delegation. This is dev-tooling only — no runtime integration, no provider widening, and no release-claim change. Installed deployment: `$HOME/.codex/skills/pi-deepseek-delegation/`. The skill is synchronized through its own canonical installer (`skills/pi-deepseek-delegation/scripts/install.sh`) and drift-checkable. Codex remains the supervising agent; DeepSeek remains a bounded, untrusted external worker.
+
 This seam is contract and validation only:
 - no live Pi SDK call exists
 - no Minimax provider behavior changed
@@ -20,7 +22,7 @@ Deferred in this task:
 - provider implementation docs
 - command-bus runtime docs
 Purpose: Define Codexify's bounded architecture contract for future Pi-like coding-agent harness invocation while preserving Guardian authority, lineage, and sovereignty boundaries.
-Last updated: 2026-05-08
+Last updated: 2026-07-24 (added canonical skill source and deployment routing)
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/chat-runtime-contract.md
@@ -242,3 +244,17 @@ Narrow first slice recommendation:
 - no worker orchestration
 - no transcript persistence
 - pure validation of envelope shape, provenance, permission posture, and receipt shape
+
+## Development-Tooling Skill (2026-07-24)
+
+A bounded dev-tooling delegation skill exists as a non-runtime companion to this contract:
+
+- **Canonical source:** `skills/pi-deepseek-delegation/`
+- **Installed deployment:** `$HOME/.codex/skills/pi-deepseek-delegation/`
+- **Provider posture:** Uses Pi's built-in `deepseek` provider. No custom provider is registered. No Pi core is patched.
+- **Synchronization:** `bash skills/pi-deepseek-delegation/scripts/install.sh --install`
+- **Drift detection:** `bash skills/pi-deepseek-delegation/scripts/install.sh --check`
+- **Supervision:** Codex remains the supervising agent. DeepSeek remains an external, bounded, untrusted worker.
+- **Authority:** The skill adds no runtime integration, no provider widening, no merge/commit/push/deploy capability, and no release-claim change.
+
+This skill is dev-tooling only. It does not implement the Pi Invocation Boundary runtime seam described above.
