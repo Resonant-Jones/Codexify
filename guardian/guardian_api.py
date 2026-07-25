@@ -506,6 +506,7 @@ def _retrieval_proof_state(
 from backend import llm_overrides
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
+from guardian.routes import account_observability
 from guardian.routes import admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
@@ -1006,6 +1007,12 @@ _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
     include_fn=lambda: app.include_router(admin.router),
+    core_surface=True,
+)
+_include_router(
+    label="account_observability",
+    flag_name="CODEXIFY_ENABLE_ACCOUNT_OBSERVABILITY_ROUTES",
+    include_fn=lambda: app.include_router(account_observability.router),
     core_surface=True,
 )
 _include_router(
