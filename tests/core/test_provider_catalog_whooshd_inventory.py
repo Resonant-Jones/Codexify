@@ -173,6 +173,28 @@ def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
     )
 
 
+def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    allowed, reason = validate_provider_model_selection(
+        provider_id="deepseek",
+        model_id="deepseek-chat",
+        settings=settings,
+    )
+
+    assert allowed is False
+    assert reason == (
+        "Requested model 'deepseek-chat' is not available for provider 'deepseek'"
+    )
+
+
 def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(
     monkeypatch,
 ) -> None:
