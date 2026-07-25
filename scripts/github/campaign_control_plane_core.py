@@ -63,8 +63,9 @@ def file_specs(body: str) -> tuple[str,...]:
     out=[]
     for raw in section(sections(body),"files").splitlines():
         if not raw.strip().startswith("-"): continue
-        value=raw.strip()[1:].strip().strip("`")
+        value=raw.strip()[1:].strip()
         if value.endswith("(new)"): value=value[:-5].strip()
+        value=value.strip("`")
         value=value.replace("<next-number>","*").replace("<actual-number>","*")
         if value and not value.lower().startswith("report every"): out.append(value)
     return tuple(dict.fromkeys(out))
