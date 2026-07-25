@@ -34,6 +34,7 @@ const DEV_ALLOWED_HOSTS = Array.from(
     'axisnode',
     'vaultnode',
     '100.100.42.37',
+    'codexify-test-1.tail6b75da.ts.net',
     ...ADDITIONAL_ALLOWED_HOSTS,
   ])
 );
