@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
@@ -927,6 +928,51 @@ async def request_id_middleware(request: Request, call_next):
     request_id = _get_request_id(request)
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    return response
+
+
+def _request_timing_enabled() -> bool:
+    return os.getenv("CODEXIFY_REQUEST_TIMING_LOG", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _request_remote_class(request: Request) -> str:
+    host = (request.headers.get("host") or "").split(":", 1)[0].lower()
+    public_base = (os.getenv("CODEXIFY_PUBLIC_BASE_URL") or "").lower()
+    return "tailscale" if host.endswith(".ts.net") or host in public_base else "local"
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        if _request_timing_enabled():
+            logger.info(
+                "[request-timing] method=%s path=%s status=500 duration_ms=%d request_id=%s remote_class=%s",
+                request.method,
+                request.url.path,
+                int((time.perf_counter() - started) * 1000),
+                _get_request_id(request),
+                _request_remote_class(request),
+            )
+        raise
+
+    if _request_timing_enabled():
+        logger.info(
+            "[request-timing] method=%s path=%s status=%d duration_ms=%d request_id=%s remote_class=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            int((time.perf_counter() - started) * 1000),
+            _get_request_id(request),
+            _request_remote_class(request),
+        )
     return response
 
 
