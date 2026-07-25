@@ -23,6 +23,7 @@ x-backend-runtime-build: &backend_runtime_build
   context: .
   dockerfile: backend/Dockerfile
   target: runtime
+  network: host
 
 services:
   db:

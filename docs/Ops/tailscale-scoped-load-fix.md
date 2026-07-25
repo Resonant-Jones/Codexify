@@ -147,3 +147,102 @@ For an account-observability rollout failure, restore a backend source/image
 that is compatible with the current database and investigate the migration
 chain. Do not downgrade the live tester database without explicit recovery
 approval.
+
+## Fresh-Instance Migration Readiness Proof (2026-07-25)
+
+### BuildKit DNS Root Cause
+
+Docker Desktop on macOS (`v29.6.2`) runs BuildKit inside a Linux VM.
+BuildKit's internal DNS resolver (`192.168.65.7:53`) intermittently fails to
+resolve external registries (`registry-1.docker.io`, `pypi.org`, Debian
+repos) during `docker build`. This manifests as:
+
+- `dial tcp: lookup … on 192.168.65.7:53: i/o timeout`
+- `failed to resolve source metadata for docker.io/docker/dockerfile:1`
+- Hangs during `apt-get update` or `pip install` stages
+
+### Repair Applied
+
+- **Removed `#syntax=docker/dockerfile:1`** from `backend/Dockerfile`.
+  The built-in Dockerfile syntax is sufficient; removing the directive
+  eliminates a remote fetch that was the first failure point.
+- **Added `network: host` to the backend build anchor** in
+  `docker-compose.yml` (`x-backend-runtime-build`). This routes BuildKit
+  through the host network stack during image builds, using the host's DNS
+  resolver instead of BuildKit's internal resolver.
+
+Exact rebuild command:
+
+```bash
+DOCKER_BUILDKIT=1 docker build --network=host \
+  --target runtime -f backend/Dockerfile \
+  -t codexify-backend-runtime:latest .
+```
+
+Or via Compose (after the `network: host` addition):
+
+```bash
+docker compose build backend
+```
+
+### Constraint Name Length Fix
+
+PostgreSQL limits identifiers to 63 characters. Three `CheckConstraint` names
+in revision `b2c3d4e5f6a7` exceeded this limit and were shortened using the
+`ao_` prefix pattern. The affected names in `guardian/db/models.py` and the
+migration file were updated to match. These fixes must be in both the ORM
+models and the migration for `verify_schema_consistency()` to pass.
+
+### Fresh-Database Isolation Method
+
+A dedicated Compose project (`codexify_fresh_proof`) with its own named
+volume (`pg_data_fresh_proof`) and distinct host ports (`5435`, `8890`, `6380`)
+was used. The `.env.proof` file (deleted after proof) matched the
+`v1-friends-family-web` profile contract (`LLM_PROVIDER=deepseek`,
+`ALLOW_CLOUD_PROVIDERS=true`).
+
+### Migration Proof
+
+- Empty database confirmed: `0` user tables before migration.
+- `alembic upgrade heads` completed successfully, reaching `b2c3d4e5f6a7`.
+- All four account-observability tables created:
+  `account_observability_account_metadata`,
+  `account_observability_guest_identities`,
+  `account_observability_invite_links`,
+  `account_observability_presence_sessions`.
+- `verify_schema_consistency()` passed (backend reached healthy state).
+
+### Scoped Registration Proof
+
+All tested from `localhost:8890` against the fresh backend:
+
+| Test | Result |
+| --- | --- |
+| Fresh registration | HTTP `200` |
+| Duplicate registration | HTTP `409` |
+| Login | HTTP `200` with JWT |
+| Authenticated GET `/api/chat/threads` | HTTP `200` |
+| `/health` | HTTP `200`, `v1-friends-family-web` active |
+| `/ping` | HTTP `200` |
+| `/api/health/llm` | `down` (expected: proof key cannot reach DeepSeek) |
+| `/api/events` SSE | Endpoint present (canonical same-origin path) |
+| `/api/ws/rpc` | HTTP `404` (route not mounted under `v1-friends-family-web`; expected profile policy) |
+| Funnel | Not enabled (proof environment is loopback-only, no Tailscale) |
+
+### Cleanup
+
+```bash
+COMPOSE_PROJECT_NAME=codexify_fresh_proof \
+  docker compose --env-file .env.proof \
+  -f docker-compose.yml -f docker-compose.fresh-proof.yml down -v
+rm -f .env.proof docker-compose.fresh-proof.yml
+```
+
+The original `codexify_tester` deployment was verified healthy after cleanup.
+No tester data was modified or removed.
+
+### Verdict
+
+**GREEN — fresh-instance readiness proven.** A newly built backend image
+from the current repository state can initialize a completely fresh database
+through Alembic revision `b2c3d4e5f6a7` and serve scoped registration.
