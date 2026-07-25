@@ -125,3 +125,13 @@ def test_heading_style_lane_and_task_kind_are_accepted():
     assert validation.workflow_lane == "architecture-impact"
     assert validation.task_kind == "implementation"
     assert validation.valid
+
+
+def test_new_file_marker_is_removed_before_markdown_backticks():
+    text = body().replace(
+        "- scripts/github/campaign_control_plane.py",
+        "- `scripts/github/campaign_control_plane.py` (new)",
+    )
+    validation = m.validate_issue_packet(issue(text=text))
+    assert validation.allowed_files == ("scripts/github/campaign_control_plane.py",)
+    assert validation.valid
