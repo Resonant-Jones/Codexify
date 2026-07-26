@@ -394,4 +394,79 @@ describe("SettingsView", () => {
       screen.queryByTestId("surface-tuning-section")
     ).not.toBeInTheDocument();
   });
+
+  test("renders the Appearance canvas as visually borderless while retaining structural classes", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const appearanceSurface = screen.getByTestId(
+      "settings-appearance-surface"
+    );
+
+    expect(appearanceSurface).toHaveAttribute("data-variant", "canvas");
+
+    // Inline style assertions (bypass jsdom computed-style normalization)
+    expect(appearanceSurface.style.borderColor).toBe("transparent");
+    expect(appearanceSurface.style.background).toBe("transparent");
+    expect(appearanceSurface.style.boxShadow).toBe("none");
+
+    expect(appearanceSurface).toHaveClass(
+      "flex",
+      "flex-1",
+      "flex-col",
+      "justify-start",
+      "min-w-0"
+    );
+
+    // Appearance controls remain present
+    expect(screen.getByText("Theme")).toBeInTheDocument();
+    expect(screen.getByText("Material Controls")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+  });
+
+  test("retains card treatment on Imprint and other non-Appearance tabs", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    // Imprint tab
+    await user.click(screen.getByRole("tab", { name: "Imprint" }));
+
+    const imprintSurface = screen.getByTestId("settings-system-surface");
+    expect(imprintSurface).toHaveAttribute("data-variant", "card");
+    expect(imprintSurface).not.toHaveStyle({ borderColor: "transparent" });
+    expect(imprintSurface).not.toHaveStyle({ background: "transparent" });
+
+    // Nested imprint workspace also retains card default
+    const imprintWorkspace = screen.getByTestId("imprint-workspace");
+    expect(imprintWorkspace).toHaveAttribute("data-variant", "card");
+
+    // Data tab
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+    const dataSurface = screen.getByTestId("settings-data-surface");
+    expect(dataSurface).toHaveAttribute("data-variant", "card");
+    expect(dataSurface).not.toHaveStyle({ borderColor: "transparent" });
+  });
+
+  test("preserves Data-tab import scoping with canvas variant active", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+
+    render(<SettingsView {...props} />);
+
+    // Start on Appearance (canvas variant) — verify import button not present
+    expect(
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Data" }));
+    expect(
+      screen.getByRole("button", { name: "Import ChatGPT history" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    expect(
+      screen.queryByRole("button", { name: "Import ChatGPT history" })
+    ).not.toBeInTheDocument();
+  });
 });
