@@ -306,10 +306,10 @@ describe("SettingsView", () => {
     const warmthSlider = screen.getByTestId("surface-warmth-slider");
     expect(depthSlider).toBeInTheDocument();
     expect(depthSlider).toHaveAttribute("type", "range");
-    expect(depthSlider).toHaveClass("material-slider");
+    expect(depthSlider.style.accentColor).toBe("var(--accent)");
     expect(warmthSlider).toBeInTheDocument();
     expect(warmthSlider).toHaveAttribute("type", "range");
-    expect(warmthSlider).toHaveClass("material-slider");
+    expect(warmthSlider.style.accentColor).toBe("var(--accent)");
   });
 
   test("exposes the responsive Appearance grid and preserves full-width wide panels", async () => {
@@ -469,5 +469,61 @@ describe("SettingsView", () => {
     expect(
       screen.queryByRole("button", { name: "Import ChatGPT history" })
     ).not.toBeInTheDocument();
+  });
+
+  test("all five Appearance sliders use the canonical SettingsRangeControl with var(--accent)", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const sliderTestIds = [
+      "surface-depth-slider",
+      "surface-warmth-slider",
+      "dashboard-thread-rows-slider",
+      "depth-slider",
+      "fade-slider",
+    ];
+
+    for (const testId of sliderTestIds) {
+      const slider = screen.getByTestId(testId);
+      expect(slider).toHaveAttribute("type", "range");
+      expect(slider.style.accentColor).toBe("var(--accent)");
+      expect(slider.style.accentColor).not.toContain("blue");
+      expect(slider.style.accentColor).not.toContain("#");
+    }
+  });
+
+  test("groups Depth and Fade under Background Treatment", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const bgSection = screen.getByTestId("background-treatment-section");
+    expect(bgSection).toBeInTheDocument();
+    expect(
+      within(bgSection).getByText("Background Treatment")
+    ).toBeInTheDocument();
+
+    const depthSlider = screen.getByTestId("depth-slider");
+    const fadeSlider = screen.getByTestId("fade-slider");
+    expect(bgSection).toContainElement(depthSlider);
+    expect(bgSection).toContainElement(fadeSlider);
+
+    // Values remain present
+    expect(bgSection.textContent).toContain("0.4");
+    expect(bgSection.textContent).toContain("0.2");
+  });
+
+  test("retains existing labels and hierarchy for Material Controls and Dashboard Layout", () => {
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    expect(screen.getByText("Material Controls")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+    expect(screen.getByText("Surface Depth")).toBeInTheDocument();
+    expect(screen.getByText("Surface Warmth")).toBeInTheDocument();
+    expect(screen.getByText(/Recent thread rows/)).toBeInTheDocument();
+
+    // Dashboard Layout slider uses canonical accent
+    const rowsSlider = screen.getByTestId("dashboard-thread-rows-slider");
+    expect(rowsSlider.style.accentColor).toBe("var(--accent)");
   });
 });
