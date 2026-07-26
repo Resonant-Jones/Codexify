@@ -1143,7 +1143,10 @@ export function SettingsView({
   return (
     <div className="flex h-full min-h-0 w-full justify-center" style={{ color: "var(--text)" }}>
       <SettingsPanelShell className="w-full">
-        <div className="flex h-full min-h-0 w-full flex-col gap-[var(--settings-edge-chrome)]">
+        <div
+          className="flex h-full min-h-0 w-full flex-col"
+          style={{ gap: SETTINGS_DENSITY.dockContentGap }}
+        >
           <SettingsPanelDock>
             {visibleTabs.map(renderTabButton)}
           </SettingsPanelDock>
@@ -1156,7 +1159,7 @@ export function SettingsView({
             <div
               data-testid="settings-panel-content"
               data-layout="settings-content-grid"
-              className="flex w-full min-w-0 flex-col gap-[var(--shell-gap)]"
+              className="flex min-h-full w-full min-w-0 flex-col gap-[var(--shell-gap)]"
               style={{ maxWidth: SETTINGS_DENSITY.contentMaxWidth }}
             >
             {tab === "system" && (
@@ -1261,7 +1264,7 @@ export function SettingsView({
             role="tabpanel"
             id={getSettingsTabPanelId("appearance")}
             aria-labelledby={getSettingsTabButtonId("appearance")}
-            className="min-w-0"
+            className="flex min-w-0 flex-1 flex-col justify-start"
           >
             <style>{SETTINGS_APPEARANCE_GRID_LAYOUT_RULES}</style>
             <div

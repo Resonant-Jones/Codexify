@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { SettingsView } from "@/features/settings/SettingsView";
+import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import type { ExtColors, ThemeMode } from "@/types/ui";
 
 const useConnectorsMock = vi.fn();
@@ -198,14 +199,28 @@ describe("SettingsView", () => {
     const content = screen.getByTestId(
       "settings-panel-content"
     ) as HTMLDivElement;
+    const appearanceSurface = screen.getByTestId(
+      "settings-appearance-surface"
+    );
 
     expect(
       screen.queryByRole("button", { name: "Import ChatGPT history" })
     ).not.toBeInTheDocument();
     expect(scrollBody).toHaveClass("overflow-auto", "justify-center");
+    expect(scrollBody.parentElement).toHaveStyle({
+      gap: SETTINGS_DENSITY.dockContentGap,
+    });
     expect(content).toHaveClass("w-full", "min-w-0");
+    expect(content).toHaveClass("min-h-full");
     expect(content).toHaveAttribute("data-layout", "settings-content-grid");
     expect(content).toHaveStyle({ maxWidth: "72rem" });
+    expect(appearanceSurface).toHaveClass(
+      "flex",
+      "flex-1",
+      "flex-col",
+      "justify-start",
+      "min-w-0"
+    );
     for (const tabButton of screen.getAllByRole("tab")) {
       expect(tabButton).toHaveClass("pill-tab", "min-w-max", "shrink-0");
       expect(tabButton).not.toHaveClass("lg:flex-1", "lg:min-w-0");
