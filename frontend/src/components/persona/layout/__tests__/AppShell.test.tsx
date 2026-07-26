@@ -641,35 +641,28 @@ describe("AppShell settings utility trigger", () => {
       .map((button) => button.textContent?.trim() ?? "")
       .filter((label) =>
         [
-          "Guardian",
-          "Dashboard",
-          "Documents",
-          "Gallery",
-          "Flow Builder",
-          "Persona Studio",
-        ].includes(label)
-      );
+        "Guardian",
+        "Dashboard",
+        "Documents",
+        "Gallery",
+        "Persona Studio",
+      ].includes(label)
+    );
 
     expect(navButtonOrder).toEqual([
       "Guardian",
       "Dashboard",
       "Documents",
       "Gallery",
-      "Flow Builder",
       "Persona Studio",
     ]);
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Flow Builder" })).toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
-
-    await user.click(primaryNav.getByRole("button", { name: "Flow Builder" }));
-
-    expect(await screen.findByTestId("flow-builder-page")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/flow-builder");
 
     await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
 
