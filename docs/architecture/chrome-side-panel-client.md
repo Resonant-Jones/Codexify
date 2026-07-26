@@ -8,7 +8,7 @@ The smallest viable network is one operator-controlled Chrome profile, one confi
 
 ## Implementation status
 
-The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the dual-mode connection form, one extension-local profile, local API-key and remote session/JWT transports, thread/message/completion adapters, per-task event observation, a side-panel chat shell, unit tests, and an installation runbook.
+The implementation lives in `frontend/chrome-extension` and builds independently to `frontend/dist/chrome-extension`. It includes the dual-mode connection form, one extension-local profile, local API-key and remote session/JWT transports, thread/message/completion adapters, correlation-bound per-task event observation, explicit task cancellation, a side-panel chat shell, unit tests, and an installation runbook.
 
 The original API-key-only build was accepted by Chrome through **Load unpacked**, and its toolbar action opened the native side panel in a live operator screenshot. That proof does not cover the new dual-auth build, remote login, account-scoped chat, completion, session restore, or logout. Those remain code-path and automated-build evidence until the live proof below is completed. None of this is evidence that the extension is a supported Codexify client.
 
@@ -21,14 +21,14 @@ This client is aligned with the following accepted ADRs:
 - [ADR-003: Message Identity vs Request Identity](./adr/003-Message-Identity-vs-Request-Identity.md): persisted message identity is distinct from per-attempt request and turn identity.
 - [ADR-005: Runtime Mode and Account Boundary Invariants](./adr/005-Runtime-Mode-and-Account-Boundary-Invariants.md): the client consumes the backend's current authentication/account boundary and creates no alternate identity scope.
 - [ADR-038: Chat Transport Visibility and Adaptive Stream Recovery Contract](./adr/038-Chat-Transport-Visibility-and-Adaptive-Stream-Recovery-Contract.md): task-event transport loss is visibility loss, not proof of request failure and not authority to replay.
-- [ADR-049: Chrome Side-Panel Dual-Auth Client Contract](./adr/049-chrome-side-panel-dual-auth-client-contract.md): the profile selects exactly one local API-key or remote session/JWT transport; remote passwords are not stored and remote session tokens remain browser-session-scoped.
+- [ADR-051: Chrome Side-Panel Dual-Auth Client Contract](./adr/051-chrome-side-panel-dual-auth-client-contract.md): the profile selects exactly one local API-key or remote session/JWT transport; remote passwords are not stored and remote session tokens remain browser-session-scoped.
 
 It also observes these proposed, docs-only guardrails without claiming to implement them:
 
 - [ADR-039: Operator / User Access Boundary](./adr/039-operator-user-access-boundary.md): this is explicitly a private Self Operator client, not a general hosted-user access surface.
 - [ADR-040: Network Profile Topology Resolution Contract](./adr/040-network-profile-topology-resolution-contract.md): the extension's single local connection record is not Codexify's deferred shared Network Profile model. It does not alter application settings, provider URLs, topology resolution, or automatic switching.
 
-ADR-049 was required when the client crossed from the original local API-key-only boundary into durable remote-session behavior. It accepts this bounded extension client path while leaving backend authentication/exposure semantics, shared Network Profile storage, chat semantics, queue behavior, and supported release claims unchanged. Silent topology selection, broader browser authority, credential sharing, or backend exposure changes remain outside this decision.
+ADR-051 was required when the client crossed from the original local API-key-only boundary into durable remote-session behavior. It accepts this bounded extension client path while leaving backend authentication/exposure semantics, shared Network Profile storage, chat semantics, queue behavior, and supported release claims unchanged. Silent topology selection, broader browser authority, credential sharing, or backend exposure changes remain outside this decision.
 
 ## Client/runtime topology
 
@@ -149,7 +149,7 @@ Shared reuse is deliberately bounded:
 
 ## Release-truth boundary
 
-`docs/architecture/00-current-state.md` remains unchanged. Local Docker Compose remains the supported runtime path, and this private client does not widen the beta claim to browser extensions, remote instances, Tailscale, hosted access, cloud providers, or the Chrome Web Store. ADR-049 authorizes a bounded internal client contract, not release support.
+`docs/architecture/00-current-state.md` remains unchanged. Local Docker Compose remains the supported runtime path, and this private client does not widen the beta claim to browser extensions, remote instances, Tailscale, hosted access, cloud providers, or the Chrome Web Store. ADR-051 authorizes a bounded internal client contract, not release support.
 
 An installable build proves only that the extension artifacts exist. Unit tests prove only focused client behavior. A live unpacked run proves only the backend URL class and runtime exercised in that run.
 

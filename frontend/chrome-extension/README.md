@@ -104,5 +104,11 @@ For a live proof, use an already-healthy backend and verify in order:
 6. Sending persists the user message before completion acceptance.
 7. **Completion accepted** remains pending until task-terminal evidence arrives.
 8. The completed assistant reply is re-read from the backend transcript.
-9. Closing and reopening the side panel restores the connection and selected thread within the same Chrome session.
-10. Disconnect returns to the connection form and clears the credential.
+9. During a pending completion, **Cancel** requests cancellation and the panel remains pending until correlated `task.cancelled` evidence arrives.
+10. Closing and reopening the side panel restores the connection and selected thread within the same Chrome session.
+11. Disconnect returns to the connection form and clears the credential.
+
+When a completion is pending, **Cancel** calls the existing task-cancellation
+route for that accepted task. The panel remains observation-bound until a
+correlated `task.cancelled` terminal event arrives; a successful cancel request
+alone is not treated as terminal proof.

@@ -45,7 +45,11 @@ type ConnectionState =
   | "ready"
   | "unreachable"
   | "authentication_rejected"
-type CompletionViewState = ChatRequestState | "idle" | "connection_lost"
+type CompletionViewState =
+  | ChatRequestState
+  | "idle"
+  | "connection_lost"
+  | "cancellation_requested"
 type MessageLoadState = "idle" | "loading" | "ready" | "failed"
 
 export interface SidePanelAppProps {
@@ -123,6 +127,11 @@ const COMPLETION_PRESENTATION: Record<CompletionViewState, StatusPresentation> =
     label: "Connection lost",
     detail: "Task observation is reconnecting. Missing events are not proof of failure.",
     tone: "danger",
+  },
+  cancellation_requested: {
+    label: "Cancellation requested",
+    detail: "Waiting for terminal cancellation evidence from the worker.",
+    tone: "attention",
   },
 }
 
@@ -223,6 +232,7 @@ export function SidePanelApp({
     CHAT_REQUEST_STATES.AWAITING_MODEL,
     CHAT_REQUEST_STATES.STREAMING,
     "connection_lost",
+    "cancellation_requested",
   ].includes(completionState)
 
   const recordConnectionFailure = useCallback((error: unknown): void => {
@@ -637,6 +647,22 @@ export function SidePanelApp({
     )
   }
 
+  const handleCancel = async (): Promise<void> => {
+    const api = apiRef.current
+    const receipt = completionReceipt
+    if (!api || !receipt || !completionPending) return
+
+    setSurfaceError(null)
+    setCompletionState("cancellation_requested")
+    try {
+      await api.cancelTask(receipt.taskId)
+    } catch (error) {
+      recordConnectionFailure(error)
+      setSurfaceError(`${displayError(error)} Task observation remains active.`)
+      setCompletionState("connection_lost")
+    }
+  }
+
   const handleSend = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     const content = composerValue.trim()
@@ -674,7 +700,7 @@ export function SidePanelApp({
 
     try {
       activeTaskStopRef.current?.()
-      activeTaskStopRef.current = api.subscribeToTask(receipt.taskId, {
+      activeTaskStopRef.current = api.subscribeToTask(receipt, {
         onOpen: () => {
           setCompletionState((current) =>
             current === "connection_lost" ? CHAT_REQUEST_STATES.AWAITING_MODEL : current,
@@ -1031,6 +1057,16 @@ export function SidePanelApp({
               <span className="task-id" title="Completion task identity">
                 {completionReceipt.taskId.slice(0, 8)}
               </span>
+            ) : null}
+            {completionPending && completionReceipt ? (
+              <button
+                className="task-cancel-button"
+                type="button"
+                onClick={() => void handleCancel()}
+                disabled={operationBusy || completionState === "cancellation_requested"}
+              >
+                Cancel
+              </button>
             ) : null}
           </div>
         ) : null}

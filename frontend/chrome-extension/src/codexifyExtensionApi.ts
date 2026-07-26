@@ -74,7 +74,8 @@ export interface CodexifyExtensionApi {
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
   persistUserMessage(threadId: number, content: string): Promise<void>
   requestCompletion(threadId: number): Promise<CompletionReceipt>
-  subscribeToTask(taskId: string, callbacks: TaskLifecycleCallbacks): () => void
+  cancelTask(taskId: string): Promise<void>
+  subscribeToTask(receipt: CompletionReceipt, callbacks: TaskLifecycleCallbacks): () => void
 }
 
 export interface RemoteLoginCredentials {
@@ -185,6 +186,38 @@ function terminalOutcome(type: string, state: string | null): TaskTerminalOutcom
     return "failed"
   }
   return null
+}
+
+function correlationValue(data: JsonRecord, key: string): string | null {
+  const camelKey = key.replace(/_([a-z])/g, (_match, character: string) => character.toUpperCase())
+  const direct = firstString(data, key, camelKey)
+  if (direct) return direct
+
+  const nested = asRecord(data.request_correlation ?? data.requestCorrelation)
+  return firstString(nested, key, camelKey)
+}
+
+/**
+ * Task streams are addressed by task ID, but lifecycle payloads can be
+ * observed through more than one producer. Ignore payloads whose explicit
+ * correlation disagrees with the accepted completion receipt. Missing fields
+ * remain compatible with older task.created/task.completed payloads.
+ */
+export function isTaskLifecycleEventCorrelated(
+  event: TaskLifecycleEvent,
+  receipt: CompletionReceipt,
+): boolean {
+  const taskId = correlationValue(event.data, "task_id")
+  const requestId = correlationValue(event.data, "request_id")
+  const turnId = correlationValue(event.data, "turn_id")
+  const threadId = parseThreadId(event.data.thread_id ?? event.data.threadId)
+
+  return (
+    (!taskId || taskId === receipt.taskId) &&
+    (!requestId || requestId === receipt.requestId) &&
+    (!turnId || turnId === receipt.turnId) &&
+    (threadId === null || threadId === receipt.threadId)
+  )
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -369,15 +402,24 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     }
   }
 
-  subscribeToTask(taskId: string, callbacks: TaskLifecycleCallbacks): () => void {
-    const source = new GuardianEventSource(this.resolveUrl(`/api/tasks/${taskId}/events`), {
-      headers: { ...this.authHeaders },
-      withCredentials: false,
-      heartbeatTimeout: 45_000,
-      retryInterval: 500,
-      autoReconnect: true,
-      onUnauthorized: () => callbacks.onUnauthorized?.(),
+  async cancelTask(taskId: string): Promise<void> {
+    await this.requestJson(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
     })
+  }
+
+  subscribeToTask(receipt: CompletionReceipt, callbacks: TaskLifecycleCallbacks): () => void {
+    const source = new GuardianEventSource(
+      this.resolveUrl(`/api/tasks/${encodeURIComponent(receipt.taskId)}/events`),
+      {
+        headers: { ...this.authHeaders },
+        withCredentials: false,
+        heartbeatTimeout: 45_000,
+        retryInterval: 500,
+        autoReconnect: true,
+        onUnauthorized: () => callbacks.onUnauthorized?.(),
+      },
+    )
     let terminal = false
 
     source.onopen = () => callbacks.onOpen?.()
@@ -396,6 +438,7 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
         state: taskState(data),
         data,
       }
+      if (!isTaskLifecycleEventCorrelated(lifecycleEvent, receipt)) return
       callbacks.onEvent?.(lifecycleEvent)
       const outcome = terminalOutcome(type, lifecycleEvent.state)
       if (!outcome) return
