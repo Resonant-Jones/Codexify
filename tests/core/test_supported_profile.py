@@ -74,6 +74,22 @@ def test_tester_profile_deepseek_provider_contract() -> None:
     assert manifest.provider_contract["CODEXIFY_EGRESS_ALLOWLIST"] == "deepseek"
 
 
+def test_whooshd_deepseek_profile_pins_both_provider_lanes() -> None:
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    assert manifest.provider_contract == {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": True,
+        "CODEXIFY_LOCAL_ONLY_MODE": False,
+        "CODEXIFY_EGRESS_ALLOWLIST": "deepseek",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_PROVIDER_VENDOR": "whooshd",
+        "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
+        "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
+    }
+
+
 def test_tester_profile_high_blast_routes_quarantined() -> None:
     manifest = load_supported_profile("v1-friends-family-web")
 

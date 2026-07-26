@@ -80,6 +80,7 @@ Use this note as the local map for all ADRs.
 40. [[046-axis-node-portable-reasoning-interface-contract|ADR-046 Axis Node Portable Reasoning Interface Contract]] — docs/context contract for portable, source-governed Axis reasoning without implementing a runtime agent or widening release support.
 41. [[047-codexify-email-routing-identity-mailbox-governance-provider-adapter-contract|ADR-047 Codexify Email User-Owned Routing Identity, Mailbox Governance, and Provider Adapter Contract]] — accepted governing boundary for human-owned routing identities, logical mailboxes, collaborator consent, provider adapters, immutable approval, idempotency, reconciliation, and durable receipts without implementing Email runtime support.
 42. [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]] — accepted architecture record establishing Pi, Codex, and Claude as peer execution systems under Guardian without changing current runtime behavior or release claims.
+43. [[ADR-050-whooshd-deepseek-dual-provider-startup-profile|ADR-050 Whoosh'd Gemma and Approved DeepSeek Startup Profile]] — operator-controlled candidate profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, with bounded concurrent startup proof.
 
 ---
 

@@ -1,0 +1,34 @@
+# Dual-provider startup overlay: Whoosh'd Gemma 12B + approved DeepSeek V4 Flash.
+# Secrets remain in the selected env file; this overlay contains no credentials.
+
+services:
+  backend:
+    environment: &whooshd_deepseek_env
+      CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      LLM_PROVIDER: "local"
+      ALLOW_CLOUD_PROVIDERS: "true"
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_PROVIDER_DISPLAY_NAME: "Whoosh'd"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
+      LOCAL_API_KEY: "local"
+      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
+      LOCAL_LLM_MODEL: "gemma-4-12b-it-qat-4bit"
+      DEFAULT_LOCAL_MODEL: "gemma-4-12b-it-qat-4bit"
+      LLM_MODEL: "gemma-4-12b-it-qat-4bit"
+      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+      LLM_REQUEST_TIMEOUT_SECONDS: "600"
+      # Keep auxiliary local selectors on the one served model.
+      LOCAL_VISION_MODEL: "gemma-4-12b-it-qat-4bit"
+      LOCAL_GGUF_MODEL: "gemma-4-12b-it-qat-4bit"
+
+  worker-chat:
+    environment: *whooshd_deepseek_env
+
+  worker-warmup:
+    environment: *whooshd_deepseek_env
+
+  worker-chat-embed:
+    environment: *whooshd_deepseek_env
