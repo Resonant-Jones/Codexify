@@ -38,6 +38,26 @@ def test_validate_llm_config_accepts_supported_profile_local_contract(
     config_module.validate_llm_config(settings)
 
 
+def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
+    monkeypatch.setenv(
+        "CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web"
+    )
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
+        LOCAL_PROVIDER_VENDOR="whooshd",
+        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_LLM_MODEL="gemma-4-12b-it-qat-4bit",
+        LLM_MODEL="gemma-4-12b-it-qat-4bit",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+
+    config_module.validate_llm_config(settings)
+
+
 def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
     settings = _supported_profile_settings(
         LOCAL_CHAT_MODEL="mlx-community/gemma-4-e2b-it-4bit",

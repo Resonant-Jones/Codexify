@@ -1,0 +1,125 @@
+# v1-whooshd-deepseek-web: local Gemma serving with an approved DeepSeek lane.
+#
+# This is an operator-controlled candidate profile for load observation. It
+# does not change the default beta profile or imply that cloud inference is
+# release-supported generally. Local remains the primary provider; DeepSeek
+# is the only cloud provider admitted by the egress allowlist.
+#
+# Governing ADRs: ADR-005 (runtime mode and account boundary invariants),
+# ADR-040 (operator-controlled network profile posture).
+
+name: v1-whooshd-deepseek-web
+version: 1
+surface: local-docker-compose-webui
+required_services:
+  - frontend
+  - backend
+  - db
+  - redis
+  - worker-chat
+  - worker-document-embed
+  - migrator
+optional_services:
+  - worker-warmup
+  - neo4j
+  - graph-init
+extension_posture:
+  public:
+    - mcp
+  internal:
+    - command_bus_http
+    - plugin_sdk
+route_posture:
+  enabled:
+    - health
+    - dashboard
+    - admin
+    - chat
+    - simple_chat
+    - api_chat
+    - threads
+    - projects
+    - api_projects
+    - documents
+    - media
+    - personal_facts
+    - migration
+    - embeddings
+    - obsidian
+    - auth
+  internal_only:
+    - coding_work_orders
+    - command_bus
+  quarantined:
+    - neo
+    - imprint
+    - system_prompt
+    - system_docs
+    - iddb
+    - backfill
+    - memory
+    - agent
+    - research
+    - share
+    - federation
+    - collaboration
+    - connectors
+    - google_connect
+    - voice
+    - flows
+    - tools
+    - api_tools
+    - exports
+    - codex
+    - devtools
+    - websocket
+    - cron
+    - ui_session
+    - agent_orchestration
+    - agent_orchestration_chat
+    - user_profile
+provider_contract:
+  LLM_PROVIDER: local
+  ALLOW_CLOUD_PROVIDERS: true
+  CODEXIFY_LOCAL_ONLY_MODE: false
+  CODEXIFY_EGRESS_ALLOWLIST: deepseek
+  LOCAL_BASE_URL: http://host.docker.internal:8000/v1
+  LOCAL_API_KEY: local
+  LOCAL_PROVIDER_VENDOR: whooshd
+  LOCAL_CHAT_MODEL: gemma-4-12b-it-qat-4bit
+  DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
+criticality:
+  tier0:
+    services:
+      - frontend
+      - backend
+      - db
+      - redis
+      - worker-chat
+      - worker-document-embed
+    routes:
+      - health
+      - chat
+      - api_chat
+      - threads
+      - media
+      - documents
+      - auth
+  tier1:
+    services:
+      - migrator
+      - worker-warmup
+    routes:
+      - embeddings
+  tier2:
+    services:
+      - command_bus_http
+      - tts
+      - cron
+      - federation
+    routes:
+      - command_bus
+      - tools
+      - api_tools
+      - websocket
+      - cron

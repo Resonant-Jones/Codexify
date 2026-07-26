@@ -277,6 +277,9 @@ def supported_profile_actual_provider_contract(
         ).strip(),
         "LOCAL_CHAT_MODEL": local_chat_model
         or str(getattr(settings, "LOCAL_LLM_MODEL", "") or "").strip(),
+        "DEEPSEEK_CHAT_MODEL": str(
+            getattr(settings, "DEEPSEEK_CHAT_MODEL", "") or ""
+        ).strip(),
     }
 
 

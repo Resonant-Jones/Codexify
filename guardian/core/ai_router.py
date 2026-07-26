@@ -1321,8 +1321,14 @@ def _local_chat_model_is_authoritative(settings: Settings) -> bool:
     manifest = get_active_supported_profile()
     if manifest is None:
         return False
+    # A local-primary profile may still expose an explicitly approved cloud
+    # lane. Strict local-authority mode belongs to the local-only posture;
+    # otherwise a Whoosh'd alias is rewritten to its repository path and can
+    # fail against the runtime's authoritative /v1/models inventory.
     return (
-        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER")) == "local"
+        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER"))
+        == "local"
+        and not bool(manifest.provider_contract.get("ALLOW_CLOUD_PROVIDERS"))
     )
 
 
