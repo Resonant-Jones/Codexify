@@ -6,11 +6,11 @@ tags:
 * trusted-remote-access
 * authentication
   aliases:
-* ADR-049
+* ADR-051
 * Chrome Side Panel Dual Auth Client Contract
 ---
 
-# ADR-049: Chrome Side-Panel Dual-Auth Client Contract
+# ADR-051: Chrome Side-Panel Dual-Auth Client Contract
 
 ## Status
 
@@ -195,6 +195,9 @@ Automated proof must show:
 - the remote session token is stored only in `chrome.storage.session`;
 - local requests attach only `X-API-Key`;
 - remote requests attach only `Authorization: Bearer`;
+- completion acceptance carries the root request and turn identifiers;
+- task observation ignores lifecycle payloads with mismatched explicit correlation;
+- task cancellation uses the existing task-cancel route and waits for terminal evidence;
 - remote login parses the existing session response;
 - remote logout uses the same Bearer session;
 - first-run, restored local, restored remote, task acceptance, terminal refresh,
@@ -248,6 +251,6 @@ supported beta and Chrome Web Store claims.
 
 ## Documentation follow-through
 
-- Add ADR-049 to the ADR index and architecture KB.
+- Add ADR-051 to the ADR index and architecture KB.
 - Update the Chrome side-panel architecture boundary and operator README.
 - Explicitly leave `00-current-state.md` unchanged.

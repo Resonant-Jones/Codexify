@@ -149,6 +149,7 @@ function apiMock(overrides: Partial<CodexifyExtensionApi> = {}): CodexifyExtensi
     listMessages: vi.fn(async () => [userMessage, assistantMessage]),
     persistUserMessage: vi.fn(async () => undefined),
     requestCompletion: vi.fn(async () => receipt),
+    cancelTask: vi.fn(async () => undefined),
     subscribeToTask: vi.fn(() => () => undefined),
     ...overrides,
   }
@@ -441,6 +442,51 @@ describe("Codexify Chrome side panel", () => {
 
     // After terminal completion, the assistant message still uses the Markdown renderer.
     expect(document.querySelector(".codexify-markdown")).toBeTruthy()
+  })
+
+  it("requests cancellation and waits for terminal cancelled evidence", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    let callbacks: TaskLifecycleCallbacks | null = null
+    const api = apiMock({
+      subscribeToTask: vi.fn((_receipt, nextCallbacks) => {
+        callbacks = nextCallbacks
+        return () => undefined
+      }),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    const composer = await screen.findByLabelText("Message Codexify")
+    fireEvent.change(composer, { target: { value: "Cancel this private completion" } })
+    fireEvent.submit(composer.closest("form") as HTMLFormElement)
+
+    expect(await screen.findByText("Completion accepted")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(await screen.findByText("Cancellation requested")).toBeVisible()
+    expect(api.cancelTask).toHaveBeenCalledWith(receipt.taskId)
+    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument()
+
+    await act(async () => {
+      callbacks?.onTerminal?.("cancelled", {
+        type: "task.cancelled",
+        state: "cancelled",
+        data: {
+          task_id: receipt.taskId,
+          request_id: receipt.requestId,
+          turn_id: receipt.turnId,
+        },
+      })
+    })
+
+    expect(await screen.findByText("Cancelled")).toBeVisible()
   })
 
   it("disconnects by clearing the stored credential and granted origin", async () => {

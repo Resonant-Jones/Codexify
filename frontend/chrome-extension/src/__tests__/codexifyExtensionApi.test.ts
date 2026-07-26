@@ -6,7 +6,10 @@ import {
 } from "../connectionProfile"
 import {
   createCodexifyExtensionApi,
+  isTaskLifecycleEventCorrelated,
   loginRemoteSession,
+  type CompletionReceipt,
+  type TaskLifecycleEvent,
 } from "../codexifyExtensionApi"
 
 const fixedTimestamp = "2026-07-21T12:00:00.000Z"
@@ -106,5 +109,107 @@ describe("Codexify extension auth transport", () => {
 
     await createCodexifyExtensionApi(profile, remoteSession).logout()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("sends the accepted completion's root request and turn correlation", async () => {
+    const requestId = "req-extension-test"
+    const turnId = "turn-extension-test"
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn()
+        .mockReturnValueOnce(requestId)
+        .mockReturnValueOnce(turnId),
+    })
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://127.0.0.1:8888/api/chat/7/complete")
+      const headers = new Headers(init?.headers)
+      expect(headers.get("X-Request-ID")).toBe(requestId)
+      expect(headers.get("X-API-Key")).toBe(localCredential())
+      expect(headers.get("Authorization")).toBeNull()
+      expect(JSON.parse(String(init?.body))).toEqual({ turn_id: turnId })
+      return new Response(JSON.stringify({
+        ok: true,
+        request_id: requestId,
+        task_id: "task-extension-test",
+        turn_id: turnId,
+        thread_id: 7,
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(
+      createCodexifyExtensionApi(profile).requestCompletion(7),
+    ).resolves.toMatchObject({
+      taskId: "task-extension-test",
+      requestId,
+      turnId,
+      threadId: 7,
+    })
+  })
+
+  it("requests task cancellation through the authenticated task contract", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://127.0.0.1:8888/api/tasks/task-extension-test/cancel")
+      expect(init?.method).toBe("POST")
+      const headers = new Headers(init?.headers)
+      expect(headers.get("X-API-Key")).toBe(localCredential())
+      expect(headers.get("Authorization")).toBeNull()
+      return new Response(JSON.stringify({
+        ok: true,
+        task_id: "task-extension-test",
+        cancel_requested: true,
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(
+      createCodexifyExtensionApi(profile).cancelTask("task-extension-test"),
+    ).resolves.toBeUndefined()
+  })
+
+  it("accepts only lifecycle events correlated to the accepted receipt", () => {
+    const receipt: CompletionReceipt = {
+      taskId: "task-extension-test",
+      requestId: "req-extension-test",
+      turnId: "turn-extension-test",
+      threadId: 7,
+      acceptanceStatus: "accepted",
+      acceptanceWarnings: [],
+      messagesUrl: null,
+      traceUrl: null,
+    }
+    const event = (data: Record<string, unknown>): TaskLifecycleEvent => ({
+      type: "task.state",
+      state: "running",
+      data,
+    })
+
+    expect(isTaskLifecycleEventCorrelated(event({
+      task_id: receipt.taskId,
+      request_id: receipt.requestId,
+      turn_id: receipt.turnId,
+      thread_id: receipt.threadId,
+    }), receipt)).toBe(true)
+    expect(isTaskLifecycleEventCorrelated(event({
+      taskId: receipt.taskId,
+      requestCorrelation: { requestId: "req-other" },
+      turnId: receipt.turnId,
+    }), receipt)).toBe(false)
+    expect(isTaskLifecycleEventCorrelated(event({
+      task_id: receipt.taskId,
+      turn_id: "turn-other",
+    }), receipt)).toBe(false)
+    expect(isTaskLifecycleEventCorrelated(event({}), receipt)).toBe(true)
   })
 })

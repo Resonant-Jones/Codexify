@@ -748,7 +748,7 @@ textarea:focus-visible {
 
 .task-indicator {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: start;
   gap: 8px;
   margin-bottom: 7px;
@@ -791,6 +791,22 @@ textarea:focus-visible {
   background: var(--surface-soft);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 9px;
+}
+
+.task-cancel-button {
+  padding: 2px 6px;
+  border: 1px solid var(--danger-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger-text);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.task-cancel-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .composer {
