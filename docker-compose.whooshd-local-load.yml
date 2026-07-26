@@ -1,0 +1,32 @@
+# Local load-test overlay for the loopback-only Whoosh'd host route.
+#
+# This is intentionally separate from docker-compose.whooshd-smoke.yml:
+# host.docker.internal is safe for Docker Desktop bridge access, but it is not
+# the exact URL required by the blessed v1-local-core-web-mcp profile.
+
+services:
+  backend:
+    environment:
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
+      CODEXIFY_SUPPORTED_PROFILE: ""
+
+  worker-chat:
+    environment:
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      WHOOSHD_HEALTH_BASE_URL: "http://host.docker.internal:8000"
+      CODEXIFY_SUPPORTED_PROFILE: ""
+
+  worker-warmup:
+    environment:
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      CODEXIFY_SUPPORTED_PROFILE: ""
+
+  worker-chat-embed:
+    environment:
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      CODEXIFY_SUPPORTED_PROFILE: ""
