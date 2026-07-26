@@ -1261,6 +1261,7 @@ export function SettingsView({
         {tab === "appearance" && (
           <SettingsSectionCard
             data-testid="settings-appearance-surface"
+            variant="canvas"
             role="tabpanel"
             id={getSettingsTabPanelId("appearance")}
             aria-labelledby={getSettingsTabButtonId("appearance")}
