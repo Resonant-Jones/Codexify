@@ -1130,7 +1130,7 @@ export function SettingsView({
         variant="ghost"
         size="sm"
         data-state={selected ? "active" : "inactive"}
-        className="pill-tab min-w-max shrink-0 px-3 py-2 text-[0.75rem] lg:min-w-0 lg:flex-1"
+        className="pill-tab min-w-max shrink-0 px-3 py-2 text-[0.75rem]"
         style={{ minWidth: SETTINGS_DENSITY.dockTabMinWidth }}
         onClick={() => activateTab(definition.value)}
         onKeyDown={(event) => handleTabKeyDown(event, definition.value)}

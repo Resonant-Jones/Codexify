@@ -207,7 +207,8 @@ describe("SettingsView", () => {
     expect(content).toHaveAttribute("data-layout", "settings-content-grid");
     expect(content).toHaveStyle({ maxWidth: "72rem" });
     for (const tabButton of screen.getAllByRole("tab")) {
-      expect(tabButton).toHaveClass("pill-tab", "lg:flex-1", "lg:min-w-0");
+      expect(tabButton).toHaveClass("pill-tab", "min-w-max", "shrink-0");
+      expect(tabButton).not.toHaveClass("lg:flex-1", "lg:min-w-0");
       expect(tabButton).toHaveStyle({ minWidth: "7.5rem" });
     }
 
