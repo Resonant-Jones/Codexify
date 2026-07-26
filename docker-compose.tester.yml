@@ -40,6 +40,8 @@ services:
       GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?GUARDIAN_SESSION_SECRET must be set in .env.tester}"
       GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?GUARDIAN_JWT_SECRET must be set in .env.tester}"
       GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-http://localhost:5174}"
+      CODEXIFY_PUBLIC_BASE_URL: "https://${TAILSCALE_TEST_FQDN:?TAILSCALE_TEST_FQDN must be set in .env.tester}"
+      CODEXIFY_REQUEST_TIMING_LOG: "${CODEXIFY_REQUEST_TIMING_LOG:-1}"
 
   worker-chat:
     environment:

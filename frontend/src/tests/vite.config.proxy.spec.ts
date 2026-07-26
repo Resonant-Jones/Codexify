@@ -46,4 +46,26 @@ describe("vite /media proxy", () => {
     expect(config.server?.allowedHosts).toContain("vaultnode");
     expect(config.server?.allowedHosts).toContain("100.100.42.37");
   });
+
+  it("proxies canonical WebSocket and lightweight health paths before general API traffic", async () => {
+    vi.stubEnv("VITE_PROXY_TARGET", "http://proxy.test:9999");
+    vi.resetModules();
+
+    const viteConfigModule = await import("../vite.config");
+    const proxy = (viteConfigModule.default as any).server?.proxy;
+    const keys = Object.keys(proxy);
+
+    expect(proxy["^/api/ws(?=/|$)"]).toMatchObject({
+      target: "ws://proxy.test:9999",
+      ws: true,
+    });
+    expect(proxy["^/api/collab/ws(?=/|$)"]).toMatchObject({
+      target: "ws://proxy.test:9999",
+      ws: true,
+    });
+    expect(proxy["^/api/ws(?=/|$)"].rewrite).toBeUndefined();
+    expect(proxy["^/health(?=/|$)"].target).toBe("http://proxy.test:9999");
+    expect(keys.indexOf("^/api/ws(?=/|$)")).toBeLessThan(keys.indexOf("/api"));
+    expect(keys.indexOf("^/api/collab/ws(?=/|$)")).toBeLessThan(keys.indexOf("/api"));
+  });
 });
