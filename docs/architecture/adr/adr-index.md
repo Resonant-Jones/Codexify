@@ -82,7 +82,8 @@ Use this note as the local map for all ADRs.
 42. [[ADR-048-guardian-three-channel-delegation-topology|ADR-048 Guardian Three-Channel Delegation Topology]] — accepted architecture record establishing Pi, Codex, and Claude as peer execution systems under Guardian without changing current runtime behavior or release claims.
 43. [[ADR-049-admin-account-observability-and-invite-attribution|ADR-049 Admin Account Observability and Invite Attribution]] — proposed architecture record establishing Guardian-owned, privacy-bounded, presence-based account observability with coarse geography, first-touch first-party invite attribution, explicit retention, and content-free measurement. Its Slice 1 persistence foundation exists; collection, APIs, aggregates, retention workers, and UI remain absent.
 44. [[050-event-driven-campaign-control-plane|ADR-050 Event-Driven Campaign Control Plane]] — GitHub-native, read-only dry-run control-plane foundation for validated campaign packets, PR lineage, deterministic eligibility, and durable workflow receipts; it does not dispatch agents or merge code.
-45. [[ADR-051-whooshd-deepseek-dual-provider-startup-profile|ADR-051 Whoosh'd Gemma and Approved DeepSeek Startup Profile]] — operator-controlled candidate profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, with bounded concurrent startup proof.
+45. [[051-chrome-side-panel-dual-auth-client-contract|ADR-051 Chrome Side-Panel Dual-Auth Client Contract]] — accepted governing contract for the private unpacked Chrome side-panel chat client with mutually exclusive local API-key and remote session/JWT transport modes; remote passwords are never stored and tokens remain browser-session-scoped.
+46. [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052 Whoosh'd Gemma and Approved DeepSeek Startup Profile]] — operator-controlled candidate profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, with bounded concurrent startup proof.
 
 ---
 
@@ -126,7 +127,9 @@ Use this note as the local map for all ADRs.
   - Governs GitHub-native dry-run campaign packet validation, PR lineage, deterministic eligibility, workflow-summary receipts, read-only permissions, and the separation of deterministic proof from advisory model review.
   - Companion contract: [[../campaign-control-plane-contract|Campaign Control-Plane Contract]].
   - Current-truth and related anchors: [[../00-current-state|00 Current State]], [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]], [[039-operator-user-access-boundary|ADR-039 Operator / User Access Boundary]], [[../guardian-dashboard-snapshot-contract|Guardian Dashboard Snapshot Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], and [[../data-and-storage|Data and Storage]].
-- [[ADR-051-whooshd-deepseek-dual-provider-startup-profile|ADR-051 Whoosh'd Gemma and Approved DeepSeek Startup Profile]]
+- [[051-chrome-side-panel-dual-auth-client-contract|ADR-051 Chrome Side-Panel Dual-Auth Client Contract]]
+  - Governs the private unpacked Chrome side-panel chat client with mutually exclusive local API-key and remote session/JWT transport modes; remote passwords are never stored and tokens remain browser-session-scoped.
+- [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052 Whoosh'd Gemma and Approved DeepSeek Startup Profile]]
   - Governs the operator-controlled startup profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, including bounded concurrent startup proof without widening release claims.
 
 ## Relationship to the main architecture docs
