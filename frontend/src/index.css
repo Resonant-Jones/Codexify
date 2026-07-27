@@ -258,11 +258,13 @@ textarea:disabled::placeholder {
 /* Active state: accent-backed pill */
 .pill-tab[data-state="active"] {
   color: var(--pill-active-text, var(--text));
-  border-color: color-mix(in oklab, var(--accent-strong) 40%, transparent);
-  background: color-mix(in oklab, var(--accent-strong) 86%, transparent);
-  box-shadow:
+  border-color: var(--pill-active-border, color-mix(in oklab, var(--accent-strong) 40%, transparent));
+  background: var(--pill-active-bg, var(--accent));
+  box-shadow: var(
+    --pill-active-shadow,
     0 12px 24px color-mix(in oklab, var(--accent-strong) 32%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+    inset 0 1px 0 rgba(255, 255, 255, 0.38)
+  );
 }
 
 /* Brand badge – black pill (theme-invariant, not overridden by global button or pill styles) */
@@ -299,10 +301,12 @@ button.brand-tab,
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.48));
 }
 .dark .pill-tab[data-state="active"] {
-  background: color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4));
-  box-shadow:
+  background: var(--pill-active-bg, color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4)));
+  box-shadow: var(
+    --pill-active-shadow,
     0 12px 24px color-mix(in oklab, var(--accent-strong) 28%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.22);
+    inset 0 1px 0 rgba(255,255,255,0.22)
+  );
 }
 
 /* Session rail hierarchy: one layout rail, split visible islands */

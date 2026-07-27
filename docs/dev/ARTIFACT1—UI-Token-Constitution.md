@@ -258,6 +258,14 @@ resolved === "light"
 
 AppShell already defines colors. No component may override them.
 
+### Navigation Material and Selection Semantics
+
+Navigation material and selection accent are separate responsibilities. A navigation surface must remain optically offset from its host surface through token-derived material variation, and containment must not be communicated through accent color.
+
+Active navigation destinations should use an accent border, edge, or restrained glow unless a governing component contract requires fill. Compact direct-value selectors may use solid accent fill. Controls may share pill geometry while using different selected-state treatments when their interaction roles differ.
+
+Material contrast must remain theme-aware and token-derived. Do not introduce hardcoded theme colors to force contrast.
+
 VII. GLASS GEOMETRY RULESET
 
 The glass system is the most fragile part of Codexify’s visual identity.
