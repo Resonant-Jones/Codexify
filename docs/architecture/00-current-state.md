@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-23
+2026-07-27
 
 ## Interpretation rule
 This file is authoritative for:
@@ -13,67 +13,57 @@ This file is authoritative for:
 - what is and is not part of the present release promise
 
 ## Current phase
-Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
+Codexify is in local-first beta hardening on `main`. Mainline now includes admin observability, a `whooshd-deepseek` local profile, private Chrome side-panel work, and campaign control-plane dry-run scaffolding, but the supported release promise is still the local Docker Compose stack with local-only providers.
 
 ## What changed recently
-- Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
-- Removed the legacy document generation UI from the frontend.
-- Fixed mobile composer viewport settling.
-- Updated health checks to probe the cloud-provider endpoint instead of returning a stub degraded status.
-- Pinned friends/family chat to DeepSeek V4 Flash.
-- Separated live Continuity database proof from broader operator routes.
-- Restored thread-first project retrieval.
-- Removed Zac's last name from the email campaign materials.
-- Added a docs/proof-only Project Pulse exact-ID read proof fixture contract and static fixture after implementation-target inspection. This does not implement Project Pulse, routes, services, adapter methods, schemas, migrations, UI, CLI, workers, command bus, provider calls, retrieval changes, graph use, browser capture, export/restore, tests, runtime fixture loading, database seeds, writes, or supported-beta activation.
+- Added admin account observability, a `whooshd-deepseek` local profile, and settings density updates.
+- Shipped a private Chrome side-panel chat MVP with task correlation/cancellation and Tailscale session support.
+- Added campaign control-plane dry-run scaffolding on `main`.
+- Reverted live-proof receipt manifest integration.
+- Kept email work in implementation-target inspection and planning; no runtime email path was added.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
 - The supported posture remains local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, `LLM_PROVIDER=local`.
 - `AI_BACKEND=local` remains legacy compatibility only.
-- `LOCAL_RUNTIME_PRESET` still selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` under the local provider boundary.
+- `LOCAL_RUNTIME_PRESET` still selects `whooshd-mlx`, `ollama`, `lmstudio`, or `custom-openai-compatible` within the local provider boundary.
 - Whoosh'd remains the supported Apple Silicon local runtime preset.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval remain the supported beta paths.
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` remain the fastest runtime checks.
-- The friends/family chat profile is pinned to DeepSeek V4 Flash on `main`.
-- Thread-first project retrieval is restored on `main`.
-- Supported Compose live proof receipts exist as a bounded proof and validation seam, not a release expansion.
+- Admin account observability is present on `main`.
 - OpenAI export import and Task Prompt Archive are present on `main`.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
-- Do not assume the packaged desktop shell replaces the local Compose supported path.
-- Do not assume docs-only contracts or implementation-target inspections mean shipped runtime support.
-- Do not assume the email campaign index or inspection implies an email runtime, mailbox, or send path.
-- Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
-- Do not assume the Guardian delegation loop or Guardian Codex Runner bridge docs imply an end-to-end supported delegation/runtime path.
-- Do not assume shared presence, hosted rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
-- Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
+- Do not assume the Chrome side-panel client is a public or generally supported release surface.
+- Do not assume campaign control-plane dry run implies campaign execution support.
+- Do not assume live-proof receipt manifest promotion or trusted `latest` release approval.
+- Do not assume an email runtime, mailbox, or send path.
+- Do not assume end-to-end Guardian delegation runtime.
+- Do not infer a wider release promise from docs-only contracts, inspections, or dry-run scaffolding.
 - Do not assume any local runtime is available without live endpoint and model inventory proof.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
 - Canonical and legacy config paths still coexist, so startup and operator state can drift.
-- End-to-end Guardian delegation is not yet a release-supported path.
 - Federation remains high-blast-radius and trust-policy sensitive.
-- Graph-write enablement stays outside the default release promise.
-- Email remains in inspection and planning only; no runtime behavior is shipped yet.
+- Email runtime remains unshipped.
+- Proof-receipt manifest promotion is unresolved after the revert.
 
 ## This week's priorities
-1. Keep supported-profile, health, and catalog surfaces aligned on `main`.
-2. Preserve proof for chat, upload, retrieval, and OpenAI import paths.
-3. Keep Guardian bridge proof separated from shipped runtime claims.
-4. Keep legacy config compatibility narrow and clearly labeled.
-5. Recheck blocker status only when `main` moves.
+1. Keep the current-state doc aligned to `origin/main` and strip stale release claims.
+2. Preserve the local-only beta contract while labeling Chrome side-panel and campaign work as internal or dry-run only.
+3. Recheck queue, worker, and config drift before widening any release promise.
+4. Keep proof-receipt behavior bounded until manifest promotion is re-established on `main`.
 
 ## Release definition right now
-- [x] Supported-profile flags match the local-only beta contract.
-- [x] The current `main` tip includes a supported local runtime preset for Whoosh'd.
-- [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval are in the supported claim set.
-- [x] Health endpoints return real probe-based status on the supported path.
-- [ ] Queue, config, delegation, and federation risks stay explicitly documented and rechecked when the supported path drifts.
-- [ ] Legacy `AI_BACKEND` compatibility must not be mistaken for a new supported contract.
-- [ ] New docs-only contracts, inspections, and bridge proofs must stay out of the supported runtime claim set until proven on `main`.
-- [ ] Any new release claim needs fresh proof on `main`, not branch-local evidence.
+- [x] Local Docker Compose is the supported install path.
+- [x] The release posture remains local-only with local providers only.
+- [x] Chat completion, upload -> embed -> readback, and workspace-local retrieval remain in the supported claim set.
+- [x] Health and admin observability surfaces exist on `main`.
+- [ ] Chrome side-panel, campaign-control, email, delegation, federation, and graph-write claims require separate proof.
+- [ ] Live-proof receipt promotion is not part of the current release promise.
+- [ ] Queue/worker/config drift must stay explicitly documented and rechecked before any wider release claim.
 
 ## How to read the rest of the KB
 - `system-overview.md` explains structure, not release readiness.
