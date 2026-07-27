@@ -6,6 +6,7 @@ import {
 import {
   getRuntimeConfigSync,
   resolveApiUrl,
+  resolveBackendUrl,
   type RuntimeConfig,
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
@@ -1045,10 +1046,10 @@ export async function preflightBackendAvailability(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // /health proves the same-origin frontend-to-backend path without
+    // /health proves the configured frontend-to-backend path without
     // triggering provider or model inventory work. LLM health can legitimately
     // be slower during cold start and must not gate the browser shell.
-    const response = await fetch("/health", {
+    const response = await fetch(resolveBackendUrl("/health"), {
       credentials: "include",
       signal: controller.signal,
     });

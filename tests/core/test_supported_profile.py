@@ -12,7 +12,7 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.provider_contract["LLM_PROVIDER"] == "local"
     assert (
         manifest.provider_contract["LOCAL_BASE_URL"]
-        == "http://host.docker.internal:8000/v1"
+        == "http://100.127.148.28:8000/v1"
     )
     assert manifest.provider_contract["LOCAL_API_KEY"] == "local"
     assert "LOCAL_PROVIDER_VENDOR" not in manifest.provider_contract
@@ -114,9 +114,9 @@ def test_tester_profile_high_blast_routes_quarantined() -> None:
         "graph",
     }
     for label in quarantined_labels:
-        assert manifest.route_status(label) == "quarantined", (
-            f"{label!r} must be quarantined in tester profile"
-        )
+        assert (
+            manifest.route_status(label) == "quarantined"
+        ), f"{label!r} must be quarantined in tester profile"
 
 
 def test_tester_profile_no_overlapping_route_labels() -> None:
@@ -134,9 +134,9 @@ def test_tester_profile_no_overlapping_route_labels() -> None:
 def test_dev_profile_auth_still_quarantined() -> None:
     manifest = load_supported_profile("v1-local-core-web-mcp")
 
-    assert manifest.route_status("auth") == "quarantined", (
-        "auth must remain quarantined in the default dev profile"
-    )
+    assert (
+        manifest.route_status("auth") == "quarantined"
+    ), "auth must remain quarantined in the default dev profile"
 
 
 def test_tester_profile_yaml_file_exists() -> None:

@@ -19,7 +19,6 @@ from guardian.db.models import (
     User,
 )
 
-
 TABLES = [
     User.__table__,
     AccountObservabilityInviteLink.__table__,
@@ -88,7 +87,9 @@ def _user(user_id: str) -> User:
     )
 
 
-def _invite(operator_id: str, invite_id: str = "invite-1") -> AccountObservabilityInviteLink:
+def _invite(
+    operator_id: str, invite_id: str = "invite-1"
+) -> AccountObservabilityInviteLink:
     return AccountObservabilityInviteLink(
         id=invite_id,
         token_hash=f"hash-{invite_id}",
@@ -127,7 +128,9 @@ def test_account_metadata_is_keyed_only_to_canonical_user_identity() -> None:
     } & set(table.columns)
 
 
-def test_invite_token_hash_is_unique_and_status_is_constrained(db_session: Session) -> None:
+def test_invite_token_hash_is_unique_and_status_is_constrained(
+    db_session: Session,
+) -> None:
     db_session.add(_user("operator"))
     db_session.flush()
     db_session.add(_invite("operator", "invite-1"))
@@ -170,7 +173,9 @@ def test_presence_requires_exactly_one_subject(
         db_session.commit()
 
 
-def test_valid_account_and_guest_presence_rows_succeed(db_session: Session) -> None:
+def test_valid_account_and_guest_presence_rows_succeed(
+    db_session: Session,
+) -> None:
     started, last_seen = _timestamp_pair()
     db_session.add_all([_user("account-1"), _user("operator")])
     db_session.flush()
@@ -202,9 +207,14 @@ def test_valid_account_and_guest_presence_rows_succeed(db_session: Session) -> N
         ]
     )
     db_session.commit()
-    assert db_session.scalar(select(AccountObservabilityPresenceSession).where(
-        AccountObservabilityPresenceSession.id == "account-presence-1"
-    )) is not None
+    assert (
+        db_session.scalar(
+            select(AccountObservabilityPresenceSession).where(
+                AccountObservabilityPresenceSession.id == "account-presence-1"
+            )
+        )
+        is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -294,8 +304,62 @@ def test_account_deletion_removes_metadata_and_account_presence(
 
     db_session.delete(account)
     db_session.commit()
-    assert db_session.get(AccountObservabilityAccountMetadata, "account-1") is None
-    assert db_session.get(AccountObservabilityPresenceSession, "account-presence-1") is None
+    assert (
+        db_session.get(AccountObservabilityAccountMetadata, "account-1") is None
+    )
+    assert (
+        db_session.get(
+            AccountObservabilityPresenceSession, "account-presence-1"
+        )
+        is None
+    )
+
+
+def test_invite_creator_deletion_preserves_attribution_history(
+    db_session: Session,
+) -> None:
+    started, last_seen = _timestamp_pair()
+    operator = _user("operator")
+    db_session.add_all([operator, _user("account-1")])
+    db_session.flush()
+    db_session.add(_invite("operator"))
+    db_session.flush()
+    db_session.add(
+        AccountObservabilityAccountMetadata(
+            user_id="account-1",
+            registered_at=started,
+            acquisition_invite_id="invite-1",
+            attribution_method="first_party_first_touch",
+            attribution_confidence="verified",
+        )
+    )
+    db_session.add(
+        AccountObservabilityPresenceSession(
+            id="attributed-presence-1",
+            user_id="account-1",
+            invite_id="invite-1",
+            started_at=started,
+            last_seen_at=last_seen,
+        )
+    )
+    db_session.commit()
+
+    db_session.delete(operator)
+    db_session.commit()
+
+    invite = db_session.get(AccountObservabilityInviteLink, "invite-1")
+    assert invite is not None
+    assert invite.created_by_user_id is None
+    assert (
+        db_session.get(AccountObservabilityAccountMetadata, "account-1")
+        is not None
+    )
+    assert (
+        db_session.get(
+            AccountObservabilityPresenceSession, "attributed-presence-1"
+        )
+        is not None
+    )
 
 
 def test_guest_deletion_removes_guest_presence_without_deleting_invite(
@@ -334,8 +398,13 @@ def test_guest_deletion_removes_guest_presence_without_deleting_invite(
 
     db_session.delete(guest)
     db_session.commit()
-    assert db_session.get(AccountObservabilityInviteLink, "invite-1") is not None
-    assert db_session.get(AccountObservabilityPresenceSession, "guest-presence-1") is None
+    assert (
+        db_session.get(AccountObservabilityInviteLink, "invite-1") is not None
+    )
+    assert (
+        db_session.get(AccountObservabilityPresenceSession, "guest-presence-1")
+        is None
+    )
     metadata = db_session.get(AccountObservabilityAccountMetadata, "account-1")
     assert metadata is not None
     assert metadata.acquisition_invite_id == "invite-1"

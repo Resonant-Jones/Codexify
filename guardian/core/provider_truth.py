@@ -95,10 +95,7 @@ def build_provider_truth(
         }
         supported_profile_approved = bool(
             supported_profile_valid
-            and (
-                provider == selected_provider
-                or provider in allowlisted_cloud
-            )
+            and (provider == selected_provider or provider in allowlisted_cloud)
         )
     if discoverable is None:
         if provider == "local":

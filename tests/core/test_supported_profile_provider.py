@@ -1,10 +1,13 @@
 import pytest
 from fastapi import HTTPException
 
-from guardian.core.ai_router import _resolve_local_base
 from guardian.core import config as config_module
+from guardian.core.ai_router import (
+    _local_chat_model_is_authoritative,
+    _resolve_local_base,
+    resolve_local_execution_model,
+)
 from guardian.core.config import Settings
-
 
 _WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
 
@@ -16,7 +19,7 @@ def _supported_profile_settings(**overrides) -> Settings:
         "CODEXIFY_LOCAL_ONLY_MODE": True,
         "CODEXIFY_EGRESS_ALLOWLIST": "",
         "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
-        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_BASE_URL": "http://100.127.148.28:8000/v1",
         "LOCAL_API_KEY": "local",
         "LOCAL_COMPAT_FIRST": True,
         "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
@@ -39,9 +42,7 @@ def test_validate_llm_config_accepts_supported_profile_local_contract(
 
 
 def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
-    monkeypatch.setenv(
-        "CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web"
-    )
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
     settings = _supported_profile_settings(
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
@@ -56,6 +57,27 @@ def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
     )
 
     config_module.validate_llm_config(settings)
+
+
+def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+
+    assert _local_chat_model_is_authoritative(settings) is True
+    resolution = resolve_local_execution_model(
+        settings=settings,
+        requested_model="stale-local-model",
+    )
+    assert resolution.ok
+    assert resolution.strict is True
+    assert resolution.model == "gemma-4-12b-it-qat-4bit"
 
 
 def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:

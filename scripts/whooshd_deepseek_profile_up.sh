@@ -25,6 +25,15 @@ if ! curl -fsS --max-time 3 "$WHOOSHD_BASE_URL/health" >/dev/null 2>&1; then
   }
   echo "Whoosh'd is not healthy; kickstarting $WHOOSHD_LABEL"
   launchctl kickstart -k "$WHOOSHD_LABEL"
+  readonly WHOOSHD_READY_TIMEOUT_SECONDS="${WHOOSHD_READY_TIMEOUT_SECONDS:-60}"
+  readonly WHOOSHD_READY_DEADLINE=$((SECONDS + WHOOSHD_READY_TIMEOUT_SECONDS))
+  until curl -fsS --max-time 3 "$WHOOSHD_BASE_URL/health" >/dev/null 2>&1; do
+    if (( SECONDS >= WHOOSHD_READY_DEADLINE )); then
+      echo "Whoosh'd did not become ready within ${WHOOSHD_READY_TIMEOUT_SECONDS}s after kickstart." >&2
+      exit 1
+    fi
+    sleep 2
+  done
 fi
 
 python3 - "$WHOOSHD_BASE_URL" "$EXPECTED_MODEL" <<'PY'
@@ -59,12 +68,20 @@ def complete(index):
         headers={'Authorization': 'Bearer local', 'Content-Type': 'application/json'},
     )
     with urllib.request.urlopen(request, timeout=90) as response:
-        return response.status
+        body = json.load(response)
+        return response.status, body
 
 with ThreadPoolExecutor(max_workers=2) as pool:
-    statuses = list(pool.map(complete, (1, 2)))
-if statuses != [200, 200]:
-    raise SystemExit(f"Whoosh'd concurrent x2 gate failed: {statuses!r}")
+    responses = list(pool.map(complete, (1, 2)))
+for index, (status, body) in enumerate(responses, start=1):
+    if status != 200:
+        raise SystemExit(f"Whoosh'd concurrent LOAD-{index} returned HTTP {status}: {body!r}")
+    choices = body.get('choices') or []
+    content = choices[0].get('message', {}).get('content') if choices else None
+    if str(content or '').strip() != f'LOAD-{index}':
+        raise SystemExit(
+            f"Whoosh'd concurrent LOAD-{index} body mismatch; got {content!r}: {body!r}"
+        )
 print("Whoosh'd concurrent x2 gate passed")
 PY
 

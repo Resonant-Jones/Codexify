@@ -270,7 +270,7 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
     assert any("host.docker.internal:11434" in attempted_url for attempted_url in calls)
 
 
-def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
+def test_stream_local_strict_mode_pins_configured_model_over_registered_whooshd_profile(
     monkeypatch,
 ):
     _disable_supported_profile(monkeypatch)
@@ -307,7 +307,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
     )
 
     assert tokens == ["Whoosh", "d"]
-    assert captured["json"]["model"] == "gemma-4-12b-it-optiq-4bit"
+    assert captured["json"]["model"] == "library2/ministral-3:8b"
     assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
 
 
@@ -377,7 +377,7 @@ def test_stream_local_classifies_eof_without_done_as_incomplete(monkeypatch):
     assert terminal.retry_permitted is False
 
 
-def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selection(
+def test_stream_local_strict_mode_pins_configured_model_over_registered_whooshd_qat_profile(
     monkeypatch,
 ):
     _disable_supported_profile(monkeypatch)
@@ -413,7 +413,7 @@ def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selectio
     )
 
     assert tokens == ["QAT"]
-    assert captured["json"]["model"] == "gemma-4-12b-it-qat-4bit"
+    assert captured["json"]["model"] == "library2/ministral-3:8b"
     assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
 
 

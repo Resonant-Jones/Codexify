@@ -132,7 +132,7 @@ def test_config_coherence_core_mode_allows_mismatch_and_logs_source(
     with caplog.at_level("INFO", logger="guardian.core.config"):
         core_config.assert_config_coherence(core)
 
-    assert "CODEXIFY_CONFIG_SOURCE=core" in caplog.text
+    assert "CODEXIFY_CONFIG_SOURCE=<redacted>" in caplog.text
 
 
 def test_config_coherence_core_mode_accepts_local_smoke_path_without_groq_key(
@@ -179,7 +179,7 @@ def test_config_coherence_legacy_mode_allows_mismatch_and_logs_source(
     with caplog.at_level("INFO", logger="guardian.core.config"):
         core_config.assert_config_coherence(core)
 
-    assert "CODEXIFY_CONFIG_SOURCE=legacy" in caplog.text
+    assert "CODEXIFY_CONFIG_SOURCE=<redacted>" in caplog.text
 
 
 def test_config_coherence_rejects_cloud_only_without_cloud_allow(monkeypatch):
@@ -252,7 +252,9 @@ def test_deepseek_config_defaults_are_normalized():
 
 
 def test_deepseek_execution_path_resolves_to_v4_flash_not_retired_chat():
-    settings = core_config.Settings(DEEPSEEK_BASE_URL="", DEEPSEEK_CHAT_MODEL="")
+    settings = core_config.Settings(
+        DEEPSEEK_BASE_URL="", DEEPSEEK_CHAT_MODEL=""
+    )
 
     resolved = default_model_for_provider("deepseek", settings)
 
