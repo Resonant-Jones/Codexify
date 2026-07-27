@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
@@ -39,7 +40,12 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import exc as sa_exc
@@ -81,13 +87,13 @@ from guardian.core.outbox import (
     parse_outbox_batch_size,
     parse_outbox_poll_interval,
 )
-from guardian.core.request_correlation import normalize_request_id
 from guardian.core.public_exposure import (
     DEFAULT_EXPOSURE_MODE,
     DEFAULT_PROFILE,
     DEFAULT_ROUTES_FILE,
     PublicExposureMiddleware,
 )
+from guardian.core.request_correlation import normalize_request_id
 from guardian.core.storage import ensure_storage_base_path
 from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
@@ -510,9 +516,9 @@ from guardian.routes import admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
+from guardian.routes import continuity_operator
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
-    continuity_operator,
     dashboard,
     delegations,
     devtools,
@@ -524,18 +530,19 @@ from guardian.routes import (
 )
 from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
-from guardian.routes import tts as tts_routes
 from guardian.routes import neo as neo_routes
-from guardian.routes import obsidian, research, share, threads, ui_session
+from guardian.routes import obsidian, research, share, threads
+from guardian.routes import tts as tts_routes
+from guardian.routes import ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
 from guardian.routes.chat import simple_chat_router
-from guardian.routes.core_loop_proof import router as core_loop_proof_router
 from guardian.routes.codex import router as codex_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
+from guardian.routes.core_loop_proof import router as core_loop_proof_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
 from guardian.routes.imprint import router as imprint_router
@@ -927,6 +934,55 @@ async def request_id_middleware(request: Request, call_next):
     request_id = _get_request_id(request)
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    return response
+
+
+def _request_timing_enabled() -> bool:
+    return os.getenv("CODEXIFY_REQUEST_TIMING_LOG", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _request_remote_class(request: Request) -> str:
+    host = (request.headers.get("host") or "").split(":", 1)[0].lower()
+    public_base = (os.getenv("CODEXIFY_PUBLIC_BASE_URL") or "").lower()
+    return (
+        "tailscale"
+        if host.endswith(".ts.net") or host in public_base
+        else "local"
+    )
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        if _request_timing_enabled():
+            logger.info(
+                "[request-timing] method=%s path=%s status=500 duration_ms=%d request_id=%s remote_class=%s",
+                request.method,
+                request.url.path,
+                int((time.perf_counter() - started) * 1000),
+                _get_request_id(request),
+                _request_remote_class(request),
+            )
+        raise
+
+    if _request_timing_enabled():
+        logger.info(
+            "[request-timing] method=%s path=%s status=%d duration_ms=%d request_id=%s remote_class=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            int((time.perf_counter() - started) * 1000),
+            _get_request_id(request),
+            _request_remote_class(request),
+        )
     return response
 
 
@@ -1716,6 +1772,7 @@ def health_retrieval(
 
 _WEBUI_BASIC_DIR = Path(__file__).resolve().parent.parent / "webui-basic"
 if _WEBUI_BASIC_DIR.is_dir():
+
     @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
     def webui_basic_index():
         return (_WEBUI_BASIC_DIR / "index.html").read_text()
@@ -1727,7 +1784,9 @@ if _WEBUI_BASIC_DIR.is_dir():
     )
     logger.info("[webui-basic] Serving from %s at /ui", _WEBUI_BASIC_DIR)
 else:
-    logger.info("[webui-basic] %s not found, skipping UI mount", _WEBUI_BASIC_DIR)
+    logger.info(
+        "[webui-basic] %s not found, skipping UI mount", _WEBUI_BASIC_DIR
+    )
 
 
 # =========================

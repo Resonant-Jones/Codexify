@@ -103,7 +103,7 @@ export default function WebRuntimeStartupGate({
     <div className="relative min-h-screen w-full">
       {children}
       {!ready && (
-        <div className="fixed inset-0 z-[1300] flex items-end justify-center p-4 sm:p-6">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[1300] flex justify-center p-4 sm:p-6">
           <div
             className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-[22px] border shadow-2xl backdrop-blur-xl"
             style={{
@@ -133,13 +133,13 @@ export default function WebRuntimeStartupGate({
             <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <div className="space-y-2">
                 <h1 className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">
-                  Waiting for the backend
+                  Backend connection delayed
                 </h1>
                 <p
                   className="max-w-xl text-sm leading-6"
                   style={{ color: "var(--muted)" }}
                 >
-                  The frontend is ready, but the local API has not answered yet.
+                  The application is available while Codexify reconnects to the API.
                 </p>
                 <p
                   className="max-w-xl text-xs leading-6"
@@ -154,7 +154,7 @@ export default function WebRuntimeStartupGate({
                   {checking ? "Checking..." : "Retry now"}
                 </Button>
                 <span className="text-xs" style={{ color: "var(--muted)" }}>
-                  Automatic retries stay on until the backend is reachable.
+                  Automatic retries continue without blocking the application shell.
                 </span>
               </div>
             </div>

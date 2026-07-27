@@ -33,19 +33,19 @@ describe("WebRuntimeStartupGate", () => {
     expect(screen.queryByText("Waiting for the backend")).toBeNull();
   });
 
-  it("shows a waiting screen while the backend probe is failing", async () => {
+  it("shows a non-blocking degraded-state notice while the backend probe is failing", async () => {
     render(
       <WebRuntimeStartupGate enabled>
         <div>App shell</div>
       </WebRuntimeStartupGate>
     );
 
-    const gateTitle = await screen.findByText("Waiting for the backend");
+    const gateTitle = await screen.findByText("Backend connection delayed");
     const gateOverlay = gateTitle.closest(".fixed");
 
     expect(gateTitle).toBeInTheDocument();
     expect(screen.getByText("App shell")).toBeInTheDocument();
     expect(gateOverlay).toHaveClass("z-[1300]");
-    expect(gateOverlay).not.toHaveClass("pointer-events-none");
+    expect(gateOverlay).toHaveClass("pointer-events-none");
   });
 });

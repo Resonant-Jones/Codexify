@@ -29,6 +29,9 @@ export const SETTINGS_DENSITY = {
   dockFontSize: "0.75rem",
   dockTabMinWidth: "7.5rem",
 
+  /** Deliberate breathing room between the persistent tab dock and active panel. */
+  dockContentGap: "var(--shell-gap)",
+
   /** Internal desktop grid rhythm for Settings tab panels. */
   contentGridGap: "var(--shell-gap)",
 

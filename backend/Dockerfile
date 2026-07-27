@@ -1,5 +1,3 @@
-#syntax=docker/dockerfile:1
-
 # === Build stage: Install dependencies and prepare application ===
 FROM python:3.11.14-slim AS builder
 

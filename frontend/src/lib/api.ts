@@ -6,6 +6,7 @@ import {
 import {
   getRuntimeConfigSync,
   resolveApiUrl,
+  resolveBackendUrl,
   type RuntimeConfig,
 } from "@/lib/runtimeConfig";
 import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
@@ -1042,10 +1043,22 @@ export async function preflightBackendAvailability(
   message?: string;
   technicalDetail?: string;
 }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // /api/health/llm is an existing lightweight route that still
-    // exercises frontend->backend transport and proxy resolution.
-    await api.get("/api/health/llm", { timeout: timeoutMs });
+    // /health proves the configured frontend-to-backend path without
+    // triggering provider or model inventory work. LLM health can legitimately
+    // be slower during cold start and must not gate the browser shell.
+    const response = await fetch(resolveBackendUrl("/health"), {
+      credentials: "include",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        technicalDetail: `health returned ${response.status}`,
+      };
+    }
     return { ok: true };
   } catch (error: any) {
     if (error?.response) {
@@ -1061,6 +1074,8 @@ export async function preflightBackendAvailability(
       message: normalized.message,
       technicalDetail: normalized.technicalDetail,
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

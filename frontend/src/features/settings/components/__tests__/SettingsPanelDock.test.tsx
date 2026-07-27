@@ -30,7 +30,16 @@ describe("SettingsPanelDock", () => {
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     const rail = screen.getByTestId("settings-panel-dock").querySelector(".glass-pill");
     expect(rail).toHaveClass("w-full", "overflow-x-auto");
-    expect(rail).not.toHaveClass("flex-wrap");
+    expect(rail).not.toHaveClass("flex-wrap", "whitespace-normal");
+    const tabGroup = rail?.firstElementChild;
+    expect(tabGroup).toHaveClass(
+      "flex",
+      "w-max",
+      "min-w-full",
+      "justify-evenly",
+      "whitespace-nowrap"
+    );
+    expect(tabGroup).not.toHaveClass("flex-wrap");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Imprint" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Personal Facts" })).toBeInTheDocument();
