@@ -1,4 +1,4 @@
-# ADR-051 — Whoosh'd Gemma and Approved DeepSeek Startup Profile
+# ADR-052 — Whoosh'd Gemma and Approved DeepSeek Startup Profile
 
 ## Status
 
