@@ -105,8 +105,23 @@ All IDs, metadata, and relationships in the following families must be explicit 
 | Thread-linked artifacts and related metadata | Stable artifact IDs, thread ID, relationship metadata, timestamps, tags/flags, and provenance. |
 | User-authored tags / flags / timestamps relevant to restore | Stable target IDs, tag or flag namespace, value, actor or owner where relevant, timestamps, and provenance if imported. |
 | User profile metadata | Stable user/profile ownership mapping, display name, avatar URL, timezone, timestamps, and provenance where preserved. |
+| Hosted Rooms | Stable room ID, owner account, backing-thread relationship, title, slug, lifecycle state, bounded enabled-agent identifiers, and lifecycle timestamps. |
+| Hosted Room participants | Stable participant ID, room relationship, optional originating-invitation relationship, optional account binding, display label, constrained kind/role/state, and lifecycle timestamps, subject to sensitive-data treatment. |
+| Hosted Room invitations | Stable invitation ID, room relationship, intended display-name snapshot, constrained lifecycle state, expiry and transition timestamps, and privacy-safe verifier disposition; no plaintext credential. |
 
 Every record family must preserve stable identifiers, owner or account scoping, and restore-relevant timestamps. If an object is derived from another object, the derivation link must be exported explicitly.
+
+## Hosted Room Export and Restore Posture
+
+The persistence entities governed by [[adr/053-node-hosted-room-access-boundary|ADR-053]] belong to the owning account's data boundary. A future full-account export must preserve the Hosted Room-to-backing-thread relationship so transcript lineage remains intact without copying messages into a room-specific transcript.
+
+Hosted Room participant and invitation metadata is sensitive. Export policy must explicitly govern display-name snapshots, optional participant account bindings, originating-invitation relationships, lifecycle history, and enabled resident-agent identifiers. Agent participants remain room-scoped agent identities, not Codexify accounts. Guest account bindings remain optional and must not be reconstructed from display labels.
+
+Plaintext invitation credentials are never exportable because they are never stored. A stored invitation token hash or verifier must not become a reusable credential after restore. The safest baseline is to omit or invalidate stored verifiers during export/restore; any future regeneration path must issue new credential material explicitly, preserve lifecycle state, and never silently reactivate a revoked, expired, accepted, or closed-room invitation.
+
+Account deletion must not orphan authority-bearing Hosted Room state. Room-owned invitations and participants follow the room lifecycle, while the canonical backing thread and its messages continue to follow normal account/thread deletion doctrine. Restore must preserve closed-room state and must not infer participation authority merely from restored metadata.
+
+This contract defines the required posture only. Executable account export and restore code has not been updated for Hosted Rooms, and Hosted Room export/restore remains deferred. The persistence slice does not implement room APIs, invitation exchange, room sessions, authorization, Contacts workflows, or UI behavior; ADR-053 remains `Proposed`.
 
 ## Provenance Contract
 
@@ -221,3 +236,4 @@ The following questions are intentionally unresolved by this contract:
 - Whether export and restore should be synchronous or job-based
 - Whether restore should support partial family selection
 - How future encrypted exports should handle key management, rotation, and recovery
+- The versioned payload shape and verifier-invalidation mechanism for Hosted Room metadata

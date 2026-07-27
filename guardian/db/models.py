@@ -334,6 +334,35 @@ AND (
 )
 """.strip()
 
+HOSTED_ROOM_STATUSES = frozenset({"active", "closed"})
+HOSTED_ROOM_INVITE_STATUSES = frozenset(
+    {"pending", "accepted", "revoked", "expired"}
+)
+HOSTED_ROOM_PARTICIPANT_KINDS = frozenset({"human", "agent"})
+HOSTED_ROOM_PARTICIPANT_ROLES = frozenset({"owner", "member", "agent"})
+HOSTED_ROOM_PARTICIPANT_STATES = frozenset({"active", "removed"})
+
+HOSTED_ROOM_STATUS_CHECK = (
+    "status IN "
+    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_STATUSES))})"
+)
+HOSTED_ROOM_INVITE_STATUS_CHECK = (
+    "status IN "
+    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_INVITE_STATUSES))})"
+)
+HOSTED_ROOM_PARTICIPANT_KIND_CHECK = (
+    "kind IN "
+    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_PARTICIPANT_KINDS))})"
+)
+HOSTED_ROOM_PARTICIPANT_ROLE_CHECK = (
+    "role IN "
+    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_PARTICIPANT_ROLES))})"
+)
+HOSTED_ROOM_PARTICIPANT_STATE_CHECK = (
+    "state IN "
+    f"({','.join(repr(value) for value in sorted(HOSTED_ROOM_PARTICIPANT_STATES))})"
+)
+
 
 # =========================
 # Projects
@@ -647,6 +676,271 @@ class ChatMessage(Base):
         "ChatThread", back_populates="messages"
     )
     user: Mapped[User] = relationship("User")
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Hosted Rooms
+# =========================
+
+
+class HostedRoom(Base):
+    """Account-owned collaboration boundary backed by one canonical thread."""
+
+    __tablename__ = "hosted_rooms"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_account_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    backing_thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    enabled_agent_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+
+    owner: Mapped[User] = relationship("User")
+    backing_thread: Mapped[ChatThread] = relationship("ChatThread")
+    invitations: Mapped[list[HostedRoomInvite]] = relationship(
+        "HostedRoomInvite",
+        back_populates="room",
+        cascade="all, delete-orphan",
+    )
+    participants: Mapped[list[HostedRoomParticipant]] = relationship(
+        "HostedRoomParticipant",
+        back_populates="room",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_hosted_rooms_slug"),
+        UniqueConstraint(
+            "backing_thread_id",
+            name="uq_hosted_rooms_backing_thread_id",
+        ),
+        CheckConstraint(
+            HOSTED_ROOM_STATUS_CHECK,
+            name="hosted_rooms_status_check",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND closed_at IS NULL) "
+            "OR (status = 'closed' AND closed_at IS NOT NULL)",
+            name="hosted_rooms_lifecycle_check",
+        ),
+        CheckConstraint(
+            "slug <> '' AND slug NOT LIKE '% %'",
+            name="hosted_rooms_slug_check",
+        ),
+        CheckConstraint(
+            "length(CAST(enabled_agent_ids AS TEXT)) <= 4096",
+            name="hosted_rooms_enabled_agent_ids_size_check",
+        ),
+        Index("ix_hosted_rooms_owner_account_id", "owner_account_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class HostedRoomInvite(Base):
+    """Room-scoped invitation metadata with only a stored token verifier."""
+
+    __tablename__ = "hosted_room_invites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("hosted_rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    intended_display_name: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    expired_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    room: Mapped[HostedRoom] = relationship(
+        "HostedRoom", back_populates="invitations"
+    )
+    participant: Mapped[HostedRoomParticipant | None] = relationship(
+        "HostedRoomParticipant",
+        back_populates="originating_invitation",
+        uselist=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_hosted_room_invites_token_hash",
+        ),
+        CheckConstraint(
+            HOSTED_ROOM_INVITE_STATUS_CHECK,
+            name="hosted_room_invites_status_check",
+        ),
+        CheckConstraint(
+            "("
+            "status = 'pending' "
+            "AND accepted_at IS NULL "
+            "AND revoked_at IS NULL "
+            "AND expired_at IS NULL"
+            ") OR ("
+            "status = 'accepted' "
+            "AND accepted_at IS NOT NULL "
+            "AND revoked_at IS NULL "
+            "AND expired_at IS NULL"
+            ") OR ("
+            "status = 'revoked' "
+            "AND revoked_at IS NOT NULL "
+            "AND expired_at IS NULL"
+            ") OR ("
+            "status = 'expired' "
+            "AND expired_at IS NOT NULL "
+            "AND accepted_at IS NULL "
+            "AND revoked_at IS NULL"
+            ")",
+            name="hosted_room_invites_lifecycle_check",
+        ),
+        Index("ix_hosted_room_invites_room_id", "room_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class HostedRoomParticipant(Base):
+    """Room-scoped human or resident-agent identity record."""
+
+    __tablename__ = "hosted_room_participants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("hosted_rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    invitation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("hosted_room_invites.id", ondelete="SET NULL"),
+    )
+    bound_account_id: Mapped[str | None] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    joined_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    removed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    room: Mapped[HostedRoom] = relationship(
+        "HostedRoom", back_populates="participants"
+    )
+    originating_invitation: Mapped[HostedRoomInvite | None] = relationship(
+        "HostedRoomInvite", back_populates="participant"
+    )
+    bound_account: Mapped[User | None] = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "invitation_id",
+            name="uq_hosted_room_participants_invitation_id",
+        ),
+        CheckConstraint(
+            HOSTED_ROOM_PARTICIPANT_KIND_CHECK,
+            name="hosted_room_participants_kind_check",
+        ),
+        CheckConstraint(
+            HOSTED_ROOM_PARTICIPANT_ROLE_CHECK,
+            name="hosted_room_participants_role_check",
+        ),
+        CheckConstraint(
+            HOSTED_ROOM_PARTICIPANT_STATE_CHECK,
+            name="hosted_room_participants_state_check",
+        ),
+        CheckConstraint(
+            "("
+            "kind = 'human' "
+            "AND role = 'owner' "
+            "AND bound_account_id IS NOT NULL"
+            ") OR ("
+            "kind = 'human' "
+            "AND role = 'member'"
+            ") OR ("
+            "kind = 'agent' "
+            "AND role = 'agent' "
+            "AND bound_account_id IS NULL"
+            ")",
+            name="hosted_room_participants_kind_role_check",
+        ),
+        CheckConstraint(
+            "(state = 'active' AND removed_at IS NULL) "
+            "OR (state = 'removed' AND removed_at IS NOT NULL)",
+            name="hosted_room_participants_lifecycle_check",
+        ),
+        Index("ix_hosted_room_participants_room_id", "room_id"),
+        Index(
+            "ix_hosted_room_participants_room_state",
+            "room_id",
+            "state",
+        ),
+    )
 
     __mapper_args__ = {"eager_defaults": True}
 

@@ -1,5 +1,5 @@
 Purpose: Map where Codexify stores state today, which entities carry the most architectural weight, and which invariants or exposure points change work must preserve.
-Last updated: 2026-07-21
+Last updated: 2026-07-27
 Source anchors:
 - guardian/db/models.py
 - guardian/db/migrations/
@@ -25,7 +25,7 @@ Source anchors:
 
 | System | What it stores today | Key anchors |
 |---|---|---|
-| Postgres | Projects, threads, messages, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Postgres | Projects, threads, messages, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
 | Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
 | File or object storage | Uploaded/generated media bytes and document/image/audio artifacts exposed through the signed media surface | `guardian/core/storage.py`, `guardian/routes/media.py` |
@@ -47,6 +47,22 @@ Source anchors:
 | `personal_facts` | Higher-level fact memory | confidence/status constraints drive fact lifecycle |
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
 | `personal_fact_revisions` | Fact history | supports auditability of memory changes |
+
+### Hosted Room persistence entities
+
+The persistence foundation governed by [[adr/053-node-hosted-room-access-boundary|ADR-053]] adds storage truth without adding a Hosted Room access runtime. ADR-053 remains `Proposed`.
+
+| Entity | Why it matters | Key invariants |
+|---|---|---|
+| `hosted_rooms` | Account-owned lifecycle and collaboration boundary | one owner account; one unique canonical `chat_threads` reference; unique slug; status is `active` or `closed`; no access credential |
+| `hosted_room_invites` | Room-scoped invitation lineage | one room; status is `pending`, `accepted`, `revoked`, or `expired`; only a unique token hash is stored; intended display name is not identity proof |
+| `hosted_room_participants` | Room-scoped human and resident-agent identity | one room; kind is `human` or `agent`; role is `owner`, `member`, or `agent`; state is `active` or `removed`; one invitation resolves to at most one participant |
+
+One Hosted Room maps to exactly one canonical `chat_threads` row. Messages remain exclusively in `chat_messages`; none of the Hosted Room tables is a transcript store. Room metadata is scoped through `owner_account_id`. A guest participant may have no bound Codexify account, while an agent participant must not bind to a user account.
+
+The enabled resident-agent field is a bounded, inspectable list of existing agent identifiers; it is not a second agent registry or a persisted capability-grant set. Contact persistence is not introduced here, so invitation intent retains only an intended display-name snapshot and does not claim Contact identity.
+
+No ambient-presence, device, location, behavioral, or cross-node synchronization state is stored. API creation, invitation exchange, room-scoped sessions, authorization, message operations, agent invocation, Contacts workflows, RoomShell, and management UI remain unimplemented.
 
 ### Documents, media, and generated artifacts
 
@@ -88,6 +104,12 @@ Source anchors:
 
 - `chat_threads -> chat_messages`
   - assistant persistence, thread recency ordering, and thread deletion assume this FK remains intact.
+- `users -> hosted_rooms -> chat_threads`
+  - the owner account scopes each room; each backing thread is unique to one room; deleting a room does not delete the referenced thread or its messages.
+- `hosted_rooms -> hosted_room_invites/hosted_room_participants`
+  - invitation and participant state is room-scoped; room deletion removes its authority-bearing dependent metadata, while participant removal and room closure retain historical rows.
+- `hosted_room_invites -> hosted_room_participants`
+  - an invitation may originate at most one participant; deleting an invitation clears that optional lineage reference rather than deleting the participant.
 - `chat_threads -> eval_trace_snapshots -> eval_verdicts`
   - post-completion eval snapshots and verdicts are derived inspection artifacts; they must stay linked to the original attempt and remain outside the completion acceptance path.
 - `projects -> chat_threads`
@@ -131,6 +153,9 @@ Source anchors:
   - filenames alone never establish source provenance
 - Federation and collaboration access are explicit, not ambient.
   - Anchors: `guardian/routes/federation.py`, `guardian/realtime/collaboration.py`, `guardian/db/models.py`
+- Hosted Room storage does not itself grant authority.
+  - Network reachability, invitation exchange, room sessions, route authorization, and UI behavior remain separate, unimplemented proof surfaces.
+  - Invitation values are stored only as hashes, and display names or optional account bindings are not ambient authority.
 
 ### Soft delete and archival surfaces
 
@@ -141,6 +166,8 @@ Source anchors:
 ### Cascade and retention behavior
 
 - `chat_messages` delete with their thread.
+- `hosted_rooms` delete with the owner account or backing thread; deleting a Hosted Room does not cascade upward to its backing thread or transcript.
+- `hosted_room_invites` and `hosted_room_participants` delete with their room. Deleting an invite sets an originating participant reference to null so participant history is retained.
 - `cron_runs` delete with their parent cron job.
 - Connector runs and raw documents delete with connector configs.
 - `/api/events` can delete durable outbox rows through the last delivered event ID for a tenant, so outbox retention is consumption-shaped rather than archival.
@@ -158,6 +185,7 @@ Source anchors:
 - Secret-bearing surfaces:
   - `oauth_connections` stores encrypted access and refresh token material
   - browser storage can hold session or API key material depending on mode
+  - `hosted_room_invites.token_hash` is a non-plaintext verifier; plaintext invitation credentials must never be persisted
 - Access-control assumptions:
   - API access control is route/auth-layer enforced; the DB schema itself does not encode every user ownership rule
   - collaboration and share-link security depends on token and permission handling, not row-level security
