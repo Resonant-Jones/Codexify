@@ -9,9 +9,9 @@ from guardian.account_observability.tokens import (
     ATTRIBUTION_METHODS,
     HEARTBEAT_INTERVAL_SECONDS,
     IDLE_SESSION_EXPIRY_SECONDS,
-    InviteLifecycleStatus,
     AttributionConfidence,
     AttributionMethod,
+    InviteLifecycleStatus,
 )
 
 
@@ -34,12 +34,12 @@ def test_attribution_registries_are_exact() -> None:
         "first_party_first_touch"
     }
     assert ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCES == {"verified"}
-    assert set(AttributionMethod) == {
-        AttributionMethod.FIRST_PARTY_FIRST_TOUCH
-    }
+    assert set(AttributionMethod) == {AttributionMethod.FIRST_PARTY_FIRST_TOUCH}
     assert set(AttributionConfidence) == {AttributionConfidence.VERIFIED}
     assert ATTRIBUTION_METHODS == ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHODS
-    assert ATTRIBUTION_CONFIDENCES == ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCES
+    assert (
+        ATTRIBUTION_CONFIDENCES == ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCES
+    )
 
 
 def test_presence_timing_defaults_are_canonical() -> None:

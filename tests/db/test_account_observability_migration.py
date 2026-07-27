@@ -109,10 +109,32 @@ def test_account_observability_migration_round_trip(tmp_path, monkeypatch):
         tables = set(inspector.get_table_names())
         assert FOUNDATION_TABLES <= tables
 
+        invite_creator = next(
+            column
+            for column in inspector.get_columns(
+                "account_observability_invite_links"
+            )
+            if column["name"] == "created_by_user_id"
+        )
+        assert invite_creator["nullable"] is True
+        invite_creator_fk = next(
+            foreign_key
+            for foreign_key in inspector.get_foreign_keys(
+                "account_observability_invite_links"
+            )
+            if foreign_key["constrained_columns"] == ["created_by_user_id"]
+        )
+        assert invite_creator_fk["options"].get("ondelete") == "SET NULL"
+
         with engine.begin() as connection:
-            assert connection.scalar(
-                text("SELECT COUNT(*) FROM account_observability_account_metadata")
-            ) == 0
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT COUNT(*) FROM account_observability_account_metadata"
+                    )
+                )
+                == 0
+            )
 
         expected_indexes = {
             "uq_account_observability_invite_links_token_hash",

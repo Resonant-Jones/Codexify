@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("campaign_label", sa.String(length=255), nullable=True),
         sa.Column("placement_label", sa.String(length=255), nullable=True),
-        sa.Column("created_by_user_id", sa.String(length=255), nullable=False),
+        sa.Column("created_by_user_id", sa.String(length=255), nullable=True),
         sa.Column(
             "status",
             sa.String(length=16),
@@ -57,7 +57,7 @@ def upgrade() -> None:
             ["created_by_user_id"],
             ["users.id"],
             name="fk_account_observability_invite_links_created_by_user_id",
-            ondelete="CASCADE",
+            ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint(
@@ -120,9 +120,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(length=255), nullable=False),
         sa.Column("registered_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("last_seen_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column(
-            "acquisition_invite_id", sa.String(length=36), nullable=True
-        ),
+        sa.Column("acquisition_invite_id", sa.String(length=36), nullable=True),
         sa.Column("prior_guest_id", sa.String(length=36), nullable=True),
         sa.Column("attribution_method", sa.String(length=64), nullable=True),
         sa.Column(
