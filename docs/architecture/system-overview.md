@@ -171,16 +171,20 @@ Key properties:
 - One room maps to one canonical chat thread; no parallel transcript store exists.
 - Room creation is transactional: room, backing thread, and owner participant are created atomically.
 - Owner lifecycle routes require the normal authenticated account context; ownership is never client-supplied.
+- Invitation issuance uses high-entropy tokens (256-bit, URL-safe); only SHA-256 verifiers are persisted.
+- Plaintext invitation credentials are returned exactly once at creation; no retrieval endpoint exists.
+- Invitation listing and revocation are owner-authenticated and room-scoped.
 - Owner routes are management-plane only: no guest authority exists yet.
 - Hosted Rooms do not change read-only Share-link semantics.
 
 What does not exist yet:
-- No invitation issuance or exchange.
-- No room-scoped guest sessions.
+- No invitation exchange (generated join paths are inert).
+- No guest authentication or room-scoped sessions.
 - No guest message APIs.
 - No RoomShell or Contacts launch flow.
 - No agent invocation through Hosted Room authority.
 - No presence or Tailscale automation.
+- No session invalidation after invitation revocation.
 
 ## Testing Reality
 

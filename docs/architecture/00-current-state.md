@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
 - Added Hosted Room owner lifecycle API: authenticated owners can create, list, inspect, update, and close Hosted Rooms backed by canonical chat threads. Room creation is atomic (room, thread, owner participant). Account isolation is enforced on all owner routes.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
 - Removed the legacy document generation UI from the frontend.
@@ -49,21 +50,31 @@ What is now implemented:
 - Authenticated owners can list and inspect their own rooms.
 - Authenticated owners can update title and enabled-agent configuration.
 - Authenticated owners can close rooms.
-- Account isolation is enforced on owner lifecycle routes.
+- Authenticated owners can issue room-scoped invitations.
+- Plaintext invitation credentials are returned exactly once.
+- Only a SHA-256 verifier (token hash) is persisted.
+- Owners can list invitation metadata (without tokens or hashes).
+- Owners can revoke pending and accepted invitations.
+- Invitation routes are account- and room-scoped.
+- Closed rooms reject new invitations.
+- Account isolation is enforced on all owner and invitation routes.
 
 What remains unimplemented:
-- Invitation issuance.
-- Invitation exchange.
+- Invitation exchange (the join path is inert).
+- Guest authentication.
 - Room-scoped guest sessions.
+- Participant creation from accepted invitations.
 - Guest message APIs.
 - Contacts launch flow.
 - RoomShell.
 - Agent invocation through Hosted Room authority.
 - Presence.
 - Tailscale automation.
+- Session invalidation after revocation.
 - Release qualification.
 
 Enabled-agent configuration is stored but does not yet grant an invocation path.
+Generated join paths (e.g., `/join/{token}`) are not yet functional guest-entry routes.
 
 ## Not yet true / do not assume
 - Do not assume Hosted Room guest access or invitation exchange is implemented.
