@@ -24,6 +24,31 @@ COMPOSE_FILES=(
   -f "$REPO_ROOT/docker-compose.tester.yml"
 )
 
+TESTER_START_SERVICES=(
+  backend
+  frontend
+  worker-chat
+  worker-chat-embed
+  worker-document-embed
+  worker-warmup
+  worker-account-import
+  tailscale-codexify-test
+)
+
+TESTER_REQUIRED_SERVICES=(
+  db
+  neo4j
+  backend
+  redis
+  frontend
+  worker-chat
+  worker-chat-embed
+  worker-document-embed
+  worker-warmup
+  worker-account-import
+  tailscale-codexify-test
+)
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -92,14 +117,52 @@ wait_for_docker() {
 }
 
 start_stack() {
-  compose up -d \
-    backend \
-    frontend \
-    worker-chat \
-    worker-chat-embed \
-    worker-document-embed \
-    worker-warmup \
-    tailscale-codexify-test
+  compose up -d "${TESTER_START_SERVICES[@]}"
+}
+
+report_required_services() {
+  local compose_rows
+  compose_rows="$(compose ps --all --format '{{.Service}}|{{.State}}|{{.Health}}')"
+  local required_service
+  local service_row
+  local service_state
+  local service_health
+  local requirements_failed=0
+
+  echo "--- required services ---"
+  for required_service in "${TESTER_REQUIRED_SERVICES[@]}"; do
+    service_row="$(printf '%s\n' "$compose_rows" | awk -F '|' -v target="$required_service" '$1 == target { print; exit }')"
+    if [[ -z "$service_row" ]]; then
+      echo "required_service=$required_service state=missing healthy=false"
+      requirements_failed=1
+      continue
+    fi
+
+    IFS='|' read -r _ service_state service_health <<< "$service_row"
+    case "$service_state" in
+      running)
+        if [[ "$service_health" == "unhealthy" ]]; then
+          echo "required_service=$required_service state=unhealthy healthy=false"
+          requirements_failed=1
+        elif [[ "$service_health" == "starting" ]]; then
+          echo "required_service=$required_service state=starting healthy=false"
+          requirements_failed=1
+        else
+          echo "required_service=$required_service state=running healthy=true"
+        fi
+        ;;
+      created|exited|restarting)
+        echo "required_service=$required_service state=$service_state healthy=false"
+        requirements_failed=1
+        ;;
+      *)
+        echo "required_service=$required_service state=${service_state:-unknown} healthy=false"
+        requirements_failed=1
+        ;;
+    esac
+  done
+
+  return "$requirements_failed"
 }
 
 health_check() {
@@ -134,6 +197,7 @@ command_down() {
 }
 
 command_status() {
+  local requirements_failed=0
   require_env_file
   if desired_up; then
     echo "desired_state=enabled"
@@ -146,6 +210,9 @@ command_status() {
 
   if docker info >/dev/null 2>&1; then
     compose ps
+    if ! report_required_services; then
+      requirements_failed=1
+    fi
   else
     echo "docker=unavailable"
     return 0
@@ -157,6 +224,12 @@ command_status() {
   echo "--- chat health ---"
   health_check "http://127.0.0.1:8889/health/chat" || true
   echo
+
+  if (( requirements_failed )); then
+    echo "tester_status=degraded" >&2
+    return 1
+  fi
+  echo "tester_status=healthy"
 }
 
 command_auto_start() {
