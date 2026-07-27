@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-20
+2026-07-27
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added Hosted Room owner lifecycle API: authenticated owners can create, list, inspect, update, and close Hosted Rooms backed by canonical chat threads. Room creation is atomic (room, thread, owner participant). Account isolation is enforced on all owner routes.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
 - Removed the legacy document generation UI from the frontend.
 - Fixed mobile composer viewport settling.
@@ -38,7 +39,34 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Supported Compose live proof receipts exist as a bounded proof and validation seam, not a release expansion.
 - OpenAI export import and Task Prompt Archive are present on `main`.
 
+### Hosted Room owner API
+
+What is now implemented:
+- Hosted Room persistence exists (ADR-053 persistence foundation).
+- Authenticated owners can create Hosted Rooms.
+- Creation produces one canonical backing chat thread.
+- Creation produces one owner participant.
+- Authenticated owners can list and inspect their own rooms.
+- Authenticated owners can update title and enabled-agent configuration.
+- Authenticated owners can close rooms.
+- Account isolation is enforced on owner lifecycle routes.
+
+What remains unimplemented:
+- Invitation issuance.
+- Invitation exchange.
+- Room-scoped guest sessions.
+- Guest message APIs.
+- Contacts launch flow.
+- RoomShell.
+- Agent invocation through Hosted Room authority.
+- Presence.
+- Tailscale automation.
+- Release qualification.
+
+Enabled-agent configuration is stored but does not yet grant an invocation path.
+
 ## Not yet true / do not assume
+- Do not assume Hosted Room guest access or invitation exchange is implemented.
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume docs-only contracts or implementation-target inspections mean shipped runtime support.

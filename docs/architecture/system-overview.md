@@ -159,6 +159,29 @@ The configured provider is not the same thing as discovered provider inventory. 
   - publish relay or SSE updates
 - Anchors: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py`
 
+## Hosted Room Owner API (Management Plane)
+
+A Hosted Room is an account-owned collaboration boundary backed by exactly one canonical chat thread. The owner management API exposes authenticated room lifecycle operations without implementing guest access.
+
+| Surface | Responsibility | Key anchors |
+|---|---|---|
+| Hosted Room owner router | Authenticated create, list, inspect, update, and close operations; all scoped to the authenticated account | `guardian/routes/hosted_rooms.py` |
+
+Key properties:
+- One room maps to one canonical chat thread; no parallel transcript store exists.
+- Room creation is transactional: room, backing thread, and owner participant are created atomically.
+- Owner lifecycle routes require the normal authenticated account context; ownership is never client-supplied.
+- Owner routes are management-plane only: no guest authority exists yet.
+- Hosted Rooms do not change read-only Share-link semantics.
+
+What does not exist yet:
+- No invitation issuance or exchange.
+- No room-scoped guest sessions.
+- No guest message APIs.
+- No RoomShell or Contacts launch flow.
+- No agent invocation through Hosted Room authority.
+- No presence or Tailscale automation.
+
 ## Testing Reality
 
 - Backend coverage is concentrated in Python tests for routes, core services, workers, realtime, federation, and migrations.
