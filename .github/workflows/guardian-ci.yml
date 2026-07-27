@@ -129,6 +129,8 @@ jobs:
       - name: Checkout
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Verify tracked paths are valid
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
@@ -325,6 +327,8 @@ jobs:
       - name: Checkout
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Create CI env file for Docker Compose
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
