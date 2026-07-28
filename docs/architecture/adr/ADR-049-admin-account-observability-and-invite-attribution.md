@@ -20,6 +20,10 @@ aliases:
 
 Proposed (docs-only)
 
+The runtime heartbeat and retention slice implemented on top of this ADR is
+contract-aligned and does not authorize the deferred operator snapshot,
+geography, aggregate, or UI surfaces.
+
 ## Date
 
 2026-07-21
@@ -38,7 +42,9 @@ Without an explicit architecture contract, future implementation could easily:
 - Confuse guest sessions with registered accounts.
 - Invent historical data for existing users.
 
-This ADR records the binding decisions before any schema, route, collection, or UI implementation begins.
+This ADR records the binding decisions for the schema and runtime collection
+slices; operator snapshot, geography, aggregate, and UI implementation remain
+separate follow-on work.
 
 ## Decision
 

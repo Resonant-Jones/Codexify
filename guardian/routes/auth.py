@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,16 +13,18 @@ from sqlalchemy import select
 from guardian.core.auth import issue_session_token
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.passwords import hash_password, verify_password
-from guardian.core.session_store import (
-    DEFAULT_SESSION_TTL_SECONDS,
-    get_session_store,
-)
-from guardian.db.models import User
 from guardian.core.preview_access import (
     is_private_preview,
     normalize_preview_email,
     role_for_preview_email,
 )
+from guardian.core.session_store import (
+    DEFAULT_SESSION_TTL_SECONDS,
+    get_session_store,
+)
+from guardian.db.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 api_router = APIRouter(prefix="/api/auth", tags=["Auth"])
@@ -130,7 +133,9 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
         username = normalize_preview_email(username)
         preview_role = role_for_preview_email(username)
         if not username or preview_role is None:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            raise HTTPException(
+                status_code=401, detail="Invalid username or password"
+            )
 
     db = _auth_db()
     with db.get_session() as session:
@@ -170,5 +175,31 @@ def logout_user(
     token = _resolve_token_from_request(authorization, gc_session)
     if not token:
         raise HTTPException(status_code=401, detail="Missing session token")
+    try:
+        user_id = get_session_store().verify(token)
+    except Exception as exc:
+        user_id = None
+        logger.warning(
+            "[auth] best-effort presence lookup failed error_class=%s",
+            type(exc).__name__,
+        )
+    if user_id:
+        try:
+            from guardian.account_observability.presence import (
+                end_account_presence,
+            )
+
+            db = load_guardian_db_from_env()
+            if db is not None:
+                with db.get_session() as session:
+                    end_account_presence(session, user_id)
+                    session.commit()
+        except Exception as exc:
+            # Logout remains successful; lease expiry is authoritative when
+            # this best-effort observability hook cannot write.
+            logger.warning(
+                "[auth] best-effort presence end failed error_class=%s",
+                type(exc).__name__,
+            )
     get_session_store().revoke(token)
     return {"ok": True}

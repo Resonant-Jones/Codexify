@@ -53,12 +53,10 @@ This contract explicitly does **not** cover:
 
 ### What is not yet true
 
-- No canonical guest identity model exists.
-- No presence heartbeat model, session table, or `last_seen_at` field exists.
-- No invite-link, referral, or attribution persistence exists.
-- No registration-attribution linkage exists.
+- No public registration or operator analytics snapshot is part of the supported beta claim set.
+- The persistence foundation and Slice 3 heartbeat/retention runtime are not a release-wide analytics proof.
 - No active-user counting, geography resolution, or invite-conversion analytics exist.
-- Public account registration is not part of the supported beta claim set.
+- Guest heartbeat acceptance requires an already server-issued, live guest identity; this slice does not mint or reset guest identities.
 
 ### What this contract may assume
 
@@ -224,7 +222,7 @@ The following must **never** be collected, persisted, or derivable from the anal
 | Active window | 5 minutes | Since latest accepted foreground heartbeat |
 | Idle session expiry | 30 minutes | Without an accepted foreground heartbeat |
 
-These values must be documented as future canonical configuration values rather than scattered literals.
+These values are canonical runtime defaults registered in `guardian/account_observability/tokens.py`, not client-provided timing values.
 
 ### Presence rules
 
@@ -237,6 +235,15 @@ These values must be documented as future canonical configuration values rather 
 7. `last_seen_at` is presence metadata only.
 8. A model generation, API request, message send, or document access must not update presence unless it is also accompanied by the canonical presence heartbeat.
 9. Live counts are approximate within the active-window tolerance.
+
+The canonical operation is `POST /api/account-observability/heartbeat` with an empty
+JSON object. The route resolves an authenticated account from existing Guardian
+session/API-key context or a guest from the server-issued `codexify_guest_id`
+cookie. It returns only active state, bounded lease timing, and server UTC time.
+It never accepts account IDs, guest IDs, timestamps, durations, routes, content,
+referrers, user agents, location, or device dimensions. Cleanup is available to
+operators at `POST /api/operator/account-observability/retention/cleanup` and is
+also registered as the `account_observability_retention` cron job type.
 
 ## Coarse-Geography Policy
 
@@ -431,6 +438,12 @@ The `GET /api/operator/account-observability/active-accounts` route must be pagi
 6. A deleted account must not continue appearing in the active-account list.
 7. Retention cleanup must be deterministic and testable.
 
+The implemented cleanup first ends open sessions idle beyond 30 minutes, deletes
+presence rows older than 30 days in bounded batches, and deletes only unconverted,
+unreferenced guest identities older than 90 days. Converted guest lineage remains
+available so account attribution is not lost. Invite definitions and account
+registration metadata are not deleted by this job.
+
 ## Export and Restore Implications
 
 1. Account registration timestamp is account metadata; it must be included in the account export.
@@ -520,10 +533,14 @@ The following slices are ordered and must be implemented as separate atomic task
 
 ### Slice 3: Guest/account foreground presence heartbeat and retention cleanup
 
-- Implement heartbeat endpoint.
-- Implement presence-session lifecycle (create, update, expire, end on logout).
-- Implement retention cleanup job for presence-session rows.
-- Write presence contract tests.
+- Implemented in the Guardian route, `guardian/account_observability/presence.py`,
+  and `guardian/account_observability/retention.py`.
+- Presence-session lifecycle creates/coalesces, refreshes, expires, and best-effort
+  ends account leases on logout; the guest reset/deletion hook remains deferred
+  because no existing guest-reset route is present in this checkout.
+- Cleanup is exposed through the existing cron worker seam and emits a structured
+  execution/cutoff/count receipt.
+- Focused presence, route, retention, and privacy tests cover the contract.
 
 ### Slice 4: Transient coarse-GeoIP resolution with no raw-IP persistence and privacy tests
 

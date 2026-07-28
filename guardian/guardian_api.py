@@ -512,7 +512,12 @@ def _retrieval_proof_state(
 from backend import llm_overrides
 
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
-from guardian.routes import admin, agent, agent_orchestration
+from guardian.routes import (
+    account_observability,
+    admin,
+    agent,
+    agent_orchestration,
+)
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
@@ -648,6 +653,7 @@ async def app_lifespan(app: FastAPI):
         logger.warning("[startup] GuardianDB init failed: %s", exc)
     if guardian_db:
         cron_routes.configure_db(guardian_db)
+        account_observability.configure_db(guardian_db)
         documents.configure_db(guardian_db)
         share.configure_db(guardian_db)
         websocket_routes.configure_db(guardian_db)
@@ -1062,6 +1068,12 @@ _include_router(
     label="admin",
     flag_name="CODEXIFY_ENABLE_ADMIN_ROUTES",
     include_fn=lambda: app.include_router(admin.router),
+    core_surface=True,
+)
+_include_router(
+    label="account_observability",
+    flag_name="CODEXIFY_ENABLE_ACCOUNT_OBSERVABILITY_ROUTES",
+    include_fn=lambda: app.include_router(account_observability.router),
     core_surface=True,
 )
 _include_router(

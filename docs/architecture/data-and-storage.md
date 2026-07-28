@@ -26,6 +26,7 @@ Source anchors:
 | System | What it stores today | Key anchors |
 |---|---|---|
 | Postgres | Projects, threads, messages, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Postgres account observability | Guardian-owned invite lineage, pseudonymous guest identities, account metadata, and content-free foreground presence sessions; presence rows and unconverted guest lineage are retention-governed | `guardian/db/models.py`, `guardian/account_observability/`, `guardian/db/migrations/versions/b2c3d4e5f6a7_add_account_observability_foundation.py` |
 | Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
 | File or object storage | Uploaded/generated media bytes and document/image/audio artifacts exposed through the signed media surface | `guardian/core/storage.py`, `guardian/routes/media.py` |
