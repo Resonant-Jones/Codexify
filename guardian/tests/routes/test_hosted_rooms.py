@@ -25,6 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.core.dependencies import RequestUserScope, get_request_user_scope
 from guardian.db.models import (
+    ChatMessage,
     ChatThread,
     HostedRoom,
     HostedRoomInvite,
@@ -68,6 +69,7 @@ def test_engine():
         HostedRoom.__table__,
         HostedRoomInvite.__table__,
         HostedRoomParticipant.__table__,
+        ChatMessage.__table__,
     ):
         table.create(engine)
 
@@ -1911,3 +1913,228 @@ def test_plaintext_token_absent_from_all_db_columns(client, test_engine):
 # (Verified via grep — no reusable model contains token fields; only
 #  InviteCreationResponse contains invitation_token, and it is marked as
 #  a one-time response model)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Owner message tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_owner_can_list_messages(client):
+    room_id = _create_room(client)
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_owner_list_messages_unauthenticated_fails(unauthenticated_client):
+    resp = unauthenticated_client.get("/api/hosted-rooms/some-room/messages")
+    assert resp.status_code == 401
+
+
+def test_owner_list_cross_account_fails(client, client_as_b):
+    room_id = _create_room(client)
+    resp = client_as_b.get(f"/api/hosted-rooms/{room_id}/messages")
+    assert resp.status_code == 404
+
+
+def test_owner_list_closed_room_fails(client):
+    room_id = _create_room(client)
+    client.post(f"/api/hosted-rooms/{room_id}/close")
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    assert resp.status_code == 409
+
+
+def test_owner_list_returns_empty_for_new_room(client):
+    room_id = _create_room(client)
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    assert resp.json() == []
+
+
+def test_owner_can_post_message(client, test_engine):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Hello from owner"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["role"] == "user"
+    assert data["content"] == "Hello from owner"
+    assert data["sender"] is not None
+    assert data["sender"]["display_name"] == "Alice"
+
+    # Verify in DB
+    with test_engine.begin() as conn:
+        row = conn.execute(
+            ChatMessage.__table__.select().where(
+                ChatMessage.__table__.c.id == data["id"]
+            )
+        ).fetchone()
+    assert row is not None
+    assert row.content == "Hello from owner"
+    assert row.role == "user"
+    assert row.hosted_room_participant_id is not None
+
+
+def test_owner_post_blank_content_rejected(client):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": ""},
+    )
+    assert resp.status_code == 422
+
+
+def test_owner_post_overlong_content_rejected(client):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "X" * 40_000},
+    )
+    assert resp.status_code == 422
+
+
+def test_owner_post_extra_fields_rejected(client):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Hi", "role": "assistant", "thread_id": 999},
+    )
+    assert resp.status_code == 422
+
+
+def test_owner_post_closed_room_rejected(client):
+    room_id = _create_room(client)
+    client.post(f"/api/hosted-rooms/{room_id}/close")
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Too late"},
+    )
+    assert resp.status_code == 409
+
+
+def test_owner_messages_use_backing_thread(client, test_engine):
+    room_id = _create_room(client)
+    room_data = client.get(f"/api/hosted-rooms/{room_id}").json()
+    thread_id = room_data["backing_thread_id"]
+
+    client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "On thread"},
+    )
+
+    with test_engine.begin() as conn:
+        rows = conn.execute(
+            ChatMessage.__table__.select().where(
+                ChatMessage.__table__.c.thread_id == thread_id
+            )
+        ).fetchall()
+    assert len(rows) >= 1
+
+
+def test_owner_messages_preserve_newlines(client):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Line 1\nLine 2\nLine 3"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["content"] == "Line 1\nLine 2\nLine 3"
+
+
+def test_owner_mention_text_persists_without_invocation(client, test_engine):
+    room_id = _create_room(client)
+    resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "@Guardian hello"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["content"] == "@Guardian hello"
+    assert resp.json()["role"] == "user"
+
+    # Verify no assistant message was created
+    with test_engine.begin() as conn:
+        rows = conn.execute(
+            ChatMessage.__table__.select().where(
+                ChatMessage.__table__.c.thread_id
+                == client.get(f"/api/hosted-rooms/{room_id}").json()["backing_thread_id"]
+            )
+        ).fetchall()
+    assistant_rows = [r for r in rows if r.role == "assistant"]
+    assert len(assistant_rows) == 0
+
+
+def test_owner_list_pagination_after_id(client):
+    room_id = _create_room(client)
+    client.post(f"/api/hosted-rooms/{room_id}/messages", json={"content": "Msg 1"})
+    client.post(f"/api/hosted-rooms/{room_id}/messages", json={"content": "Msg 2"})
+    client.post(f"/api/hosted-rooms/{room_id}/messages", json={"content": "Msg 3"})
+
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages?limit=2")
+    msgs = resp.json()
+    assert len(msgs) <= 3  # default or limited
+
+
+def test_owner_message_sender_null_for_legacy(client, test_engine):
+    """Messages without provenance have null sender."""
+    room_id = _create_room(client)
+    thread_id = client.get(f"/api/hosted-rooms/{room_id}").json()["backing_thread_id"]
+
+    # Insert a legacy message without provenance
+    now = datetime.now(timezone.utc)
+    with test_engine.begin() as conn:
+        # Get max ID
+        last = conn.exec_driver_sql(
+            "SELECT COALESCE(MAX(id), 0) + 1 FROM chat_messages"
+        ).scalar()
+        conn.execute(
+            ChatMessage.__table__.insert().values(
+                id=int(last),
+                thread_id=thread_id,
+                user_id="account-a",
+                role="user",
+                content="Legacy",
+                kind="chat",
+                extra_meta="{}",
+            )
+        )
+
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    msgs = resp.json()
+    legacy = [m for m in msgs if m["content"] == "Legacy"]
+    assert len(legacy) == 1
+    assert legacy[0]["sender"] is None
+
+
+def test_owner_message_no_account_id_leaked(client):
+    room_id = _create_room(client)
+    client.post(f"/api/hosted-rooms/{room_id}/messages", json={"content": "Private"})
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    for msg in resp.json():
+        assert "user_id" not in msg
+        assert "account_id" not in msg
+        assert "owner_account_id" not in msg
+        if msg.get("sender"):
+            assert "bound_account_id" not in msg["sender"]
+
+
+def test_owner_list_limit_validated(client):
+    room_id = _create_room(client)
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages?limit=500")
+    assert resp.status_code == 422
+
+
+def test_owner_list_negative_after_id_rejected(client):
+    room_id = _create_room(client)
+    resp = client.get(f"/api/hosted-rooms/{room_id}/messages?after_id=-1")
+    assert resp.status_code == 422
+
+
+def test_owner_message_response_has_no_extra_meta(client):
+    room_id = _create_room(client)
+    resp = client.post(f"/api/hosted-rooms/{room_id}/messages", json={"content": "Clean"})
+    data = resp.json()
+    assert "extra_meta" not in data
+    assert "invitation_id" not in data
+    assert "token_hash" not in data

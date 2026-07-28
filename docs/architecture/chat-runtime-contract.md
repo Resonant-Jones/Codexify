@@ -297,3 +297,22 @@ Key rules:
 - Participant-room-thread consistency is a future route proof obligation (routes not yet implemented).
 - No message routes are implemented by this contract.
 - No agent invocation behavior changes.
+
+### Hosted Room message routes
+
+Owner routes (authenticated account scope):
+- `GET /api/hosted-rooms/{room_id}/messages` — list transcript with cursor pagination
+- `POST /api/hosted-rooms/{room_id}/messages` — post human message
+
+Guest routes (room-session cookie):
+- `GET /api/hosted-room-session/messages` — list transcript with cursor pagination
+- `POST /api/hosted-room-session/messages` — post human message
+
+Message behavior:
+- Human messages persist as canonical `ChatMessage` rows with role `user`.
+- Participant provenance (`hosted_room_participant_id` + `sender_display_name_snapshot`) is mandatory for newly posted room human messages.
+- Server resolves room, thread, and participant — clients cannot supply these values.
+- Read projection excludes account IDs, `extra_meta` internals, and request/task IDs.
+- Pagination: `after_id` (cursor) + `limit` (default 100, max 200), ascending ID order.
+- Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
+- No completion side effect: mentions (`@Guardian`, `@Luna`) persist as text; no model is invoked.

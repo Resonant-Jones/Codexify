@@ -35,6 +35,7 @@ from guardian.core.hosted_room_session import (
     issue_guest_session_token,
 )
 from guardian.db.models import (
+    ChatMessage,
     ChatThread,
     HostedRoom,
     HostedRoomInvite,
@@ -77,6 +78,7 @@ def test_engine():
         HostedRoom.__table__,
         HostedRoomInvite.__table__,
         HostedRoomParticipant.__table__,
+        ChatMessage.__table__,
     ):
         table.create(engine)
 
@@ -955,10 +957,12 @@ def test_no_guest_message_or_completion_routes(client):
     schema = resp.json()
     paths = schema.get("paths", {})
 
+    # Message routes now exist, but no completion/WebSocket routes
     for path in paths:
-        assert "message" not in path.lower() or "hosted-room" not in path.lower()
         assert "complete" not in path.lower() or "hosted-room" not in path.lower()
-        assert "/api/hosted-rooms/" + "messages" not in path
+        assert "ws" not in path.lower() or "hosted-room" not in path.lower()
+        assert "/api/hosted-rooms/" + "edit" not in path
+        assert "/api/hosted-rooms/" + "delete" not in path
 
 
 # ── Capability-absence proof ──────────────────────────────────────────────
@@ -983,3 +987,221 @@ def test_existing_invitation_routes_still_work(client):
     list_resp = client.get(f"/api/hosted-rooms/{room_id}/invites")
     assert list_resp.status_code == 200
     assert any(i["id"] == invite_id for i in list_resp.json())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Guest message tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _create_guest_session(client) -> tuple[str, str]:
+    """Create room, invite, exchange; return (room_id, session_cookie)."""
+    room_id = _create_room(client)
+    _, token = _create_invite(client, room_id)
+    exchange_resp = client.post(
+        "/api/hosted-room-invitations/exchange",
+        json={"invitation_token": token},
+    )
+    assert exchange_resp.status_code == 200
+    cookies = _extract_cookies(exchange_resp)
+    return room_id, cookies[_SESSION_COOKIE_NAME]
+
+
+def test_guest_can_list_messages(client):
+    room_id, session_cookie = _create_guest_session(client)
+    resp = client.get(
+        "/api/hosted-room-session/messages",
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_guest_list_no_cookie_fails(client):
+    resp = client.get("/api/hosted-room-session/messages")
+    assert resp.status_code == 401
+
+
+def test_guest_list_invalid_cookie_fails(client):
+    resp = client.get(
+        "/api/hosted-room-session/messages",
+        cookies={_SESSION_COOKIE_NAME: "not.valid"},
+    )
+    assert resp.status_code == 401
+
+
+def test_guest_can_post_message(client, test_engine):
+    room_id, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Hello from guest"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["role"] == "user"
+    assert data["content"] == "Hello from guest"
+    assert data["sender"] is not None
+    assert data["sender"]["display_name"] == "Jane Guest"
+
+
+def test_guest_post_blank_content_rejected(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": ""},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 422
+
+
+def test_guest_post_overlong_content_rejected(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "X" * 40_000},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 422
+
+
+def test_guest_post_extra_fields_rejected(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Hi", "role": "admin", "thread_id": 999},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 422
+
+
+def test_guest_post_revoked_invite_blocks_write(client):
+    room_id, session_cookie = _create_guest_session(client)
+    # Revoke the invite
+    list_resp = client.get(f"/api/hosted-rooms/{room_id}/invites")
+    accepted = [i for i in list_resp.json() if i["status"] == "accepted"]
+    if accepted:
+        client.post(
+            f"/api/hosted-rooms/{room_id}/invites/{accepted[0]['id']}/revoke"
+        )
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Blocked"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 401
+
+
+def test_guest_post_closed_room_blocks_write(client):
+    room_id, session_cookie = _create_guest_session(client)
+    client.post(f"/api/hosted-rooms/{room_id}/close")
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Blocked"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 401
+
+
+def test_guest_mention_text_persists_without_invocation(client, test_engine):
+    room_id, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "@Guardian help me @Luna"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 201
+    assert "@Guardian" in resp.json()["content"]
+    assert "@Luna" in resp.json()["content"]
+    assert resp.json()["role"] == "user"
+
+
+def test_guest_message_no_credentials_leaked(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Secret-free"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    data = resp.json()
+    assert "token_hash" not in data
+    assert "invitation_token" not in data
+    assert "session_token" not in data
+    assert "account_id" not in data
+    if data.get("sender"):
+        assert "bound_account_id" not in data["sender"]
+
+
+# ── Shared transcript proof ────────────────────────────────────────────
+
+
+def test_shared_transcript_owner_and_guest(client):
+    """Owner and guest see the same transcript, including each other's messages."""
+    room_id, session_cookie = _create_guest_session(client)
+
+    # Owner posts
+    client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Owner says hi"},
+    )
+
+    # Guest reads — sees owner message
+    guest_resp = client.get(
+        "/api/hosted-room-session/messages",
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    guest_msgs = guest_resp.json()
+    owner_msgs = [m for m in guest_msgs if m["content"] == "Owner says hi"]
+    assert len(owner_msgs) == 1
+    assert owner_msgs[0]["sender"]["display_name"] is not None
+
+    # Guest posts
+    client.post(
+        "/api/hosted-room-session/messages",
+        json={"content": "Guest says hi"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+
+    # Owner reads — sees both messages
+    owner_resp = client.get(f"/api/hosted-rooms/{room_id}/messages")
+    owner_msgs_list = owner_resp.json()
+    contents = {m["content"] for m in owner_msgs_list}
+    assert "Owner says hi" in contents
+    assert "Guest says hi" in contents
+
+    # Both have distinct IDs
+    ids = {m["id"] for m in owner_msgs_list}
+    assert len(ids) == 2
+
+    # Both have structured sender
+    for m in owner_msgs_list:
+        assert m["sender"] is not None
+        assert "display_name" in m["sender"]
+
+    # No sender-name prefix in content
+    for m in owner_msgs_list:
+        assert "[Owner]" not in m["content"]
+        assert "[Jane Guest]" not in m["content"]
+
+    # Same backing thread (verify via room detail)
+    room_data = client.get(f"/api/hosted-rooms/{room_id}").json()
+    thread_id = room_data["backing_thread_id"]
+    assert thread_id > 0
+
+
+def test_guest_list_limit_validated(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.get(
+        "/api/hosted-room-session/messages?limit=500",
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 422
+
+
+def test_guest_list_negative_after_id_rejected(client):
+    _, session_cookie = _create_guest_session(client)
+    resp = client.get(
+        "/api/hosted-room-session/messages?after_id=-1",
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+    )
+    assert resp.status_code == 422

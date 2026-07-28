@@ -184,7 +184,7 @@ Key properties:
 - Hosted Rooms do not change read-only Share-link semantics.
 
 What does not exist yet:
-- No guest message retrieval or posting.
+- No guest message retrieval or posting — NOW IMPLEMENTED: guests can read and post human messages.
 - No guest room completion or agent invocation.
 - No guest participant listing or room mutation.
 - No RoomShell or Contacts launch flow.
@@ -192,6 +192,22 @@ What does not exist yet:
 - No presence or Tailscale automation.
 - No participant-removal owner API.
 - No session invalidation after revocation (already works via per-request lifecycle check).
+
+### Hosted Room message API
+
+| Surface | Responsibility | Key anchors |
+|---|---|---|
+| Shared message service | Persistence, serialization, participant-resolution, consistency validation | `guardian/core/hosted_room_messages.py` |
+| Owner message routes | Authenticated read and post on the room's backing thread | `guardian/routes/hosted_rooms.py` |
+| Guest message routes | Session-authenticated read and post on the room's backing thread | `guardian/routes/hosted_room_guest.py` |
+
+Key properties:
+- One canonical backing thread for all room messages; no parallel transcript.
+- Human messages use role `user`; structured sender provenance via `hosted_room_participant_id` + `sender_display_name_snapshot`.
+- Content remains clean — sender identity never encoded in message text.
+- Cursor-based pagination (after_id + limit) supports polling without WebSockets.
+- Lifecycle invalidation: room closure, invitation revocation/expiry, participant removal all block read/write immediately.
+- Mentions persist as ordinary text; no agent invocation, no completion enqueueing, no assistant message creation.
 
 ## Testing Reality
 

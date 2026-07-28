@@ -21,6 +21,17 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, func
 
+from guardian.core.hosted_room_messages import (
+    _DEFAULT_PAGE_LIMIT,
+    _MAX_PAGE_LIMIT,
+    create_human_room_message,
+    list_room_messages,
+    resolve_owner_participant,
+    serialize_message,
+    serialize_messages,
+    validate_content,
+    validate_room_for_messaging,
+)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.default_project import (
     canonicalize_default_project,
@@ -909,3 +920,90 @@ def revoke_invite(
         return {
             "invitation": _invite_metadata(invite).model_dump(mode="json")
         }
+
+
+# ── Owner message routes ─────────────────────────────────────────────────
+
+
+class PostMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=32_000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.get("/{room_id}/messages")
+def owner_list_messages(
+    room_id: str,
+    after_id: int | None = None,
+    limit: int = _DEFAULT_PAGE_LIMIT,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> list[dict[str, Any]]:
+    account_id = _resolve_account_id(request_user_scope)
+
+    if limit < 1 or limit > _MAX_PAGE_LIMIT:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_limit",
+                "message": f"Limit must be between 1 and {_MAX_PAGE_LIMIT}",
+            },
+        )
+    if after_id is not None and after_id < 0:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "invalid_after_id", "message": "after_id must be non-negative"},
+        )
+
+    db = _require_db()
+    with db.get_session() as session:
+        room = _require_room_ownership(session, room_id, account_id)
+        if room.status != "active":
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "room_not_active", "message": "Room is not active"},
+            )
+        messages = list_room_messages(
+            session,
+            room.backing_thread_id,
+            after_id=after_id if after_id and after_id > 0 else None,
+            limit=limit,
+        )
+        return serialize_messages(messages)
+
+
+@router.post("/{room_id}/messages", status_code=201)
+def owner_post_message(
+    room_id: str,
+    body: PostMessageRequest = Body(...),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    account_id = _resolve_account_id(request_user_scope)
+    content = validate_content(body.content)
+
+    db = _require_db()
+    with db.get_session() as session:
+        try:
+            room = validate_room_for_messaging(session, room_id)
+            _require_room_ownership(session, room_id, account_id)
+            owner = resolve_owner_participant(session, room, account_id)
+
+            msg = create_human_room_message(
+                session,
+                thread_id=room.backing_thread_id,
+                user_id=account_id,
+                content=content,
+                participant=owner,
+            )
+            session.commit()
+            return serialize_message(msg)
+
+        except HTTPException:
+            session.rollback()
+            raise
+        except Exception:
+            session.rollback()
+            logger.exception("Failed to post owner message")
+            raise HTTPException(
+                status_code=500,
+                detail={"error": "post_failed", "message": "Failed to post message"},
+            )

@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added Hosted Room human message read/write API: owners and guest sessions can read one canonical transcript and post human messages with structured participant provenance. Mentions are ordinary text with no agent invocation.
 - Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
 - Added Hosted Room owner lifecycle API: authenticated owners can create, list, inspect, update, and close Hosted Rooms backed by canonical chat threads. Room creation is atomic (room, thread, owner participant). Account isolation is enforced on all owner routes.
@@ -66,12 +67,20 @@ What is now implemented:
 - Session inspection revalidates room, invite, and participant state on every request.
 - Invitation revocation, participant removal, room closure, invitation expiry, and session expiry invalidate access.
 - Logout clears the browser cookie.
+- Room owners and valid guest sessions can read one canonical Hosted Room transcript.
+- Room owners and valid guest sessions can post human messages.
+- Messages persist to the room's backing `chat_messages` thread.
+- Human messages carry structured participant provenance.
+- Sender identity is not embedded in content.
+- Owner and guest routes enforce active room and participant state.
+- Deterministic bounded polling-compatible pagination exists.
 - Account isolation is enforced on all owner and invitation routes.
 
 What remains unimplemented:
-- Guest message retrieval.
-- Guest message posting.
-- Guardian or Luna invocation.
+- Guardian invocation.
+- Luna invocation.
+- Agent participant provenance.
+- Automatic assistant responses.
 - RoomShell.
 - Participant removal API.
 - Contacts binding.
@@ -83,7 +92,8 @@ What remains unimplemented:
 
 Enabled-agent configuration is stored but does not yet grant an invocation path.
 Generated join paths (e.g., `/join/{token}`) are not yet functional guest-entry routes.
-Guest sessions currently authorize only session inspection — no message or completion authority exists.
+Guest sessions currently authorize session inspection and human message read/write — no agent authority exists.
+Mentions (e.g., `@Guardian`, `@Luna`) are currently ordinary persisted text; no model is invoked by posting a mention.
 
 ## Not yet true / do not assume
 - Do not assume Hosted Room guest access or invitation exchange is implemented.

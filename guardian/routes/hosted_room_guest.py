@@ -19,6 +19,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from guardian.core.db import load_guardian_db_from_env
+from guardian.core.hosted_room_messages import (
+    _DEFAULT_PAGE_LIMIT,
+    _MAX_PAGE_LIMIT,
+    create_human_room_message,
+    list_room_messages,
+    serialize_message,
+    serialize_messages,
+    validate_content,
+    validate_guest_messaging_access,
+)
 from guardian.core.hosted_room_session import (
     HostedRoomGuestPrincipal,
     clear_session_cookie,
@@ -429,3 +439,100 @@ def logout(response: Response) -> dict[str, Any]:
     """
     clear_session_cookie(response)
     return {"ok": True}
+
+
+# ── Guest message routes ─────────────────────────────────────────────────
+
+
+class PostMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=32_000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.get("/api/hosted-room-session/messages")
+def guest_list_messages(
+    request: Request,
+    after_id: int | None = None,
+    limit: int = _DEFAULT_PAGE_LIMIT,
+) -> list[dict[str, Any]]:
+    token = extract_session_token_from_request(request)
+    if not token:
+        raise _unauthorized()
+
+    principal = decode_principal(token)
+
+    if limit < 1 or limit > _MAX_PAGE_LIMIT:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_limit",
+                "message": f"Limit must be between 1 and {_MAX_PAGE_LIMIT}",
+            },
+        )
+    if after_id is not None and after_id < 0:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "invalid_after_id", "message": "after_id must be non-negative"},
+        )
+
+    db = _require_db()
+    with db.get_session() as session:
+        room, participant = validate_guest_messaging_access(
+            session,
+            principal.room_id,
+            principal.participant_id,
+            principal.invitation_id,
+        )
+
+        messages = list_room_messages(
+            session,
+            room.backing_thread_id,
+            after_id=after_id if after_id and after_id > 0 else None,
+            limit=limit,
+        )
+        return serialize_messages(messages)
+
+
+@router.post("/api/hosted-room-session/messages", status_code=201)
+def guest_post_message(
+    request: Request,
+    body: PostMessageRequest = Body(...),
+) -> dict[str, Any]:
+    token = extract_session_token_from_request(request)
+    if not token:
+        raise _unauthorized()
+
+    principal = decode_principal(token)
+    content = validate_content(body.content)
+
+    db = _require_db()
+    with db.get_session() as session:
+        try:
+            room, participant = validate_guest_messaging_access(
+                session,
+                principal.room_id,
+                principal.participant_id,
+                principal.invitation_id,
+            )
+
+            msg = create_human_room_message(
+                session,
+                thread_id=room.backing_thread_id,
+                user_id=room.owner_account_id,  # thread owner for FK
+                content=content,
+                participant=participant,
+            )
+            session.commit()
+            return serialize_message(msg)
+
+        except HTTPException:
+            session.rollback()
+            raise
+        except Exception:
+            session.rollback()
+            logger.exception("Failed to post guest message")
+            raise HTTPException(
+                status_code=500,
+                detail={"error": "post_failed", "message": "Failed to post message"},
+            )
