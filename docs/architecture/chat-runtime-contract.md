@@ -9,6 +9,7 @@ Source anchors:
 - docs/architecture/adr/003-message-identity-vs-request-identity.md
 - frontend/src/
 - guardian/routes/chat.py
+- guardian/core/chat_completion_service.py
 - guardian/db/models.py
 - guardian/queue/task_events.py
 - guardian/workers/chat_worker.py
@@ -17,6 +18,16 @@ Source anchors:
 
 - Frontend and shared runtime-contract layer only.
 - No speculative backend redesign in this first pass.
+
+## Completion Acceptance Ownership
+
+The ordinary HTTP completion route and the shared completion acceptance operation have separate responsibilities:
+
+- `guardian/routes/chat.py` authenticates the request, validates and authorizes the thread/account/project, prepares retrieval/context and canonical task input, and serializes the existing HTTP response.
+- `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
+- `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
+
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. This extraction adds no Hosted Room invocation, Hosted Room metadata, task-schema change, worker behavior change, or assistant-persistence behavior.
 
 ## Canonical Provider States
 

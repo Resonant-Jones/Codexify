@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from guardian.core import chat_completion_service
 from guardian.core.dependencies import RequestUserScope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
@@ -45,10 +46,10 @@ def test_chat_complete_queues_latest_user_turn_identity(
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
-    monkeypatch.setattr(chat_routes, "release_turn_lock", lambda *a, **k: True)
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *a, **k: True)
+    monkeypatch.setattr(chat_completion_service, "release_turn_lock", lambda *a, **k: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
@@ -64,7 +65,7 @@ def test_chat_complete_queues_latest_user_turn_identity(
         captured["queued_payload"] = task.to_dict()
         return None
 
-    monkeypatch.setattr(chat_routes, "enqueue", _capture_enqueue)
+    monkeypatch.setattr(chat_completion_service, "enqueue", _capture_enqueue)
     _override_request_scope(test_client, expected_user_id)
 
     try:
@@ -100,15 +101,15 @@ def test_chat_complete_rejects_threads_without_a_user_turn(
     enqueue_calls: list[object] = []
     publish_calls: list[object] = []
 
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *a, **k: True)
-    monkeypatch.setattr(chat_routes, "release_turn_lock", lambda *a, **k: True)
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", lambda *a, **k: True)
+    monkeypatch.setattr(chat_completion_service, "release_turn_lock", lambda *a, **k: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "enqueue",
         lambda *a, **k: enqueue_calls.append((a, k)),
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_publish_completion_start_event",
         lambda *a, **k: publish_calls.append((a, k)),
     )

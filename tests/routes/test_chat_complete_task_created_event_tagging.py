@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from guardian.core.dependencies import RequestUserScope
+from guardian.core import chat_completion_service
 from guardian.queue import task_events
 from guardian.routes import chat
 
@@ -52,9 +53,11 @@ def test_api_chat_complete_logs_tagged_task_created_publish_failure(
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(chat, "acquire_turn_lock", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        chat,
+        chat_completion_service, "acquire_turn_lock", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
         "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}

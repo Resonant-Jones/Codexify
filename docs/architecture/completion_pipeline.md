@@ -10,9 +10,14 @@
 - API routes: `guardian/routes/chat.py`
   - persist user messages
   - resolve depth/provider inputs
-  - acquire per-thread turn locks
-  - enqueue completion tasks
-  - emit best-effort `task.created` breadcrumbs
+  - authorize the thread/account/project and prepare validated task input
+  - map typed acceptance results into the existing HTTP response contract
+- Shared completion acceptance operation: `guardian/core/chat_completion_service.py::enqueue_chat_completion`
+  - construct and normalize the canonical task acceptance identity
+  - acquire and reconcile the per-thread turn lock, including evidence-based stale-lock recovery
+  - enqueue onto the canonical chat queue
+  - emit the best-effort `task.created` breadcrumb
+  - calculate `accepted` versus `accepted_degraded` and reconcile queue failures
 - Shared completion service: `guardian/core/chat_completion_service.py`
   - load thread messages
   - assemble retrieval context
@@ -41,9 +46,12 @@ UI
      -> Postgres message row
      -> best-effort domain event + chat-embed enqueue
   -> POST /api/chat/{thread_id}/complete
-     -> Redis turn lock
-     -> Redis chat queue
-     -> best-effort task.created breadcrumb
+     -> route authorization and task preparation
+     -> enqueue_chat_completion
+        -> Redis turn lock / stale-lock recovery
+        -> Redis chat queue
+        -> best-effort task.created breadcrumb
+        -> accepted or accepted_degraded result
      -> worker dequeues
         -> shared completion service builds messages/context
         -> provider execution
@@ -60,26 +68,25 @@ UI
    - `POST /api/chat/{thread_id}/messages` writes the user message to Postgres and emits best-effort side effects such as domain events and chat-embed enqueue.
    - The user message is durable before completion is requested.
 
-2. Completion route validates and acquires turn ownership.
+2. Completion route validates and prepares the canonical task input.
    - `POST /api/chat/{thread_id}/complete` validates the thread and resolves effective depth mode.
-   - The route acquires a Redis turn lock whose owner is the new `task_id`.
-   - If Redis lock access fails, the route returns `503 completion_service_unavailable`.
-   - If another turn is still in flight and cannot be safely recovered, the route returns `429 turn_in_flight`.
+   - The route retains HTTP authentication, request parsing, thread/account/project authorization, retrieval/context preparation, and response serialization.
+   - It delegates the complete acceptance control plane to `enqueue_chat_completion`; no other completion caller should implement a parallel lock/queue/event sequence.
 
 3. Stale-lock recovery is evidence-based, not lease-age-only.
    - Recovery only runs when the existing lock is stale by TTL.
-   - The route then inspects two evidence sources:
+   - The shared acceptance operation then inspects two evidence sources:
      - task-event stream terminal evidence via `guardian/queue/task_events.py::describe_terminal_state`
-     - worker-heartbeat evidence via `guardian/routes/chat.py::_chat_worker_heartbeat_evidence`
+     - worker-heartbeat evidence via the shared service's canonical heartbeat probe and `guardian/routes/health.py` classifier
    - Recovery is allowed only when:
      - the old task has a terminal task event, or
      - the old task is nonterminal and the worker heartbeat is `stale`, `dead`, or `missing`
    - Recovery does not run when either evidence source is `unknown`.
    - This is fail-closed behavior: uncertainty blocks recovery rather than pretending confidence.
 
-4. Route acceptance is queue acceptance, not completion success.
-   - After the lock is held, the route enqueues a `ChatCompletionTask` onto `codexify:queue:chat`.
-   - If enqueue fails, the route releases the lock and returns `503 queue_unavailable`.
+4. Shared acceptance is queue acceptance, not completion success.
+   - `enqueue_chat_completion` enqueues a `ChatCompletionTask` onto `codexify:queue:chat` after the lock is held.
+   - If enqueue fails, the operation reconciles the lock and returns a safe typed failure; the route maps it to the existing `503 queue_unavailable` response.
    - If enqueue succeeds, the route returns success with `task_id`, `turn_id`, and discovery URLs.
    - What this proves:
      - the task was accepted into the Redis-backed execution lane
@@ -90,7 +97,7 @@ UI
      - the task will complete successfully
 
 5. `task.created` is an important breadcrumb, but best-effort.
-   - The route attempts to publish `task.created` after enqueue.
+   - The shared acceptance operation attempts to publish `task.created` after enqueue.
    - This breadcrumb is useful because it gives operators and clients evidence that lifecycle publication started.
    - It is not authoritative acceptance proof by itself because enqueue success is the stronger signal; the `task.created` publish can fail without causing the route to fail.
 
@@ -148,12 +155,20 @@ UI
 ## Acceptance Semantics
 
 - `accepted`
-  - The route acquired the turn lock and enqueued the task successfully.
+  - The shared acceptance operation acquired the turn lock, enqueued the task successfully, and observed the normal task-created visibility result.
   - This is the normal acceptance case.
 - `accepted_degraded`
-  - Use this term for the current degraded acceptance class where execution was accepted but lifecycle visibility is weaker than normal, for example when the route cannot publish `task.created` after a successful enqueue.
-  - The current code does not return a literal `accepted_degraded` string in the route payload, but the runtime now distinguishes this operational case from a cleanly observed acceptance.
+  - Use this term for the current degraded acceptance class where execution was accepted but lifecycle visibility is weaker than normal, for example when the shared operation cannot publish `task.created` or receives no event ID after a successful enqueue.
+  - Queue publication must still succeed; queue failure is never degraded acceptance.
   - In other words: acceptance can be real while observability is degraded.
+
+## Acceptance Ownership Boundary
+
+- `guardian/routes/chat.py` owns HTTP authentication, request parsing and validation, thread/account/project authorization, retrieval/context preparation, task-input preparation, response serialization, and HTTP error mapping.
+- `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance transaction: canonical task identity, thread-scoped lock acquisition, stale-lock recovery, canonical queue publication, task-created publication, acceptance-status calculation, and queue-failure lock reconciliation.
+- `guardian/workers/chat_worker.py` owns dequeue, provider execution, assistant-message persistence, terminal events, and successful-turn lock release.
+- The task schema, queue name, lock key/TTL, event payload, and worker behavior are unchanged by this extraction.
+- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room invocation, task metadata contract, worker change, or assistant persistence change is added here.
 
 ## Completion Terminal Evidence
 
@@ -225,7 +240,7 @@ return, and again immediately before persistence.
 ## Debugging Anchors
 
 - Route and lock behavior: `guardian/routes/chat.py`
-- Shared completion assembly: `guardian/core/chat_completion_service.py`
+- Shared completion acceptance and assembly: `guardian/core/chat_completion_service.py::enqueue_chat_completion`
 - Worker execution and rescue logic: `guardian/workers/chat_worker.py`
 - Queue transport: `guardian/queue/redis_queue.py`
 - Task-event visibility: `guardian/queue/task_events.py`
