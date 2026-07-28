@@ -70,8 +70,9 @@ This diagram shows the immutable shell-to-view containment model and the major s
 flowchart TD
     A["Viewport"] --> B["Glass skin<br/>full-bleed, behind interactive UI"]
     A --> C["Scene wrapper"]
-    C --> D["Pill menu bar<br/>top-left, logically independent"]
-    C --> E["Main content area"]
+    C --> D["Desktop/default scene path"]
+    D --> D1["Global pill navigation<br/>top-left, logically independent"]
+    D --> E["Main content area"]
     E --> F["Single primary layout block per view"]
     F --> G["Primary card structure"]
     G --> H["Outer bezel"]
@@ -88,6 +89,11 @@ flowchart TD
     O --> S["Gallery<br/>single card to inner card to grid"]
     O --> T["Guardian<br/>card-wrapped content with optional sidebar"]
     T --> U["Narrow Guardian drawer<br/>AppShell-owned app destinations<br/>plus SessionSpine-owned thread navigation"]
+    C --> V["Narrow Guardian exception"]
+    V --> W["Wallpaper or configured gradient"]
+    W --> X["Uniform edge chrome<br/>same token on all four sides"]
+    X --> Y["Frame-first Guardian primary card<br/>all current interaction content contained"]
+    Y --> Z["Navigation-complete drawer projection<br/>no persistent global pill in closed view"]
 ```
 
 **Evidence notes**
@@ -112,10 +118,15 @@ Guardian/mobile interpretation:
 - This remains presentation-side architecture subordinate to the single
   Guardian primary card; it does not transfer routing ownership into Guardian
   or thread/session ownership into AppShell.
-- The global navigation pill remains present. Suppression is deferred to a
-  separate mobile-shell task.
-- Composer projection, header-tool consolidation, and inline commands remain
-  unimplemented and outside this diagram update.
+- In the narrow Guardian exception, AppShell omits the persistent global pill
+  and its reserved space because the drawer provides the replacement navigation
+  path. Desktop Guardian and non-Guardian views retain the default scene path.
+- The Guardian primary card fills the settled mobile shell inside a uniform
+  token-backed edge-chrome perimeter. The drawer overlays that frame without
+  becoming a second shell.
+- Composer projection, header-tool consolidation, inline commands, and
+  Documents/Gallery mobile-shell redesign remain unimplemented and outside this
+  diagram update.
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)
 

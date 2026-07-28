@@ -265,6 +265,8 @@ type GuardianChatWithSidebarProps = {
   activeApplicationView?: GuardianApplicationView;
   applicationDestinations?: readonly GuardianApplicationDestination[];
   onNavigateApplicationView?: (view: GuardianApplicationView) => void;
+  frameFirstMobile?: boolean;
+  mobileFramePrelude?: React.ReactNode;
 };
 
 export default function GuardianChatWithSidebar({
@@ -286,6 +288,8 @@ export default function GuardianChatWithSidebar({
   activeApplicationView = "guardian",
   applicationDestinations = [],
   onNavigateApplicationView,
+  frameFirstMobile = false,
+  mobileFramePrelude,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -1837,6 +1841,9 @@ export default function GuardianChatWithSidebar({
         )}
         data-guardian-layout={guardianLayoutMode}
         data-shell-profile={mobileShellProfile.shellMode}
+        data-guardian-frame-shell={
+          frameFirstMobile ? "frame-first" : "standard"
+        }
         aria-hidden={isMobileOverlayActive ? true : undefined}
         inert={isMobileOverlayActive ? true : undefined}
         style={{
@@ -1902,6 +1909,8 @@ export default function GuardianChatWithSidebar({
         )}
         {/* Chat Panel */}
         <div
+          data-testid="guardian-primary-frame"
+          data-frame-owner={frameFirstMobile ? "mobile-guardian" : "guardian"}
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
             gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
@@ -1914,6 +1923,7 @@ export default function GuardianChatWithSidebar({
             disabled={chatDisabled}
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
+              {frameFirstMobile && mobileFramePrelude}
               <PromptLibraryPortal />
               <PromptCostIndicator summary={imprintZero.status?.system_prompt_meta} />
               {auth.ready && auth.status === "unauthenticated" && (

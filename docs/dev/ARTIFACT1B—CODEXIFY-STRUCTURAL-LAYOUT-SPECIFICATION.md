@@ -141,15 +141,24 @@ Nesting:
 
 Rules:
 
-Always sticks to top-left
+Desktop and default/non-Guardian profiles retain the top-left pill navigation.
 
-Always uses glass component + pill style
+When rendered, navigation always uses the glass component + pill style.
 
 No margins except those uniquely required by visual balance
 
 NEVER alters the main content geometry
 
 Navigation is logically independent (no absolute overlays except pill)
+
+Bounded narrow Guardian exception:
+
+- Narrow Guardian MAY omit the global pill because its drawer is
+  navigation-complete.
+- The omission MUST remove the navigation wrapper and its layout reservation;
+  hidden or off-screen tabbable controls are not permitted.
+- Desktop Guardian and every non-Guardian view retain the global pill contract.
+- Application routing remains AppShell-owned.
 
 VII. MAIN CONTENT AREA
 
@@ -294,10 +303,19 @@ Narrow/mobile Guardian navigation projection:
   the existing sidebar and session intent seams.
 - The drawer remains subordinate to the single Guardian primary card and MUST
   NOT become a second application shell.
-- The global navigation pill remains present until a separate mobile-shell task
-  explicitly authorizes and implements its suppression.
-- This projection does not define composer overlay/projection behavior, header
-  tool consolidation, or inline command behavior.
+- Narrow Guardian MAY omit the global navigation pill because this drawer
+  preserves complete application-navigation continuity. Desktop Guardian and
+  non-Guardian views retain the pill.
+- Narrow Guardian becomes one frame-first mobile primary block. The current
+  utility/header controls, runtime notices, session rail, transcript or empty
+  state, and composer remain inside the canonical Guardian frame.
+- Wallpaper or the configured gradient remains visible around that frame
+  through one uniform `--edge-chrome` perimeter on all four sides.
+- The drawer remains a subordinate overlay/projection and MUST NOT resize the
+  underlying frame.
+- Header-tool consolidation, composer projection, and inline command behavior
+  remain deferred. Documents and Gallery do not inherit this mobile-shell
+  exception.
 
 Session Pill Rail (implemented):
 

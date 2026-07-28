@@ -200,6 +200,7 @@ function renderGuardian(
         activeApplicationView={activeApplicationView}
         applicationDestinations={APPLICATION_DESTINATIONS}
         onNavigateApplicationView={onNavigateApplicationView}
+        frameFirstMobile
       />
     ),
   };
@@ -246,6 +247,9 @@ describe("Guardian mobile application navigation", () => {
 
     await openMobileSidebar(user);
 
+    expect(
+      screen.getByTestId("guardian-primary-frame").parentElement
+    ).toHaveAttribute("data-guardian-frame-shell", "frame-first");
     const mark = screen.getByTestId("guardian-mobile-codexify-mark");
     expect(mark).toHaveAttribute("alt", "");
     expect(mark).toHaveAttribute("aria-hidden", "true");
@@ -281,6 +285,9 @@ describe("Guardian mobile application navigation", () => {
           screen.queryByTestId("mobile-sidebar-overlay")
         ).not.toBeInTheDocument();
       });
+      expect(
+        screen.getByTestId("guardian-primary-frame").parentElement
+      ).toHaveAttribute("data-guardian-frame-shell", "frame-first");
     }
   });
 

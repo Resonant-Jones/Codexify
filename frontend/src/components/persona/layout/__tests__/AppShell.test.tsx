@@ -347,10 +347,18 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
       priority: "primary" | "secondary";
     }>;
     onNavigateApplicationView?: (view: string) => void;
+    frameFirstMobile?: boolean;
+    mobileFramePrelude?: ReactNode;
   }) => {
     guardianShellPropsSpy(props);
     return (
-      <div data-testid="guardian-chat-with-sidebar-mock">
+      <div
+        data-testid="guardian-chat-with-sidebar-mock"
+        data-frame-first-mobile={
+          props.frameFirstMobile ? "true" : "false"
+        }
+      >
+        {props.mobileFramePrelude}
         <button
           type="button"
           data-testid="guardian-set-project-2"
@@ -648,6 +656,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(latestProps?.onNavigateApplicationView).toEqual(
       expect.any(Function)
     );
+    expect(latestProps?.frameFirstMobile).toBe(false);
     expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
 
     fireEvent.click(
@@ -662,7 +671,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps global navigation rendered for authenticated and unauthenticated shells", async () => {
+  it("keeps global navigation rendered for authenticated and unauthenticated desktop shells", async () => {
     setAuthenticatedAuthState();
     render(<AppShell />);
 
@@ -681,6 +690,79 @@ describe("AppShell Guardian mobile navigation seam", () => {
       screen.getByRole("button", { name: "Documents" })
     ).toBeInTheDocument();
   });
+
+  it("omits the complete top-chrome wrapper only in narrow Guardian", async () => {
+    setViewportWidth(390);
+    setAuthenticatedAuthState();
+    render(<AppShell />);
+
+    const guardian = await screen.findByTestId(
+      "guardian-chat-with-sidebar-mock"
+    );
+    const latestProps = guardianShellPropsSpy.mock.calls.at(-1)?.[0];
+
+    expect(guardian).toHaveAttribute("data-frame-first-mobile", "true");
+    expect(latestProps?.frameFirstMobile).toBe(true);
+    expect(latestProps?.mobileFramePrelude).toBeTruthy();
+    expect(screen.queryByTestId("app-shell-top-chrome")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Codexify" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("guardian-mobile-frame-utilities")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open Workspace" })
+    ).toBeInTheDocument();
+
+    const viewportOwner = guardian.closest(
+      '[data-narrow-guardian-frame-shell="true"]'
+    ) as HTMLElement;
+    const shell = viewportOwner.querySelector(
+      ".codexify-shell"
+    ) as HTMLElement;
+    const mainContent = screen.getByTestId("app-shell-main-content");
+    const mainContentLane = mainContent.firstElementChild as HTMLElement;
+
+    expect(viewportOwner.style.padding).toBe("var(--edge-chrome)");
+    expect(viewportOwner.style.getPropertyValue("--edge-chrome")).toBe("4px");
+    expect(shell).toHaveAttribute("data-frame-first-guardian", "true");
+    expect(shell.style.paddingLeft).toBe("");
+    expect(shell.style.paddingRight).toBe("");
+    expect(mainContentLane.style.paddingTop).toBe("");
+  });
+
+  it.each([
+    ["/dashboard", "dashboard"],
+    ["/documents", "documents"],
+    ["/gallery", "gallery"],
+    ["/settings", "settings"],
+  ])(
+    "retains global navigation for narrow non-Guardian route %s",
+    async (pathname, expectedView) => {
+      setViewportWidth(390);
+      setRoutePath(pathname);
+      render(<AppShell />);
+
+      expect(
+        await screen.findByTestId("app-shell-top-nav")
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("app-shell-top-chrome")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", {
+          name:
+            expectedView === "documents"
+              ? "Documents"
+              : expectedView === "gallery"
+                ? "Gallery"
+                : expectedView === "dashboard"
+                  ? "Dashboard"
+                  : "Settings",
+        })
+      ).toBeInTheDocument();
+    }
+  );
 });
 
 describe("AppShell settings utility trigger", () => {
@@ -815,7 +897,7 @@ describe("AppShell settings utility trigger", () => {
 
   it("keeps the phone Dock expanded after a touch leaves the top chrome", () => {
     setViewportWidth(390);
-    localStorage.setItem("cfy.lastView", "guardian");
+    localStorage.setItem("cfy.lastView", "dashboard");
 
     render(<AppShell />);
 
@@ -1305,14 +1387,8 @@ describe("AppShell workspace drawer shell", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByTestId("app-shell-top-nav")).toHaveAttribute(
-      "data-shell-nav-mode",
-      "scroll_rail"
-    );
-    expect(screen.getByRole("button", { name: "Guardian" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell-top-chrome")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Open Workspace" })
     ).toHaveAttribute("data-workspace-affordance-state", "collapsed");
@@ -1357,10 +1433,10 @@ describe("AppShell workspace drawer shell", () => {
     });
   });
 
-  it("keeps the phone nav rail momentum-enabled and the selected pill tactile", async () => {
+  it("keeps the non-Guardian phone nav rail momentum-enabled and the selected pill tactile", async () => {
     const user = userEvent.setup();
     setViewportWidth(390);
-    localStorage.setItem("cfy.lastView", "guardian");
+    localStorage.setItem("cfy.lastView", "dashboard");
     setRouteThread(null);
 
     render(<AppShell />);
@@ -1371,31 +1447,31 @@ describe("AppShell workspace drawer shell", () => {
     expect(railStyle).toContain("scroll-padding-inline: 12px");
     expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
 
-    const guardian = screen.getByRole("button", { name: "Guardian" });
-    const guardianStyle = guardian.getAttribute("style") ?? "";
-    expect(guardian).toHaveAttribute("data-state", "active");
-    expect(guardianStyle).toContain(
+    const dashboard = screen.getByRole("button", { name: "Dashboard" });
+    const dashboardStyle = dashboard.getAttribute("style") ?? "";
+    expect(dashboard).toHaveAttribute("data-state", "active");
+    expect(dashboardStyle).toContain(
       "background: color-mix(in oklab, var(--accent-strong) 90%, var(--panel-bg) 10%)"
     );
-    expect(guardianStyle).toContain("transition-duration: 140ms");
-    expect(guardianStyle).toContain(
+    expect(dashboardStyle).toContain("transition-duration: 140ms");
+    expect(dashboardStyle).toContain(
       "transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1)"
     );
-    expect(guardianStyle).toContain(
+    expect(dashboardStyle).toContain(
       "transition-property: color, background, border-color, box-shadow, transform, opacity, filter"
     );
-    expect(guardianStyle).not.toContain("transform:");
+    expect(dashboardStyle).not.toContain("transform:");
 
-    fireEvent.pointerDown(guardian, { button: 0, pointerType: "touch" });
-    expect(guardian).toHaveAttribute("data-press-feedback", "pressed");
+    fireEvent.pointerDown(dashboard, { button: 0, pointerType: "touch" });
+    expect(dashboard).toHaveAttribute("data-press-feedback", "pressed");
 
-    fireEvent.pointerUp(guardian, { button: 0, pointerType: "touch" });
-    expect(guardian).toHaveAttribute("data-press-feedback", "idle");
+    fireEvent.pointerUp(dashboard, { button: 0, pointerType: "touch" });
+    expect(dashboard).toHaveAttribute("data-press-feedback", "idle");
 
-    await user.click(screen.getByRole("button", { name: "Dashboard" }));
+    await user.click(screen.getByRole("button", { name: "Documents" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute(
+      expect(screen.getByRole("button", { name: "Documents" })).toHaveAttribute(
         "data-state",
         "active"
       );

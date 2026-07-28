@@ -98,6 +98,19 @@ Legacy Pointer Aliases
 
 These MUST remain for backward compatibility.
 
+Frame-first narrow Guardian perimeter:
+
+- `--edge-chrome` remains the canonical uniform perimeter between the settled
+  mobile viewport and the narrow Guardian primary frame.
+- The same token MUST govern the visible top, right, bottom, and left gaps.
+  Safe-area accommodation MAY derive from `--edge-chrome` and existing safe-area
+  inputs, but MUST NOT replace it with device-specific or per-side literals.
+- This profile does not change the global numeric value of `--edge-chrome`.
+- Wallpaper, configured gradient, theme, panel/surface color, glass tone and
+  opacity, and accent presentation remain token-driven.
+- The frame-first profile does not authorize an independent mobile color,
+  radius, shadow, blur, or spacing system.
+
 IV. LAYOUT TOKENS (View-Specific Overrides)
 
 Each view can override the following:
