@@ -27,7 +27,7 @@ The ordinary HTTP completion route and the shared completion acceptance operatio
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
 
-Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded, inert context only; this contract adds no Hosted Room invocation route or worker behavior. The canonical assistant-message persistence seam is extended separately to accept optional provenance without changing current worker behavior.
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded context consumed only when an already-constructed task reaches the worker; this contract adds no Hosted Room invocation route or enqueue behavior. Ordinary tasks bypass Hosted Room validation and persistence provenance.
 
 ### Completion task identity context
 
@@ -46,8 +46,10 @@ authorization and revalidation:
 The context records authority information but grants no authority by itself.
 Owner requests omit `requester_participant_id`; guest requests require it.
 Routes and future callers remain responsible for authentication, authorization,
-and consistency checks before task construction. The worker does not consume
-this context in the current runtime.
+and task construction. The worker revalidates room, source-message, actor,
+requester, invitation, and lifecycle state before model execution and again
+immediately before assistant persistence. No public route or enqueue path creates
+this invocation task yet, so there is no user-visible Hosted Room invocation.
 
 ## Canonical Provider States
 
@@ -325,7 +327,9 @@ Key rules:
 - Participant provenance is either both fields null (ordinary messages) or both non-null with a non-blank snapshot (room messages).
 - Sender display name is a durable presentation snapshot, not global identity proof.
 - Content remains semantically clean — participant identity is never embedded in message text.
-- Participant-room-thread consistency is a future route proof obligation (routes not yet implemented).
+- Participant-room-thread consistency is a worker/service proof obligation for
+  metadata-bearing tasks; routes and task producers remain responsible for
+  authorization before task construction.
 - No message routes are implemented by this contract.
 - No agent invocation behavior changes.
 
@@ -341,9 +345,11 @@ message update.
 Participant identity remains separate from the message role and content, and the
 persistence layer does not grant or validate room authority. Worker and service
 layers remain responsible for participant, room, requester, and lifecycle
-authorization before using the seam. The chat worker does not consume
-`HostedRoomInvocationMetadata` yet, and no Hosted Room invocation endpoint exists
-yet.
+authorization before using the seam. When a bounded Hosted Room task is present,
+the chat worker passes the validated Guardian participant ID and the canonical
+`Guardian` display snapshot in the same assistant insert. The worker does not
+change model, prompt, retrieval, retry, queue, or task-schema behavior. No
+Hosted Room invocation endpoint exists yet.
 
 ### Hosted Room message routes
 

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-27
+2026-07-28
 
 ## Interpretation rule
 This file is authoritative for:
@@ -17,6 +17,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 
 ## What changed recently
 - Added Hosted Room actor participant identity: Guardian is now a canonical resident actor with stable identity. User-owned Personas can be referenced through `local_persona` bindings. Actor lifecycle is durable across enable/disable. Luna is not a Codexify-native actor.
+- Added bounded worker-side consumption of out-of-band Hosted Room Guardian completion metadata: the worker revalidates room, source-message, actor, requester, invitation, and lifecycle state before persisting structured assistant provenance. No route or enqueue path creates this task, so no user-visible invocation exists.
 - Added Hosted Room human message read/write API: owners and guest sessions can read one canonical transcript and post human messages with structured participant provenance. Mentions are ordinary text with no agent invocation.
 - Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
@@ -95,6 +96,8 @@ Enabled-agent configuration is stored but does not yet grant an invocation path.
 Generated join paths (e.g., `/join/{token}`) are not yet functional guest-entry routes.
 Guest sessions currently authorize session inspection and human message read/write — no agent authority exists.
 Mentions (e.g., `@Guardian`, `@Luna`) are currently ordinary persisted text; no model is invoked by posting a mention.
+The internal worker validation branch is unreachable through current public routes
+and does not widen the release-qualified Hosted Room feature boundary.
 
 ## Not yet true / do not assume
 - Do not assume Hosted Room guest access or invitation exchange is implemented.

@@ -189,6 +189,9 @@ What does not exist yet:
 - No guest participant listing or room mutation.
 - No RoomShell or Contacts launch flow.
 - No agent invocation through Hosted Room authority.
+- The worker can consume a validated Hosted Room invocation context only for an
+  out-of-band task; no current route or enqueue path creates that task, so this
+  is not a user-visible invocation feature.
 - No presence or Tailscale automation.
 - No participant-removal owner API.
 - No session invalidation after revocation (already works via per-request lifecycle check).

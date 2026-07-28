@@ -84,6 +84,15 @@ The sender snapshot preserves the participant's display label at send time so tr
 
 The snapshot is presentation metadata only — not global identity proof, not an email field, not a Contact reference, and not a live reference to the participant's current display name.
 
+For a metadata-bearing Hosted Room Guardian completion, the worker validates the
+room, source message, actor participant, requester authority, invitation lineage,
+and lifecycle state before using this paired contract. The actor participant ID
+and `Guardian` display snapshot are present before the initial assistant insert;
+there is no post-insert provenance update and no second transcript. Ordinary
+messages and ordinary assistant completions omit both values. Provenance is not
+backfilled from display names, and database constraints remain the final
+authority for paired nullability.
+
 Future Hosted Room message routes must verify:
 - participant belongs to the room
 - room's backing thread equals the message thread
