@@ -66,6 +66,26 @@ Source anchors:
 | `GROQ_WEB_SEARCH_ENABLED` | Default `false`. Groq web-search adapter flag. Requires `REMOTE_RECALL_ENABLED=true`, `ALLOW_CLOUD_PROVIDERS=true`, `CODEXIFY_LOCAL_ONLY_MODE=false`, a present `GROQ_API_KEY`, and an egress-allowed `groq` target. | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
 | `GROQ_WEB_SEARCH_MODEL` | Default `groq/compound-mini`. Groq Compound system model id for built-in web search (supported: `groq/compound`, `groq/compound-mini`). | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
 
+### Supported-profile route posture
+
+Route registration is selected once during backend startup from the active
+supported-profile manifest. An unlisted route label defaults to `quarantined`;
+an `enabled` label is registered and visible in OpenAPI; an `internal_only`
+label is registered but hidden from OpenAPI.
+
+The isolated `v1-friends-family-web` tester profile explicitly enables the
+`hosted_rooms` and `hosted_room_guest` labels. These map to the owner router
+(`guardian/routes/hosted_rooms.py`, `/api/hosted-rooms`) and guest router
+(`guardian/routes/hosted_room_guest.py`, `/api/hosted-room-invitations` and
+`/api/hosted-room-session`). The default `v1-local-core-web-mcp` profile and
+other supported profiles leave both labels quarantined.
+
+Because the manifest is mounted read-only and loaded at backend startup, a
+profile route-posture change requires restarting the tester `backend` service.
+It does not require a frontend restart. OpenAPI visibility proves router
+registration only; it does not qualify live Hosted Room invocation, worker
+execution, Guardian provenance, or release support.
+
 ## Provider Governance and Beta Operator Workflow
 
 ### Governance model
