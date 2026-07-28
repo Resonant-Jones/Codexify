@@ -182,6 +182,13 @@ def process_account_import_task(
             report = diagnose_openai_export_path(export_root)
             inventory = report.inventory
             checkpoint = dict(snapshot.get("checkpoint") or {})
+            source_summary: dict[str, int | bool] = {
+                "conversations_discovered": 0,
+                "conversations_accepted": 0,
+                "conversations_skipped": 0,
+                "conversations_failed": 0,
+                "conversation_transactions_committed": False,
+            }
 
             if inventory.legacy_detected or inventory.sharded_detected:
                 diagnostics = import_openai_export_conversations(
@@ -204,6 +211,23 @@ def process_account_import_task(
                 )
                 if diagnostics.errors:
                     raise RuntimeError("; ".join(diagnostics.errors[:5]))
+                source_summary = {
+                    "conversations_discovered": diagnostics.conversations_discovered,
+                    "conversations_accepted": diagnostics.conversations_accepted,
+                    "conversations_skipped": (
+                        diagnostics.conversations_skipped_title
+                        + diagnostics.conversations_skipped_limit
+                        + diagnostics.conversations_skipped_duplicate
+                        + diagnostics.conversations_skipped_checkpoint
+                    ),
+                    "conversations_failed": diagnostics.conversations_failed,
+                    "conversation_transactions_committed": diagnostics.text_import_complete,
+                }
+            service.record_source_summary(
+                job_id=job_id,
+                user_id=user_id,
+                summary=source_summary,
+            )
 
             evidence_index = build_openai_export_image_evidence_index(inventory)
             completed_media_paths = {

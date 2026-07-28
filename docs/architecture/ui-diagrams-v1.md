@@ -126,8 +126,18 @@ Explicit exclusions:
 Guardian/mobile interpretation:
 - On narrow Guardian layouts, the optional sidebar may be a
   navigation-complete drawer rather than icon-only or stacked content.
-- The drawer may project AppShell-owned application destinations alongside the
-  existing SessionSpine-owned thread/session picker.
+- The drawer is workspace-first by default. Its collapsed/default presentation
+  places the Threads / Projects header directly beneath drawer chrome; no
+  application destination remains rendered or focusable in that state.
+- The Codexify mark in drawer chrome is a disclosure trigger, not a route
+  destination. Expanding it inserts the existing AppShell-owned application
+  destinations above the stateful Threads / Projects workspace without
+  remounting that workspace.
+- Escape collapses expanded application navigation and restores focus to the
+  mark before a subsequent Escape closes the drawer. Destination selection and
+  drawer closure reset the disclosure to its default state.
+- AppShell continues to own application routing, while SessionSpine continues
+  to own thread/session state.
 - This remains presentation-side architecture subordinate to the single
   Guardian primary card; it does not transfer routing ownership into Guardian
   or thread/session ownership into AppShell.
@@ -176,6 +186,28 @@ Guardian/mobile interpretation:
   remain unchanged.
 - Documents/Gallery mobile-shell redesign remain unimplemented and outside
   this diagram update.
+
+Narrow Guardian drawer states:
+
+```text
+Default workspace state
+├── drawer chrome
+│   ├── Codexify navigation trigger
+│   └── close drawer
+├── Threads / Projects header
+└── workspace content
+
+Expanded application-navigation state
+├── drawer chrome
+│   ├── Codexify navigation trigger, expanded
+│   └── close drawer
+├── application destinations
+├── Threads / Projects header
+└── workspace content
+```
+
+These states are presentation-side only. Desktop Guardian retains its current
+persistent sidebar and navigation presentation.
 
 Narrow Guardian interaction modes:
 
