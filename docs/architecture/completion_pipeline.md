@@ -18,6 +18,14 @@
   - enqueue onto the canonical chat queue
   - emit the best-effort `task.created` breadcrumb
   - calculate `accepted` versus `accepted_degraded` and reconcile queue failures
+- `ChatCompletionTask` carries one optional `HostedRoomInvocationMetadata` value.
+  - It is a bounded identity-and-authority context for a future authorized caller;
+    it is inert in the current route and worker path.
+  - Ordinary completion tasks remain valid without it. Because task serialization
+    uses the dataclass shape, ordinary task payloads carry
+    `hosted_room_invocation: null`; legacy payloads without the key remain readable.
+  - Malformed nested metadata is not partially trusted: task deserialization drops
+    it to `None`, while direct typed construction raises a bounded `ValueError`.
 - Shared completion service: `guardian/core/chat_completion_service.py`
   - load thread messages
   - assemble retrieval context
@@ -167,8 +175,26 @@ UI
 - `guardian/routes/chat.py` owns HTTP authentication, request parsing and validation, thread/account/project authorization, retrieval/context preparation, task-input preparation, response serialization, and HTTP error mapping.
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance transaction: canonical task identity, thread-scoped lock acquisition, stale-lock recovery, canonical queue publication, task-created publication, acceptance-status calculation, and queue-failure lock reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, assistant-message persistence, terminal events, and successful-turn lock release.
-- The task schema, queue name, lock key/TTL, event payload, and worker behavior are unchanged by this extraction.
-- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room invocation, task metadata contract, worker change, or assistant persistence change is added here.
+- The existing task type and fields, queue name, lock key/TTL, event payload, and worker behavior are unchanged; this task adds only the optional inert context documented below.
+- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room invocation behavior, worker change, or assistant persistence change is added here. The optional bounded task-context contract is documented below and remains inert until a separately authorized caller consumes it.
+
+## Bounded Hosted Room Invocation Context
+
+The optional task field is deliberately narrower than an invocation feature. Its
+only fields are `room_id`, `source_message_id`, `actor_participant_id`,
+`actor_source`, `actor_ref`, `requester_authority`, and
+`requester_participant_id`. Version-one values accept only the resident Guardian
+actor (`actor_source=resident`, `actor_ref=guardian`) and requester authority
+`owner` or `guest`; guest requests must carry a participant ID and owner requests
+must not. The value does not grant authority, invoke a model, change queueing, or
+change worker behavior.
+
+No Hosted Room invocation endpoint or route is added by this task. No worker
+consumption, assistant-message provenance persistence, task type, queue name,
+task-created event, or migration is added or changed. Future Hosted Room work
+must first authorize and validate its caller, then use this bounded task field
+and the canonical completion acceptance operation rather than creating a second
+completion pipeline.
 
 ## Completion Terminal Evidence
 

@@ -27,7 +27,27 @@ The ordinary HTTP completion route and the shared completion acceptance operatio
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
 
-Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. This extraction adds no Hosted Room invocation, Hosted Room metadata, task-schema change, worker behavior change, or assistant-persistence behavior.
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded, inert context only; this contract adds no Hosted Room invocation route, worker behavior, or assistant-persistence behavior.
+
+### Completion task identity context
+
+The optional bounded task context keeps these identities distinct for future
+authorization and revalidation:
+
+- `room_id` — Hosted Room identity
+- `thread_id` — backing chat thread identity
+- `source_message_id` — authored source-message identity
+- `actor_participant_id` — resident actor participant identity
+- `requester_participant_id` — guest requester participant identity, when present
+- `request_id` — completion attempt/request identity
+- `task_id` — queued execution identity
+- future assistant `message_id` — durable generated-message identity
+
+The context records authority information but grants no authority by itself.
+Owner requests omit `requester_participant_id`; guest requests require it.
+Routes and future callers remain responsible for authentication, authorization,
+and consistency checks before task construction. The worker does not consume
+this context in the current runtime.
 
 ## Canonical Provider States
 
