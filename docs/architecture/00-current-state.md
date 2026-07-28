@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
 - Added Hosted Room owner lifecycle API: authenticated owners can create, list, inspect, update, and close Hosted Rooms backed by canonical chat threads. Room creation is atomic (room, thread, owner participant). Account isolation is enforced on all owner routes.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
@@ -57,24 +58,32 @@ What is now implemented:
 - Owners can revoke pending and accepted invitations.
 - Invitation routes are account- and room-scoped.
 - Closed rooms reject new invitations.
+- Pending invitations can be exchanged once for a guest session.
+- Exchange creates one durable human member participant.
+- Exchange marks the invitation accepted.
+- Exchange issues a signed HTTP-only room-session cookie.
+- Guest sessions resolve one room and one participant.
+- Session inspection revalidates room, invite, and participant state on every request.
+- Invitation revocation, participant removal, room closure, invitation expiry, and session expiry invalidate access.
+- Logout clears the browser cookie.
 - Account isolation is enforced on all owner and invitation routes.
 
 What remains unimplemented:
-- Invitation exchange (the join path is inert).
-- Guest authentication.
-- Room-scoped guest sessions.
-- Participant creation from accepted invitations.
-- Guest message APIs.
-- Contacts launch flow.
+- Guest message retrieval.
+- Guest message posting.
+- Guardian or Luna invocation.
 - RoomShell.
-- Agent invocation through Hosted Room authority.
-- Presence.
-- Tailscale automation.
-- Session invalidation after revocation.
+- Participant removal API.
+- Contacts binding.
+- Ambient presence.
+- Automatic Tailscale onboarding.
+- Cross-node rooms.
+- Session invalidation after revocation (already works via per-request lifecycle check).
 - Release qualification.
 
 Enabled-agent configuration is stored but does not yet grant an invocation path.
 Generated join paths (e.g., `/join/{token}`) are not yet functional guest-entry routes.
+Guest sessions currently authorize only session inspection — no message or completion authority exists.
 
 ## Not yet true / do not assume
 - Do not assume Hosted Room guest access or invitation exchange is implemented.

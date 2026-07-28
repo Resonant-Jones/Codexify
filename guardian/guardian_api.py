@@ -526,7 +526,7 @@ from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
 from guardian.routes import tts as tts_routes
 from guardian.routes import neo as neo_routes
-from guardian.routes import hosted_rooms, obsidian, research, share, threads, ui_session
+from guardian.routes import hosted_room_guest, hosted_rooms, obsidian, research, share, threads, ui_session
 from guardian.routes import websocket as websocket_routes
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
@@ -1309,6 +1309,12 @@ _include_router(
     label="hosted_rooms",
     flag_name="CODEXIFY_ENABLE_HOSTED_ROOMS_ROUTES",
     include_fn=lambda: app.include_router(hosted_rooms.router),
+    default_enabled=True,
+)
+_include_router(
+    label="hosted_room_guest",
+    flag_name="CODEXIFY_ENABLE_HOSTED_ROOM_GUEST_ROUTES",
+    include_fn=lambda: app.include_router(hosted_room_guest.router),
     default_enabled=True,
 )
 

@@ -174,17 +174,24 @@ Key properties:
 - Invitation issuance uses high-entropy tokens (256-bit, URL-safe); only SHA-256 verifiers are persisted.
 - Plaintext invitation credentials are returned exactly once at creation; no retrieval endpoint exists.
 - Invitation listing and revocation are owner-authenticated and room-scoped.
+- Invitation exchange is unauthenticated: a one-time plaintext token becomes a signed HTTP-only room-session cookie.
+- One accepted invitation produces exactly one member participant; replay is rejected.
+- Guest session tokens are HMAC-SHA256-signed with purpose ``hosted_room_guest_session``, domain-separated from account sessions.
+- Every authorized guest request revalidates room, invitation, and participant lifecycle truth against persistence — no server-side session table required.
+- Lifecycle changes (revocation, removal, closure, expiry) invalidate access immediately.
+- Normal account auth and room guest auth remain separate; guest sessions cannot use owner lifecycle routes.
 - Owner routes are management-plane only: no guest authority exists yet.
 - Hosted Rooms do not change read-only Share-link semantics.
 
 What does not exist yet:
-- No invitation exchange (generated join paths are inert).
-- No guest authentication or room-scoped sessions.
-- No guest message APIs.
+- No guest message retrieval or posting.
+- No guest room completion or agent invocation.
+- No guest participant listing or room mutation.
 - No RoomShell or Contacts launch flow.
 - No agent invocation through Hosted Room authority.
 - No presence or Tailscale automation.
-- No session invalidation after invitation revocation.
+- No participant-removal owner API.
+- No session invalidation after revocation (already works via per-request lifecycle check).
 
 ## Testing Reality
 
