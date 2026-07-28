@@ -345,10 +345,27 @@ Narrow/mobile Guardian navigation projection:
   not falsely enter record mode.
 - Opening the navigation drawer or Guardian tools menu suspends the projection
   and preserves the draft.
+- Narrow Guardian uses one compact composer pill. Its direct mobile interaction
+  surface retains the existing attachment/add actions, authored text input,
+  supported voice action, and send action. It does not retain a persistent
+  selector row.
+- Advanced project, provider, model, inference-mode, and retrieval
+  configuration is available through the bounded deterministic frontend
+  commands `/project`, `/provider`, `/model`, `/mode`, and `/retrieval` when
+  the corresponding existing control and option set are available. A
+  `/profile` command is present only when the Composer already owns a canonical
+  profile control and option set.
+- The command-only draft grammar is `/<command> [value]`. A recognized command
+  invokes the existing configuration callback, clears its command draft, and
+  never enters the transcript or authored-message persistence path. Commands
+  embedded in prose, unknown slash text, and escaped `//` text remain ordinary
+  user-authored text and continue through the existing send boundary.
+- Command parsing is a presentation-side, deterministic registry operation. It
+  does not invoke Guardian reasoning, prompts, a model, backend routes, or the
+  command bus. Existing availability, compatibility, authorization, and
+  disabled-state truth surfaces remain authoritative.
 - Desktop Guardian retains its existing composer flow, typography, controls,
-  and focus behavior.
-- Composer control simplification and Guardian inline commands remain deferred
-  to Task 5.
+  visible selectors, and focus behavior.
 - Documents and Gallery do not inherit this mobile-shell exception.
 
 Session Pill Rail (implemented):

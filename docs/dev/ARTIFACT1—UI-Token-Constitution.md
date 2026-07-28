@@ -118,9 +118,21 @@ Narrow Guardian composer projection tokens:
   `--guardian-composer-mobile-input-size: 16px`,
   `--guardian-composer-projection-inset: var(--card-pad)`, and
   `--guardian-composer-projection-gap: calc(var(--card-pad) / 2)`.
+- Its compact pill and suggestion palette additionally use
+  `--guardian-composer-compact-gap: calc(var(--card-pad) / 2)`,
+  `--guardian-composer-compact-min-height: calc(var(--card-pad) * 3)`,
+  `--guardian-composer-command-palette-max-height:
+  calc(var(--radius-tile) * 10)`, and
+  `--guardian-composer-summary-max-width: 40%`.
 - `--guardian-composer-mobile-input-size` is the minimum computed size for both
   entered text and placeholder text in the narrow Guardian composer. It
   prevents browser focus zoom without restricting viewport scaling.
+- `--guardian-composer-compact-gap` governs direct-control spacing inside the
+  compact state. The compact minimum-height token derives the pill height from
+  the canonical card spacing scale. The existing composer horizontal padding
+  remains the compact inset; the summary-width token bounds the non-interactive
+  project and provider/model state summary; and the palette-height token bounds
+  the scrollable command/value suggestion region.
 - The projection inset and lower gap keep the composer inside the Guardian
   frame. They MUST derive from established spacing tokens rather than
   device-specific offsets or inline literals.
@@ -132,7 +144,8 @@ Narrow Guardian composer projection tokens:
   scroll owner.
 - These component tokens apply only under the existing narrow frame-first
   Guardian condition. Desktop Guardian typography and composer positioning
-  remain unchanged.
+  remain unchanged. The compact pill and its palette MUST NOT establish an
+  independent blur, radius, shadow, color, or spacing system.
 
 IV. LAYOUT TOKENS (View-Specific Overrides)
 

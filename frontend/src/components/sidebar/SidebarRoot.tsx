@@ -8,7 +8,9 @@ import ThreadList from "./ThreadList";
 import ProjectList from "./ProjectList";
 import CreateProjectModal from "./CreateProjectModal";
 import useSidebarThreads from "./useSidebarThreads";
-import useProjectsCache from "./useProjectsCache";
+import useProjectsCache, {
+  type UseProjectsCacheResult,
+} from "./useProjectsCache";
 import {
   cleanSidebarProjectTitle,
   resolveSidebarGeneralProjectId,
@@ -32,6 +34,7 @@ type Props = {
   projectId?: string | null;
   onProjectChange?: (id: string | null) => void;
   projects?: Project[];
+  projectCache?: UseProjectsCacheResult;
   creatingThread?: boolean;
   hasMoreThreads?: boolean;
   loadingMoreThreads?: boolean;
@@ -124,6 +127,7 @@ export default function SidebarRoot({
   projectId = null,
   onProjectChange,
   projects = [],
+  projectCache,
   creatingThread,
   hasMoreThreads = false,
   loadingMoreThreads = false,
@@ -150,11 +154,16 @@ export default function SidebarRoot({
     }
   });
 
+  const ownedProjectCache = useProjectsCache({
+    initialProjects: projects,
+    threadsForLooseCount: threads,
+    enabled: !projectCache,
+  });
   const {
     projectList,
     setProjectList,
     refreshProjectsFromServer,
-  } = useProjectsCache({ initialProjects: projects, threadsForLooseCount: threads });
+  } = projectCache ?? ownedProjectCache;
 
   const {
     displayThreads,

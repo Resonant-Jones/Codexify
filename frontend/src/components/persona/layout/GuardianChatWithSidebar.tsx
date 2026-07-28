@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
+import { useProjectsCache } from "@/components/sidebar/useProjectsCache";
 import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
@@ -337,6 +338,7 @@ export default function GuardianChatWithSidebar({
   const isPhoneShell = mobileShellProfile.active;
   const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
+  const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [threadsHasMore, setThreadsHasMore] = React.useState(true);
@@ -1846,6 +1848,7 @@ export default function GuardianChatWithSidebar({
                         projectId={selectedProjectId}
                         projectName={selectedProjectName}
                         onProjectChange={handleSelectedProjectChange}
+                        projectCache={projectCache}
                         hasMoreThreads={threadsHasMore}
                         loadingMoreThreads={threadsLoadingMore}
                         onLoadMoreThreads={loadMoreThreads}
@@ -1929,6 +1932,7 @@ export default function GuardianChatWithSidebar({
                   projectId={selectedProjectId}
                   projectName={selectedProjectName}
                   onProjectChange={handleSelectedProjectChange}
+                  projectCache={projectCache}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
@@ -2167,6 +2171,8 @@ export default function GuardianChatWithSidebar({
                   runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
+                  projectOptions={projectCache.projectList}
+                  onComposerProjectChange={handleSelectedProjectChange}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}
                   onNewChat={handleNewChatImmediate}

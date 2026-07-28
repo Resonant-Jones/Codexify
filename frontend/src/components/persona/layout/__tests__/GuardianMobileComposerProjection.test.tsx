@@ -18,6 +18,12 @@ import type {
 } from "@/features/chat/useChat";
 
 const guardianPropsSpy = vi.hoisted(() => vi.fn());
+const projectCacheMock = vi.hoisted(() => ({
+  projectList: [{ id: 7, name: "Canonical project" }],
+  setProjectList: vi.fn(),
+  refreshProjectsFromServer: vi.fn(),
+  looseCount: 0,
+}));
 const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -51,6 +57,10 @@ vi.mock("@/features/chat/GuardianChat", () => ({
 
 vi.mock("@/components/sidebar/SidebarRoot", () => ({
   default: () => <div data-testid="sidebar-root-stub">Threads</div>,
+}));
+
+vi.mock("@/components/sidebar/useProjectsCache", () => ({
+  useProjectsCache: () => projectCacheMock,
 }));
 
 vi.mock("@/hooks/useLiveEvents", () => ({
@@ -335,6 +345,22 @@ describe("Guardian mobile composer projection", () => {
     });
   });
 
+  it("projects the canonical project cache options into Guardian", async () => {
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        frameFirstMobile
+      />
+    );
+
+    await waitFor(() => {
+      expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        projectOptions: [{ id: 7, name: "Canonical project" }],
+      });
+    });
+  });
+
   it("activates projection on narrow focus and exits it on blur", async () => {
     const onProjectionChange = vi.fn();
 
@@ -408,10 +434,17 @@ describe("Guardian mobile composer projection", () => {
       screen.getByRole("button", { name: "Open composer actions" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
-    expect(screen.getByText("Local")).toBeInTheDocument();
-    expect(screen.getByText("Guardian model")).toBeInTheDocument();
-    expect(screen.getByText("Auto")).toBeInTheDocument();
-    expect(screen.getByText("Project")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-mobile-context-summary")).toHaveTextContent(
+      "Local / Guardian model"
+    );
+    expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Select inference mode" })
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Select retrieval source" })
+    ).toBeNull();
   });
 
   it("blurs and exits projection only after successful user-message submission", async () => {

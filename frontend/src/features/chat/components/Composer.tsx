@@ -4,7 +4,7 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { BookOpen, Send, X, FileText } from "lucide-react";
@@ -30,6 +30,14 @@ import {
   CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS,
 } from "@/features/chat/chatLane";
+import {
+  markInlineCommandExecuted,
+  parseInlineCommandDraft,
+  type InlineCommandDefinition,
+  type InlineCommandName,
+  type InlineCommandOption,
+  type InlineCommandOptionSets,
+} from "@/features/chat/inlineCommands";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -54,7 +62,10 @@ const parsePx = (value?: string | null) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const measureComposerHeights = (el: HTMLTextAreaElement) => {
+const measureComposerHeights = (
+  el: HTMLTextAreaElement,
+  minimumRows = MIN_COMPOSER_ROWS
+) => {
   const style = window.getComputedStyle(el);
   const lineHeight = (() => {
     const fromStyle = parsePx(style.lineHeight);
@@ -67,13 +78,16 @@ const measureComposerHeights = (el: HTMLTextAreaElement) => {
   const borderBlock = parsePx(style.borderTopWidth) + parsePx(style.borderBottomWidth);
 
   return {
-    minHeight: lineHeight * MIN_COMPOSER_ROWS + paddingBlock + borderBlock,
+    minHeight: lineHeight * minimumRows + paddingBlock + borderBlock,
     maxHeight: lineHeight * MAX_COMPOSER_ROWS + paddingBlock + borderBlock,
   } as const;
 };
 
-const autosizeComposerTextarea = (el: HTMLTextAreaElement) => {
-  const { minHeight, maxHeight } = measureComposerHeights(el);
+const autosizeComposerTextarea = (
+  el: HTMLTextAreaElement,
+  minimumRows = MIN_COMPOSER_ROWS
+) => {
+  const { minHeight, maxHeight } = measureComposerHeights(el, minimumRows);
   el.style.minHeight = `${minHeight}px`;
   el.style.maxHeight = `${maxHeight}px`;
   el.style.height = "auto";
@@ -187,6 +201,8 @@ export function Composer({
   sourceOptions = [],
   onSourceModeChange,
   projectName,
+  projectOptions = [],
+  onProjectChange,
   mobileProjectionEnabled = false,
   projectionSuspended = false,
   onMobileProjectionChange,
@@ -228,6 +244,8 @@ export function Composer({
   onSourceModeChange?: (mode: string) => void;
   projectId?: number | string | null;
   projectName?: string | null;
+  projectOptions?: ComposerSelectOption[];
+  onProjectChange?: (projectId: string) => void;
   documentTiles?: unknown[];
   onDocumentTileRemove?: (tile: unknown) => void;
   currentRequestState?: unknown;
@@ -239,6 +257,11 @@ export function Composer({
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [dismissedCommandDraft, setDismissedCommandDraft] = useState<
+    string | null
+  >(null);
+  const [activeCommandOptionIndex, setActiveCommandOptionIndex] = useState(0);
+  const [commandAnnouncement, setCommandAnnouncement] = useState("");
   const isMobileComposerProjected =
     mobileProjectionEnabled && isComposerFocused && !projectionSuspended;
   const syncDebounceMs = Math.max(
@@ -311,8 +334,8 @@ export function Composer({
 
   useLayoutEffect(() => {
     if (!ref.current) return;
-    autosizeComposerTextarea(ref.current);
-  }, [value]);
+    autosizeComposerTextarea(ref.current, mobileProjectionEnabled ? 1 : MIN_COMPOSER_ROWS);
+  }, [mobileProjectionEnabled, value]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -666,14 +689,14 @@ export function Composer({
     e.preventDefault();
   };
 
-  const providerLabel =
+  const selectedProviderLabel =
     providerOptions.find((option) => option.value === activeProviderId)?.label ??
-    providerOptions[0]?.label ??
-    "Provider";
-  const modelLabel =
-    modelOptions.find((option) => option.value === activeModelId)?.label ??
-    modelOptions[0]?.label ??
-    "Model";
+    null;
+  const selectedModelLabel =
+    modelOptions.find((option) => option.value === activeModelId)?.label ?? null;
+  const providerLabel =
+    selectedProviderLabel ?? providerOptions[0]?.label ?? "Provider";
+  const modelLabel = selectedModelLabel ?? modelOptions[0]?.label ?? "Model";
   const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
   const hasVisionCapableModel = modelOptions.some((option) => {
     if (option.supportsChat === false || option.modelKind === "utility") {
@@ -700,60 +723,374 @@ export function Composer({
   const sourceLabel =
     sourceOptions.find((option) => option.value === sourceMode)?.label ??
     (sourceMode === "personal_knowledge" ? "Personal Knowledge" : "Project");
+  const toInlineOptions = (
+    options: readonly ComposerSelectOption[]
+  ): readonly InlineCommandOption[] =>
+    options.map((option) => ({
+      value: option.value,
+      label: option.label,
+      description: option.description,
+      disabled: option.disabled,
+      disabledReason: option.disabled ? option.description : undefined,
+    }));
+  const inlineCommandOptionSets = useMemo<InlineCommandOptionSets>(
+    () => ({
+      ...(onProjectChange && projectOptions.length > 0
+        ? { project: toInlineOptions(projectOptions) }
+        : {}),
+      ...(onProviderChange && providerOptions.length > 0
+        ? { provider: toInlineOptions(providerOptions) }
+        : {}),
+      ...(onModelChange && modelOptions.length > 0
+        ? { model: toInlineOptions(modelOptions) }
+        : {}),
+      ...(onInferenceModeChange && inferenceModeOptions.length > 0
+        ? { mode: toInlineOptions(inferenceModeOptions) }
+        : {}),
+      ...(onSourceModeChange && sourceOptions.length > 0
+        ? { retrieval: toInlineOptions(sourceOptions) }
+        : {}),
+    }),
+    [
+      inferenceModeOptions,
+      modelOptions,
+      onInferenceModeChange,
+      onModelChange,
+      onProjectChange,
+      onProviderChange,
+      onSourceModeChange,
+      projectOptions,
+      providerOptions,
+      sourceOptions,
+    ]
+  );
+  const inlineCommandResult = useMemo(
+    () => parseInlineCommandDraft(value, inlineCommandOptionSets),
+    [inlineCommandOptionSets, value]
+  );
+  const commandPaletteOpen =
+    mobileProjectionEnabled &&
+    isComposerFocused &&
+    !projectionSuspended &&
+    dismissedCommandDraft !== value &&
+    inlineCommandResult.state !== "unknown" &&
+    inlineCommandResult.state !== "executed";
+  const commandSuggestions = commandPaletteOpen
+    ? inlineCommandResult.suggestions
+    : [];
+  const commandPaletteMode =
+    inlineCommandResult.command == null ? "command" : "value";
+  const compactContextSummary = [
+    projectName?.trim() || null,
+    selectedProviderLabel && selectedModelLabel
+      ? `${selectedProviderLabel} / ${selectedModelLabel}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const lineageLabel = projectName?.trim()
     ? `Send a message to ${projectName.trim()}`
     : "Send a message";
+
+  useEffect(() => {
+    setActiveCommandOptionIndex(0);
+  }, [value, commandSuggestions.length]);
+
+  const updateDraftValue = (next: string) => {
+    setValue(next);
+    valueRef.current = next;
+    setDismissedCommandDraft(null);
+    setObsidianSlashActive(isObsidianSlashCommand(next.trimStart()));
+    scheduleDraftCommit(next);
+  };
+
+  const executeInlineCommandOption = (
+    command: InlineCommandDefinition,
+    option: InlineCommandOption
+  ) => {
+    if (option.disabled) return;
+    const handlers: Partial<Record<InlineCommandName, (next: string) => void>> = {
+      project: onProjectChange,
+      provider: onProviderChange,
+      model: onModelChange,
+      mode: (next) =>
+        onInferenceModeChange?.(next as ComposerInferenceMode),
+      retrieval: onSourceModeChange,
+    };
+    const handler = handlers[command.name];
+    if (!handler) return;
+
+    handler(option.value);
+    const readyResult = parseInlineCommandDraft(
+      `/${command.name} ${option.value}`,
+      inlineCommandOptionSets
+    );
+    const confirmation =
+      readyResult.state === "ready"
+        ? markInlineCommandExecuted(readyResult).confirmation
+        : `${command.label} set to ${option.label}`;
+    setCommandAnnouncement(confirmation);
+    updateDraftValue("");
+    ref.current?.focus({ preventScroll: true });
+  };
+
+  const activateCommandSuggestion = (index: number) => {
+    const suggestion = commandSuggestions[index];
+    if (!suggestion) return;
+    if ("name" in suggestion) {
+      updateDraftValue(`/${suggestion.name} `);
+      ref.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (inlineCommandResult.command) {
+      executeInlineCommandOption(inlineCommandResult.command, suggestion);
+    }
+  };
+
+  const handleComposerKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (commandPaletteOpen) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedCommandDraft(value);
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        const next =
+          (activeCommandOptionIndex + direction + commandSuggestions.length) %
+          commandSuggestions.length;
+        setActiveCommandOptionIndex(next);
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (inlineCommandResult.state === "ambiguous") return;
+        activateCommandSuggestion(activeCommandOptionIndex);
+        return;
+      }
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleAttemptSend();
+    }
+  };
+
+  const renderComposerTextarea = () => (
+    <Textarea
+      data-testid="composer-textarea"
+      ref={ref}
+      rows={mobileProjectionEnabled ? 1 : MIN_COMPOSER_ROWS}
+      value={value}
+      onChange={(event) => {
+        updateDraftValue(event.target.value);
+      }}
+      onFocus={() => setIsComposerFocused(true)}
+      onBlur={() => {
+        setIsComposerFocused(false);
+        commitDraftNow(valueRef.current);
+      }}
+      placeholder="Write a message…"
+      onPaste={onPaste}
+      onKeyDown={handleComposerKeyDown}
+      aria-controls={
+        commandPaletteOpen ? "composer-inline-command-listbox" : undefined
+      }
+      aria-expanded={commandPaletteOpen}
+      aria-activedescendant={
+        commandPaletteOpen && commandSuggestions.length > 0
+          ? `composer-inline-option-${activeCommandOptionIndex}`
+          : undefined
+      }
+      className="min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
+      style={{
+        color: "var(--text)",
+        overflow: "hidden",
+        padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
+        ...(mobileProjectionEnabled
+          ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
+          : {}),
+      }}
+    />
+  );
+
+  const renderComposerActionMenu = () => (
+    <ComposerActionMenu
+      disabled={draftControlsDisabled}
+      depthMode={depthMode}
+      depthOptions={depthOptions}
+      onAttach={() => {
+        if (draftControlsDisabled) {
+          notifyTransportBusy();
+          return;
+        }
+        fileInputRef.current?.click();
+      }}
+      onGenerateImage={() => {
+        if (draftControlsDisabled) {
+          notifyTransportBusy();
+          return;
+        }
+        setShowImgGen(true);
+      }}
+      onDepthChange={(nextDepth) => {
+        onDepthModeChange?.(nextDepth);
+      }}
+      onVoiceTurn={onVoiceTurn}
+      voiceTurnDisabled={voiceTurnDisabled}
+      voiceTurnLabel={voiceTurnLabel}
+    />
+  );
+
+  const renderSendButton = () => (
+    <Button
+      type="button"
+      onClick={handleAttemptSend}
+      disabled={sendTransportDisabled}
+      aria-label="Send"
+      aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
+      tabIndex={sendTransportDisabled ? -1 : 0}
+      title={
+        sendBlockedByTurnLock
+          ? "Finish the current reply before sending."
+          : undefined
+      }
+      size="icon"
+      className={cn(
+        "h-8 w-8 min-w-0 rounded-full p-0 transition-opacity",
+        sendTransportDisabled
+          ? "cursor-not-allowed opacity-50"
+          : sendBlockedByTurnLock
+            ? "opacity-75"
+            : ""
+      )}
+      style={{
+        background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
+        color: "var(--text-on-accent, var(--panel-bg))",
+        boxShadow: "none",
+      }}
+    >
+      <Send className="h-3.5 w-3.5 shrink-0" />
+    </Button>
+  );
 
   return (
     <>
       <div
         data-composer-root
         data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
-        className="flex flex-col flex-1 w-full py-[var(--composer-pad-y,12px)]"
+        data-mobile-compact={mobileProjectionEnabled ? "true" : "false"}
+        className={cn(
+          "flex w-full flex-col",
+          mobileProjectionEnabled
+            ? "flex-none py-[var(--guardian-composer-compact-gap)]"
+            : "flex-1 py-[var(--composer-pad-y,12px)]"
+        )}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
         <div
           data-testid="composer-content-plane"
-          className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-[var(--composer-pad-x,12px)]"
+          className={cn(
+            "flex min-h-0 flex-1 flex-col justify-end px-[var(--composer-pad-x,12px)]",
+            mobileProjectionEnabled
+              ? "gap-[var(--guardian-composer-compact-gap)]"
+              : "gap-2"
+          )}
         >
-          <Textarea
-            data-testid="composer-textarea"
-            ref={ref}
-            rows={MIN_COMPOSER_ROWS}
-            value={value}
-            onChange={(e) => {
-              const next = e.target.value;
-              setValue(next);
-              valueRef.current = next;
-              setObsidianSlashActive(isObsidianSlashCommand(next.trimStart()));
-              scheduleDraftCommit(next);
-            }}
-            onFocus={() => setIsComposerFocused(true)}
-            onBlur={() => {
-              setIsComposerFocused(false);
-              commitDraftNow(valueRef.current);
-            }}
-            placeholder="Write a message…"
-            onPaste={onPaste}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleAttemptSend();
-              }
-            }}
-            className="w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
-            style={{
-              color: "var(--text)",
-              overflow: "hidden",
-              padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
-              ...(mobileProjectionEnabled
-                ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
-                : {}),
-            }}
-          />
+          <div className="sr-only" aria-live="polite" role="status">
+            {commandAnnouncement}
+          </div>
+          {commandPaletteOpen ? (
+            <div
+              data-testid="composer-command-palette"
+              data-command-mode={commandPaletteMode}
+              className="min-w-0 overflow-hidden rounded-[var(--radius-micro)] border bg-[var(--panel-bg)]"
+              style={{ borderColor: "var(--panel-border)" }}
+            >
+              <div
+                className="border-b px-[var(--card-pad)] py-[var(--guardian-composer-compact-gap)] text-xs font-medium"
+                style={{
+                  borderColor: "var(--panel-border)",
+                  color: "var(--muted)",
+                }}
+              >
+                {commandPaletteMode === "command"
+                  ? "Composer commands"
+                  : `/${inlineCommandResult.command?.name} values`}
+              </div>
+              <div
+                id="composer-inline-command-listbox"
+                role="listbox"
+                aria-label={
+                  commandPaletteMode === "command"
+                    ? "Composer commands"
+                    : `${inlineCommandResult.command?.label} values`
+                }
+                className="overflow-y-auto p-[var(--guardian-composer-compact-gap)]"
+                style={{
+                  maxHeight:
+                    "var(--guardian-composer-command-palette-max-height)",
+                }}
+              >
+                {commandSuggestions.map((suggestion, index) => {
+                  const isCommand = "name" in suggestion;
+                  const disabled = !isCommand && suggestion.disabled;
+                  const optionId = `composer-inline-option-${index}`;
+                  return (
+                    <button
+                      key={
+                        isCommand
+                          ? suggestion.name
+                          : `${inlineCommandResult.command?.name}-${suggestion.value}`
+                      }
+                      id={optionId}
+                      type="button"
+                      role="option"
+                      aria-selected={index === activeCommandOptionIndex}
+                      aria-disabled={disabled || undefined}
+                      disabled={disabled}
+                      className="flex w-full min-w-0 items-start gap-[var(--guardian-composer-compact-gap)] rounded-[var(--radius-micro)] px-[var(--card-pad)] py-[var(--guardian-composer-compact-gap)] text-left disabled:opacity-50"
+                      style={{
+                        color: "var(--text)",
+                        background:
+                          index === activeCommandOptionIndex
+                            ? "var(--chip-bg)"
+                            : "transparent",
+                      }}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveCommandOptionIndex(index)}
+                      onClick={() => activateCommandSuggestion(index)}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {isCommand
+                            ? `/${suggestion.name}`
+                            : suggestion.label}
+                        </span>
+                        {suggestion.description ? (
+                          <span
+                            className="block truncate text-xs"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {suggestion.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {!mobileProjectionEnabled ? renderComposerTextarea() : null}
 
-          {!value.trim() && !draftAttachments.length ? (
+          {!mobileProjectionEnabled &&
+          !value.trim() &&
+          !draftAttachments.length ? (
             <div
               data-testid="composer-lineage-copy"
               className="px-[var(--composer-text-pad-x,14px)] text-[11px] leading-snug"
@@ -810,136 +1147,132 @@ export function Composer({
             }}
           />
 
-          <div
-            data-testid="composer-control-row"
-            className={cn(
-              CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-              CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
-              "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
-            )}
-          >
+          {mobileProjectionEnabled ? (
             <div
-              data-testid="composer-controls-strip"
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
-            >
-              <ComposerActionMenu
-                disabled={draftControlsDisabled}
-                depthMode={depthMode}
-                depthOptions={depthOptions}
-                onAttach={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
-                  fileInputRef.current?.click();
-                }}
-                onGenerateImage={() => {
-                  if (draftControlsDisabled) {
-                    notifyTransportBusy();
-                    return;
-                  }
-                  setShowImgGen(true);
-                }}
-                onDepthChange={(nextDepth) => {
-                  onDepthModeChange?.(nextDepth);
-                }}
-                onVoiceTurn={onVoiceTurn}
-                voiceTurnDisabled={voiceTurnDisabled}
-                voiceTurnLabel={voiceTurnLabel}
-              />
-              {obsidianSlashActive ? (
-                <div
-                  data-testid="composer-obsidian-action"
-                  className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
-                  style={{ color: "var(--text)" }}
-                  title="Obsidian context will be queried for this turn"
-                >
-                  <BookOpen className="h-3.5 w-3.5" />
-                  <span>Obsidian</span>
-                </div>
-              ) : null}
-              {sourceOptions.length > 0 ? (
-                <ComposerSelectMenu
-                  ariaLabel="Select retrieval source"
-                  menuLabel="Source"
-                  valueLabel={sourceLabel}
-                  options={sourceOptions}
-                  selectedValue={sourceMode}
-                  disabled={draftControlsDisabled}
-                  onSelect={(value) => onSourceModeChange?.(value)}
-                />
-              ) : null}
-              <ComposerSelectMenu
-                ariaLabel="Select provider"
-                menuLabel="Provider"
-                valueLabel={providerLabel}
-                options={providerOptions}
-                selectedValue={activeProviderId}
-                openSignal={providerOpenSignal}
-                disabled={draftControlsDisabled || providerOptions.length === 0}
-                onSelect={onProviderChange ?? (() => {})}
-              />
-              <ComposerSelectMenu
-                ariaLabel="Select model"
-                menuLabel="Model"
-                valueLabel={modelLabel}
-                options={modelOptions}
-                selectedValue={activeModelId}
-                disabled={draftControlsDisabled || modelOptions.length === 0}
-                onSelect={onModelChange ?? (() => {})}
-              />
-              <ComposerSelectMenu
-                ariaLabel="Select inference mode"
-                menuLabel="Mode"
-                valueLabel={inferenceModeLabel}
-                options={inferenceModeOptions}
-                selectedValue={activeInferenceMode}
-                disabled={draftControlsDisabled || inferenceModeOptions.length === 0}
-                onSelect={(value) =>
-                  onInferenceModeChange?.(value as ComposerInferenceMode)
-                }
-              />
-            </div>
-
-            <div
-              data-testid="composer-send-slot"
+              data-testid="composer-control-row"
               className={cn(
-                "flex shrink-0 items-center justify-center",
-                "justify-self-end",
-                CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+                CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+                CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+                "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
               )}
             >
-              <Button
-                type="button"
-                onClick={handleAttemptSend}
-                disabled={sendTransportDisabled}
-                aria-label="Send"
-                aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
-                tabIndex={sendTransportDisabled ? -1 : 0}
-                title={
-                  sendBlockedByTurnLock
-                    ? "Finish the current reply before sending."
-                    : undefined
-                }
-                size="icon"
-                className={cn(
-                  "h-8 w-8 min-w-0 rounded-full p-0 transition-opacity",
-                  sendTransportDisabled
-                    ? "cursor-not-allowed opacity-50"
-                    : sendBlockedByTurnLock
-                      ? "opacity-75"
-                    : ""
-                )}
-                style={{
-                  background: "color-mix(in oklab, var(--accent-strong) 82%, white 18%)",
-                  color: "var(--text-on-accent, #111827)",
-                  boxShadow: "none",
-                }}
+              <div
+                data-testid="composer-controls-strip"
+                className="flex shrink-0 items-center"
               >
-                <Send className="h-3.5 w-3.5 shrink-0" />
-              </Button>
+                {renderComposerActionMenu()}
+              </div>
+              {renderComposerTextarea()}
+              {compactContextSummary ? (
+                <span
+                  data-testid="composer-mobile-context-summary"
+                  className="truncate rounded-[var(--radius-micro)] bg-[var(--chip-bg)] px-[var(--guardian-composer-compact-gap)] py-[calc(var(--guardian-composer-compact-gap)/2)] text-[11px]"
+                  style={{
+                    color: "var(--muted)",
+                    maxWidth: "var(--guardian-composer-summary-max-width)",
+                  }}
+                  title={compactContextSummary}
+                >
+                  {compactContextSummary}
+                </span>
+              ) : null}
+              <div
+                data-testid="composer-send-slot"
+                className={cn(
+                  "flex shrink-0 items-center justify-center justify-self-end",
+                  CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+                )}
+              >
+                {renderSendButton()}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              data-testid="composer-control-row"
+              className={cn(
+                CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+                CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
+                "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[var(--composer-text-pad-x,14px)]"
+              )}
+            >
+              <div
+                data-testid="composer-controls-strip"
+                className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
+              >
+                {renderComposerActionMenu()}
+                {obsidianSlashActive ? (
+                  <div
+                    data-testid="composer-obsidian-action"
+                    className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
+                    style={{ color: "var(--text)" }}
+                    title="Obsidian context will be queried for this turn"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                    <span>Obsidian</span>
+                  </div>
+                ) : null}
+                {sourceOptions.length > 0 ? (
+                  <ComposerSelectMenu
+                    ariaLabel="Select retrieval source"
+                    menuLabel="Source"
+                    valueLabel={sourceLabel}
+                    options={sourceOptions}
+                    selectedValue={sourceMode}
+                    disabled={draftControlsDisabled}
+                    onSelect={(value) => onSourceModeChange?.(value)}
+                  />
+                ) : null}
+                <ComposerSelectMenu
+                  ariaLabel="Select provider"
+                  menuLabel="Provider"
+                  valueLabel={providerLabel}
+                  options={providerOptions}
+                  selectedValue={activeProviderId}
+                  openSignal={providerOpenSignal}
+                  disabled={
+                    draftControlsDisabled || providerOptions.length === 0
+                  }
+                  onSelect={onProviderChange ?? (() => {})}
+                />
+                <ComposerSelectMenu
+                  ariaLabel="Select model"
+                  menuLabel="Model"
+                  valueLabel={modelLabel}
+                  options={modelOptions}
+                  selectedValue={activeModelId}
+                  disabled={draftControlsDisabled || modelOptions.length === 0}
+                  onSelect={onModelChange ?? (() => {})}
+                />
+                <ComposerSelectMenu
+                  ariaLabel="Select inference mode"
+                  menuLabel="Mode"
+                  valueLabel={inferenceModeLabel}
+                  options={inferenceModeOptions}
+                  selectedValue={activeInferenceMode}
+                  disabled={
+                    draftControlsDisabled ||
+                    inferenceModeOptions.length === 0
+                  }
+                  onSelect={(nextMode) =>
+                    onInferenceModeChange?.(
+                      nextMode as ComposerInferenceMode
+                    )
+                  }
+                />
+              </div>
+
+              <div
+                data-testid="composer-send-slot"
+                className={cn(
+                  "flex shrink-0 items-center justify-center",
+                  "justify-self-end",
+                  CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+                )}
+              >
+                {renderSendButton()}
+              </div>
+            </div>
+          )}
           {imageCapabilityMessage ? (
             <div className="pb-[6px] text-[11px] leading-snug" style={{ color: "var(--muted)" }}>
               {imageCapabilityMessage}

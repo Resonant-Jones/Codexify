@@ -99,10 +99,14 @@ flowchart TD
     ZA --> ZC["Guardian tools menu"]
     Y --> ZD["Runtime / auth truth notices"]
     Y --> ZE["Transcript durable record layer<br/>internal scroll owner"]
-    Y --> ZF["Resting composer<br/>lower frame edge"]
+    Y --> ZF["Compact mobile composer pill<br/>attachment/add · authored text · voice · send"]
     ZE --> ZG["Focused composition mode"]
     ZG --> ZH["Projected composer<br/>foreground over lower transcript"]
     ZG --> ZI["Keyboard below settled visible aperture"]
+    ZH --> ZJ["Command-only slash draft"]
+    ZJ --> ZK["Deterministic frontend registry/parser"]
+    ZK --> ZL["Command or value suggestions"]
+    ZL --> ZM["Existing configuration callback<br/>draft removed without transcript persistence"]
 ```
 
 **Evidence notes**
@@ -153,8 +157,23 @@ Guardian/mobile interpretation:
   record, then blurs the composer, permits keyboard dismissal, and restores the
   full record aperture. It does not prove assistant completion.
 - Failed submission preserves the authored draft and composer availability.
-- Desktop composer behavior remains unchanged. Composer control simplification
-  and Guardian inline commands remain deferred to Task 5.
+- The narrow composer is one compact pill whose direct interaction surface
+  retains attachment/add, authored text, supported voice, and send. Persistent
+  project, provider, model, mode, and retrieval selectors are absent from this
+  narrow contract.
+- A command-only `/<command> [value]` draft enters a deterministic frontend
+  branch: slash-prefix detection, bounded command/value suggestions, invocation
+  of an existing configuration callback, then command-draft removal without
+  transcript persistence. The bounded registry currently projects `/project`,
+  `/provider`, `/model`, `/mode`, and `/retrieval` because those controls exist;
+  `/profile` remains absent until a canonical Composer profile control exists.
+- Unknown slash text, escaped `//` text, embedded slash prose, and ordinary
+  authored text remain on the existing message-send branch. Runtime execution
+  stays outside the command branch; no Guardian reasoning, prompt, backend
+  route, or command bus parses these commands.
+- Existing runtime availability, authorization, compatibility, and disabled
+  states remain authoritative. Desktop composer behavior and visible selectors
+  remain unchanged.
 - Documents/Gallery mobile-shell redesign remain unimplemented and outside
   this diagram update.
 
@@ -181,6 +200,15 @@ flowchart TD
     D["Rejected authored-message submit"] --> D1["Draft remains"]
     D --> D2["Composer remains available"]
     D --> D3["No record-mode success claim"]
+
+    E["Command-only slash draft"] --> E1["Deterministic frontend parser"]
+    E1 --> E2["Command or value suggestions"]
+    E2 --> E3["Existing configuration callback"]
+    E3 --> E4["Draft removed without transcript persistence"]
+
+    F["Ordinary authored text"] --> F1["Existing send boundary"]
+    F1 --> F2["Persisted user message"]
+    F2 --> F3["Existing completion flow"]
 ```
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)

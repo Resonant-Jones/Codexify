@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
+import type { Project } from "@/types/common";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
 import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED, CHAT_THREAD_CREATED } from "@/contracts/runtimeTokens";
 import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
@@ -912,6 +913,8 @@ export function GuardianChat({
   workspaceOpen: _workspaceOpen = false,
   activeThread,
   workspaceProjectId = null,
+  projectOptions = [],
+  onComposerProjectChange,
   onSendMessage,
   onThreadPersisted: _onThreadPersisted,
   onNewChat,
@@ -950,6 +953,11 @@ export function GuardianChat({
   workspaceOpen?: boolean;
   activeThread: Thread;
   workspaceProjectId?: string | number | null;
+  projectOptions?: readonly Project[];
+  onComposerProjectChange?: (
+    projectId: string | null,
+    projectName: string | null
+  ) => void;
   onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
   onThreadPersisted?: (
     threadId: number,
@@ -4039,6 +4047,13 @@ export function GuardianChat({
               "--guardian-composer-projection-inset": "var(--card-pad)",
               "--guardian-composer-projection-gap":
                 "calc(var(--card-pad) / 2)",
+              "--guardian-composer-compact-gap":
+                "calc(var(--card-pad) / 2)",
+              "--guardian-composer-compact-min-height":
+                "calc(var(--card-pad) * 3)",
+              "--guardian-composer-command-palette-max-height":
+                "calc(var(--radius-tile) * 10)",
+              "--guardian-composer-summary-max-width": "40%",
             } as CSSProperties)
           : undefined
       }
@@ -4289,7 +4304,9 @@ export function GuardianChat({
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
-            minHeight: "140px",
+            minHeight: mobileComposerProjectionEnabled
+              ? "var(--guardian-composer-compact-min-height)"
+              : "140px",
             maxHeight: mobileShellProfile.chat.composer.shellMaxHeight,
           }}
         >
@@ -4320,6 +4337,20 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
                 projectId={composerProjectId}
                 projectName={activeThread.projectName ?? null}
+                projectOptions={projectOptions.map((project) => ({
+                  value: String(project.id),
+                  label: project.name,
+                }))}
+                onProjectChange={(projectId) => {
+                  const project =
+                    projectOptions.find(
+                      (option) => String(option.id) === projectId
+                    ) ?? null;
+                  onComposerProjectChange?.(
+                    projectId,
+                    project?.name ?? null
+                  );
+                }}
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
