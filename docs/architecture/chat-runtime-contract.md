@@ -1,13 +1,15 @@
 # Chat Runtime Contract
 
 Purpose: Define the normative frontend/shared-runtime contract for provider runtime state, request execution state, transport visibility state, message-versus-attempt identity, UI presentation, replay handling, and request-state transitions.
-Last updated: 2026-03-29
+Last updated: 2026-07-28
 Source anchors:
 - docs/architecture/chat-runtime-gap-analysis.md
 - docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
+- docs/architecture/adr/003-message-identity-vs-request-identity.md
 - frontend/src/
 - guardian/routes/chat.py
+- guardian/db/models.py
 - guardian/queue/task_events.py
 - guardian/workers/chat_worker.py
 
@@ -275,3 +277,23 @@ These are intentionally separate tasks. They are not implemented by this contrac
 3. Reconnect or resubscribe behavior for transport visibility recovery.
 4. Duplicate suppression for late terminal events and recovered streams.
 5. User-visible reconnecting or response-delayed banner policy.
+
+## Hosted Room Message Authorship
+
+`ChatMessage` now carries optional Hosted Room participant provenance:
+
+- `hosted_room_participant_id` — nullable FK to `hosted_room_participants.id` (ON DELETE SET NULL)
+- `sender_display_name_snapshot` — nullable, bounded (255 chars), immutable after creation
+
+Key rules:
+
+- Hosted Room human messages retain the canonical user/human role.
+- Future agent messages retain the canonical assistant role.
+- Participant authorship is separate from chat role — roles such as `member`, `owner`, or display names must not become chat roles.
+- Message ID remains distinct from participant ID and request ID (ADR-003).
+- Participant provenance is either both fields null (ordinary messages) or both non-null with a non-blank snapshot (room messages).
+- Sender display name is a durable presentation snapshot, not global identity proof.
+- Content remains semantically clean — participant identity is never embedded in message text.
+- Participant-room-thread consistency is a future route proof obligation (routes not yet implemented).
+- No message routes are implemented by this contract.
+- No agent invocation behavior changes.

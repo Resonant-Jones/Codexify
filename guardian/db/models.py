@@ -667,6 +667,18 @@ class ChatMessage(Base):
         nullable=False,
         server_default="{}",
     )
+    # Hosted Room participant provenance (optional, paired-null constraint)
+    hosted_room_participant_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "hosted_room_participants.id", ondelete="SET NULL"
+        ),
+        nullable=True,
+        index=True,
+    )
+    sender_display_name_snapshot: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -676,8 +688,27 @@ class ChatMessage(Base):
         "ChatThread", back_populates="messages"
     )
     user: Mapped[User] = relationship("User")
+    hosted_room_participant: Mapped[HostedRoomParticipant | None] = relationship(
+        "HostedRoomParticipant",
+        foreign_keys=[hosted_room_participant_id],
+        lazy="raise",
+    )
 
     __mapper_args__ = {"eager_defaults": True}
+
+    __table_args__ = (
+        CheckConstraint(
+            "("
+            "hosted_room_participant_id IS NULL "
+            "AND sender_display_name_snapshot IS NULL"
+            ") OR ("
+            "hosted_room_participant_id IS NOT NULL "
+            "AND sender_display_name_snapshot IS NOT NULL "
+            "AND sender_display_name_snapshot <> ''"
+            ")",
+            name="ck_chat_messages_paired_provenance",
+        ),
+    )
 
 
 # =========================

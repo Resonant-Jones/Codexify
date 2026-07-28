@@ -56,9 +56,34 @@ The persistence foundation governed by [[adr/053-node-hosted-room-access-boundar
 |---|---|---|
 | `hosted_rooms` | Account-owned lifecycle and collaboration boundary | one owner account; one unique canonical `chat_threads` reference; unique slug; status is `active` or `closed`; no access credential |
 | `hosted_room_invites` | Room-scoped invitation lineage | one room; status is `pending`, `accepted`, `revoked`, or `expired`; only a unique token hash is stored; intended display name is not identity proof |
-| `hosted_room_participants` | Room-scoped human and resident-agent identity | one room; kind is `human` or `agent`; role is `owner`, `member`, or `agent`; state is `active` or `removed`; one invitation resolves to at most one participant |
+| `hosted_room_participants` | Room-scoped human and resident-agent identity | one room; kind is `human` or `agent`; role is `owner`, `member`, or `agent`; state is `active` or `removed`; one invitation resolves to at most one participant; ON DELETE SET NULL from chat_messages |
 
 One Hosted Room maps to exactly one canonical `chat_threads` row. Messages remain exclusively in `chat_messages`; none of the Hosted Room tables is a transcript store. Room metadata is scoped through `owner_account_id`. A guest participant may have no bound Codexify account, while an agent participant must not bind to a user account.
+
+### Chat message Hosted Room provenance
+
+`chat_messages` now carries optional paired provenance fields for room-participant authorship:
+
+- `hosted_room_participant_id` (String(36), nullable, FK → `hosted_room_participants.id` ON DELETE SET NULL)
+- `sender_display_name_snapshot` (String(255), nullable, immutable after creation)
+
+Paired-nullability constraint: both fields are NULL (ordinary messages) or both are non-NULL with a non-blank snapshot (room messages). No default provenance is backfilled onto historical messages.
+
+The sender snapshot preserves the participant's display label at send time so transcript readability survives:
+- participant display-name changes
+- participant removal (SET NULL on FK)
+- participant deletion (SET NULL on FK)
+
+The snapshot is presentation metadata only — not global identity proof, not an email field, not a Contact reference, and not a live reference to the participant's current display name.
+
+Future Hosted Room message routes must verify:
+- participant belongs to the room
+- room's backing thread equals the message thread
+- participant is active
+- room is active
+- requester is authorized as that participant or owner
+
+No Contact, presence, IP address, device fingerprint, or telemetry fields exist on chat messages. Export/restore posture: participant provenance is part of canonical transcript metadata; sender snapshots are exportable; participant IDs may require remapping during restore; executable export/restore support remains deferred.
 
 The enabled resident-agent field is a bounded, inspectable list of existing agent identifiers; it is not a second agent registry or a persisted capability-grant set. Contact persistence is not introduced here, so invitation intent retains only an intended display-name snapshot and does not claim Contact identity.
 
@@ -110,6 +135,8 @@ No ambient-presence, device, location, behavioral, or cross-node synchronization
   - invitation and participant state is room-scoped; room deletion removes its authority-bearing dependent metadata, while participant removal and room closure retain historical rows.
 - `hosted_room_invites -> hosted_room_participants`
   - an invitation may originate at most one participant; deleting an invitation clears that optional lineage reference rather than deleting the participant.
+- `chat_messages -> hosted_room_participants`
+  - optional structured participant authorship provenance; ON DELETE SET NULL preserves transcript history when a participant is deleted; a durable sender display-name snapshot preserves readability even after participant removal or display-name change.
 - `chat_threads -> eval_trace_snapshots -> eval_verdicts`
   - post-completion eval snapshots and verdicts are derived inspection artifacts; they must stay linked to the original attempt and remain outside the completion acceptance path.
 - `projects -> chat_threads`
