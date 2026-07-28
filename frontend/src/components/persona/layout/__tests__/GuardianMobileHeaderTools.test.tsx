@@ -430,6 +430,18 @@ describe("Guardian mobile header tools", () => {
         "frame-first"
       );
     });
+
+    it("suspends mobile composer projection while Guardian tools are open", async () => {
+      const user = userEvent.setup();
+      renderGuardianFrameFirst();
+
+      await user.click(screen.getByTestId("guardian-mobile-tools-trigger"));
+
+      expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        mobileComposerProjectionEnabled: true,
+        mobileComposerProjectionSuspended: true,
+      });
+    });
   });
 
   describe("sidebar independence", () => {
@@ -449,6 +461,10 @@ describe("Guardian mobile header tools", () => {
           name: "Guardian navigation and threads",
         })
       ).toBeInTheDocument();
+      expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        mobileComposerProjectionEnabled: true,
+        mobileComposerProjectionSuspended: true,
+      });
     });
   });
 });

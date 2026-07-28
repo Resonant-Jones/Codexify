@@ -254,5 +254,10 @@ describe("Guardian frame-first mobile shell", () => {
     ).toContainElement(
       within(primaryFrame).getByTestId("composer-textarea")
     );
+    expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      compactMobileHeader: true,
+      mobileComposerProjectionEnabled: true,
+      mobileComposerProjectionSuspended: false,
+    });
   });
 });

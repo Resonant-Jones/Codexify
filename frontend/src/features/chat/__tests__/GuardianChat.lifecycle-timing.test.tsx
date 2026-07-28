@@ -16,6 +16,7 @@ const apiSpies = vi.hoisted(() => ({
 const taskEventSources = vi.hoisted(() => ({
   instances: [] as MockGuardianEventSource[],
 }));
+const composerSendResolvedSpy = vi.hoisted(() => vi.fn());
 
 const chatState = vi.hoisted(() => ({
   messages: [
@@ -50,6 +51,7 @@ type MockGuardianEventSource = EventTarget & {
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
   buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
+  buildChatThreadsPath: () => "/api/chat/threads",
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getAuthToken: vi.fn(() => null),
@@ -58,6 +60,10 @@ vi.mock("@/lib/api", () => ({
   getInFlightCompletionTurnId: vi.fn(() => null),
   hasRequestAuthCredential: vi.fn(() => true),
   readRuntimeApiKey: vi.fn(() => null),
+  resolveBackendThreadIdFromResponse: (response: any) => ({
+    threadId: Number(response?.data?.id) || null,
+    diagnostics: {},
+  }),
   updateThreadConfig: async (
     threadId: string | number,
     patch: Record<string, unknown>
@@ -80,6 +86,7 @@ vi.mock("@/lib/authState", () => ({
 
 vi.mock("@/lib/runtimeConfig", () => ({
   getRuntimeConfigHydrationState: () => "ready",
+  getRuntimeConfigSync: () => ({ authMode: "remote" }),
 }));
 
 vi.mock("@/lib/guardianEventSource", () => {
@@ -254,7 +261,13 @@ vi.mock("@/features/guardian/components/Composer", () => ({
     onProviderChange?: (providerId: string) => void;
   }) => (
     <div data-testid="composer-stub">
-      <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
+      <button
+        type="button"
+        data-testid="composer-send"
+        onClick={() => {
+          void onSend("hello").then(() => composerSendResolvedSpy());
+        }}
+      >
         Send
       </button>
       <button
@@ -439,6 +452,78 @@ describe("GuardianChat lifecycle timing", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("resolves a new-thread composer send after authored persistence without waiting for completion", async () => {
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/api/chat/threads") {
+        return {
+          status: 200,
+          data: {
+            id: 9,
+            thread: { id: 9, title: "hello" },
+          },
+        };
+      }
+      if (url === "/chat/9/messages") {
+        return { data: { id: 91, role: "user", content: "hello" } };
+      }
+      if (url === "/chat/9/complete") {
+        return { data: { task_id: "task-9" } };
+      }
+      return { data: {} };
+    });
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={buildThread("draft")}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            title: "New Thread",
+            pendingThread: true,
+            providerId: "local",
+            modelId: "local-model",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+        activeProviderId="local"
+        activeModelId="local-model"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/9/messages",
+        expect.objectContaining({
+          role: "user",
+          content: "hello",
+        })
+      );
+      expect(composerSendResolvedSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(apiMock.post).not.toHaveBeenCalledWith(
+      "/chat/9/complete",
+      expect.anything()
+    );
+
+    await advanceTimers(100);
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/9/complete",
+        expect.anything()
+      );
+    });
   });
 
   it("keeps queued, warmup, first-token, and generating states visible until terminal completion", async () => {

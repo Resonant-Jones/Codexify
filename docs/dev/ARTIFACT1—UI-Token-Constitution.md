@@ -111,6 +111,29 @@ Frame-first narrow Guardian perimeter:
 - The frame-first profile does not authorize an independent mobile color,
   radius, shadow, blur, or spacing system.
 
+Narrow Guardian composer projection tokens:
+
+- The focused narrow Guardian composer is a component-token-driven foreground
+  layer. Its bounded component tokens are
+  `--guardian-composer-mobile-input-size: 16px`,
+  `--guardian-composer-projection-inset: var(--card-pad)`, and
+  `--guardian-composer-projection-gap: calc(var(--card-pad) / 2)`.
+- `--guardian-composer-mobile-input-size` is the minimum computed size for both
+  entered text and placeholder text in the narrow Guardian composer. It
+  prevents browser focus zoom without restricting viewport scaling.
+- The projection inset and lower gap keep the composer inside the Guardian
+  frame. They MUST derive from established spacing tokens rather than
+  device-specific offsets or inline literals.
+- Projection layering reuses the canonical composer surface, radius, border,
+  shadow, blur, theme, wallpaper, gradient, and personalization tokens. It MUST
+  NOT establish a second glass or shadow system.
+- The transcript remains the internal vertical scroll owner. Projection may
+  occlude its lower content, but MUST NOT make the AppShell document the chat
+  scroll owner.
+- These component tokens apply only under the existing narrow frame-first
+  Guardian condition. Desktop Guardian typography and composer positioning
+  remain unchanged.
+
 IV. LAYOUT TOKENS (View-Specific Overrides)
 
 Each view can override the following:

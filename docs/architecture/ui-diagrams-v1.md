@@ -98,8 +98,11 @@ flowchart TD
     ZA --> ZB["Sidebar trigger"]
     ZA --> ZC["Guardian tools menu"]
     Y --> ZD["Runtime / auth truth notices"]
-    Y --> ZE["Transcript"]
-    Y --> ZF["Existing composer"]
+    Y --> ZE["Transcript durable record layer<br/>internal scroll owner"]
+    Y --> ZF["Resting composer<br/>lower frame edge"]
+    ZE --> ZG["Focused composition mode"]
+    ZG --> ZH["Projected composer<br/>foreground over lower transcript"]
+    ZG --> ZI["Keyboard below settled visible aperture"]
 ```
 
 **Evidence notes**
@@ -138,9 +141,47 @@ Guardian/mobile interpretation:
     utility menu and preserve their exact meaning.
   - The Codexify mark remains inside the drawer.
   - Desktop Guardian retains its existing persistent controls.
-- Composer projection and composer inline commands remain deferred.
+- The transcript is the durable record layer and remains the internal vertical
+  scroll owner. The AppShell document does not become the chat scroll owner.
+- In record mode, the compact header and runtime/auth truth remain stable, the
+  transcript occupies the record layer, and the composer rests at the lower
+  frame edge.
+- In focused composition mode, the frame and compact header remain stable while
+  the existing composer projects over the lower transcript and the existing
+  settled-viewport system places it above the keyboard aperture.
+- Successful authored-message submission enters the user turn into the durable
+  record, then blurs the composer, permits keyboard dismissal, and restores the
+  full record aperture. It does not prove assistant completion.
+- Failed submission preserves the authored draft and composer availability.
+- Desktop composer behavior remains unchanged. Composer control simplification
+  and Guardian inline commands remain deferred to Task 5.
 - Documents/Gallery mobile-shell redesign remain unimplemented and outside
   this diagram update.
+
+Narrow Guardian interaction modes:
+
+```mermaid
+flowchart TD
+    A["Record mode"] --> A1["Compact header"]
+    A --> A2["Runtime and authentication truth"]
+    A --> A3["Transcript durable record"]
+    A --> A4["Composer at lower frame edge"]
+
+    B["Focused composition mode"] --> B1["Stable frame"]
+    B --> B2["Stable compact header"]
+    B --> B3["Transcript record beneath"]
+    B --> B4["Projected composer"]
+    B --> B5["Keyboard below settled visible aperture"]
+
+    C["Successful authored-message submit"] --> C1["User message enters durable record"]
+    C --> C2["Composer blurs"]
+    C --> C3["Keyboard dismisses"]
+    C --> C4["Transcript returns to full aperture"]
+
+    D["Rejected authored-message submit"] --> D1["Draft remains"]
+    D --> D2["Composer remains available"]
+    D --> D3["No record-mode success claim"]
+```
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)
 

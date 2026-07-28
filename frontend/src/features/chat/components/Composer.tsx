@@ -187,6 +187,9 @@ export function Composer({
   sourceOptions = [],
   onSourceModeChange,
   projectName,
+  mobileProjectionEnabled = false,
+  projectionSuspended = false,
+  onMobileProjectionChange,
 }: {
   onSend: (t: string, options?: ComposerSendOptions) => Promise<void> | void;
   ensureThreadIdForAttachments?: (
@@ -230,8 +233,14 @@ export function Composer({
   currentRequestState?: unknown;
   providerRuntimeState?: unknown;
   onCatalogRefresh?: () => void;
+  mobileProjectionEnabled?: boolean;
+  projectionSuspended?: boolean;
+  onMobileProjectionChange?: (projected: boolean) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const isMobileComposerProjected =
+    mobileProjectionEnabled && isComposerFocused && !projectionSuspended;
   const syncDebounceMs = Math.max(
     0,
     draftSyncDebounceMs ?? DEFAULT_DRAFT_SYNC_DEBOUNCE_MS
@@ -268,6 +277,18 @@ export function Composer({
   const [obsidianSlashActive, setObsidianSlashActive] = useState(false);
   const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
+
+  useEffect(() => {
+    onMobileProjectionChange?.(isMobileComposerProjected);
+  }, [isMobileComposerProjected, onMobileProjectionChange]);
+
+  useEffect(() => {
+    if (!mobileProjectionEnabled || !projectionSuspended) return;
+    if (ref.current === document.activeElement) {
+      ref.current.blur();
+    }
+    setIsComposerFocused(false);
+  }, [mobileProjectionEnabled, projectionSuspended]);
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
@@ -561,6 +582,8 @@ export function Composer({
       setValue("");
       valueRef.current = "";
       commitDraftNow("");
+      ref.current?.blur();
+      setIsComposerFocused(false);
       setDraftAttachments((prev) => {
         for (const attachment of prev) {
           if (attachment.previewUrl) {
@@ -685,6 +708,7 @@ export function Composer({
     <>
       <div
         data-composer-root
+        data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
         className="flex flex-col flex-1 w-full py-[var(--composer-pad-y,12px)]"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
@@ -705,7 +729,11 @@ export function Composer({
               setObsidianSlashActive(isObsidianSlashCommand(next.trimStart()));
               scheduleDraftCommit(next);
             }}
-            onBlur={() => commitDraftNow(valueRef.current)}
+            onFocus={() => setIsComposerFocused(true)}
+            onBlur={() => {
+              setIsComposerFocused(false);
+              commitDraftNow(valueRef.current);
+            }}
             placeholder="Write a message…"
             onPaste={onPaste}
             onKeyDown={(e) => {
@@ -719,6 +747,9 @@ export function Composer({
               color: "var(--text)",
               overflow: "hidden",
               padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
+              ...(mobileProjectionEnabled
+                ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
+                : {}),
             }}
           />
 

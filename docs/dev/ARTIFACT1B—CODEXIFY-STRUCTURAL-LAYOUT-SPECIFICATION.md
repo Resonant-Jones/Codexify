@@ -325,7 +325,30 @@ Narrow/mobile Guardian navigation projection:
 - Desktop Guardian retains its existing persistent controls (global
   navigation pill, persistent sidebar, Open Workspace, settings/audio/profile
   icons, chat action icons, and runtime-notice positioning).
-- Composer projection and composer inline commands remain deferred.
+- The transcript is the durable record layer and remains the internal vertical
+  scroll owner.
+- In narrow Guardian only, focusing the composer makes that existing composer a
+  foreground interaction projection over the lower transcript. The projection
+  may visually occlude record content, but remains inside and subordinate to
+  the single Guardian primary card.
+- The frame and compact header retain their geometry while the keyboard changes
+  the settled visible aperture. The page is not rebuilt around the input, and
+  the AppShell document does not become the chat scroll owner.
+- Near the latest turn, transcript-only compensation keeps the active subject
+  visible above the projected composer. A user reading meaningfully older
+  content retains that reading position.
+- After the existing authored-message submission promise resolves, the draft
+  clears through its existing seam, the composer blurs, the keyboard may
+  dismiss, and the full record aperture returns. This boundary proves authored
+  message submission only; it does not claim assistant completion.
+- A rejected submission preserves the draft and focus availability and does
+  not falsely enter record mode.
+- Opening the navigation drawer or Guardian tools menu suspends the projection
+  and preserves the draft.
+- Desktop Guardian retains its existing composer flow, typography, controls,
+  and focus behavior.
+- Composer control simplification and Guardian inline commands remain deferred
+  to Task 5.
 - Documents and Gallery do not inherit this mobile-shell exception.
 
 Session Pill Rail (implemented):
