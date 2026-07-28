@@ -176,6 +176,10 @@ python scripts/proofs/prove_workspace_obsidian_e2e.py
 | storage backend envs | Storage factory can target local filesystem, S3, or GCS | `guardian/core/storage.py` |
 | `GUARDIAN_MEDIA_URL_SECRET` | Signs `/media/*` URLs | `guardian/core/media_signing.py` |
 
+#### Tester shared-storage invariant
+
+The friends-and-family tester stack (`codexify_tester`) shares bind-mounted host storage between `backend` and `worker-account-import` via `./data/imports:/app/data/imports`. Docker Compose resolves relative paths against the project directory, so the tester lifecycle script (`scripts/ops/codexify_tester.sh`) must always supply `--project-directory` pointing at the canonical repo root. Without this, services started from different CWDs or worktrees can resolve `./data/imports` to different host trees, breaking the import staging contract. The canonical tester project directory is `$REPO_ROOT` as resolved by the lifecycle script.
+
 ### Local embed model bootstrap contract
 
 - `guardian/scripts/ensure_embed_model.py` only reports success when the local model directory contains sentence-transformer markers (for example `modules.json`, `sentence_bert_config.json`, or `config_sentence_transformers.json`) **and** at least one weight artifact (`model.safetensors` or `pytorch_model.bin`).
