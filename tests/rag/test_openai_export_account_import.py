@@ -27,6 +27,7 @@ from guardian.db.models import (
     UploadedImage,
     User,
 )
+from guardian.protocol_tokens import AccountImportErrorCode
 from guardian.services.openai_account_import import (
     AccountImportError,
     OpenAIAccountImportService,
@@ -474,3 +475,302 @@ def test_terminal_failure_replay_does_not_inflate_counters_or_events(
         if item[:2] == ("event", "account_import.failed")
     ]
     assert len(failed_events) == 1
+
+
+def test_zero_committed_entities_cannot_be_classified_as_success(
+    account_import_service,
+):
+    service, _sessions, trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    staged_replay = service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    assert staged_replay["duplicate_count"] == 1
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.record_source_summary(
+        job_id=job["job_id"],
+        user_id="account-a",
+        summary={
+            "conversations_discovered": 1,
+            "conversations_accepted": 1,
+            "conversations_skipped": 0,
+            "conversations_failed": 1,
+            "conversation_transactions_committed": False,
+        },
+    )
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.complete_job(job_id=job["job_id"], user_id="account-a")
+
+    assert exc_info.value.code == AccountImportErrorCode.NO_COMMITTED_ENTITIES.value
+    failed = service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code=exc_info.value.code,
+        message=str(exc_info.value),
+    )
+    assert failed["status"] == "failed"
+    assert failed["imported_thread_count"] == 0
+    assert failed["imported_message_count"] == 0
+    assert failed["imported_media_count"] == 0
+    assert failed["source_summary"] == {
+        "conversations_discovered": 1,
+        "conversations_accepted": 1,
+        "conversations_skipped": 0,
+        "conversations_failed": 1,
+        "conversation_transactions_committed": False,
+    }
+    assert any(
+        item[:2] == ("event", "account_import.failed") for item in trace
+    )
+
+
+# ---------------------------------------------------------------------------
+# Retry seam service tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_zero_write_job_accepts_all_zero_counters(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code="test",
+        message="test",
+    )
+
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        is_zero, reason = service._is_zero_write_job(row)
+        assert is_zero is True
+        assert reason is None
+
+
+def test_is_zero_write_job_rejects_positive_thread_count(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        row.imported_thread_count = 5
+        session.commit()
+        is_zero, reason = service._is_zero_write_job(row)
+        assert is_zero is False
+        assert "imported_thread_count" in reason
+
+
+def test_is_zero_write_job_rejects_positive_message_count(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        row.imported_message_count = 3
+        session.commit()
+        is_zero, reason = service._is_zero_write_job(row)
+        assert is_zero is False
+        assert "imported_message_count" in reason
+
+
+def test_is_zero_write_job_rejects_positive_media_count(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        row.imported_media_count = 1
+        session.commit()
+        is_zero, reason = service._is_zero_write_job(row)
+        assert is_zero is False
+        assert "imported_media_count" in reason
+
+
+def test_retry_failed_preserves_original_failure_receipt(account_import_service):
+    service, sessions, trace, staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code="account_import_worker_failed",
+        message="disk full",
+    )
+
+    result = service.retry_failed_account_import(
+        job_id=job["job_id"], user_id="account-a"
+    )
+
+    assert result["status"] == "queued"
+    assert result["failure_count"] == 1
+    assert result["imported_thread_count"] == 0
+    assert result["imported_message_count"] == 0
+    # At least one retry event was emitted
+    retry_events = [item for item in trace if item[1] == "account_import.retry_attempt"]
+    assert len(retry_events) == 1
+    assert retry_events[0][2] == "account-a"
+
+
+def test_retry_failed_preserves_ownership(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code="test",
+        message="test",
+    )
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.retry_failed_account_import(
+            job_id=job["job_id"], user_id="account-b"
+        )
+    assert exc_info.value.code == "account_import_not_found"
+
+
+def test_retry_missing_staging_returns_restaging_required(account_import_service):
+    service, sessions, _trace, staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code="test",
+        message="test",
+    )
+
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        row.staging_locator = "account-imports/missing/scope"
+        row.staged_manifest = [
+            {"path": "nonexistent.json", "sha256": "ab", "size": 2}
+        ]
+        session.commit()
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.retry_failed_account_import(
+            job_id=job["job_id"], user_id="account-a"
+        )
+    assert exc_info.value.code == "account_import_restaging_required"
+
+
+def test_retry_rejects_nonzero_write_job(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        row.status = "failed"
+        row.imported_thread_count = 5
+        session.commit()
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.retry_failed_account_import(
+            job_id=job["job_id"], user_id="account-a"
+        )
+    assert exc_info.value.code == "account_import_retry_not_zero_write"
+
+
+def test_retry_lifecycle_creates_retry_attempt_boundary(account_import_service):
+    service, sessions, trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.fail_job(
+        job_id=job["job_id"],
+        user_id="account-a",
+        code="account_import_worker_failed",
+        message="disconnected",
+    )
+
+    result = service.retry_failed_account_import(
+        job_id=job["job_id"], user_id="account-a"
+    )
+
+    assert result["status"] == "queued"
+    # Verify retry attempt recorded in checkpoint
+    with sessions() as session:
+        row = session.get(OpenAIAccountImportJob, job["job_id"])
+        attempts = (row.checkpoint or {}).get("retry_attempts", [])
+        assert len(attempts) == 1
+        assert attempts[0]["attempt"] == 1
+        assert attempts[0]["accepted"] is True
+
+
+def test_retry_non_failed_status_rejected(account_import_service):
+    service, sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    # job is still receiving
+    with pytest.raises(AccountImportError) as exc_info:
+        service.retry_failed_account_import(
+            job_id=job["job_id"], user_id="account-a"
+        )
+    assert exc_info.value.code == "account_import_not_failed"

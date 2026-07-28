@@ -20,6 +20,7 @@ from guardian.pi.tokens import (
 )
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
+    ACCOUNT_IMPORT_ERROR_CODES,
     ACCOUNT_IMPORT_EVENT_TYPES,
     ACCOUNT_IMPORT_STATUSES,
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
@@ -69,6 +70,7 @@ from guardian.protocol_tokens import (
     TRACE_SUPPRESSION_REASONS,
     WEB_EVIDENCE_GATE_DECISIONS,
     AcceptanceStatus,
+    AccountImportErrorCode,
     AccountImportEventType,
     AccountImportStatus,
     CampaignExecutionAttemptStatus,
@@ -154,9 +156,27 @@ def test_account_import_protocol_tokens() -> None:
         "account_import.batch_committed",
         "account_import.completed",
         "account_import.failed",
+        "account_import.retry_attempt",
     }
     assert AccountImportEventType.BATCH_COMMITTED.value == (
         "account_import.batch_committed"
+    )
+    assert AccountImportEventType.RETRY_ATTEMPT.value == (
+        "account_import.retry_attempt"
+    )
+    assert ACCOUNT_IMPORT_ERROR_CODES == {
+        "account_import_no_committed_entities",
+        "account_import_restaging_required",
+        "account_import_retry_not_zero_write",
+        "account_import_retry_already_queued",
+    }
+    assert (
+        AccountImportErrorCode.NO_COMMITTED_ENTITIES.value
+        == "account_import_no_committed_entities"
+    )
+    assert (
+        AccountImportErrorCode.RESTAGING_REQUIRED.value
+        == "account_import_restaging_required"
     )
 
 

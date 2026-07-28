@@ -339,6 +339,42 @@ sequenceDiagram
     Worker->>SSE: terminal account import event
 ```
 
+## 3B) Failed Account-Import Retry Flow
+
+Trigger:
+- The owning account calls `POST /api/imports/openai-account/{job_id}/retry` on a failed zero-write import.
+
+Sequence:
+1. `guardian/routes/migration.py` resolves the authenticated account and loads the job.
+2. Ownership is verified; cross-account requests return 404 without disclosing job existence.
+3. The job must be in `failed` status. Non-failed jobs are rejected with 409.
+4. The zero-write gate inspects every canonical-write counter (`imported_thread_count`, `imported_message_count`, `imported_media_count`). Any positive count rejects the retry with `account_import_retry_not_zero_write`.
+5. The canonical staging gate verifies at least one substantive staged file exists beneath the configured import staging root. Missing staging returns `account_import_restaging_required` (409) without mutating the job.
+6. The service performs an idempotent claim: the job transitions `failed → queued` and a retry-attempt record is appended to `checkpoint.retry_attempts`. The original `error_details` are preserved.
+7. The canonical queue (`codexify:queue:account-import`) receives the task through the existing `enqueue_account_import` helper.
+8. On enqueue failure, the job rolls back to `failed` and a retry-enqueue-failure receipt is appended. The response returns 503 without exposing Redis internals.
+9. The existing `account_import_worker.py` picks up the retried job through its normal dequeue path and processes it identically to a first-attempt job.
+10. An `account_import.retry_attempt` event is emitted with job/attempt identity and lifecycle metadata.
+
+Failure branches:
+- 404: job not found or cross-account access
+- 409 `account_import_not_failed`: job is in a non-failed status
+- 409 `account_import_retry_not_zero_write`: at least one canonical-write counter is positive
+- 409 `account_import_restaging_required`: staged payload is absent from the canonical root
+- 503 `queue_enqueue_failed`: Redis enqueue failed; job reverts to `failed`
+- Worker terminal failure: the worker follows its existing failure path
+
+Idempotency posture:
+- Duplicate retry requests after a successful transition do not enqueue additional work.
+- Concurrent retry requests resolve to exactly one queue publication through database-level `for_update` locking.
+- A retry request while the job is already `queued` or `running` is rejected.
+
+Concrete anchors:
+- `guardian/routes/migration.py`
+- `guardian/services/openai_account_import.py`
+- `guardian/queue/account_import_queue.py`
+- `guardian/workers/account_import_worker.py`
+
 ## 4) Tool Execution and Job Flow
 
 Trigger:

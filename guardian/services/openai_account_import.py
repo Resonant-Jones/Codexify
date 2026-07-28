@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Callable, Sequence
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.rag.openai_export_adapter import (
     OpenAIExportFileRecord,
@@ -37,7 +38,11 @@ from guardian.db.models import (
     Project,
     UploadedImage,
 )
-from guardian.protocol_tokens import AccountImportEventType, AccountImportStatus
+from guardian.protocol_tokens import (
+    AccountImportErrorCode,
+    AccountImportEventType,
+    AccountImportStatus,
+)
 from guardian.services.media_identity import (
     compute_content_hash,
     compute_identity,
@@ -730,6 +735,11 @@ class OpenAIAccountImportService:
                 0,
                 message_delta - max(0, int(batch.get("messages_imported", 0))),
             )
+            checkpoint["canonical_duplicate_count"] = (
+                int(checkpoint.get("canonical_duplicate_count", 0))
+                + duplicate_delta
+            )
+            job.checkpoint = checkpoint
             newly_skipped = [
                 value for value in skipped_ids if value in newly_completed
             ]
@@ -774,6 +784,42 @@ class OpenAIAccountImportService:
             user_id,
         )
         return result
+
+    def record_source_summary(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        summary: dict[str, int | bool],
+    ) -> dict[str, Any]:
+        """Persist bounded source-scope evidence before terminal classification."""
+
+        bounded_summary = {
+            "conversations_discovered": max(
+                0, int(summary.get("conversations_discovered", 0))
+            ),
+            "conversations_accepted": max(
+                0, int(summary.get("conversations_accepted", 0))
+            ),
+            "conversations_skipped": max(
+                0, int(summary.get("conversations_skipped", 0))
+            ),
+            "conversations_failed": max(
+                0, int(summary.get("conversations_failed", 0))
+            ),
+            "conversation_transactions_committed": bool(
+                summary.get("conversation_transactions_committed", False)
+            ),
+        }
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id, for_update=True)
+            checkpoint = dict(job.checkpoint or {})
+            checkpoint["source_summary"] = bounded_summary
+            job.checkpoint = checkpoint
+            job.updated_at = _utcnow()
+            session.commit()
+            session.refresh(job)
+            return self.serialize_job(job)
 
     def _resolve_import_project(
         self, session: Session, *, user_id: str
@@ -1101,6 +1147,11 @@ class OpenAIAccountImportService:
             duplicate_count = sum(
                 1 for item in credited_results if item.get("duplicate")
             )
+            checkpoint["canonical_duplicate_count"] = (
+                int(checkpoint.get("canonical_duplicate_count", 0))
+                + duplicate_count
+            )
+            job.checkpoint = checkpoint
             job.imported_media_count = int(job.imported_media_count or 0) + imported_count
             job.duplicate_count = int(job.duplicate_count or 0) + duplicate_count
             job.skipped_count = int(job.skipped_count or 0) + len(credited_skips)
@@ -1149,7 +1200,25 @@ class OpenAIAccountImportService:
                 AccountImportStatus.FAILED.value,
             }:
                 return self.serialize_job(job)
-            has_warnings = int(job.warning_count or 0) > 0 or int(job.skipped_count or 0) > 0
+            committed_entity_count = (
+                int(job.imported_thread_count or 0)
+                + int(job.imported_message_count or 0)
+                + int(job.imported_media_count or 0)
+            )
+            canonical_duplicate_count = int(
+                (job.checkpoint or {}).get("canonical_duplicate_count", 0)
+            )
+            if committed_entity_count == 0 and canonical_duplicate_count == 0:
+                raise AccountImportError(
+                    "The export finished processing, but no canonical entities were committed.",
+                    code=AccountImportErrorCode.NO_COMMITTED_ENTITIES.value,
+                    status_code=500,
+                )
+            has_warnings = (
+                int(job.warning_count or 0) > 0
+                or int(job.skipped_count or 0) > 0
+                or int(job.duplicate_count or 0) > 0
+            )
             job.status = (
                 AccountImportStatus.COMPLETED_WITH_WARNINGS.value
                 if has_warnings
@@ -1214,6 +1283,164 @@ class OpenAIAccountImportService:
         return result
 
     @staticmethod
+    def _is_zero_write_job(job: OpenAIAccountImportJob) -> tuple[bool, str | None]:
+        """Return (is_zero_write, reason) for a failed job."""
+
+        counters: list[tuple[str, int]] = [
+            ("imported_thread_count", int(job.imported_thread_count or 0)),
+            ("imported_message_count", int(job.imported_message_count or 0)),
+            ("imported_media_count", int(job.imported_media_count or 0)),
+        ]
+        for name, value in counters:
+            if value < 0:
+                return False, f"malformed counter {name}={value}"
+            if value > 0:
+                return False, f"positive {name}={value}"
+
+        return True, None
+
+    def _staging_payload_exists(self, *, job: OpenAIAccountImportJob) -> bool:
+        """Verify at least one substantive staged file exists beneath the canonical root."""
+
+        locator = str(job.staging_locator or "").strip("/")
+        manifest = list(job.staged_manifest or [])
+        if not locator or not manifest:
+            return False
+        try:
+            for item in manifest[:5]:
+                path = item.get("path") or item.get("relative_path") or ""
+                if not path:
+                    continue
+                storage_name = f"{locator}/{path}"
+                if self.staging_storage.file_exists(storage_name):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def retry_failed_account_import(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        with self.db.get_session() as session:
+            job = self._require_job(
+                session, job_id, user_id, for_update=True
+            )
+
+            if job.status != AccountImportStatus.FAILED.value:
+                raise AccountImportError(
+                    "Only failed jobs may be retried.",
+                    code="account_import_not_failed",
+                    status_code=409,
+                )
+
+            is_zero_write, zero_reason = self._is_zero_write_job(job)
+            if not is_zero_write:
+                raise AccountImportError(
+                    f"This import cannot be retried: {zero_reason}",
+                    code=AccountImportErrorCode.RETRY_NOT_ZERO_WRITE.value,
+                    status_code=409,
+                )
+
+            if not self._staging_payload_exists(job=job):
+                raise AccountImportError(
+                    "The staged import data is unavailable from the active "
+                    "Codexify staging root and must be uploaded or restaged "
+                    "before retry.",
+                    code=AccountImportErrorCode.RESTAGING_REQUIRED.value,
+                    status_code=409,
+                )
+
+            checkpoint = dict(job.checkpoint or {})
+            retry_attempts: list[dict[str, Any]] = list(
+                checkpoint.get("retry_attempts") or []
+            )
+            attempt_number = len(retry_attempts) + 1
+            attempt = {
+                "attempt": attempt_number,
+                "requested_at": _utcnow().isoformat(),
+                "accepted": False,
+            }
+            retry_attempts.append(attempt)
+            checkpoint["retry_attempts"] = retry_attempts[-_DETAIL_LIMIT:]
+            job.checkpoint = checkpoint
+            flag_modified(job, "checkpoint")
+
+            job.status = AccountImportStatus.QUEUED.value
+            job.queued_at = _utcnow()
+            job.updated_at = job.queued_at
+            session.commit()
+            session.refresh(job)
+            serialized = self.serialize_job(job)
+
+        try:
+            self.enqueue_task(job_id, user_id=user_id)
+        except Exception as exc:
+            with self.db.get_session() as session:
+                job = self._require_job(
+                    session, job_id, user_id, for_update=True
+                )
+                if job.status == AccountImportStatus.QUEUED.value:
+                    job.status = AccountImportStatus.FAILED.value
+                    job.queued_at = None
+                    details = list(job.error_details or [])
+                    details.append(
+                        _bounded_detail(
+                            {
+                                "code": "retry_enqueue_failed",
+                                "message": str(exc) or exc.__class__.__name__,
+                            }
+                        )
+                    )
+                    job.error_details = details[-_DETAIL_LIMIT:]
+                    checkpoint = dict(job.checkpoint or {})
+                    retry_attempts = list(
+                        checkpoint.get("retry_attempts") or []
+                    )
+                    if retry_attempts:
+                        retry_attempts[-1]["accepted"] = False
+                        retry_attempts[-1]["failed_at"] = _utcnow().isoformat()
+                    checkpoint["retry_attempts"] = retry_attempts
+                    job.checkpoint = checkpoint
+                    flag_modified(job, "checkpoint")
+                    session.commit()
+            raise AccountImportError(
+                "The retried export could not be accepted by the background queue.",
+                code="queue_enqueue_failed",
+                status_code=503,
+            ) from exc
+
+        with self.db.get_session() as session:
+            job = self._require_job(
+                session, job_id, user_id, for_update=True
+            )
+            checkpoint = dict(job.checkpoint or {})
+            retry_attempts = list(checkpoint.get("retry_attempts") or [])
+            if retry_attempts:
+                retry_attempts[-1]["accepted"] = True
+                retry_attempts[-1]["accepted_at"] = _utcnow().isoformat()
+            checkpoint["retry_attempts"] = retry_attempts
+            job.checkpoint = checkpoint
+            flag_modified(job, "checkpoint")
+            session.commit()
+            session.refresh(job)
+            serialized = self.serialize_job(job)
+
+        self._emit(
+            AccountImportEventType.RETRY_ATTEMPT,
+            {
+                "job_id": job_id,
+                "previous_status": AccountImportStatus.FAILED.value,
+                "status": AccountImportStatus.QUEUED.value,
+                "retry_attempt": attempt_number,
+            },
+            user_id,
+        )
+        return serialized
+
+    @staticmethod
     def serialize_job(
         job: OpenAIAccountImportJob,
         *,
@@ -1235,11 +1462,17 @@ class OpenAIAccountImportService:
             "imported_message_count": int(job.imported_message_count or 0),
             "imported_media_count": int(job.imported_media_count or 0),
             "duplicate_count": int(job.duplicate_count or 0),
+            "canonical_duplicate_count": int(
+                (job.checkpoint or {}).get("canonical_duplicate_count", 0)
+            ),
             "skipped_count": int(job.skipped_count or 0),
             "warning_count": int(job.warning_count or 0),
             "failure_count": int(job.failure_count or 0),
             "warning_details": list(job.warning_details or [])[-_DETAIL_LIMIT:],
             "error_details": list(job.error_details or [])[-_DETAIL_LIMIT:],
+            "source_summary": dict(
+                (job.checkpoint or {}).get("source_summary") or {}
+            ),
             "created_at": timestamp(job.created_at),
             "queued_at": timestamp(job.queued_at),
             "started_at": timestamp(job.started_at),

@@ -780,6 +780,8 @@ class StubAccountImportService:
             "warning_details": [],
             "error_details": [],
         }
+        self._retry_error: tuple[int, str, str] | None = None
+        self._enqueue_fails: bool = False
 
     def create_job(self, **kwargs):
         self.calls.append(("create", kwargs))
@@ -804,6 +806,23 @@ class StubAccountImportService:
 
     def get_job(self, **kwargs):
         self.calls.append(("get", kwargs))
+        return dict(self.job)
+
+    def retry_failed_account_import(self, *, job_id: str, user_id: str):
+        self.calls.append(("retry", {"job_id": job_id, "user_id": user_id}))
+        if self._retry_error:
+            status, code, message = self._retry_error
+            from guardian.services.openai_account_import import AccountImportError
+            raise AccountImportError(message, code=code, status_code=status)
+        if self._enqueue_fails:
+            from guardian.services.openai_account_import import AccountImportError
+            raise AccountImportError(
+                "Queue publish failed",
+                code="queue_enqueue_failed",
+                status_code=503,
+            )
+        self.job["status"] = "queued"
+        self.job["failure_count"] = 1
         return dict(self.job)
 
 
@@ -876,3 +895,253 @@ def test_account_import_route_rejects_traversal_before_staging(
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "path_traversal_rejected"
     assert all(name != "stage" for name, _payload in service.calls)
+
+
+# ---------------------------------------------------------------------------
+# Account import retry route tests
+# ---------------------------------------------------------------------------
+
+
+def _make_retry_stub(monkeypatch: pytest.MonkeyPatch, **kwargs):
+    service = StubAccountImportService()
+    for key, value in kwargs.items():
+        setattr(service, key, value)
+    monkeypatch.setattr(
+        migration_routes, "_get_account_import_service", lambda: service
+    )
+    return service
+
+
+def test_retry_cross_account_returns_not_found(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service._retry_error = (
+        404,
+        "account_import_not_found",
+        "job not found",
+    )
+
+    response = test_client.post("/api/imports/openai-account/other-job/retry")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "account_import_not_found"
+
+
+def test_retry_eligible_failed_zero_write_job_is_accepted(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service.job["imported_thread_count"] = 0
+    service.job["imported_message_count"] = 0
+    service.job["imported_media_count"] = 0
+    service.job["failure_count"] = 1
+    service.job["error_details"] = [{"code": "staged_file_integrity_failed", "message": "corrupt"}]
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert response.json()["imported_thread_count"] == 0
+    assert response.json()["imported_message_count"] == 0
+    retry_calls = [c for c in service.calls if c[0] == "retry"]
+    assert len(retry_calls) == 1
+    assert retry_calls[0][1]["job_id"] == "job-account-1"
+
+
+def test_retry_queued_job_is_not_retried(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "queued"
+    service._retry_error = (409, "account_import_not_failed", "Only failed jobs may be retried.")
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_not_failed"
+
+
+def test_retry_running_job_is_not_retried(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "running"
+    service._retry_error = (409, "account_import_not_failed", "Only failed jobs may be retried.")
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+
+
+def test_retry_completed_job_is_not_retried(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "completed"
+    service.job["imported_thread_count"] = 5
+    service._retry_error = (409, "account_import_not_failed", "Only failed jobs may be retried.")
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_not_failed"
+
+
+def test_retry_failed_job_with_imported_threads_is_rejected(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service.job["imported_thread_count"] = 3
+    service.job["imported_message_count"] = 0
+    service.job["imported_media_count"] = 0
+    service._retry_error = (
+        409,
+        "account_import_retry_not_zero_write",
+        "positive imported_thread_count=3",
+    )
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_retry_not_zero_write"
+
+
+def test_retry_failed_job_with_imported_messages_is_rejected(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service.job["imported_thread_count"] = 0
+    service.job["imported_message_count"] = 10
+    service.job["imported_media_count"] = 0
+    service._retry_error = (
+        409,
+        "account_import_retry_not_zero_write",
+        "positive imported_message_count=10",
+    )
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_retry_not_zero_write"
+
+
+def test_retry_failed_job_with_imported_media_is_rejected(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service.job["imported_thread_count"] = 0
+    service.job["imported_message_count"] = 0
+    service.job["imported_media_count"] = 2
+    service._retry_error = (
+        409,
+        "account_import_retry_not_zero_write",
+        "positive imported_media_count=2",
+    )
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_retry_not_zero_write"
+
+
+def test_retry_missing_staging_returns_restaging_required(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service._retry_error = (
+        409,
+        "account_import_restaging_required",
+        "staged data is unavailable",
+    )
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "account_import_restaging_required"
+
+
+def test_retry_duplicate_request_does_not_double_enqueue(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+
+    r1 = test_client.post("/api/imports/openai-account/job-account-1/retry")
+    assert r1.status_code == 202
+
+    retry_calls = [c for c in service.calls if c[0] == "retry"]
+    assert len(retry_calls) == 1
+    assert retry_calls[0][1]["job_id"] == "job-account-1"
+
+
+def test_retry_preserves_original_failure_receipt(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service.job["error_details"] = [
+        {"code": "account_import_worker_failed", "message": "disk full"}
+    ]
+    service.job["failure_count"] = 1
+    service.job["imported_thread_count"] = 0
+    service.job["imported_message_count"] = 0
+    service.job["imported_media_count"] = 0
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 202
+    result = response.json()
+    assert result["failure_count"] == 1
+    assert result["imported_thread_count"] == 0
+
+
+def test_retry_enqueue_failure_returns_safe_error(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+    service._enqueue_fails = True
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "queue_enqueue_failed"
+    # status stays as failed (rollback)
+    assert service.job["status"] == "failed"
+
+
+def test_retry_cannot_spoof_account_in_body(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+
+    response = test_client.post(
+        "/api/imports/openai-account/job-account-1/retry",
+        json={"user_id": "other_user"},
+    )
+
+    assert response.status_code == 202
+    retry_calls = [c for c in service.calls if c[0] == "retry"]
+    assert retry_calls[0][1]["user_id"] == SERVER_USER_ID
+
+
+def test_retry_response_has_no_absolute_host_path(
+    test_client, monkeypatch: pytest.MonkeyPatch
+):
+    service = _make_retry_stub(monkeypatch)
+    service.job["status"] = "failed"
+
+    response = test_client.post("/api/imports/openai-account/job-account-1/retry")
+
+    body = response.text
+    assert "/Users/" not in body
+    assert "/Volumes/" not in body
+    assert ".codex/worktrees" not in body
