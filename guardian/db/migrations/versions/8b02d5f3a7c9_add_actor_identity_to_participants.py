@@ -1,7 +1,7 @@
 """add actor identity to hosted_room_participants
 
-Revision ID: d4e5f6a7b8c9
-Revises: c3d4e5f6a7b8
+Revision ID: 8b02d5f3a7c9
+Revises: 7a91c4e2f6b8
 Create Date: 2026-07-28 12:00:00.000000
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "d4e5f6a7b8c9"
-down_revision: Union[str, Sequence[str], None] = "c3d4e5f6a7b8"
+revision: str = "8b02d5f3a7c9"
+down_revision: Union[str, Sequence[str], None] = "7a91c4e2f6b8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
