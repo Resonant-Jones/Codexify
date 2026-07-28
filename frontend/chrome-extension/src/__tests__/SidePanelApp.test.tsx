@@ -144,6 +144,8 @@ function apiMock(overrides: Partial<CodexifyExtensionApi> = {}): CodexifyExtensi
   return {
     verifyConnection: vi.fn(async () => undefined),
     logout: vi.fn(async () => undefined),
+    getUserProfile: vi.fn(async () => "default"),
+    updateAccentColor: vi.fn(async () => undefined),
     listThreads: vi.fn(async () => [thread]),
     createThread: vi.fn(async () => thread),
     listMessages: vi.fn(async () => [userMessage, assistantMessage]),
@@ -535,5 +537,175 @@ describe("Codexify Chrome side panel", () => {
     expect(api.logout).toHaveBeenCalledTimes(1)
     expect(memory.current()).toBeNull()
     expect(memory.currentSession()).toBeNull()
+  })
+
+  // ── accent colour tests ────────────────────────────────────────────
+
+  it("hydrates the default accent from the backend profile after connection", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({ getUserProfile: vi.fn(async () => "default") })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+    expect(api.getUserProfile).toHaveBeenCalledTimes(1)
+
+    // The default accent means no accented class on user messages.
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle?.classList.contains("message--accented")).toBe(false)
+  })
+
+  it("applies a non-default accent to user messages", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({ getUserProfile: vi.fn(async () => "violet") })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+
+    // User message should have the accented class.
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle?.classList.contains("message--accented")).toBe(true)
+
+    // Assistant message should remain neutral.
+    const assistantArticle = document.querySelector('[data-message-id="message-assistant"]')
+    expect(assistantArticle?.classList.contains("message--accented")).toBe(false)
+  })
+
+  it("falls back to default accent when profile read fails", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({
+      getUserProfile: vi.fn(async () => { throw new Error("unreachable") }),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    // Chat still works — profile failure is non-fatal.
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+    expect(api.getUserProfile).toHaveBeenCalledTimes(1)
+
+    // Default accent means no accented class.
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle?.classList.contains("message--accented")).toBe(false)
+  })
+
+  it("shows the accent selector and can change the accent", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock()
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    // Wait for the connected shell.
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+
+    // Open the accent picker.
+    const swatchButton = screen.getByRole("button", { name: /Accent colour:/i })
+    expect(swatchButton).toBeVisible()
+    fireEvent.click(swatchButton)
+
+    // All accent choices should be visible.
+    expect(screen.getByRole("option", { name: "Default" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "Violet" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "Amber" })).toBeVisible()
+
+    // Select violet.
+    fireEvent.click(screen.getByRole("option", { name: "Violet" }))
+
+    // The API should have been called to persist the choice.
+    await waitFor(() => {
+      expect(api.updateAccentColor).toHaveBeenCalledWith("violet")
+    })
+  })
+
+  it("rolls back accent on save failure", async () => {
+    const { storage } = memoryStorage(savedProfile())
+    const api = apiMock({
+      getUserProfile: vi.fn(async () => "default"),
+      updateAccentColor: vi.fn(async () => { throw new Error("unreachable") }),
+    })
+
+    render(
+      <SidePanelApp
+        storage={storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+
+    // Open picker, select rose.
+    fireEvent.click(screen.getByRole("button", { name: /Accent colour:/i }))
+    fireEvent.click(screen.getByRole("option", { name: "Rose" }))
+
+    // Save error should appear.
+    expect(await screen.findByText(/Accent not saved/)).toBeVisible()
+
+    // The accent should remain on default (rolled back).
+    const userArticle = document.querySelector('[data-message-id="message-user"]')
+    expect(userArticle?.classList.contains("message--accented")).toBe(false)
+  })
+
+  it("does not persist the accent to Chrome storage", async () => {
+    const memory = memoryStorage(savedProfile())
+    const api = apiMock({
+      getUserProfile: vi.fn(async () => "violet"),
+    })
+
+    render(
+      <SidePanelApp
+        storage={memory.storage}
+        permissionClient={permissionMock()}
+        apiFactory={() => api}
+        now={fixedNow}
+      />,
+    )
+
+    expect(await screen.findByText(/Persisted assistant reply/)).toBeVisible()
+
+    // After hydration, the saved profile should still contain the same fields.
+    const saved = memory.current()
+    expect(saved).toBeTruthy()
+    // The stored profile never gains an accent_color or accent field.
+    const savedJson = JSON.stringify(saved)
+    expect(savedJson).not.toContain("accent")
+
+    // The connection-storage save was called but only with the connection profile.
+    expect(memory.storage.save).toHaveBeenCalled()
+    const lastSaveCall = (memory.storage.save as ReturnType<typeof vi.fn>).mock.calls.slice(-1)[0]?.[0]
+    if (lastSaveCall) {
+      expect(lastSaveCall).not.toHaveProperty("accent_color")
+      expect(lastSaveCall).not.toHaveProperty("accentColor")
+      expect(lastSaveCall).not.toHaveProperty("accent")
+    }
   })
 })

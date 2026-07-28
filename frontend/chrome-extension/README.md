@@ -70,6 +70,15 @@ Disconnect best-effort revokes a remote session, removes the persistent profile/
 
 Removing the extension also clears its local and session-scoped storage data.
 
+## User accent colour
+
+The side panel includes a compact accent-colour selector next to the connection indicator. Click the small circular swatch to choose from eight canonical tokens: Default, Blue, Cyan, Emerald, Amber, Rose, Violet, and Slate. The selected accent is stored in your connected Codexify backend through `/api/user/profile` and rehydrates automatically when you reconnect as the same account — even from a different authenticated browser client.
+
+- Only user-authored message cards use the accent (border, subtle surface tint, label colour). Assistant messages remain neutral.
+- Your credentials, connection URL, selected thread, and other local UI state are **not** synchronised and remain browser-local.
+- If the backend cannot be reached, the accent falls back to the neutral default and chat continues normally.
+- The accent is a presentation-preference token, not a CSS literal or raw colour value. No accent value is written to Chrome local or sync storage.
+
 ## Markdown rendering
 
 Assistant messages are rendered as safe Markdown using the same `react-markdown` + `remark-gfm` stack as the main Codexify frontend.

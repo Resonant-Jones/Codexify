@@ -4,6 +4,7 @@ import {
   type ConnectionProfile,
   type RemoteSessionCredential,
 } from "./connectionProfile"
+import { normalizeUserAccentToken, type UserAccentToken } from "../../src/contracts/userAccentTokens"
 
 export type CodexifyApiErrorKind =
   | "unreachable"
@@ -69,6 +70,8 @@ export interface TaskLifecycleCallbacks {
 export interface CodexifyExtensionApi {
   verifyConnection(): Promise<void>
   logout(): Promise<void>
+  getUserProfile(): Promise<UserAccentToken>
+  updateAccentColor(token: UserAccentToken): Promise<void>
   listThreads(): Promise<CodexifyThread[]>
   createThread(title?: string): Promise<CodexifyThread>
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
@@ -405,6 +408,19 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
   async cancelTask(taskId: string): Promise<void> {
     await this.requestJson(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
       method: "POST",
+    })
+  }
+
+  async getUserProfile(): Promise<UserAccentToken> {
+    const body = asRecord(await this.requestJson("/api/user/profile"))
+    const profile = asRecord(body.profile ?? body)
+    return normalizeUserAccentToken(profile.accent_color ?? profile.accentColor)
+  }
+
+  async updateAccentColor(token: UserAccentToken): Promise<void> {
+    await this.requestJson("/api/user/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ accent_color: token }),
     })
   }
 

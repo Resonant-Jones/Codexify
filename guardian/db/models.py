@@ -77,6 +77,10 @@ from guardian.tts.contracts import (
     TTS_OUTPUT_FORMATS,
     TTS_VOICE_MODES,
 )
+from guardian.user_profile_tokens import (
+    DEFAULT_USER_ACCENT_COLOR,
+    USER_ACCENT_COLORS,
+)
 
 
 class Base(DeclarativeBase):
@@ -372,6 +376,10 @@ class AccountObservabilityPresenceSession(Base):
 # =========================
 
 
+USER_ACCENT_COLOR_VALUES_SQL = "','".join(sorted(USER_ACCENT_COLORS))
+USER_ACCENT_COLOR_CHECK = f"accent_color IN ('{USER_ACCENT_COLOR_VALUES_SQL}')"
+
+
 class UserProfile(Base):
     """Account-owned presentation metadata for a canonical user."""
 
@@ -388,6 +396,12 @@ class UserProfile(Base):
     display_name: Mapped[str | None] = mapped_column(String(255))
     avatar_url: Mapped[str | None] = mapped_column(String(2048))
     timezone: Mapped[str | None] = mapped_column(String(128))
+    accent_color: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=DEFAULT_USER_ACCENT_COLOR,
+        server_default=DEFAULT_USER_ACCENT_COLOR,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -402,6 +416,10 @@ class UserProfile(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_user_profiles_user_id"),
+        CheckConstraint(
+            USER_ACCENT_COLOR_CHECK,
+            name="ck_user_profiles_accent_color",
+        ),
     )
 
     __mapper_args__ = {"eager_defaults": True}

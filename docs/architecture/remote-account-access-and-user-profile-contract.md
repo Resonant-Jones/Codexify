@@ -137,6 +137,15 @@ The future User Profile page must not own:
 
 User Profile is presentation and safe preference state. Persona Profile is runtime behavior. Those surfaces must stay separate even if they share similar labels in the UI.
 
+## Implemented User Profile Fields
+
+The following fields are implemented in the current `user_profiles` table and `/api/user/profile` route:
+
+- `display_name` — optional human-facing label.
+- `avatar_url` — optional avatar image URL.
+- `timezone` — optional IANA timezone identifier.
+- `accent_color` — non-null canonical accent-preference token. Always one of `default`, `blue`, `cyan`, `emerald`, `amber`, `rose`, `violet`, or `slate`. Server default `default`. The accent is a presentation-preference identity token, not a CSS literal, gradient, or raw hex value. The backend value is authoritative; clients rehydrate from the API and never persist a second durable copy. Unknown values are rejected at the API boundary. The accent does not mutate canonical user identity, Persona Profile state, prompts, retrieval, memory, providers, tools, permissions, or chat runtime behavior.
+
 ## Runtime Mode and Ownership Rules
 
 The following invariants apply:

@@ -38,6 +38,13 @@ import {
   type TaskLifecycleEvent,
 } from "./codexifyExtensionApi"
 import { MarkdownMessage } from "./MarkdownMessage"
+import {
+  DEFAULT_USER_ACCENT_TOKEN,
+  USER_ACCENT_CSS_VARS,
+  USER_ACCENT_LABELS,
+  USER_ACCENT_TOKENS,
+  type UserAccentToken,
+} from "../../src/contracts/userAccentTokens"
 
 type BootState = "loading" | "disconnected" | "connected"
 type ConnectionState =
@@ -51,6 +58,7 @@ type CompletionViewState =
   | "connection_lost"
   | "cancellation_requested"
 type MessageLoadState = "idle" | "loading" | "ready" | "failed"
+type ProfileSyncState = "idle" | "loading" | "ready" | "failed"
 
 export interface SidePanelAppProps {
   storage?: ConnectionStorage
@@ -211,10 +219,16 @@ export function SidePanelApp({
   const [completionReceipt, setCompletionReceipt] = useState<CompletionReceipt | null>(null)
   const [surfaceError, setSurfaceError] = useState<string | null>(null)
   const [operationBusy, setOperationBusy] = useState(false)
+  const [accentToken, setAccentToken] = useState<UserAccentToken>(DEFAULT_USER_ACCENT_TOKEN)
+  const [accentPickerOpen, setAccentPickerOpen] = useState(false)
+  const [accentSaveError, setAccentSaveError] = useState<string | null>(null)
+  const [profileSyncState, setProfileSyncState] = useState<ProfileSyncState>("idle")
 
   const apiRef = useRef<CodexifyExtensionApi | null>(null)
   const activeTaskStopRef = useRef<(() => void) | null>(null)
   const messageEndRef = useRef<HTMLDivElement | null>(null)
+  const accentPickerRef = useRef<HTMLDivElement | null>(null)
+  const lastConfirmedAccentRef = useRef<UserAccentToken>(DEFAULT_USER_ACCENT_TOKEN)
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
@@ -336,6 +350,18 @@ export function SidePanelApp({
         if (cancelled) return
         setProfile(verifiedProfile)
         setConnectionState("ready")
+        // Hydrate the accent preference from the backend profile independently
+        // of thread/message loading — a failed profile read must not break chat.
+        setProfileSyncState("loading")
+        api.getUserProfile().then((token) => {
+          if (!cancelled) {
+            setAccentToken(token)
+            lastConfirmedAccentRef.current = token
+            setProfileSyncState("ready")
+          }
+        }).catch(() => {
+          if (!cancelled) setProfileSyncState("failed")
+        })
         await hydrateChat(api, verifiedProfile.selectedThreadId)
       } catch (error) {
         if (!cancelled) recordConnectionFailure(error)
@@ -363,6 +389,23 @@ export function SidePanelApp({
   useEffect(() => {
     messageEndRef.current?.scrollIntoView?.({ block: "end" })
   }, [completionState, visibleMessages])
+
+  useEffect(() => {
+    const vars = USER_ACCENT_CSS_VARS[accentToken]
+    const root = document.documentElement
+    // Clear previous user-accent custom properties.
+    for (const key of [
+      "--user-accent-border",
+      "--user-accent-surface",
+      "--user-accent-label",
+      "--user-accent-focus",
+    ]) {
+      root.style.removeProperty(key)
+    }
+    for (const [key, value] of Object.entries(vars)) {
+      root.style.setProperty(key, value)
+    }
+  }, [accentToken])
 
   const handleSaveAndConnect = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
@@ -471,6 +514,13 @@ export function SidePanelApp({
       setUsernameInput("")
       setPasswordInput("")
       setSurfaceError(null)
+      // Hydrate the accent preference after initial connection.
+      setProfileSyncState("loading")
+      api.getUserProfile().then((token) => {
+        setAccentToken(token)
+        lastConfirmedAccentRef.current = token
+        setProfileSyncState("ready")
+      }).catch(() => setProfileSyncState("failed"))
       await hydrateChat(api, verifiedProfile.selectedThreadId)
     } catch (error) {
       await permissionClient.remove(permissionPattern).catch(() => false)
@@ -662,6 +712,44 @@ export function SidePanelApp({
       setCompletionState("connection_lost")
     }
   }
+
+  // Close the accent picker when clicking outside or pressing Escape.
+  useEffect(() => {
+    if (!accentPickerOpen) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccentPickerOpen(false)
+    }
+    const handleClick = (event: MouseEvent) => {
+      if (accentPickerRef.current && !accentPickerRef.current.contains(event.target as Node)) {
+        setAccentPickerOpen(false)
+      }
+    }
+    document.addEventListener("keydown", handleKey)
+    document.addEventListener("mousedown", handleClick)
+    return () => {
+      document.removeEventListener("keydown", handleKey)
+      document.removeEventListener("mousedown", handleClick)
+    }
+  }, [accentPickerOpen])
+
+  const handleAccentPick = useCallback(async (token: UserAccentToken): Promise<void> => {
+    const api = apiRef.current
+    if (!api || token === accentToken) {
+      setAccentPickerOpen(false)
+      return
+    }
+    const previousToken = accentToken
+    setAccentToken(token)
+    setAccentPickerOpen(false)
+    setAccentSaveError(null)
+    try {
+      await api.updateAccentColor(token)
+      lastConfirmedAccentRef.current = token
+    } catch {
+      setAccentToken(previousToken)
+      setAccentSaveError("Accent not saved — the backend could not be reached.")
+    }
+  }, [accentToken])
 
   const handleSend = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
@@ -887,6 +975,37 @@ export function SidePanelApp({
           </div>
         </div>
         <div className="header-actions">
+          {/* Accent colour selector — compact swatch + popover */}
+          <div className="accent-picker-anchor" ref={accentPickerRef}>
+            <button
+              className="accent-swatch"
+              type="button"
+              aria-label={`Accent colour: ${USER_ACCENT_LABELS[accentToken]}. Click to change.`}
+              title={`User accent: ${USER_ACCENT_LABELS[accentToken]}`}
+              onClick={() => setAccentPickerOpen((open) => !open)}
+              aria-expanded={accentPickerOpen}
+            >
+              <span className="accent-swatch-dot" data-accent={accentToken} />
+            </button>
+            {accentPickerOpen ? (
+              <div className="accent-palette-popover" role="listbox" aria-label="Accent colour">
+                {USER_ACCENT_TOKENS.map((token) => (
+                  <button
+                    key={token}
+                    className={`accent-palette-chip${token === accentToken ? " accent-palette-chip--selected" : ""}`}
+                    type="button"
+                    role="option"
+                    aria-selected={token === accentToken}
+                    aria-label={USER_ACCENT_LABELS[token]}
+                    onClick={() => void handleAccentPick(token)}
+                  >
+                    <span className="accent-chip-swatch" data-accent={token} />
+                    <span>{USER_ACCENT_LABELS[token]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button
             className="quiet-button thread-switcher"
             type="button"
@@ -1007,6 +1126,12 @@ export function SidePanelApp({
           </div>
         ) : null}
 
+        {accentSaveError ? (
+          <div className="surface-error" role="alert">
+            <span>{accentSaveError}</span>
+          </div>
+        ) : null}
+
         <section className="messages" aria-label="Chat messages" aria-busy={messageLoadState === "loading"}>
           {messageLoadState === "loading" ? (
             <div className="empty-state"><p>Loading persisted messages…</p></div>
@@ -1024,7 +1149,7 @@ export function SidePanelApp({
           {visibleMessages.map((message) => (
             <article
               key={message.id}
-              className={`message message--${message.role}`}
+              className={`message message--${message.role}${message.role === "user" && accentToken !== "default" ? " message--accented" : ""}`}
               data-message-id={message.id}
             >
               <span className="message-role">{message.role === "assistant" ? "Codexify" : "You"}</span>

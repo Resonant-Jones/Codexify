@@ -500,6 +500,15 @@ textarea:focus-visible {
   background: var(--chip-bg);
 }
 
+.message--user.message--accented {
+  border-color: var(--user-accent-border, var(--chip-border));
+  background: var(--user-accent-surface, var(--chip-bg));
+}
+
+.message--user.message--accented .message-role {
+  color: var(--user-accent-label, var(--text-subtle));
+}
+
 .message--assistant {
   align-self: flex-start;
   padding: 0 2px;
@@ -1030,4 +1039,90 @@ textarea:focus-visible {
 @keyframes task-pulse {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
+}
+
+/* ── Accent colour picker ─────────────────────────────────────────── */
+
+.accent-picker-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.accent-swatch {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.accent-swatch:hover {
+  background: var(--surface-hover);
+}
+
+.accent-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--chip-border);
+}
+
+.accent-swatch-dot[data-accent]:not([data-accent="default"]) {
+  background: var(--user-accent-focus, var(--chip-border));
+}
+
+.accent-palette-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  width: 180px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--panel-bezel);
+  border-radius: var(--radius-micro);
+  background: color-mix(in oklab, var(--panel-bg) 96%, black 4%);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38);
+}
+
+.accent-palette-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+.accent-palette-chip:hover {
+  background: var(--surface-hover);
+}
+
+.accent-palette-chip--selected {
+  border-color: var(--panel-border);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.accent-chip-swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--chip-border);
+}
+
+.accent-chip-swatch[data-accent]:not([data-accent="default"]) {
+  background: var(--user-accent-focus, var(--chip-border));
 }

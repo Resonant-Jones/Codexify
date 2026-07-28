@@ -84,6 +84,7 @@ Source anchors:
 | `collaboration_permissions` | Explicit per-document access rules | uniqueness on `(document_id, user_id)` |
 | `collaboration_audit_log` | Collaboration activity trace | backs auditability on shared docs |
 | `ws_audit_log` | WebSocket RPC audit trail | stores method, hashes, and latency metadata |
+| `user_profiles` | Account-owned presentation metadata | 1:1 with `users.id`; `accent_color` is non-null, constrained to canonical token set `['default','blue','cyan','emerald','amber','rose','violet','slate']`, server default `'default'`. |
 
 ## Relationships the Code Relies On
 

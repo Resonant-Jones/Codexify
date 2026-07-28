@@ -57,6 +57,7 @@ The extension page owns active React state, HTTP requests, and the task-event su
 | Backend URL, auth mode, selected thread, verification timestamps | One extension-local record in `chrome.storage.local` | Local to the installed extension. Explicit Save, thread selection, or Disconnect wins. No cross-device merge or Sync. |
 | Local API key | `chrome.storage.local` for `authMode=local` only | Operator-controlled compatibility credential; never sent in remote mode or rendered after save. |
 | Remote session token and expiry | Backend session store plus `chrome.storage.session` client copy | Backend expiry/revocation is authoritative. Chrome restart, extension disable/reload/update, logout, or Disconnect clears the client copy. |
+| Accent colour preference | Backend `user_profiles.accent_color` via `/api/user/profile` | Backend-authoritative. The side panel re-reads the profile after connection, reconnect, and panel reload. No accent value is persisted in Chrome local or sync storage. A failed profile read falls back to the `default` token and does not block chat. |
 
 No browser-only thread or transcript store exists. If the side panel and backend differ, a backend reload replaces the local derived view. The client does not synthesize an assistant message from event payloads.
 
@@ -133,6 +134,7 @@ The extension changes no routes and uses these current contracts directly:
 - `GET /ping` for a reachability-only probe.
 - `POST /api/auth/login` for remote username/password session establishment.
 - `POST /api/auth/logout` for remote session revocation.
+- `GET /api/user/profile` and `PATCH /api/user/profile` for the account-scoped accent colour preference.
 - `GET /api/chat/threads` and `POST /api/chat/threads` for persisted thread listing/creation.
 - `GET /api/chat/{threadId}/messages` and `POST /api/chat/{threadId}/messages` for authoritative transcript reads and user-message persistence.
 - `POST /api/chat/{threadId}/complete` with a generated `turn_id` and `X-Request-ID` for completion acceptance.
@@ -198,3 +200,11 @@ Deferred deliberately:
 - refresh tokens, silent renewal, or stronger credential protection;
 - signed/distributed packaging and update policy;
 - live Chrome/backend proof receipts for each tested topology.
+
+## Accent-colour preference
+
+The side panel includes a compact accent-colour selector in the connected header. The selected accent token is stored in the Codexify backend (`user_profiles.accent_color`) through `PATCH /api/user/profile` and rehydrated from `GET /api/user/profile` after connection, panel reload, and reconnect. Chrome local and sync storage are never used for accent persistence. A failed profile read falls back to the neutral `default` token and does not block chat.
+
+Only user-authored message cards consume the accent token (border, subtle surface tint, label colour). Assistant-message styling remains unchanged. The accent is a presentation-preference token, not a CSS literal, gradient, or raw hex value. The exact rendered shade may evolve while the stable token name remains the same.
+
+No other UI/session state is synchronised in this slice. Selected thread, drafts, scroll position, composer text, sidebar width, connection URL, API keys, and session tokens remain local to the extension.
