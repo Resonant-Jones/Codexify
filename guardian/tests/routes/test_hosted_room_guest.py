@@ -15,6 +15,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 # Ensure DEV_MODE so the session secret falls back to dev-secret in tests
 os.environ.setdefault("DEV_MODE", "true")
@@ -1130,6 +1131,93 @@ def test_guest_message_no_credentials_leaked(client):
     assert "account_id" not in data
     if data.get("sender"):
         assert "bound_account_id" not in data["sender"]
+
+
+def test_guest_explicit_guardian_invocation_returns_async_acceptance(client, monkeypatch):
+    room_resp = client.post(
+        "/api/hosted-rooms",
+        json={
+            "title": "Guest Explicit Guardian Room",
+            "enabled_actors": [{"source": "resident", "ref": "guardian"}],
+        },
+    )
+    assert room_resp.status_code == 201
+    room_id = room_resp.json()["id"]
+    _invite_id, token = _create_invite(client, room_id)
+    exchange_resp = client.post(
+        "/api/hosted-room-invitations/exchange",
+        json={"invitation_token": token},
+    )
+    assert exchange_resp.status_code == 200
+    session_cookie = _extract_cookies(exchange_resp)[_SESSION_COOKIE_NAME]
+    detail = client.get(f"/api/hosted-rooms/{room_id}").json()
+    guardian = next(
+        participant
+        for participant in detail["participants"]
+        if participant["actor_source"] == "resident"
+        and participant["actor_ref"] == "guardian"
+    )
+    source_resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "Owner source for guest invocation"},
+    )
+    assert source_resp.status_code == 201
+    message_id = source_resp.json()["id"]
+
+    import guardian.routes.hosted_room_guest as hrg
+
+    captured = {}
+
+    def _enqueue(task, **kwargs):
+        captured["task"] = task
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            task_id="task-9f-guest",
+            acceptance_status="accepted_with_warnings",
+            acceptance_warnings=("queue_degraded",),
+        )
+
+    monkeypatch.setattr(hrg, "enqueue_chat_completion", _enqueue)
+    response = client.post(
+        f"/api/hosted-room-session/actors/{guardian['id']}/invoke",
+        headers={"X-Request-ID": "request-9f-guest"},
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+        json={"message_id": message_id},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["request_id"] == "request-9f-guest"
+    assert data["acceptance_status"] == "accepted_with_warnings"
+    assert data["acceptance_warnings"] == ["queue_degraded"]
+    assert data["task_id"] == "task-9f-guest"
+    assert data["room_id"] == room_id
+    assert data["source_message_id"] == message_id
+    assert data["actor_participant_id"] == guardian["id"]
+    assert "invitation_token" not in data
+    assert "session_token" not in data
+    assert "content" not in data
+    assert captured["task"].hosted_room_invocation.requester_authority == "guest"
+    assert captured["task"].hosted_room_invocation.requester_participant_id
+    assert captured["kwargs"]["turn_id"]
+
+
+def test_guest_explicit_invocation_body_is_exactly_message_id(client):
+    room_id, session_cookie = _create_guest_session(client)
+    response = client.post(
+        "/api/hosted-room-session/actors/guardian-1/invoke",
+        cookies={_SESSION_COOKIE_NAME: session_cookie},
+        json={"message_id": 42, "provider": "not-accepted"},
+    )
+    assert response.status_code == 422
+
+
+def test_guest_explicit_invocation_requires_guest_session(client):
+    response = client.post(
+        "/api/hosted-room-session/actors/guardian-1/invoke",
+        json={"message_id": 42},
+    )
+    assert response.status_code == 401
 
 
 # ── Shared transcript proof ────────────────────────────────────────────

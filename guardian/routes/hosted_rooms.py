@@ -17,8 +17,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from sqlalchemy import select, func
 
 from guardian.core.hosted_room_messages import (
@@ -32,6 +32,15 @@ from guardian.core.hosted_room_messages import (
     validate_content,
     validate_room_for_messaging,
 )
+from guardian.core.hosted_room_invocation import (
+    HostedRoomInvocationPreparationError,
+    prepare_hosted_room_guardian_invocation,
+)
+from guardian.core.chat_completion_service import (
+    ChatCompletionEnqueueError,
+    enqueue_chat_completion,
+)
+from guardian.core.request_correlation import normalize_request_id
 from guardian.hosted_rooms.actor_tokens import (
     GUARDIAN_DISPLAY,
     GUARDIAN_REF,
@@ -504,6 +513,28 @@ class UpdateRoomRequest(BaseModel):
         if value is None:
             return None
         return str(value).strip()
+
+
+class GuardianInvocationRequest(BaseModel):
+    message_id: StrictInt = Field(..., gt=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GuardianInvocationResponse(BaseModel):
+    ok: bool = True
+    request_id: str
+    acceptance_status: str
+    acceptance_warnings: list[str]
+    task_id: str
+    room_id: str
+    thread_id: int
+    source_message_id: int
+    actor_participant_id: str
+    actor_source: str
+    actor_ref: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
 # ── Invitation request/response models ───────────────────────────────────
@@ -1015,6 +1046,120 @@ def revoke_invite(
         return {
             "invitation": _invite_metadata(invite).model_dump(mode="json")
         }
+
+
+# ── Explicit Guardian invocation ────────────────────────────────────────
+
+
+def _invocation_request_id(request: Request | None, header_value: str | None) -> str:
+    state_value = getattr(getattr(request, "state", None), "request_id", None)
+    normalized, _ = normalize_request_id(state_value or header_value)
+    return normalized
+
+
+def _owner_invocation_error(exc: HostedRoomInvocationPreparationError) -> None:
+    if exc.code == "hosted_room_not_found":
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Room not found"},
+        ) from exc
+    if exc.code == "hosted_room_inactive":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "room_not_active", "message": "Room is not active"},
+        ) from exc
+    if exc.code == "hosted_room_source_message_invalid":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "source_message_invalid",
+                "message": "Source message is not a valid human room message",
+            },
+        ) from exc
+    if exc.code == "hosted_room_actor_inactive":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "actor_inactive", "message": "Guardian is not active"},
+        ) from exc
+    if exc.code == "hosted_room_thread_mismatch":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "room_thread_invalid", "message": "Room thread is unavailable"},
+        ) from exc
+    raise HTTPException(
+        status_code=409,
+        detail={"error": "actor_invalid", "message": "Guardian is not available in this room"},
+    ) from exc
+
+
+def _enqueue_owner_invocation(prepared) -> dict[str, Any]:
+    try:
+        result = enqueue_chat_completion(
+            prepared.task,
+            thread_id=prepared.thread_id,
+            turn_id=prepared.turn_id,
+            request_id=prepared.request_id,
+        )
+    except ChatCompletionEnqueueError as exc:
+        if exc.reason == "turn_in_flight":
+            raise HTTPException(status_code=429, detail="turn_in_flight") from exc
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "completion_service_unavailable",
+                "message": "Completion service unavailable",
+            },
+        ) from exc
+
+    return {
+        "request_id": prepared.request_id,
+        "acceptance_status": result.acceptance_status,
+        "acceptance_warnings": list(result.acceptance_warnings),
+        "task_id": result.task_id,
+        "room_id": prepared.room_id,
+        "thread_id": prepared.thread_id,
+        "source_message_id": prepared.source_message_id,
+        "actor_participant_id": prepared.guardian_participant_id,
+        "actor_source": prepared.validated_context.actor_source,
+        "actor_ref": prepared.validated_context.actor_ref,
+    }
+
+
+@router.post(
+    "/{room_id}/actors/{participant_id}/invoke",
+    response_model=GuardianInvocationResponse,
+    status_code=202,
+)
+def owner_invoke_guardian(
+    room_id: str,
+    participant_id: str,
+    body: GuardianInvocationRequest = Body(...),
+    request: Request = None,
+    request_id: str | None = Header(None, alias="X-Request-ID"),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    account_id = _resolve_account_id(request_user_scope)
+    db = _require_db()
+
+    # Ownership is checked before any invocation-specific lookup so another
+    # account receives the existing non-disclosing room response.
+    with db.get_session() as session:
+        _require_room_ownership(session, room_id, account_id)
+
+    try:
+        prepared = prepare_hosted_room_guardian_invocation(
+            db,
+            room_id=room_id,
+            source_message_id=body.message_id,
+            actor_participant_id=participant_id,
+            requester_authority="owner",
+            requester_participant_id=None,
+            request_id=_invocation_request_id(request, request_id),
+        )
+    except HostedRoomInvocationPreparationError as exc:
+        _owner_invocation_error(exc)
+
+    return _enqueue_owner_invocation(prepared)
 
 
 # ── Owner message routes ─────────────────────────────────────────────────

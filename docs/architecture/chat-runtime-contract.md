@@ -27,7 +27,7 @@ The ordinary HTTP completion route and the shared completion acceptance operatio
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
 
-Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded context consumed only when an already-constructed task reaches the worker; this contract adds no Hosted Room invocation route or enqueue behavior. Ordinary tasks bypass Hosted Room validation and persistence provenance.
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. Hosted Room owner and guest invocation routes construct the bounded `ChatCompletionTask.hosted_room_invocation` context only after route-specific authority checks, then use the same shared acceptance operation. Ordinary tasks bypass Hosted Room validation and persistence provenance.
 
 ### Completion task identity context
 
@@ -45,11 +45,12 @@ authorization and revalidation:
 
 The context records authority information but grants no authority by itself.
 Owner requests omit `requester_participant_id`; guest requests require it.
-Routes and future callers remain responsible for authentication, authorization,
-and task construction. The worker revalidates room, source-message, actor,
-requester, invitation, and lifecycle state before model execution and again
-immediately before assistant persistence. No public route or enqueue path creates
-this invocation task yet, so there is no user-visible Hosted Room invocation.
+Routes and the route-neutral preparation service remain responsible for
+authentication, authorization, and task construction. The worker revalidates
+room, source-message, actor, requester, invitation, and lifecycle state before
+model execution and again immediately before assistant persistence. Public
+invocation routes expose acceptance only; they do not imply execution or
+assistant persistence.
 
 ## Canonical Provider States
 
@@ -331,7 +332,8 @@ Key rules:
   metadata-bearing tasks; routes and task producers remain responsible for
   authorization before task construction.
 - No message routes are implemented by this contract.
-- No agent invocation behavior changes.
+- No mention-triggered agent invocation behavior changes; explicit Guardian
+  invocation is defined by the dedicated routes below.
 
 ### Canonical message-persistence seam
 
@@ -348,8 +350,9 @@ layers remain responsible for participant, room, requester, and lifecycle
 authorization before using the seam. When a bounded Hosted Room task is present,
 the chat worker passes the validated Guardian participant ID and the canonical
 `Guardian` display snapshot in the same assistant insert. The worker does not
-change model, prompt, retrieval, retry, queue, or task-schema behavior. No
-Hosted Room invocation endpoint exists yet.
+change model, prompt, retrieval, retry, queue, or task-schema behavior. Explicit
+Hosted Room invocation routes prepare the bounded task context and delegate to
+canonical acceptance; no later provenance update is used.
 
 ### Hosted Room message routes
 
@@ -361,6 +364,10 @@ Guest routes (room-session cookie):
 - `GET /api/hosted-room-session/messages` — list transcript with cursor pagination
 - `POST /api/hosted-room-session/messages` — post human message
 
+Explicit Guardian invocation routes:
+- `POST /api/hosted-rooms/{room_id}/actors/{participant_id}/invoke` — owner-authorized asynchronous invocation
+- `POST /api/hosted-room-session/actors/{participant_id}/invoke` — guest-session-authorized asynchronous invocation
+
 Message behavior:
 - Human messages persist as canonical `ChatMessage` rows with role `user`.
 - Participant provenance (`hosted_room_participant_id` + `sender_display_name_snapshot`) is mandatory for newly posted room human messages.
@@ -368,4 +375,4 @@ Message behavior:
 - Read projection excludes account IDs, `extra_meta` internals, and request/task IDs.
 - Pagination: `after_id` (cursor) + `limit` (default 100, max 200), ascending ID order.
 - Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
-- No completion side effect: mentions (`@Guardian`, `@Luna`) persist as text; no model is invoked.
+- No completion side effect from posting a message: mentions (`@Guardian`, `@Luna`) persist as text; explicit invocation requires one of the two routes above and a source `message_id`.

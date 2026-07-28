@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -2147,3 +2148,100 @@ def test_owner_message_response_has_no_extra_meta(client):
     assert "extra_meta" not in data
     assert "invitation_id" not in data
     assert "token_hash" not in data
+
+
+def _create_guardian_source_message(client) -> tuple[str, str, int]:
+    room_resp = client.post(
+        "/api/hosted-rooms",
+        json={
+            "title": "Explicit Guardian Room",
+            "enabled_actors": [{"source": "resident", "ref": "guardian"}],
+        },
+    )
+    assert room_resp.status_code == 201
+    room_id = room_resp.json()["id"]
+    detail = client.get(f"/api/hosted-rooms/{room_id}").json()
+    guardian = next(
+        participant
+        for participant in detail["participants"]
+        if participant["actor_source"] == "resident"
+        and participant["actor_ref"] == "guardian"
+    )
+    message_resp = client.post(
+        f"/api/hosted-rooms/{room_id}/messages",
+        json={"content": "A source message for Guardian"},
+    )
+    assert message_resp.status_code == 201
+    return room_id, guardian["id"], message_resp.json()["id"]
+
+
+def test_owner_explicit_guardian_invocation_returns_async_acceptance(client, monkeypatch):
+    room_id, actor_id, message_id = _create_guardian_source_message(client)
+    import guardian.routes.hosted_rooms as hr
+
+    captured = {}
+
+    def _enqueue(task, **kwargs):
+        captured["task"] = task
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            task_id="task-9f-owner",
+            acceptance_status="accepted",
+            acceptance_warnings=(),
+        )
+
+    monkeypatch.setattr(hr, "enqueue_chat_completion", _enqueue)
+    response = client.post(
+        f"/api/hosted-rooms/{room_id}/actors/{actor_id}/invoke",
+        headers={"X-Request-ID": "request-9f-owner"},
+        json={"message_id": message_id},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert set(data) == {
+        "ok",
+        "request_id",
+        "acceptance_status",
+        "acceptance_warnings",
+        "task_id",
+        "room_id",
+        "thread_id",
+        "source_message_id",
+        "actor_participant_id",
+        "actor_source",
+        "actor_ref",
+    }
+    assert data["ok"] is True
+    assert data["request_id"] == "request-9f-owner"
+    assert data["acceptance_status"] == "accepted"
+    assert data["task_id"] == "task-9f-owner"
+    assert data["room_id"] == room_id
+    assert data["source_message_id"] == message_id
+    assert data["actor_participant_id"] == actor_id
+    assert data["actor_source"] == "resident"
+    assert data["actor_ref"] == "guardian"
+    assert "content" not in data
+    assert "account_id" not in data
+    assert "credential" not in data
+    assert captured["task"].latest_turn_message_id == message_id
+    assert captured["task"].hosted_room_invocation is not None
+    assert captured["kwargs"]["thread_id"] == data["thread_id"]
+    assert captured["kwargs"]["turn_id"]
+
+
+def test_owner_explicit_invocation_body_is_exactly_message_id(client):
+    room_id, actor_id, message_id = _create_guardian_source_message(client)
+    response = client.post(
+        f"/api/hosted-rooms/{room_id}/actors/{actor_id}/invoke",
+        json={"message_id": message_id, "model": "not-accepted"},
+    )
+    assert response.status_code == 422
+
+
+def test_owner_explicit_invocation_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.post(
+        "/api/hosted-rooms/room-1/actors/guardian-1/invoke",
+        json={"message_id": 42},
+    )
+    assert response.status_code == 401

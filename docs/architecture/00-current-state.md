@@ -17,7 +17,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 
 ## What changed recently
 - Added Hosted Room actor participant identity: Guardian is now a canonical resident actor with stable identity. User-owned Personas can be referenced through `local_persona` bindings. Actor lifecycle is durable across enable/disable. Luna is not a Codexify-native actor.
-- Added bounded worker-side consumption of out-of-band Hosted Room Guardian completion metadata: the worker revalidates room, source-message, actor, requester, invitation, and lifecycle state before persisting structured assistant provenance. No route or enqueue path creates this task, so no user-visible invocation exists.
+- Added explicit asynchronous Hosted Room Guardian invocation for authenticated owners and valid guest sessions. The owner and guest routes accept only an explicit human `message_id`, revalidate the current room/thread/source/Guardian/requester authority, construct bounded invocation metadata, and delegate acceptance to the canonical chat enqueue path. Mentions remain ordinary text.
 - Added Hosted Room human message read/write API: owners and guest sessions can read one canonical transcript and post human messages with structured participant provenance. Mentions are ordinary text with no agent invocation.
 - Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
@@ -77,9 +77,12 @@ What is now implemented:
 - Owner and guest routes enforce active room and participant state.
 - Deterministic bounded polling-compatible pagination exists.
 - Account isolation is enforced on all owner and invitation routes.
+- Owners can invoke the one active resident Guardian with `POST /api/hosted-rooms/{room_id}/actors/{participant_id}/invoke`.
+- Valid guest sessions can invoke the one active resident Guardian with `POST /api/hosted-room-session/actors/{participant_id}/invoke`.
+- Both invocation routes accept exactly `{"message_id": <positive integer>}` and return asynchronous acceptance metadata only; they do not return assistant content or credentials.
+- Invocation preparation revalidates the explicit source human message, canonical active Guardian participant, backing thread, and owner/guest requester lineage before calling `enqueue_chat_completion`.
 
 What remains unimplemented:
-- Guardian invocation.
 - Luna invocation.
 - Agent participant provenance.
 - Automatic assistant responses.
@@ -92,15 +95,15 @@ What remains unimplemented:
 - Session invalidation after revocation (already works via per-request lifecycle check).
 - Release qualification.
 
-Enabled-agent configuration is stored but does not yet grant an invocation path.
+Enabled-agent configuration is stored and the active resident Guardian binding grants only the explicit Guardian invocation routes described above; it does not create mention-driven behavior.
 Generated join paths (e.g., `/join/{token}`) are not yet functional guest-entry routes.
-Guest sessions currently authorize session inspection and human message read/write — no agent authority exists.
+Guest sessions authorize session inspection, human message read/write, and explicit Guardian invocation when the current invitation and participant lineage remain valid.
 Mentions (e.g., `@Guardian`, `@Luna`) are currently ordinary persisted text; no model is invoked by posting a mention.
-The internal worker validation branch is unreachable through current public routes
-and does not widen the release-qualified Hosted Room feature boundary.
+The worker validation branch is reachable only through those explicit routes and
+still does not widen the release-qualified Hosted Room feature boundary.
 
 ## Not yet true / do not assume
-- Do not assume Hosted Room guest access or invitation exchange is implemented.
+- Do not assume Hosted Room automatic agent responses, Luna invocation, or a release-qualified end-to-end Guardian path.
 - Do not assume cloud-provider beta support.
 - Do not assume the packaged desktop shell replaces the local Compose supported path.
 - Do not assume docs-only contracts or implementation-target inspections mean shipped runtime support.

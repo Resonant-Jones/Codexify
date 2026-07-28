@@ -18,9 +18,10 @@
   - enqueue onto the canonical chat queue
   - emit the best-effort `task.created` breadcrumb
   - calculate `accepted` versus `accepted_degraded` and reconcile queue failures
-- `ChatCompletionTask` carries one optional `HostedRoomInvocationMetadata` value.
+- `ChatCompletionTask` carries one optional `HostedRoomInvocationMetadata` value. Explicit Hosted Room owner and guest routes are the current public producers of this bounded field.
   - It is a bounded identity-and-authority context for an already-authorized
-    future caller; it is not an authority grant and no current route constructs it.
+    caller; it is not an authority grant. Current Hosted Room routes construct
+    it only after their owner or guest checks pass.
   - Ordinary completion tasks remain valid without it. Because task serialization
     uses the dataclass shape, ordinary task payloads carry
     `hosted_room_invocation: null`; legacy payloads without the key remain readable.
@@ -182,11 +183,12 @@ UI
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance transaction: canonical task identity, thread-scoped lock acquisition, stale-lock recovery, canonical queue publication, task-created publication, acceptance-status calculation, and queue-failure lock reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, assistant-message persistence, terminal events, and successful-turn lock release.
 - The existing task type and fields, queue name, lock key/TTL, and acceptance event sequence are unchanged. The worker has a bounded metadata-bearing branch, while ordinary worker behavior remains unchanged.
-- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room route or enqueue path creates invocation tasks yet. Future Hosted Room worker integration must pass validated provenance through the canonical persistence seam. It must not insert a message and apply provenance through a later update.
+- Hosted Room invocation routes reuse `enqueue_chat_completion`; they do not implement a parallel lock, queue, or task-event sequence. The worker receives validated provenance through the canonical persistence seam and does not insert a message and apply provenance through a later update.
 
 ## Bounded Hosted Room Invocation Context
 
-The optional task field is deliberately narrower than an invocation feature. Its
+The optional task field is deliberately narrower than a general invocation
+feature. Its
 only fields are `room_id`, `source_message_id`, `actor_participant_id`,
 `actor_source`, `actor_ref`, `requester_authority`, and
 `requester_participant_id`. Version-one values accept only the resident Guardian
@@ -194,17 +196,24 @@ actor (`actor_source=resident`, `actor_ref=guardian`) and requester authority
 `owner` or `guest`; guest requests must carry a participant ID and owner requests
 must not. The value does not grant authority, change queueing, or alter the
 model, prompt, retrieval, retry, or lifecycle pipeline. When present on an
-out-of-band task, the worker consumes it only after fail-closed database
+accepted task, the worker consumes it only after fail-closed database
 revalidation and persists the resulting Guardian provenance atomically with the
 assistant row.
 
-No Hosted Room invocation endpoint or route is added by this task. The chat
-worker does not receive such metadata from a current public route or enqueue
-path. No task type, queue name, task-created event, or migration is added or
-changed. Future Hosted Room work must first authorize and validate its caller,
-then use this bounded task field and the canonical completion acceptance
-operation and persistence seam rather than creating a second completion pipeline
-or applying post-insert provenance.
+The current routes are:
+
+- `POST /api/hosted-rooms/{room_id}/actors/{participant_id}/invoke` for an
+  authenticated room owner.
+- `POST /api/hosted-room-session/actors/{participant_id}/invoke` for a valid
+  signed guest session.
+
+Both accept only `message_id`. Route-neutral preparation verifies the active
+room and backing thread, the explicit human source message, the single active
+resident Guardian participant, and owner/guest requester lineage. The route
+then delegates to `enqueue_chat_completion`. The response is `202` acceptance
+metadata only; no assistant message is created by the route and no provider or
+model is selected by the request body. No task type, queue name, task-created
+event, or migration is added or changed.
 
 ## Completion Terminal Evidence
 

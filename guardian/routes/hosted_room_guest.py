@@ -14,8 +14,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from sqlalchemy import select
 
 from guardian.core.db import load_guardian_db_from_env
@@ -38,6 +38,15 @@ from guardian.core.hosted_room_session import (
     issue_guest_session_token,
     set_session_cookie,
 )
+from guardian.core.hosted_room_invocation import (
+    HostedRoomInvocationPreparationError,
+    prepare_hosted_room_guardian_invocation,
+)
+from guardian.core.chat_completion_service import (
+    ChatCompletionEnqueueError,
+    enqueue_chat_completion,
+)
+from guardian.core.request_correlation import normalize_request_id
 from guardian.db.models import (
     HostedRoom,
     HostedRoomInvite,
@@ -139,6 +148,28 @@ class LogoutResponse(BaseModel):
     """Logout confirmation."""
 
     ok: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GuardianInvocationRequest(BaseModel):
+    message_id: StrictInt = Field(..., gt=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GuardianInvocationResponse(BaseModel):
+    ok: bool = True
+    request_id: str
+    acceptance_status: str
+    acceptance_warnings: list[str]
+    task_id: str
+    room_id: str
+    thread_id: int
+    source_message_id: int
+    actor_participant_id: str
+    actor_source: str
+    actor_ref: str
 
     model_config = ConfigDict(extra="forbid")
 
@@ -439,6 +470,101 @@ def logout(response: Response) -> dict[str, Any]:
     """
     clear_session_cookie(response)
     return {"ok": True}
+
+
+# ── Explicit Guardian invocation ────────────────────────────────────────
+
+
+def _guest_invocation_request_id(request: Request, header_value: str | None) -> str:
+    state_value = getattr(getattr(request, "state", None), "request_id", None)
+    normalized, _ = normalize_request_id(state_value or header_value)
+    return normalized
+
+
+def _guest_invocation_error(exc: HostedRoomInvocationPreparationError) -> None:
+    if exc.code == "hosted_room_source_message_invalid":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "source_message_invalid",
+                "message": "Source message is not a valid human room message",
+            },
+        ) from exc
+    raise _unauthorized() from exc
+
+
+def _enqueue_guest_invocation(prepared) -> dict[str, Any]:
+    try:
+        result = enqueue_chat_completion(
+            prepared.task,
+            thread_id=prepared.thread_id,
+            turn_id=prepared.turn_id,
+            request_id=prepared.request_id,
+        )
+    except ChatCompletionEnqueueError as exc:
+        if exc.reason == "turn_in_flight":
+            raise HTTPException(status_code=429, detail="turn_in_flight") from exc
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "completion_service_unavailable",
+                "message": "Completion service unavailable",
+            },
+        ) from exc
+
+    return {
+        "request_id": prepared.request_id,
+        "acceptance_status": result.acceptance_status,
+        "acceptance_warnings": list(result.acceptance_warnings),
+        "task_id": result.task_id,
+        "room_id": prepared.room_id,
+        "thread_id": prepared.thread_id,
+        "source_message_id": prepared.source_message_id,
+        "actor_participant_id": prepared.guardian_participant_id,
+        "actor_source": prepared.validated_context.actor_source,
+        "actor_ref": prepared.validated_context.actor_ref,
+    }
+
+
+@router.post(
+    "/api/hosted-room-session/actors/{participant_id}/invoke",
+    response_model=GuardianInvocationResponse,
+    status_code=202,
+)
+def guest_invoke_guardian(
+    participant_id: str,
+    body: GuardianInvocationRequest = Body(...),
+    request: Request = None,
+    request_id: str | None = Header(None, alias="X-Request-ID"),
+) -> dict[str, Any]:
+    token = extract_session_token_from_request(request)
+    if not token:
+        raise _unauthorized()
+
+    principal = decode_principal(token)
+    db = _require_db()
+    with db.get_session() as session:
+        room = session.get(HostedRoom, principal.room_id)
+        invite = session.get(HostedRoomInvite, principal.invitation_id)
+        requester = session.get(HostedRoomParticipant, principal.participant_id)
+        if room is None or invite is None or requester is None:
+            raise _unauthorized()
+        _validate_session_lifecycle(session, principal, room, invite, requester)
+
+    try:
+        prepared = prepare_hosted_room_guardian_invocation(
+            db,
+            room_id=principal.room_id,
+            source_message_id=body.message_id,
+            actor_participant_id=participant_id,
+            requester_authority="guest",
+            requester_participant_id=principal.participant_id,
+            request_id=_guest_invocation_request_id(request, request_id),
+        )
+    except HostedRoomInvocationPreparationError as exc:
+        _guest_invocation_error(exc)
+
+    return _enqueue_guest_invocation(prepared)
 
 
 # ── Guest message routes ─────────────────────────────────────────────────
