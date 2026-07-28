@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_COMPOSER_SEND_EDGE_INSET_CLASS } from "@/features/chat/chatLane";
 import { Composer } from "@/features/chat/components/Composer";
 
 const projectOptions = [
@@ -82,6 +83,18 @@ describe("Guardian mobile composer inline commands", () => {
       screen.getByRole("button", { name: "Open composer actions" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+
+    // Send remains the final control and uses the canonical right-action inset token.
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+    expect(sendSlot.className).not.toMatch(/\bpr-\[/);
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton.className).not.toMatch(/\b-mr-\[/);
+    expect(sendButton.className).not.toMatch(/\btranslate[Xx]\b/);
+
+    // Mobile control row does not use the desktop send-edge-inset class.
+    expect(compactRow.className).not.toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
+
     expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
     expect(

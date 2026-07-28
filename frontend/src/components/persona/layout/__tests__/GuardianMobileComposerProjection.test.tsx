@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_COMPOSER_SEND_EDGE_INSET_CLASS } from "@/features/chat/chatLane";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import ChatView from "@/features/chat/ChatView";
 import { Composer } from "@/features/chat/components/Composer";
@@ -434,6 +435,18 @@ describe("Guardian mobile composer projection", () => {
       screen.getByRole("button", { name: "Open composer actions" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+
+    // Send button is fully contained with a token-backed right inset.
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton.className).not.toMatch(/\b-mr-\[/);
+    expect(sendButton.className).not.toMatch(/\btranslate[Xx]\b/);
+
+    // Mobile control row does not use the desktop send-edge-inset.
+    const controlRow = screen.getByTestId("composer-control-row");
+    expect(controlRow.className).not.toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
+
     expect(screen.getByTestId("composer-mobile-context-summary")).toHaveTextContent(
       "Local / Guardian model"
     );
@@ -600,5 +613,48 @@ describe("Guardian mobile composer projection", () => {
     );
 
     expect(transcript.scrollTop).toBe(100);
+  });
+
+  it("retains the corrected send-button containment when projected and keeps frame geometry unchanged", async () => {
+    const onProjectionChange = vi.fn();
+
+    render(
+      <Composer
+        onSend={vi.fn()}
+        draftValue=""
+        mobileProjectionEnabled
+        onMobileProjectionChange={onProjectionChange}
+      />
+    );
+
+    // Verify idle send-button containment.
+    const sendSlot = screen.getByTestId("composer-send-slot");
+    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+
+    // Verify the send button is a child of the composer root (frame-owned).
+    const composerRoot = screen.getByTestId("composer-textarea").closest("[data-composer-root]");
+    expect(composerRoot).toContainElement(screen.getByRole("button", { name: "Send" }));
+    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
+
+    // Focus to activate projection.
+    const textarea = screen.getByTestId("composer-textarea");
+    act(() => textarea.focus());
+
+    await waitFor(() => {
+      expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
+    });
+
+    // Projection does not strip the send-button right inset.
+    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+
+    // Send button does not use negative margins or translations after projection.
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton.className).not.toMatch(/\b-mr-\[/);
+    expect(sendButton.className).not.toMatch(/\btranslate[Xx]\b/);
+
+    // Composer remains frame-owned; frame geometry is unchanged.
+    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
+    expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
+    expect(onProjectionChange).toHaveBeenLastCalledWith(true);
   });
 });

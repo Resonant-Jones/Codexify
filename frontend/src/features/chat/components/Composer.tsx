@@ -1152,7 +1152,6 @@ export function Composer({
               data-testid="composer-control-row"
               className={cn(
                 CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-                CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
                 "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
               )}
             >
@@ -1180,6 +1179,7 @@ export function Composer({
                 data-testid="composer-send-slot"
                 className={cn(
                   "flex shrink-0 items-center justify-center justify-self-end",
+                  "mr-[var(--composer-text-pad-x,14px)]",
                   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
                 )}
               >
