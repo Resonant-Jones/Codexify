@@ -94,6 +94,12 @@ flowchart TD
     W --> X["Uniform edge chrome<br/>same token on all four sides"]
     X --> Y["Frame-first Guardian primary card<br/>all current interaction content contained"]
     Y --> Z["Navigation-complete drawer projection<br/>no persistent global pill in closed view"]
+    Y --> ZA["Compact mobile header"]
+    ZA --> ZB["Sidebar trigger"]
+    ZA --> ZC["Guardian tools menu"]
+    Y --> ZD["Runtime / auth truth notices"]
+    Y --> ZE["Transcript"]
+    Y --> ZF["Existing composer"]
 ```
 
 **Evidence notes**
@@ -124,9 +130,17 @@ Guardian/mobile interpretation:
 - The Guardian primary card fills the settled mobile shell inside a uniform
   token-backed edge-chrome perimeter. The drawer overlays that frame without
   becoming a second shell.
-- Composer projection, header-tool consolidation, inline commands, and
-  Documents/Gallery mobile-shell redesign remain unimplemented and outside this
-  diagram update.
+- The narrow Guardian frame uses a compact two-control header:
+  - Left: sidebar trigger (navigation-drawer invocation).
+  - Right: Guardian tools menu (hamburger/utility-menu control).
+  - Displaced header actions remain available through the Guardian tools menu.
+  - Runtime-health and authentication-truth notices remain outside the
+    utility menu and preserve their exact meaning.
+  - The Codexify mark remains inside the drawer.
+  - Desktop Guardian retains its existing persistent controls.
+- Composer projection and composer inline commands remain deferred.
+- Documents/Gallery mobile-shell redesign remain unimplemented and outside
+  this diagram update.
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)
 

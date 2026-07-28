@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ChevronRight,
+  Menu,
   Mic2,
   MoreVertical,
   Zap,
@@ -933,6 +934,7 @@ export function GuardianChat({
   onSessionModelChange,
   onSessionInferenceModeChange,
   onSessionDraftChange,
+  compactMobileHeader = false,
 }: {
   guardianName: string;
   userName: string;
@@ -973,6 +975,7 @@ export function GuardianChat({
   onSessionModelChange?: (modelId: string) => void;
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
+  compactMobileHeader?: boolean;
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
@@ -4020,6 +4023,7 @@ export function GuardianChat({
   const body = (
     <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
       {/* Single header rail */}
+      {!compactMobileHeader && (
       <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
       <div
           className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
@@ -4068,6 +4072,24 @@ export function GuardianChat({
           </div>
         </div>
       </header>
+      )}
+      {compactMobileHeader && (
+      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
+        <div className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full">
+          <div className="flex-1 min-w-0">
+            <SessionRail
+              tabs={sessionTabs}
+              activeTabId={activeSessionTabId}
+              isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
+              showTabs={sessionTabs.length > 1}
+              onActivateTab={handleSessionTabActivateRequest}
+              onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
+              onOpenTab={handleSessionTabOpenRequest}
+            />
+          </div>
+        </div>
+      </header>
+      )}
 
       {llmBackendUnavailable && (
         <div

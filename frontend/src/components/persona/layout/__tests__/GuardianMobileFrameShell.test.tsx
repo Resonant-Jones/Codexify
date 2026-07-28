@@ -18,8 +18,10 @@ const apiSpies = vi.hoisted(() => ({
 vi.mock("@/features/chat/GuardianChat", () => ({
   default: (props: any) => {
     guardianPropsSpy(props);
+    const hideHeader = props.compactMobileHeader === true;
     return (
       <div data-testid="guardian-current-content">
+        {!hideHeader && (
         <div data-testid="guardian-current-controls">
           <button
             type="button"
@@ -29,6 +31,7 @@ vi.mock("@/features/chat/GuardianChat", () => ({
             Toggle sidebar
           </button>
         </div>
+        )}
         <div data-testid="guardian-transcript">Transcript</div>
         <form data-testid="guardian-composer">
           <textarea data-testid="composer-textarea" aria-label="Message" />
@@ -231,14 +234,18 @@ describe("Guardian frame-first mobile shell", () => {
       gridRow: "1",
     });
     expect(
-      within(primaryFrame).getByTestId("guardian-mobile-frame-prelude")
+      within(primaryFrame).getByTestId("guardian-mobile-compact-header")
     ).toBeInTheDocument();
     expect(
-      within(primaryFrame).getByTestId("guardian-current-controls")
+      within(primaryFrame).getByTestId("guardian-mobile-tools-trigger")
     ).toBeInTheDocument();
     expect(
       within(primaryFrame).getByRole("button", { name: "Show sidebar" })
     ).toBeInTheDocument();
+    // The compact header removes the persistent prelude toolbar
+    expect(
+      within(primaryFrame).queryByTestId("guardian-mobile-frame-prelude")
+    ).not.toBeInTheDocument();
     expect(
       within(primaryFrame).getByTestId("guardian-transcript")
     ).toBeInTheDocument();

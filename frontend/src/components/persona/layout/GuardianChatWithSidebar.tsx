@@ -5,7 +5,13 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
-import { X } from "lucide-react";
+import { ChevronRight, Menu, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
@@ -344,6 +350,8 @@ export default function GuardianChatWithSidebar({
   const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarCloseRef = React.useRef<HTMLButtonElement | null>(null);
   const restoreMobileSidebarFocusRef = React.useRef(false);
+  const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
+  const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const { data: providerStateData } = useProviderState();
@@ -604,6 +612,10 @@ export default function GuardianChatWithSidebar({
     },
     [isDesktopLayout]
   );
+
+  const closeMobileToolsMenu = React.useCallback(() => {
+    setMobileToolsMenuOpen(false);
+  }, []);
 
   const closeSidebar = React.useCallback(() => {
     if (!isDesktopLayout) {
@@ -1170,6 +1182,14 @@ export default function GuardianChatWithSidebar({
     };
   }, [threads, activeId, userName, guardianName, selectedProjectId, selectedProjectName]);
 
+  const effectiveThreadIdForMenu = React.useMemo(() => {
+    if (!activeThread || activeThread.id === "temp") return null;
+    const n = Number(activeThread.id);
+    return Number.isFinite(n) ? n : null;
+  }, [activeThread]);
+
+  const threadTitleForMenu = activeThread?.title ?? "";
+
   const handleNewChatImmediate = () => {
     void handleNewChat();
   };
@@ -1689,6 +1709,18 @@ export default function GuardianChatWithSidebar({
     [activeApplicationView, handleApplicationNavigation]
   );
 
+  // Extract prelude toolbar and runtime notices for compact mobile header
+  const preludeParts = React.useMemo(() => {
+    if (!frameFirstMobile || !mobileFramePrelude) return { toolbar: null, notices: null };
+    const element = mobileFramePrelude as React.ReactElement | null;
+    if (!element || !React.isValidElement(element)) return { toolbar: null, notices: null };
+    const children = React.Children.toArray(element.props.children ?? []) as React.ReactNode[];
+    // First child is the toolbar div (role="toolbar"), rest are runtime/live-update notices
+    const toolbar = children[0] ?? null;
+    const notices = children.length > 1 ? children.slice(1) : null;
+    return { toolbar, notices };
+  }, [frameFirstMobile, mobileFramePrelude]);
+
   const mobileOverlay = isMobileOverlayActive && portalTarget
     ? createPortal(
         <div
@@ -1923,7 +1955,155 @@ export default function GuardianChatWithSidebar({
             disabled={chatDisabled}
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
-              {frameFirstMobile && mobileFramePrelude}
+              {frameFirstMobile && (
+                <>
+                  {/* Compact two-control mobile Guardian header */}
+                  <div
+                    data-testid="guardian-mobile-compact-header"
+                    className="flex shrink-0 items-center justify-between gap-[var(--card-pad)] px-[var(--card-pad)] py-2"
+                    style={{
+                      borderBlockEnd: "var(--frame) solid var(--panel-border)",
+                    }}
+                  >
+                    {/* Left: sidebar control */}
+                    <button
+                      type="button"
+                      className="icon-inline shrink-0"
+                      aria-label={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+                      onClick={toggleSidebar}
+                      style={{
+                        borderRadius: "var(--radius-micro)",
+                        ...getMobileNavigationControlStyle(true, { square: true }),
+                      }}
+                    >
+                      <ChevronRight
+                        aria-hidden="true"
+                        className={`h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] transition-transform duration-200 ${
+                          isSidebarOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {/* Right: Guardian tools menu */}
+                    <DropdownMenu open={mobileToolsMenuOpen} onOpenChange={setMobileToolsMenuOpen}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          ref={mobileToolsMenuOpenerRef}
+                          type="button"
+                          className="icon-inline shrink-0"
+                          aria-label="Open Guardian tools"
+                          style={{
+                            borderRadius: "var(--radius-micro)",
+                            ...getMobileNavigationControlStyle(true, { square: true }),
+                          }}
+                          data-testid="guardian-mobile-tools-trigger"
+                        >
+                          <Menu
+                            aria-hidden="true"
+                            className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]"
+                          />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="min-w-[200px]"
+                        onClick={(e) => {
+                          // Close the menu when any button inside is clicked (for prelude toolbar buttons)
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button')) {
+                            // Delay to let the button's own handler fire first
+                            window.setTimeout(() => closeMobileToolsMenu(), 0);
+                          }
+                        }}
+                      >
+                        {/* Conversation group */}
+                        <DropdownMenuItem
+                          onClick={() => {
+                            handleNewChatImmediate();
+                            closeMobileToolsMenu();
+                          }}
+                          data-testid="guardian-mobile-tools-new-thread"
+                        >
+                          New thread
+                        </DropdownMenuItem>
+
+                        {/* Pre-existing utility actions from the AppShell prelude toolbar */}
+                        {preludeParts.toolbar}
+
+                        {/* Thread-level actions from GuardianChat headerActions */}
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            const next = window.prompt("Rename thread", threadTitleForMenu || "");
+                            const title = next?.trim();
+                            if (!title || title === threadTitleForMenu) return;
+                            try {
+                              await api.patch(`/chat/${effectiveThreadIdForMenu}`, { title });
+                              window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind: "rename", id: String(effectiveThreadIdForMenu), title } }));
+                            } catch (e) {
+                              console.warn(e);
+                              alert("Rename failed.");
+                            }
+                          }}
+                        >
+                          Rename Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            void handleBranchThread(effectiveThreadIdForMenu);
+                          }}
+                        >
+                          Branch Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
+                            void handleArchiveThread(effectiveThreadIdForMenu);
+                          }}
+                        >
+                          Archive Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            if (!window.confirm("Delete this thread? This cannot be undone.")) return;
+                            void api.delete(`/chat/${effectiveThreadIdForMenu}`).then(() => {
+                              window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind: "delete", id: String(effectiveThreadIdForMenu) } }));
+                            }).catch((e: any) => {
+                              console.warn(e);
+                              alert("Delete failed. Please try again.");
+                            });
+                          }}
+                        >
+                          Delete Thread
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  {/* Runtime / auth truth notices remain outside the utility menu */}
+                  {preludeParts.notices}
+                </>
+              )}
+              {!frameFirstMobile && mobileFramePrelude}
               <PromptLibraryPortal />
               <PromptCostIndicator summary={imprintZero.status?.system_prompt_meta} />
               {auth.ready && auth.status === "unauthenticated" && (
@@ -2019,6 +2199,7 @@ export default function GuardianChatWithSidebar({
                     }
                   }}
                   bare
+                  compactMobileHeader={frameFirstMobile}
                 />
               </div>
             </div>

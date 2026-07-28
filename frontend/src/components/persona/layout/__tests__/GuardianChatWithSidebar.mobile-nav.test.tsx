@@ -29,14 +29,20 @@ const APPLICATION_DESTINATIONS = [
 vi.mock("@/features/chat/GuardianChat", () => ({
   default: (props: any) => {
     guardianPropsSpy(props);
+    const hideHeader = props.compactMobileHeader === true;
     return (
-      <button
-        type="button"
-        aria-label={props.isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
-        onClick={props.onSidebarToggle}
-      >
-        Toggle sidebar
-      </button>
+      <>
+        {!hideHeader && (
+        <button
+          type="button"
+          aria-label={props.isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
+          onClick={props.onSidebarToggle}
+        >
+          Toggle sidebar
+        </button>
+        )}
+        <div data-testid="guardian-session-rail">SessionRail</div>
+      </>
     );
   },
 }));

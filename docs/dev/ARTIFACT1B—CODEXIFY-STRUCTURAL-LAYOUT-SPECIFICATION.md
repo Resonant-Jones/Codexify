@@ -313,9 +313,20 @@ Narrow/mobile Guardian navigation projection:
   through one uniform `--edge-chrome` perimeter on all four sides.
 - The drawer remains a subordinate overlay/projection and MUST NOT resize the
   underlying frame.
-- Header-tool consolidation, composer projection, and inline command behavior
-  remain deferred. Documents and Gallery do not inherit this mobile-shell
-  exception.
+- Narrow Guardian uses a compact two-control header:
+  - The left control owns navigation-drawer invocation (sidebar toggle).
+  - The right control owns secondary Guardian tools (utility menu).
+  - Displaced header actions (Open Workspace, settings, voice/audio, profile,
+    new thread, thread-level actions, and overflow) remain available through
+    the Guardian tools utility menu.
+  - Runtime-health and authentication-truth notices remain outside the
+    utility menu and preserve their exact meaning.
+  - The Codexify mark remains inside the drawer.
+- Desktop Guardian retains its existing persistent controls (global
+  navigation pill, persistent sidebar, Open Workspace, settings/audio/profile
+  icons, chat action icons, and runtime-notice positioning).
+- Composer projection and composer inline commands remain deferred.
+- Documents and Gallery do not inherit this mobile-shell exception.
 
 Session Pill Rail (implemented):
 
