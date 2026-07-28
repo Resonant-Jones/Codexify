@@ -281,6 +281,24 @@ Height: 100%
 
 No extra wrappers outside token-approved structure
 
+Narrow/mobile Guardian navigation projection:
+
+- The Guardian sidebar MAY act as a navigation-complete drawer on narrow/mobile
+  layouts.
+- The drawer MAY contain compact Codexify application identity, application
+  destinations, and the existing thread/session picker.
+- Application routing remains owned by AppShell. The Guardian drawer receives
+  only a bounded active-view value, destination metadata, and navigation
+  callback.
+- Thread and session state remain owned by SessionSpine and continue through
+  the existing sidebar and session intent seams.
+- The drawer remains subordinate to the single Guardian primary card and MUST
+  NOT become a second application shell.
+- The global navigation pill remains present until a separate mobile-shell task
+  explicitly authorizes and implements its suppression.
+- This projection does not define composer overlay/projection behavior, header
+  tool consolidation, or inline command behavior.
+
 Session Pill Rail (implemented):
 
 Placement:

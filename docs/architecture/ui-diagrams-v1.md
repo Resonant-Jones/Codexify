@@ -87,6 +87,7 @@ flowchart TD
     O --> R["Settings<br/>one primary card with compact full-width dock<br/>and responsive one/two-column tabpanel grid"]
     O --> S["Gallery<br/>single card to inner card to grid"]
     O --> T["Guardian<br/>card-wrapped content with optional sidebar"]
+    T --> U["Narrow Guardian drawer<br/>AppShell-owned app destinations<br/>plus SessionSpine-owned thread navigation"]
 ```
 
 **Evidence notes**
@@ -102,6 +103,19 @@ Conservative assumptions:
 Explicit exclusions:
 - No route graph, navigation flow, or frontend file/component map.
 - No runtime meaning assigned to workspace drawers, session rails, or sidebars beyond structural placement.
+
+Guardian/mobile interpretation:
+- On narrow Guardian layouts, the optional sidebar may be a
+  navigation-complete drawer rather than icon-only or stacked content.
+- The drawer may project AppShell-owned application destinations alongside the
+  existing SessionSpine-owned thread/session picker.
+- This remains presentation-side architecture subordinate to the single
+  Guardian primary card; it does not transfer routing ownership into Guardian
+  or thread/session ownership into AppShell.
+- The global navigation pill remains present. Suppression is deferred to a
+  separate mobile-shell task.
+- Composer projection, header-tool consolidation, and inline commands remain
+  unimplemented and outside this diagram update.
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)
 

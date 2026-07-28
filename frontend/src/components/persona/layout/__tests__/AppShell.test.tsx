@@ -84,6 +84,7 @@ const routeCapabilityState = {
   state: "available" as const,
 };
 const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
+const guardianShellPropsSpy = vi.hoisted(() => vi.fn());
 const authTestState = vi.hoisted(() => ({
   auth: { ready: true, status: "authenticated" as const, token: "test-token" },
   gateAllowed: true,
@@ -339,17 +340,40 @@ vi.mock("@/components/sidebar/SidebarRoot", () => ({
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
   default: (props: {
     onProjectChange?: (projectId: string | null, projectName: string | null) => void;
-  }) => (
-    <div data-testid="guardian-chat-with-sidebar-mock">
-      <button
-        type="button"
-        data-testid="guardian-set-project-2"
-        onClick={() => props.onProjectChange?.("2", "Launch Project")}
-      >
-        Set Project 2
-      </button>
-    </div>
-  ),
+    activeApplicationView?: string;
+    applicationDestinations?: ReadonlyArray<{
+      view: string;
+      label: string;
+      priority: "primary" | "secondary";
+    }>;
+    onNavigateApplicationView?: (view: string) => void;
+  }) => {
+    guardianShellPropsSpy(props);
+    return (
+      <div data-testid="guardian-chat-with-sidebar-mock">
+        <button
+          type="button"
+          data-testid="guardian-set-project-2"
+          onClick={() => props.onProjectChange?.("2", "Launch Project")}
+        >
+          Set Project 2
+        </button>
+        {(props.applicationDestinations ?? []).map((destination) => (
+          <button
+            key={destination.view}
+            type="button"
+            data-testid={`guardian-mobile-nav-${destination.view}-mock`}
+            aria-label={`Mock Guardian sidebar destination: ${destination.view}`}
+            onClick={() =>
+              props.onNavigateApplicationView?.(destination.view)
+            }
+          >
+            {destination.label}
+          </button>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/ui/ToastPortal", () => ({
@@ -583,6 +607,79 @@ describe("AppShell logo wordmark color contract", () => {
       expect(window.location.pathname).toBe("/chat");
     });
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+  });
+});
+
+describe("AppShell Guardian mobile navigation seam", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setRoutePath("/chat");
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    resetPersonaStudioApiMock();
+    guardianShellPropsSpy.mockClear();
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("passes the canonical AppShell navigation seam into Guardian and changes the active view", async () => {
+    setAuthenticatedAuthState();
+    render(<AppShell />);
+
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    const latestProps = guardianShellPropsSpy.mock.calls.at(-1)?.[0];
+
+    expect(latestProps?.activeApplicationView).toBe("guardian");
+    expect(latestProps?.applicationDestinations).toEqual([
+      { view: "guardian", label: "Guardian", priority: "primary" },
+      { view: "documents", label: "Documents", priority: "primary" },
+      { view: "gallery", label: "Gallery", priority: "primary" },
+      { view: "dashboard", label: "Dashboard", priority: "secondary" },
+      { view: "settings", label: "Settings", priority: "secondary" },
+    ]);
+    expect(latestProps?.onNavigateApplicationView).toEqual(
+      expect.any(Function)
+    );
+    expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByTestId("guardian-mobile-nav-documents-mock")
+    );
+
+    await screen.findByTestId("documents-view-mock");
+    expect(window.location.pathname).toBe("/documents");
+    expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Guardian" })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps global navigation rendered for authenticated and unauthenticated shells", async () => {
+    setAuthenticatedAuthState();
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Documents" })
+    ).toBeInTheDocument();
+
+    cleanup();
+    setUnauthenticatedAuthState();
+    setRoutePath("/chat");
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Documents" })
+    ).toBeInTheDocument();
   });
 });
 

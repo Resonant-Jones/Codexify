@@ -43,7 +43,9 @@ import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
-import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import GuardianChatWithSidebar, {
+  type GuardianApplicationDestination,
+} from "@/components/persona/layout/GuardianChatWithSidebar";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -246,6 +248,14 @@ const APP_SHELL_VIEWS = [
   "settings",
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
+
+const GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS = [
+  { view: "guardian", label: "Guardian", priority: "primary" },
+  { view: "documents", label: "Documents", priority: "primary" },
+  { view: "gallery", label: "Gallery", priority: "primary" },
+  { view: "dashboard", label: "Dashboard", priority: "secondary" },
+  { view: "settings", label: "Settings", priority: "secondary" },
+] as const satisfies readonly GuardianApplicationDestination[];
 
 const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
 const DOCK_AUTO_COLLAPSE_DELAY_MS = 900;
@@ -3596,6 +3606,11 @@ export default function AppShell({
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                         onProjectChange={handleGuardianProjectChange}
+                        activeApplicationView={view}
+                        applicationDestinations={
+                          GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS
+                        }
+                        onNavigateApplicationView={navigateToView}
                       />
                     </ErrorBoundary>
                   </div>
