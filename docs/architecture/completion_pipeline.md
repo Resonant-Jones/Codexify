@@ -148,6 +148,9 @@ UI
    - On accepted terminal success, the worker persists the assistant message to
      Postgres, writes metadata such as attempted/final provider data, and then
      publishes `task.completed`.
+   - The canonical assistant-message persistence seam can accept optional
+     structured Hosted Room provenance alongside content and role. The current
+     worker does not pass provenance and its behavior remains unchanged.
    - Missing `[DONE]` where the OpenAI-compatible adapter requires it,
      unexpected EOF, malformed frames, provider error frames, timeout, connection
      loss, parser failure, or cancellation cannot create assistant history.
@@ -175,8 +178,8 @@ UI
 - `guardian/routes/chat.py` owns HTTP authentication, request parsing and validation, thread/account/project authorization, retrieval/context preparation, task-input preparation, response serialization, and HTTP error mapping.
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance transaction: canonical task identity, thread-scoped lock acquisition, stale-lock recovery, canonical queue publication, task-created publication, acceptance-status calculation, and queue-failure lock reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, assistant-message persistence, terminal events, and successful-turn lock release.
-- The existing task type and fields, queue name, lock key/TTL, event payload, and worker behavior are unchanged; this task adds only the optional inert context documented below.
-- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room invocation behavior, worker change, or assistant persistence change is added here. The optional bounded task-context contract is documented below and remains inert until a separately authorized caller consumes it.
+- The existing task type and fields, queue name, lock key/TTL, event payload, and worker behavior are unchanged; this task adds only the optional inert context documented below and extends the canonical message-persistence seam.
+- Future completion callers must reuse `enqueue_chat_completion`; no Hosted Room invocation behavior or worker change is added here. A future Hosted Room worker integration must validate provenance in its service/worker authorization boundary and pass it through the canonical persistence seam. It must not insert a message and apply provenance through a later update.
 
 ## Bounded Hosted Room Invocation Context
 
@@ -189,12 +192,14 @@ actor (`actor_source=resident`, `actor_ref=guardian`) and requester authority
 must not. The value does not grant authority, invoke a model, change queueing, or
 change worker behavior.
 
-No Hosted Room invocation endpoint or route is added by this task. No worker
-consumption, assistant-message provenance persistence, task type, queue name,
-task-created event, or migration is added or changed. Future Hosted Room work
-must first authorize and validate its caller, then use this bounded task field
-and the canonical completion acceptance operation rather than creating a second
-completion pipeline.
+No Hosted Room invocation endpoint or route is added by this task. The chat
+worker does not consume this metadata yet. No task type, queue name,
+task-created event, or migration is added or changed. The canonical persistence
+seam is now capable of receiving optional assistant-message provenance, but
+current worker behavior remains unchanged. Future Hosted Room work must first
+authorize and validate its caller, then use this bounded task field and the
+canonical completion acceptance operation and persistence seam rather than
+creating a second completion pipeline or applying post-insert provenance.
 
 ## Completion Terminal Evidence
 

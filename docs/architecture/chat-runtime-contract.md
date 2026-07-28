@@ -27,7 +27,7 @@ The ordinary HTTP completion route and the shared completion acceptance operatio
 - `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
 - `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
 
-Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded, inert context only; this contract adds no Hosted Room invocation route, worker behavior, or assistant-persistence behavior.
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. The optional `ChatCompletionTask.hosted_room_invocation` field is a bounded, inert context only; this contract adds no Hosted Room invocation route or worker behavior. The canonical assistant-message persistence seam is extended separately to accept optional provenance without changing current worker behavior.
 
 ### Completion task identity context
 
@@ -328,6 +328,22 @@ Key rules:
 - Participant-room-thread consistency is a future route proof obligation (routes not yet implemented).
 - No message routes are implemented by this contract.
 - No agent invocation behavior changes.
+
+### Canonical message-persistence seam
+
+The canonical `create_message` persistence interface accepts optional structured
+Hosted Room provenance through `hosted_room_participant_id` and
+`sender_display_name_snapshot`. Ordinary callers omit both parameters and retain
+paired NULL provenance. When supplied, both values are validated and inserted
+atomically with the message row; provenance is never added through a later
+message update.
+
+Participant identity remains separate from the message role and content, and the
+persistence layer does not grant or validate room authority. Worker and service
+layers remain responsible for participant, room, requester, and lifecycle
+authorization before using the seam. The chat worker does not consume
+`HostedRoomInvocationMetadata` yet, and no Hosted Room invocation endpoint exists
+yet.
 
 ### Hosted Room message routes
 

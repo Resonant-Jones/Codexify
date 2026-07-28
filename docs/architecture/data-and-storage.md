@@ -69,6 +69,14 @@ One Hosted Room maps to exactly one canonical `chat_threads` row. Messages remai
 
 Paired-nullability constraint: both fields are NULL (ordinary messages) or both are non-NULL with a non-blank snapshot (room messages). No default provenance is backfilled onto historical messages.
 
+The canonical message-persistence interface treats these fields as one optional
+paired contract. Partial pairs, blank participant IDs, and blank or
+whitespace-only snapshots are rejected before persistence. The application check
+is an early failure boundary; the database paired-provenance constraint remains
+authoritative for every supported database path. Valid provenance is written in
+the initial `chat_messages` insert, not backfilled or applied by a post-insert
+update.
+
 The sender snapshot preserves the participant's display label at send time so transcript readability survives:
 - participant display-name changes
 - participant removal (SET NULL on FK)

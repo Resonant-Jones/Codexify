@@ -35,7 +35,7 @@ from guardian.db.models import (
     PersonalFactRevision,
 )
 
-from .chat_db import ChatDB
+from .chat_db import ChatDB, validate_message_provenance
 from .default_project import (
     canonicalize_default_project,
     resolve_project_id_or_default,
@@ -1448,8 +1448,15 @@ class PgDB(ChatDB):
         content: str,
         created_at: str | None = None,
         user_id: str | None = None,
+        *,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
     ) -> int:
         """Insert a message row and return its id."""
+        validate_message_provenance(
+            hosted_room_participant_id,
+            sender_display_name_snapshot,
+        )
         now = datetime.now(timezone.utc)
         thread = self.get_chat_thread(thread_id)
         resolved_user_id = (
@@ -1463,8 +1470,12 @@ class PgDB(ChatDB):
                 if created_at is not None:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, user_id, role, content, created_at)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO chat_messages (
+                            thread_id, user_id, role, content, created_at,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1473,16 +1484,29 @@ class PgDB(ChatDB):
                             role,
                             content,
                             created_at,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot,
                         ),
                     )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, user_id, role, content)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO chat_messages (
+                            thread_id, user_id, role, content,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
-                        (thread_id, resolved_user_id, role, content),
+                        (
+                            thread_id,
+                            resolved_user_id,
+                            role,
+                            content,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot,
+                        ),
                     )
                 row = cur.fetchone()
                 message_id = int(row["id"]) if row else None
