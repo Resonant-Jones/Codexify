@@ -16,6 +16,7 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added Hosted Room actor participant identity: Guardian is now a canonical resident actor with stable identity. User-owned Personas can be referenced through `local_persona` bindings. Actor lifecycle is durable across enable/disable. Luna is not a Codexify-native actor.
 - Added Hosted Room human message read/write API: owners and guest sessions can read one canonical transcript and post human messages with structured participant provenance. Mentions are ordinary text with no agent invocation.
 - Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.

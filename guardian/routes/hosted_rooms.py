@@ -32,6 +32,16 @@ from guardian.core.hosted_room_messages import (
     validate_content,
     validate_room_for_messaging,
 )
+from guardian.hosted_rooms.actor_tokens import (
+    GUARDIAN_DISPLAY,
+    GUARDIAN_REF,
+    LOCAL_PERSONA_SOURCE,
+    RESIDENT_SOURCE,
+    ActorBinding,
+    resolve_actor_display_name,
+    validate_actor_binding,
+    validate_enabled_actors,
+)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.default_project import (
     canonicalize_default_project,
@@ -51,8 +61,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/hosted-rooms", tags=["Hosted Rooms"])
 
-# ── V1 enabled-agent domain ──────────────────────────────────────────────
-_V1_AGENT_IDS: frozenset[str] = frozenset({"guardian", "luna"})
+# ── V1 enabled-agent domain (replaced by actor bindings) ───────────────
+# The old _V1_AGENT_IDS is replaced by the actor_tokens module.
+# Legacy 'guardian' from prototype is now mapped to the resident actor.
+# Legacy 'luna' must never be a resident actor — it is rejected.
 
 # ── Title constraints ─────────────────────────────────────────────────────
 _MAX_TITLE_LENGTH = 512  # matches hosted_rooms.title column
@@ -94,38 +106,13 @@ def _normalize_title(raw: Any) -> str:
     return text
 
 
-def _normalize_enabled_agent_ids(raw: Any) -> list[str]:
-    """Validate and deduplicate enabled agent IDs."""
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "invalid_agent_ids",
-                "message": "enabled_agent_ids must be a list of strings",
-            },
-        )
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in raw:
-        agent_id = str(item).strip().lower()
-        if not agent_id:
-            continue
-        if agent_id not in _V1_AGENT_IDS:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "invalid_agent_id",
-                    "message": f"Unknown agent: {agent_id}",
-                    "valid_agents": sorted(_V1_AGENT_IDS),
-                },
-            )
-        if agent_id not in seen:
-            seen.add(agent_id)
-            result.append(agent_id)
-    result.sort()
-    return result
+def _normalize_enabled_actor_bindings(raw: Any) -> list[ActorBinding]:
+    """Validate and deduplicate enabled actor bindings.
+
+    Rejects unknown sources, unknown resident refs, and duplicates.
+    This replaces the old _normalize_enabled_agent_ids.
+    """
+    return validate_enabled_actors(raw)
 
 
 def _generate_slug(title: str) -> str:
@@ -301,6 +288,106 @@ def _require_db():
     return db
 
 
+def _serialize_enabled_actors(room: HostedRoom) -> list[dict[str, str]]:
+    """Serialize enabled actor bindings from room configuration."""
+    actors = []
+    for participant in room.participants:
+        if participant.kind == "agent" and participant.state == "active":
+            actors.append({
+                "source": participant.actor_source or "",
+                "ref": participant.actor_ref or "",
+            })
+    return actors
+
+
+def _resolve_persona_display(session, persona_id: str) -> str:
+    """Resolve a PersonaProfile display name."""
+    from guardian.db.models import PersonaProfile
+    profile = session.get(PersonaProfile, persona_id)
+    if profile is not None:
+        return profile.name
+    return persona_id  # fallback
+
+
+def _sync_actor_participants(
+    session,
+    room_id: str,
+    desired: list[ActorBinding],
+) -> None:
+    """Synchronize actor participants for a room.
+
+    Creates new actor participants for newly enabled bindings,
+    reactivates removed participants for re-enabled bindings,
+    removes participants for disabled bindings.
+    Preserves human participants and participant IDs.
+    """
+    now = datetime.now(timezone.utc)
+
+    # Load all existing actor participants for this room
+    existing = (
+        session.query(HostedRoomParticipant)
+        .where(
+            HostedRoomParticipant.room_id == room_id,
+            HostedRoomParticipant.kind == "agent",
+        )
+        .all()
+    )
+
+    # Index by (source, ref)
+    by_binding: dict[tuple[str, str], HostedRoomParticipant] = {}
+    for p in existing:
+        if p.actor_source and p.actor_ref:
+            by_binding[(p.actor_source, p.actor_ref)] = p
+
+    desired_keys = {(b.source, b.ref) for b in desired}
+
+    # Create or reactivate desired actors
+    for binding in desired:
+        key = (binding.source, binding.ref)
+        if key in by_binding:
+            participant = by_binding[key]
+            if participant.state == "removed":
+                # Reactivate
+                participant.state = "active"
+                participant.removed_at = None
+                # Refresh display name if Persona
+                if binding.source == LOCAL_PERSONA_SOURCE:
+                    participant.display_name = _resolve_persona_display(
+                        session, binding.ref
+                    )
+        else:
+            # Create new actor participant
+            display_name = resolve_actor_display_name(
+                binding.source, binding.ref
+            )
+            if binding.source == LOCAL_PERSONA_SOURCE:
+                resolved = _resolve_persona_display(session, binding.ref)
+                if resolved != binding.ref:
+                    display_name = resolved
+            participant = HostedRoomParticipant(
+                id=str(uuid.uuid4()),
+                room_id=room_id,
+                invitation_id=None,
+                bound_account_id=None,
+                display_name=display_name,
+                kind="agent",
+                role="agent",
+                state="active",
+                actor_source=binding.source,
+                actor_ref=binding.ref,
+                joined_at=now,
+                removed_at=None,
+                created_at=now,
+            )
+            session.add(participant)
+
+    # Remove unselected actors
+    for key, participant in by_binding.items():
+        if key not in desired_keys and participant.state == "active":
+            participant.state = "removed"
+            participant.removed_at = now
+
+
 def _resolve_account_id(scope: RequestUserScope) -> str:
     owner_id = str(scope.user_id or "").strip()
     if not owner_id:
@@ -334,7 +421,7 @@ class RoomSummary(BaseModel):
     title: str
     status: str
     backing_thread_id: int
-    enabled_agent_ids: list[str]
+    enabled_actors: list[dict[str, str]]
     active_participant_count: int
     pending_invitation_count: int
     created_at: str
@@ -352,6 +439,8 @@ class ParticipantSummary(BaseModel):
     state: str
     joined_at: str
     removed_at: str | None = None
+    actor_source: str | None = None
+    actor_ref: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -375,7 +464,7 @@ class RoomDetail(BaseModel):
     title: str
     status: str
     backing_thread_id: int
-    enabled_agent_ids: list[str]
+    enabled_actors: list[dict[str, str]]
     active_participant_count: int
     pending_invitation_count: int
     created_at: str
@@ -391,7 +480,7 @@ class RoomDetail(BaseModel):
 
 class CreateRoomRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=_MAX_TITLE_LENGTH)
-    enabled_agent_ids: list[str] | None = Field(default=None)
+    enabled_actors: list[dict[str, str]] | None = Field(default=None)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -405,7 +494,7 @@ class CreateRoomRequest(BaseModel):
 
 class UpdateRoomRequest(BaseModel):
     title: str | None = Field(default=None, max_length=_MAX_TITLE_LENGTH)
-    enabled_agent_ids: list[str] | None = Field(default=None)
+    enabled_actors: list[dict[str, str]] | None = Field(default=None)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -479,7 +568,7 @@ def _room_summary(room: HostedRoom) -> RoomSummary:
         title=room.title,
         status=room.status,
         backing_thread_id=room.backing_thread_id,
-        enabled_agent_ids=sorted(room.enabled_agent_ids),
+        enabled_actors=_serialize_enabled_actors(room),
         active_participant_count=active_participants,
         pending_invitation_count=pending_invites,
         created_at=_iso(room.created_at) or "",
@@ -498,6 +587,8 @@ def _room_detail(room: HostedRoom) -> RoomDetail:
             state=p.state,
             joined_at=_iso(p.joined_at) or "",
             removed_at=_iso(p.removed_at),
+            actor_source=p.actor_source,
+            actor_ref=p.actor_ref,
         )
         for p in room.participants
     ]
@@ -590,7 +681,7 @@ def create_room(
 ) -> dict[str, Any]:
     account_id = _resolve_account_id(request_user_scope)
     title = _normalize_title(body.title)
-    enabled_agent_ids = _normalize_enabled_agent_ids(body.enabled_agent_ids)
+    enabled_actors = _normalize_enabled_actor_bindings(body.enabled_actors)
     display_name = "Room Owner"  # resolved inside session
 
     db = _require_db()
@@ -632,7 +723,7 @@ def create_room(
                 title=title,
                 slug=slug,
                 status="active",
-                enabled_agent_ids=enabled_agent_ids,
+                enabled_agent_ids=[],  # deprecated, preserved for schema compat
                 created_at=now,
                 updated_at=now,
                 closed_at=None,
@@ -650,11 +741,16 @@ def create_room(
                 kind="human",
                 role="owner",
                 state="active",
+                actor_source=None,
+                actor_ref=None,
                 joined_at=now,
                 removed_at=None,
                 created_at=now,
             )
             session.add(participant)
+
+            # 5. Sync actor participants
+            _sync_actor_participants(session, room_id, enabled_actors)
 
             session.commit()
 
@@ -716,8 +812,8 @@ def update_room(
         _normalize_title(body.title)
 
     # Validate agent IDs if provided
-    if body.enabled_agent_ids is not None:
-        _normalize_enabled_agent_ids(body.enabled_agent_ids)
+    if body.enabled_actors is not None:
+        _normalize_enabled_actor_bindings(body.enabled_actors)
 
     db = _require_db()
     with db.get_session() as session:
@@ -737,11 +833,10 @@ def update_room(
             room.title = _normalize_title(body.title)
             changed = True
 
-        if body.enabled_agent_ids is not None:
-            normalized = _normalize_enabled_agent_ids(body.enabled_agent_ids)
-            if normalized != sorted(room.enabled_agent_ids):
-                room.enabled_agent_ids = normalized
-                changed = True
+        if body.enabled_actors is not None:
+            actors = _normalize_enabled_actor_bindings(body.enabled_actors)
+            _sync_actor_participants(session, room_id, actors)
+            changed = True
 
         if changed:
             room.updated_at = datetime.now(timezone.utc)

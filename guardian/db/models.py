@@ -919,6 +919,12 @@ class HostedRoomParticipant(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+    actor_source: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    actor_ref: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
 
     room: Mapped[HostedRoom] = relationship(
         "HostedRoom", back_populates="participants"
@@ -932,6 +938,20 @@ class HostedRoomParticipant(Base):
         UniqueConstraint(
             "invitation_id",
             name="uq_hosted_room_participants_invitation_id",
+        ),
+        UniqueConstraint(
+            "room_id", "actor_source", "actor_ref",
+            name="uq_hosted_room_participants_room_actor",
+        ),
+        CheckConstraint(
+            "("
+            "kind = 'agent' AND role = 'agent' "
+            "AND actor_source IS NOT NULL AND actor_ref IS NOT NULL"
+            ") OR ("
+            "kind = 'human' "
+            "AND actor_source IS NULL AND actor_ref IS NULL"
+            ")",
+            name="hosted_room_participants_actor_check",
         ),
         CheckConstraint(
             HOSTED_ROOM_PARTICIPANT_KIND_CHECK,

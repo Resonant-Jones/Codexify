@@ -312,6 +312,8 @@ def test_hosted_room_participant_kinds_roles_and_optional_guest_binding(
         kind="agent",
         role="agent",
         state="active",
+        actor_source="resident",
+        actor_ref="guardian",
     )
     assert owner.kind == "human" and owner.role == "owner"
     assert member.kind == "human" and member.bound_account_id is None
@@ -332,6 +334,8 @@ def test_hosted_room_participant_kinds_roles_and_optional_guest_binding(
                     "kind": participant.kind,
                     "role": participant.role,
                     "state": participant.state,
+                    "actor_source": participant.actor_source,
+                    "actor_ref": participant.actor_ref,
                 }
                 for participant in (owner, member, agent)
             ],

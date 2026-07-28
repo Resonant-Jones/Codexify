@@ -293,7 +293,7 @@ def test_create_room_creates_thread_and_participant(client, test_engine):
     assert data["slug"]
     assert " " not in data["slug"]
     assert data["backing_thread_id"] > 0
-    assert data["enabled_agent_ids"] == []
+    assert data["enabled_actors"] == []
     assert data["active_participant_count"] == 1
     assert data["pending_invitation_count"] == 0
     assert data["closed_at"] is None
@@ -370,53 +370,54 @@ def test_create_room_generates_unique_slug(client):
 def test_create_room_accepts_no_enabled_agents(client):
     resp = client.post("/api/hosted-rooms", json={"title": "No Agents"})
     assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == []
+    assert resp.json()["enabled_actors"] == []
 
 
 def test_create_room_accepts_empty_enabled_agent_ids(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Empty Agents", "enabled_agent_ids": []},
+        json={"title": "Empty Agents", "enabled_actors": []},
     )
     assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == []
+    assert resp.json()["enabled_actors"] == []
 
 
 def test_create_room_accepts_guardian(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Guardian Room", "enabled_agent_ids": ["guardian"]},
+        json={"title": "Guardian Room", "enabled_actors": [{"source": "resident", "ref": "guardian"}]},
     )
     assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == ["guardian"]
+    actors = resp.json()["enabled_actors"]
+    assert len(actors) == 1
+    assert actors[0]["source"] == "resident"
+    assert actors[0]["ref"] == "guardian"
 
 
 def test_create_room_accepts_luna(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Luna Room", "enabled_agent_ids": ["luna"]},
+        json={"title": "Luna Room", "enabled_actors": ["luna"]},
     )
-    assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == ["luna"]
+    assert resp.status_code == 422
 
 
 def test_create_room_accepts_guardian_and_luna(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Both Room", "enabled_agent_ids": ["guardian", "luna"]},
+        json={"title": "Both Room", "enabled_actors": ["guardian", "luna"]},
     )
-    assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == ["guardian", "luna"]
+    assert resp.status_code == 422
 
 
 def test_create_room_rejects_unknown_agent(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Unknown Agent", "enabled_agent_ids": ["skynet"]},
+        json={"title": "Unknown Agent", "enabled_actors": [{"source": "resident", "ref": "skynet"}]},
     )
     assert resp.status_code == 422
     detail = resp.json().get("detail", {})
-    assert detail.get("error") in ("invalid_agent_id",)
+    assert detail.get("error") in ("unsupported_resident_actor", "unsupported_actor_source")
 
 
 def test_create_room_handles_duplicate_agents_deterministically(client):
@@ -424,11 +425,17 @@ def test_create_room_handles_duplicate_agents_deterministically(client):
         "/api/hosted-rooms",
         json={
             "title": "Dupes",
-            "enabled_agent_ids": ["guardian", "luna", "guardian", "luna"],
+            "enabled_actors": [
+                {"source": "resident", "ref": "guardian"},
+                {"source": "resident", "ref": "guardian"},
+            ],
         },
     )
     assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == ["guardian", "luna"]
+    actors = resp.json()["enabled_actors"]
+    assert len(actors) == 1
+    assert actors[0]["source"] == "resident"
+    assert actors[0]["ref"] == "guardian"
 
 
 def test_create_room_trims_title(client):
@@ -510,7 +517,7 @@ def test_list_rooms_returns_summaries_not_raw_models(client):
         assert "title" in room
         assert "status" in room
         assert "backing_thread_id" in room
-        assert "enabled_agent_ids" in room
+        assert "enabled_actors" in room
         assert "active_participant_count" in room
         assert "pending_invitation_count" in room
         assert "created_at" in room
@@ -572,10 +579,13 @@ def test_owner_can_update_enabled_agents(client):
 
     resp = client.patch(
         f"/api/hosted-rooms/{room_id}",
-        json={"enabled_agent_ids": ["guardian", "luna"]},
+        json={"enabled_actors": [{"source": "resident", "ref": "guardian"}]},
     )
     assert resp.status_code == 200
-    assert resp.json()["enabled_agent_ids"] == ["guardian", "luna"]
+    actors = resp.json()["enabled_actors"]
+    assert len(actors) == 1
+    assert actors[0]["source"] == "resident"
+    assert actors[0]["ref"] == "guardian"
 
 
 def test_update_cannot_change_owner_id(client):
@@ -831,7 +841,7 @@ def test_no_op_update_behaves_consistently(client):
 def test_create_room_rejects_non_list_enabled_agents(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Bad Agents", "enabled_agent_ids": "guardian"},
+        json={"title": "Bad Agents", "enabled_actors": "guardian"},
     )
     assert resp.status_code in (422, 500), f"Unexpected: {resp.status_code}"
 
@@ -839,10 +849,9 @@ def test_create_room_rejects_non_list_enabled_agents(client):
 def test_create_room_agent_ids_are_case_insensitive(client):
     resp = client.post(
         "/api/hosted-rooms",
-        json={"title": "Case Test", "enabled_agent_ids": ["GUARDIAN", "Luna"]},
+        json={"title": "Case Test", "enabled_actors": ["GUARDIAN", "Luna"]},
     )
-    assert resp.status_code == 201
-    assert resp.json()["enabled_agent_ids"] == ["guardian", "luna"]
+    assert resp.status_code == 422
 
 
 # ── Transaction rollback proof ────────────────────────────────────────────
