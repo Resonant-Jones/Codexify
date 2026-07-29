@@ -84,6 +84,7 @@ Use this note as the local map for all ADRs.
 44. [[050-event-driven-campaign-control-plane|ADR-050 Event-Driven Campaign Control Plane]] — GitHub-native, read-only dry-run control-plane foundation for validated campaign packets, PR lineage, deterministic eligibility, and durable workflow receipts; it does not dispatch agents or merge code.
 45. [[051-chrome-side-panel-dual-auth-client-contract|ADR-051 Chrome Side-Panel Dual-Auth Client Contract]] — accepted governing contract for the private unpacked Chrome side-panel chat client with mutually exclusive local API-key and remote session/JWT transport modes; remote passwords are never stored and tokens remain browser-session-scoped.
 46. [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052 Whoosh'd Gemma and Approved DeepSeek Startup Profile]] — operator-controlled candidate profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, with bounded concurrent startup proof.
+47. [[053-threadspace-whispermesh-managed-service-boundary|ADR-053 ThreadSpace ↔ WhisperMesh Managed-Service Boundary]] — proposed docs-only authority boundary: Codexify owns Room sovereignty and WhisperMesh Network Assist may issue only narrower, expiring service leases after grant verification.
 
 ---
 
@@ -131,6 +132,9 @@ Use this note as the local map for all ADRs.
   - Governs the private unpacked Chrome side-panel chat client with mutually exclusive local API-key and remote session/JWT transport modes; remote passwords are never stored and tokens remain browser-session-scoped.
 - [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052 Whoosh'd Gemma and Approved DeepSeek Startup Profile]]
   - Governs the operator-controlled startup profile for exclusive local Gemma serving plus an egress-allowlisted DeepSeek V4 Flash lane, including bounded concurrent startup proof without widening release claims.
+- [[053-threadspace-whispermesh-managed-service-boundary|ADR-053 ThreadSpace ↔ WhisperMesh Managed-Service Boundary]]
+  - Governs the proposed boundary between Codexify Room authority and optional WhisperMesh Network Assist connectivity leases. It requires direct sovereign operation, provider neutrality, metadata minimization, and separate future decisions for Hosted Rooms and managed processing.
+  - Related anchors: [[../00-current-state|00 Current State]], [[../threadspace-integration-blueprint|ThreadSpace Integration Blueprint]], [[../home-room-thread-world-packet-framework|HomeBase, Space, Room, Thread, and World Packet Framework]], [[../hosted-room-sovereign-node-contract|Hosted Room and Sovereign Node Participation Contract]], [[../p2p-video-poc-contract|P2P Video POC Contract]], [[../contacts-circles-and-collaboration-identity|Contacts, Circles, and Collaboration Identity Contract]], [[043-contact-and-circle-storage-model|ADR-043 Contact and Circle Storage Model]], [[044-invite-lifecycle-and-storage-model|ADR-044 Invite Lifecycle and Storage Model]], [[045-space-participant-resolution-model|ADR-045 Space Participant Resolution Model]], [[../canonical-token-philosophy|Canonical Token Philosophy]], [[../runtime-protocol-token-contract|Runtime Protocol Token Contract]], [[../account-export-restore-contract|Account Export Restore Contract]], and [[../../Campaign/threadspace-whispermesh-sovereign-connectivity/README|TS-WM-001 Sovereign Connectivity Campaign]].
 
 ## Relationship to the main architecture docs
 
