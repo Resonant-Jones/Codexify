@@ -1,195 +1,295 @@
-# Existing User Profile Preservation Proof: Accent Migration
+# User Profile Accent Existing-Instance Upgrade Proof
 
-**Date:** 2026-07-28
-**Proof class:** isolated existing-instance schema migration
-**Result:** PASS
-**Commit under test:** `c3289d11c94f8ea88921f68e2e5658f23f716c42`
+## Title
 
-## Claim proved
+Existing-instance preservation for the user accent migration.
 
-A populated pre-accent `users` and `user_profiles` row survives a normal
-`alembic upgrade heads` operation. The migration adds `accent_color` and
-backfills the existing profile to the canonical `default` value without
-changing the existing user identity, profile metadata, or timestamps.
+## Final Outcome
 
-This proof covers database migration and durable-row preservation only. It
-does not prove live `/api/user/profile` availability, an authorized runtime
-profile, Chrome panel reload, or second-client rehydration.
+**PASS** — the isolated, populated pre-accent User Profile survived a normal
+alembic upgrade heads operation. The migration added the non-null
+accent_color column, backfilled the existing row to default, preserved all
+existing profile metadata and timestamps, installed the canonical database
+constraint, and rejected invalid accent values.
 
-## Revision and source gates
+The requested pre-upgrade target pair is graph-normalized below: in the
+verified migration graph, b2c3d4e5f6a7 descends from e5f6a7b8c9d0, so Alembic
+stores only b2c3d4e5f6a7 after applying the two requested targets. This is a
+normal Alembic state; no stamp or manual version-table edit was used.
 
-The repository identity gate passed:
+Execution window: 2026-07-29 09:54–09:58 EDT (13:54–13:58 UTC).
 
-```text
-repository: /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify
-branch: main
-HEAD: c3289d11c94f8ea88921f68e2e5658f23f716c42
-ancestor_check: PASS
-worktree at identity gate: clean (main...origin/main [ahead 1])
-```
+## Scope
 
-The migration under test is:
+This is a synthetic existing-instance upgrade proof on the supported Postgres
+and migrator path. It proves durable schema migration and row preservation
+only. It does not alter runtime behavior or widen any release claim.
 
-```text
+## Repository Identity
+
+- Repository: /Users/resonant_jones/Keep/Resonant_Constructs/projectCodexify/Codexify
+- Starting branch: main
+- Starting HEAD: 7bf93c8a274d742a33a862d53ccd817b2437244a
+- Integration commit: c3289d11c94f8ea88921f68e2e5658f23f716c42
+- Integration ancestry: PASS (git merge-base --is-ancestor exited 0)
+- Starting worktree: clean (main...origin/main)
+
+## Migration Graph
+
+Migrator heads observed after docker compose build migrator:
+
+~~~
+b2c3d4e5f6a7 (head)
+c8d9e0f1a2b3 (head)
+~~~
+
+Migration identity observed in the migrator image:
+
+~~~
 revision: c8d9e0f1a2b3
 down_revision: e5f6a7b8c9d0
-```
+~~~
 
-The task's declared pre-upgrade heads were `b2c3d4e5f6a7` and
-`e5f6a7b8c9d0`; the expected post-upgrade heads were `b2c3d4e5f6a7` and
-`c8d9e0f1a2b3`.
+The graph inspection showed:
 
-In this checkout, `b2c3d4e5f6a7` descends through
-`a1c2d3e4f5b6` from `e5f6a7b8c9d0`. Therefore the two pre-upgrade targets
-were applied as sequential Alembic targets, and Alembic materialized the
-pre-accent database version as `b2c3d4e5f6a7`; the `e5f6a7b8c9d0` target was
-already reachable in that revision path. This is the graph-normalized form
-of the requested pre-accent schema, not a stamped or manually edited state.
+~~~
+e5f6a7b8c9d0 -> a1c2d3e4f5b6 -> b2c3d4e5f6a7
+e5f6a7b8c9d0 -> c8d9e0f1a2b3
+~~~
 
-The requested historical proof file
-`docs/architecture/proofs/2026-04-04-existing-instance-upgrade-proof.md` was
-not present in this checkout and was not used as evidence.
+Therefore e5f6a7b8c9d0 and b2c3d4e5f6a7 are the requested pre-accent
+branch floor/target pair, but are not two independent stored Alembic heads.
 
-## Isolation boundary
+## Isolated Proof Database
 
-The proof used:
+- Temporary database: codexify_accent_upgrade_proof_20260728
+- Database service: existing healthy codexify-db-1 Postgres service
+- Proof boundary: only the named temporary database was created, migrated,
+  queried, and dropped
+- Active database: read-only identity check returned Codexify
+- Active volume: codexify_pg_data -> /var/lib/postgresql/data remained in place
+- Active application database and volumes: untouched
+- docker compose down -v: not run
 
-| Item | Value |
-| --- | --- |
-| Temporary database | `codexify_accent_upgrade_proof_20260728` |
-| Temporary database container | `codexify-accent-upgrade-proof-db` |
-| Database image | `postgres:15` |
-| Migration image | `codexify-backend-runtime:latest` |
-| Migration image digest | `sha256:4b9b22e1843c6f4914116c5dfa0c0a72288e52f86525c17f37f442ed12a5e580` |
-| Migration image created | `2026-07-28T23:47:41.756120255Z` |
-| Temporary database volume | none |
+## Pre-Upgrade State
 
-The temporary Postgres container was bound to host port `55432` and was
-removed automatically after evidence capture. The active Codexify database
-remained in `codexify-db-1` on its existing `codexify_pg_data` volume; the
-proof did not connect to it. No `docker compose down -v`, `alembic stamp`,
-manual `alembic_version` edit, migration edit, or application-volume change
-was used.
+The requested pre-upgrade targets were applied in order:
 
-## Procedure
+~~~
+e5f6a7b8c9d0
+b2c3d4e5f6a7
+~~~
 
-1. Start the no-volume temporary Postgres database.
-2. Run Alembic from the migrator image against the temporary database,
-   sequentially targeting `b2c3d4e5f6a7` and `e5f6a7b8c9d0`.
-3. Insert the specified user and profile with SQL into the schema produced by
-   Alembic. The post-migration ORM model was not used to manufacture the
-   pre-migration schema.
-4. Capture the pre-upgrade row, including `created_at` and `updated_at`.
-5. Run the normal command `alembic upgrade heads` from the same migrator
-   image.
-6. Capture the post-upgrade heads, row, schema constraint state, and an SQL
-   preservation assertion.
-7. Remove the temporary database container.
+Alembic then reported the graph-normalized stored revision:
 
-The seeded identity and metadata were:
+~~~
+b2c3d4e5f6a7 (head)
+~~~
 
-```text
+The user_profiles.accent_color column count was 0, proving that the
+pre-accent schema did not already contain the migrated column.
+
+## Existing Fixture
+
+The fixture was inserted using the actual pre-upgrade columns. The
+post-migration ORM model was not used to manufacture the pre-migration schema.
+
+~~~
 user_id:      accent-upgrade-proof-user
 username:     accent-upgrade-proof@example.invalid
 display_name: Accent Upgrade Proof
 avatar_url:   https://example.invalid/accent-upgrade-proof.png
 timezone:     America/New_York
-```
+~~~
 
-## Captured evidence
+The pre-upgrade profile row was:
 
-### Pre-upgrade row
+~~~
+user_id          | accent-upgrade-proof-user
+display_name     | Accent Upgrade Proof
+avatar_url       | https://example.invalid/accent-upgrade-proof.png
+timezone         | America/New_York
+created_at       | 2026-07-29 13:56:43.525544+00
+updated_at       | 2026-07-29 13:56:43.525544+00
+~~~
 
-```json
-{
-  "user_id": "accent-upgrade-proof-user",
-  "username": "accent-upgrade-proof@example.invalid",
-  "display_name": "Accent Upgrade Proof",
-  "avatar_url": "https://example.invalid/accent-upgrade-proof.png",
-  "timezone": "America/New_York",
-  "created_at": "2026-07-29T00:17:44.521556+00:00",
-  "updated_at": "2026-07-29T00:17:44.521556+00:00"
-}
-```
+Pre-upgrade profile count: 1.
 
-### Normal upgrade result
+Pre-upgrade metadata digest, excluding timestamps and accent_color:
+53b6c42c305150d4af48de7ac165fa09.
 
-```text
-command: alembic upgrade heads
-result: migration c8d9e0f1a2b3 applied successfully
-```
+## Upgrade Execution
 
-The post-upgrade Alembic heads were:
+The normal migration command was run against the temporary database only:
 
-```text
+~~~
+docker compose run --rm \
+  -e DATABASE_URL="$proof_database_url" \
+  --entrypoint python migrator \
+  -m alembic --raiseerr \
+  -c /app/backend/alembic.ini \
+  upgrade heads
+~~~
+
+The command completed successfully and applied revision c8d9e0f1a2b3.
+No seed-default command ran.
+
+## Post-Upgrade Revisions
+
+Alembic reported both expected current heads:
+
+~~~
 b2c3d4e5f6a7 (head)
 c8d9e0f1a2b3 (head)
-```
+~~~
 
-The post-upgrade row was:
+## Schema and Constraint Results
 
-```json
-{
-  "user_id": "accent-upgrade-proof-user",
-  "username": "accent-upgrade-proof@example.invalid",
-  "display_name": "Accent Upgrade Proof",
-  "avatar_url": "https://example.invalid/accent-upgrade-proof.png",
-  "timezone": "America/New_York",
-  "accent_color": "default",
-  "created_at": "2026-07-29T00:17:44.521556+00:00",
-  "updated_at": "2026-07-29T00:17:44.521556+00:00"
-}
-```
+The resulting column inspection was:
 
-The SQL assertion compared every seeded identity and profile field, required
-`accent_color = 'default'`, and compared both timestamps to the captured
-pre-upgrade values:
+~~~
+column_name    | accent_color
+data_type      | character varying(16)
+is_nullable    | NO
+column_default | NULL
+~~~
 
-```text
-preservation_assertion=PASS
-```
+The migration backfills existing rows but does not install a server default;
+the proof assertion is the durable existing-row value, not a server-default
+claim.
 
-The schema inspection also confirmed that `accent_color` is non-null and the
-named canonical check constraint exists:
+The canonical constraint was present:
 
-```text
-schema_assertion=PASS
-```
+~~~
+conname: ck_user_profiles_accent_color
+definition: CHECK (((accent_color)::text = ANY ((ARRAY['amber'::character varying, 'blue'::character varying, 'cyan'::character varying, 'default'::character varying, 'emerald'::character varying, 'rose'::character varying, 'slate'::character varying, 'violet'::character varying])::text[])))
+~~~
 
-The migration performs a backfill rather than adding a database-level server
-default in the migration itself; the proof claim is specifically the
-backfilled value on the existing row.
+Aggregate integrity results:
 
-## ADR and contract impact
+~~~
+total_profiles  | 1
+null_accents    | 0
+invalid_accents | 0
+~~~
 
-Aligned with the existing migration-proof doctrine and the following
-governing contracts:
+## Existing-Row Preservation
+
+| Assertion | Pre-upgrade | Post-upgrade | Result |
+|---|---:|---:|---|
+| user_profiles row count | 1 | 1 | PASS |
+| metadata digest | 53b6c42c305150d4af48de7ac165fa09 | 53b6c42c305150d4af48de7ac165fa09 | PASS |
+| user_id | accent-upgrade-proof-user | accent-upgrade-proof-user | PASS |
+| display_name | Accent Upgrade Proof | Accent Upgrade Proof | PASS |
+| avatar_url | https://example.invalid/accent-upgrade-proof.png | https://example.invalid/accent-upgrade-proof.png | PASS |
+| timezone | America/New_York | America/New_York | PASS |
+| created_at | 2026-07-29 13:56:43.525544+00 | 2026-07-29 13:56:43.525544+00 | PASS |
+| updated_at | 2026-07-29 13:56:43.525544+00 | 2026-07-29 13:56:43.525544+00 | PASS |
+| accent_color | absent | default | PASS |
+
+## Invalid-Value Rejection
+
+The prescribed invalid value linear-gradient(red, blue) was rejected by
+PostgreSQL at the varchar(16) boundary. A second invalid value within the
+column length, not-a-color, was rejected directly by the named check
+constraint:
+
+~~~
+ERROR: new row for relation "user_profiles" violates check constraint
+       "ck_user_profiles_accent_color"
+~~~
+
+The valid value remained default after both rejected updates.
+
+## Exact Commands
+
+The proof used these command classes, with credentials kept in Compose-managed
+environment variables and the proof URL kept in a shell variable:
+
+~~~
+git rev-parse --show-toplevel
+git branch --show-current
+git rev-parse HEAD
+git status --short --branch --untracked-files=all
+git merge-base --is-ancestor c3289d11c94f8ea88921f68e2e5658f23f716c42 HEAD
+
+docker compose build migrator
+docker compose run --rm --entrypoint python migrator -m alembic -c /app/backend/alembic.ini heads
+docker compose run --rm --entrypoint sh migrator -lc 'grep -E "^(revision|down_revision)" ...'
+docker compose exec -T db sh -lc 'dropdb --if-exists ...; createdb ...'
+docker compose run --rm -e DATABASE_URL="$proof_database_url" --entrypoint python migrator -m alembic -c /app/backend/alembic.ini upgrade e5f6a7b8c9d0
+docker compose run --rm -e DATABASE_URL="$proof_database_url" --entrypoint python migrator -m alembic -c /app/backend/alembic.ini upgrade b2c3d4e5f6a7
+docker compose run --rm -e DATABASE_URL="$proof_database_url" --entrypoint python migrator -m alembic -c /app/backend/alembic.ini current
+# seed the specified users and user_profiles rows with psql
+# capture pre-upgrade row, count, and metadata digest
+docker compose run --rm -e DATABASE_URL="$proof_database_url" --entrypoint python migrator -m alembic --raiseerr -c /app/backend/alembic.ini upgrade heads
+# capture post-upgrade revisions, schema, constraint, row, digest, and aggregates
+# attempt linear-gradient(red, blue), then not-a-color, with psql
+docker compose exec -T db sh -lc 'dropdb --if-exists -U "$POSTGRES_USER" codexify_accent_upgrade_proof_20260728'
+docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) ..."'
+~~~
+
+No Alembic stamp was run. alembic_version was not manually edited. No
+migration, model, route, frontend, Compose, or supported-profile file was
+edited.
+
+## Proof Classification
+
+- synthetic existing-instance upgrade proof
+- supported Postgres and migrator path
+- not a production snapshot
+- not live API proof
+- not Chrome rehydration proof
+- not export/restore proof
+- not a release expansion
+
+## Limitations
+
+- This is not a production snapshot or a historical upgrade sweep.
+- It proves the durable database transition only.
+- Live /api/user/profile availability under an authorized runtime profile is
+  deferred.
+- Chrome panel reload, reconnect, and second-client rehydration are deferred.
+- Export/restore behavior is deferred.
+- The exact two-entry pre-upgrade alembic current output requested by the task
+  is not a valid stored state because e5f6a7b8c9d0 is an ancestor of
+  b2c3d4e5f6a7; the proof records the observed graph-normalized state rather
+  than manufacturing one with a stamp or manual version edit.
+
+## Cleanup
+
+The temporary database was dropped with dropdb --if-exists and verified absent:
+
+~~~
+pg_database count for codexify_accent_upgrade_proof_20260728: 0
+~~~
+
+The active Codexify database and codexify_pg_data volume were not dropped,
+recreated, or modified by the proof. No docker compose down -v was run.
+
+## ADR Impact
+
+Classification: **aligned with existing ADRs/contracts**.
+
+Governing sources:
 
 - ADR-005 Runtime Mode and Account Boundary Invariants
 - Remote Account Access and User Profile Contract
 - Account Export + Restore Contract
 - Data and Storage
+- existing migration-proof doctrine
 
-This artifact changes no runtime behavior, schema, route, frontend, Compose
-file, or supported profile. It records proof for the already-landed
+This proof changes no runtime behavior, schema, route, frontend, Compose file,
+or supported profile. It records evidence for the already-landed
 account-scoped preference migration.
 
-## Proof limits and follow-up
+## Documentation Follow-Through
 
-Proven:
+Updated only this proof artifact. docs/architecture/00-current-state.md
+was not updated because this proof does not expand the release claim. Live API,
+Chrome rehydration, and export/restore proof remain explicitly deferred.
 
-- isolated temporary database use;
-- populated existing profile before upgrade;
-- normal `alembic upgrade heads` transition;
-- post-upgrade heads `b2c3d4e5f6a7` and `c8d9e0f1a2b3`;
-- preservation of user identity, profile metadata, and timestamps;
-- `accent_color` backfill to `default`;
-- non-null and named check-constraint presence;
-- cleanup of the temporary proof database.
+## Git Commit
 
-Deferred and not claimed here:
-
-- live `/api/user/profile` behavior under an authorized runtime profile;
-- Chrome panel reload or rehydration;
-- second-client profile convergence;
-- packaged or non-Compose runtime behavior.
+One documentation-only commit records this artifact. The final commit hash is
+reported in the task closeout because changing the artifact changes the hash.
