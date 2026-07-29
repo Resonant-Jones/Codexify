@@ -22,6 +22,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import psycopg
 from psycopg import errors as pg_errors
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from sqlalchemy import create_engine, inspect
@@ -3042,12 +3043,24 @@ class PgDB(ChatDB):
         )
         max_row = cur.fetchone() or {}
         max_value = int(max_row.get("max_id") or 0)
-        if max_value > 0:
+        if max_value <= 0:
+            return
+
+        sequence_identifier = sql.Identifier(*sequence_name.split("."))
+        cur.execute(
+            sql.SQL("SELECT last_value, is_called FROM {}")
+            .format(sequence_identifier)
+        )
+        sequence_row = cur.fetchone() or {}
+        sequence_value = int(sequence_row.get("last_value") or 0)
+        sequence_called = bool(sequence_row.get("is_called"))
+
+        if sequence_value < max_value or (
+            sequence_value == max_value and not sequence_called
+        ):
             cur.execute(
                 "SELECT setval(%s, %s, true)", (sequence_name, max_value)
             )
-        else:
-            cur.execute("SELECT setval(%s, %s, false)", (sequence_name, 1))
 
     def restore_account_export_projects(
         self,
