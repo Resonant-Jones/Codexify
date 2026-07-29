@@ -6,18 +6,29 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Header, HTTPException
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from guardian.account_observability.invites import (
+    complete_registration_attribution,
+    record_invite_audit,
+)
+from guardian.account_observability.presence import end_account_presence
+from guardian.account_observability.tokens import (
+    ATTRIBUTION_COOKIE_NAME,
+    AccountObservabilityInviteAuditAction,
+)
 from guardian.core.auth import issue_session_token
 from guardian.core.db import load_guardian_db_from_env
+from guardian.core.dependencies import resolve_session_user_id
 from guardian.core.passwords import hash_password, verify_password
 from guardian.core.preview_access import (
     is_private_preview,
     normalize_preview_email,
     role_for_preview_email,
 )
+from guardian.core.request_correlation import normalize_request_id
 from guardian.core.session_store import (
     DEFAULT_SESSION_TTL_SECONDS,
     get_session_store,
@@ -87,9 +98,51 @@ def _resolve_token_from_request(
     return None
 
 
+def _registration_request_id(request: Request) -> str:
+    state_id = getattr(request.state, "request_id", None)
+    normalized, _ = normalize_request_id(
+        state_id or request.headers.get("X-Request-ID")
+    )
+    request.state.request_id = normalized
+    return normalized
+
+
+def _record_registration_attribution_audit_best_effort(
+    db: Any,
+    *,
+    user_id: str,
+    invite_id: str,
+    request_id: str,
+) -> None:
+    try:
+        with db.get_session() as audit_session:
+            record_invite_audit(
+                audit_session,
+                action=AccountObservabilityInviteAuditAction.REGISTRATION_ATTRIBUTED.value,
+                invite_id=invite_id,
+                actor_id=user_id,
+                request_id=request_id,
+                result="attributed",
+            )
+            audit_session.commit()
+    except Exception as exc:
+        logger.warning(
+            "[account_observability] registration_audit_failed user_id=%s invite_id=%s request_id=%s error_class=%s",
+            user_id,
+            invite_id,
+            request_id,
+            type(exc).__name__,
+        )
+
+
 @router.post("/register")
 @api_router.post("/register")
-def register_user(body: AuthRegisterRequest) -> dict[str, Any]:
+def register_user(
+    body: AuthRegisterRequest,
+    request: Request,
+    attribution_guest_id: str
+    | None = Cookie(default=None, alias=ATTRIBUTION_COOKIE_NAME),
+) -> dict[str, Any]:
     if is_private_preview():
         # Preview users are provisioned by the operator, never self-registered.
         raise HTTPException(status_code=404, detail="Not found")
@@ -114,6 +167,31 @@ def register_user(body: AuthRegisterRequest) -> dict[str, Any]:
         session.add(user)
         session.commit()
         session.refresh(user)
+
+    # Canonical account creation is already committed. Attribution is a
+    # separate, best-effort observability transaction and cannot roll it back.
+    try:
+        with db.get_session() as observability_session:
+            conversion = complete_registration_attribution(
+                observability_session,
+                user_id=user.id,
+                guest_cookie=attribution_guest_id,
+                registered_at=user.created_at,
+            )
+            observability_session.commit()
+        if conversion.attributed and conversion.invite_id:
+            _record_registration_attribution_audit_best_effort(
+                db,
+                user_id=user.id,
+                invite_id=conversion.invite_id,
+                request_id=_registration_request_id(request),
+            )
+    except Exception as exc:
+        logger.warning(
+            "[account_observability] registration_attribution_failed user_id=%s error_class=%s",
+            user.id,
+            type(exc).__name__,
+        )
 
     return {
         "ok": True,
@@ -176,30 +254,24 @@ def logout_user(
     if not token:
         raise HTTPException(status_code=401, detail="Missing session token")
     try:
-        user_id = get_session_store().verify(token)
+        user_id = resolve_session_user_id(authorization, gc_session)
     except Exception as exc:
         user_id = None
         logger.warning(
-            "[auth] best-effort presence lookup failed error_class=%s",
+            "[account_observability] logout_presence_lookup_failed error_class=%s",
             type(exc).__name__,
         )
+    get_session_store().revoke(token)
     if user_id:
         try:
-            from guardian.account_observability.presence import (
-                end_account_presence,
-            )
-
-            db = load_guardian_db_from_env()
-            if db is not None:
-                with db.get_session() as session:
-                    end_account_presence(session, user_id)
-                    session.commit()
+            with _auth_db().get_session() as session:
+                end_account_presence(session, user_id)
+                session.commit()
         except Exception as exc:
-            # Logout remains successful; lease expiry is authoritative when
-            # this best-effort observability hook cannot write.
+            # Logout remains successful; idle expiry is authoritative when the
+            # optional observability database write cannot complete.
             logger.warning(
-                "[auth] best-effort presence end failed error_class=%s",
+                "[account_observability] logout_presence_end_failed error_class=%s",
                 type(exc).__name__,
             )
-    get_session_store().revoke(token)
     return {"ok": True}
