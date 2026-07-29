@@ -937,11 +937,19 @@ export interface AccountImportJob {
   imported_message_count: number;
   imported_media_count: number;
   duplicate_count: number;
+  canonical_duplicate_count?: number;
   skipped_count: number;
   warning_count: number;
   failure_count: number;
   warning_details: Array<Record<string, unknown>>;
   error_details: Array<Record<string, unknown>>;
+  source_summary?: {
+    conversations_discovered?: number;
+    conversations_accepted?: number;
+    conversations_skipped?: number;
+    conversations_failed?: number;
+    conversation_transactions_committed?: boolean;
+  };
   created_at?: string | null;
   queued_at?: string | null;
   started_at?: string | null;

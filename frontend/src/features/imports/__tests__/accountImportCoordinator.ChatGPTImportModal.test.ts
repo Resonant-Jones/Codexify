@@ -178,4 +178,38 @@ describe("account import coordinator continuity", () => {
     );
     coordinator.resetAccountImportCoordinatorForTests();
   });
+
+  it("renders a zero-write terminal result as failed, not completed", async () => {
+    window.localStorage.setItem(
+      "cfy.accountImport:v1",
+      JSON.stringify({ v: 1, jobId: "zero-write-job", status: "queued" })
+    );
+    apiMocks.fetch.mockResolvedValue({
+      ...job("queued"),
+      job_id: "zero-write-job",
+      status: "failed",
+      error_details: [
+        {
+          code: "account_import_no_committed_entities",
+          message:
+            "The export finished processing, but no canonical entities were committed.",
+        },
+      ],
+    });
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+
+    coordinator.getAccountImportCoordinatorSnapshot();
+
+    await waitFor(() =>
+      expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe(
+        "failed"
+      )
+    );
+    const snap = coordinator.getAccountImportCoordinatorSnapshot();
+    expect(snap.error).toMatch(/no canonical entities were committed/);
+    expect(snap.phase).not.toBe("completed");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
 });
