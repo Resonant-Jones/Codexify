@@ -226,3 +226,13 @@ Redis currently carries multiple distinct responsibilities for the main chat loo
   - `guardian/vector/store.py` defaults to a configurable store abstraction
   - `guardian/workers/document_embed_worker.py` currently instantiates the runtime embedder with `store="chroma"`
 - This means retrieval and embedding paths should be treated as a coupled surface during provider or vector-backend changes.
+
+## Account Observability Persistence (Internal Slices 1–3)
+
+Migration `b2c3d4e5f6a7` owns the Guardian tables for invite definitions, pseudonymous guest lineage, canonical account observability metadata, and content-free foreground presence sessions. The runtime writers are `guardian.account_observability.invites` for first-touch invite lineage, `guardian.routes.auth` for registration conversion, and `guardian.account_observability.presence` for explicit foreground heartbeats. Ordinary API, message, model, document, and route traffic does not write presence or account `last_seen_at`.
+
+`POST /api/account-observability/heartbeat` resolves authenticated accounts through Guardian's signed session seam. It resolves guests from the server-issued `codexify_guest_attribution` cookie only after `record_heartbeat` verifies a live canonical guest row; malformed, fabricated, absent, and soft-deleted guest identities fail closed. The writer persists no raw or hashed IP, user-agent, route, page, message, thread, project, content, referrer, device fingerprint, or precise-geography value.
+
+`guardian.account_observability.retention.run_cleanup` owns deterministic row-level cleanup and is exposed through `POST /api/operator/account-observability/retention/cleanup` with dry-run support. It closes open leases whose latest accepted heartbeat is strictly older than 30 minutes, deletes presence rows whose `created_at` is strictly older than 30 days in batches of 500, and soft-deletes guest lineage strictly older than 90 days only when no converted-account metadata requires that lineage. Converted attribution is deferred, invite definitions and canonical account registration metadata are preserved, and each run returns execution/cutoff timestamps plus expired, deleted, and deferred counts.
+
+This is internal capability evidence only. GeoIP, aggregates, operator reporting reads, UI, and supported-path proof remain absent.

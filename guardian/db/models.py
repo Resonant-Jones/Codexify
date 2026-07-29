@@ -30,9 +30,10 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from guardian.account_observability.tokens import (
-    ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCES,
-    ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHODS,
-    ACCOUNT_OBSERVABILITY_INVITE_STATUSES,
+    ATTRIBUTION_CONFIDENCES,
+    ATTRIBUTION_METHODS,
+    INVITE_STATUSES,
+    AccountObservabilityInviteStatus,
 )
 from guardian.agents.work_orders import WORK_ORDER_STATUSES
 from guardian.agents.worktree_leases import (
@@ -109,266 +110,6 @@ class User(Base):
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'guest')", name="users_role_check"),
     )
-
-
-ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL = "','".join(
-    sorted(ACCOUNT_OBSERVABILITY_INVITE_STATUSES)
-)
-ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHOD_VALUES_SQL = "','".join(
-    sorted(ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHODS)
-)
-ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCE_VALUES_SQL = "','".join(
-    sorted(ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCES)
-)
-
-
-class AccountObservabilityInviteLink(Base):
-    """Operator-authored acquisition link metadata.
-
-    Only a one-way token hash is persisted. Expiration is derived from
-    ``expires_at`` rather than represented as a lifecycle status.
-    """
-
-    __tablename__ = "account_observability_invite_links"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    campaign_label: Mapped[str | None] = mapped_column(String(255))
-    placement_label: Mapped[str | None] = mapped_column(String(255))
-    created_by_user_id: Mapped[str | None] = mapped_column(
-        String(255),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="active"
-    )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    disabled_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    __table_args__ = (
-        Index(
-            "uq_account_observability_invite_links_token_hash",
-            "token_hash",
-            unique=True,
-        ),
-        Index(
-            "ix_account_observability_invite_links_status_created_at",
-            "status",
-            "created_at",
-        ),
-        CheckConstraint(
-            f"status IN ('{ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL}')",
-            name="ck_account_observability_invite_links_status",
-        ),
-        CheckConstraint(
-            "(status = 'active' AND disabled_at IS NULL AND revoked_at IS NULL) "
-            "OR (status = 'disabled' AND disabled_at IS NOT NULL AND revoked_at IS NULL) "
-            "OR (status = 'revoked' AND revoked_at IS NOT NULL AND disabled_at IS NULL)",
-            name="ck_account_observability_invite_links_lifecycle_timestamps",
-        ),
-    )
-    __mapper_args__ = {"eager_defaults": True}
-
-
-class AccountObservabilityGuestIdentity(Base):
-    """Server-issued opaque guest lineage identity."""
-
-    __tablename__ = "account_observability_guest_identities"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    first_invite_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey(
-            "account_observability_invite_links.id", ondelete="RESTRICT"
-        ),
-    )
-    converted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    __table_args__ = (
-        Index(
-            "ix_account_observability_guest_identities_first_invite",
-            "first_invite_id",
-        ),
-    )
-    __mapper_args__ = {"eager_defaults": True}
-
-
-class AccountObservabilityAccountMetadata(Base):
-    """One-to-one observability metadata extension for a canonical user."""
-
-    __tablename__ = "account_observability_account_metadata"
-
-    user_id: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    registered_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False
-    )
-    last_seen_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
-    acquisition_invite_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey(
-            "account_observability_invite_links.id", ondelete="RESTRICT"
-        ),
-    )
-    prior_guest_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey(
-            "account_observability_guest_identities.id", ondelete="SET NULL"
-        ),
-    )
-    attribution_method: Mapped[str | None] = mapped_column(String(64))
-    attribution_confidence: Mapped[str | None] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    __table_args__ = (
-        Index(
-            "ix_account_observability_account_metadata_acquisition_invite",
-            "acquisition_invite_id",
-        ),
-        CheckConstraint(
-            "(acquisition_invite_id IS NULL "
-            "AND prior_guest_id IS NULL "
-            "AND attribution_method IS NULL "
-            "AND attribution_confidence IS NULL) "
-            "OR (acquisition_invite_id IS NOT NULL "
-            f"AND attribution_method IN ('{ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHOD_VALUES_SQL}') "
-            f"AND attribution_confidence IN ('{ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCE_VALUES_SQL}'))",
-            name="ck_account_observability_account_metadata_attribution",
-        ),
-    )
-    __mapper_args__ = {"eager_defaults": True}
-
-
-class AccountObservabilityPresenceSession(Base):
-    """Content-free foreground presence session metadata."""
-
-    __tablename__ = "account_observability_presence_sessions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str | None] = mapped_column(
-        String(255), ForeignKey("users.id", ondelete="CASCADE")
-    )
-    guest_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey(
-            "account_observability_guest_identities.id", ondelete="CASCADE"
-        ),
-    )
-    invite_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey(
-            "account_observability_invite_links.id", ondelete="RESTRICT"
-        ),
-    )
-    started_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False
-    )
-    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    country_code: Mapped[str | None] = mapped_column(String(2))
-    region_code: Mapped[str | None] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    __table_args__ = (
-        Index(
-            "ix_account_observability_presence_sessions_user_last_seen",
-            "user_id",
-            "last_seen_at",
-        ),
-        Index(
-            "ix_account_observability_presence_sessions_guest_last_seen",
-            "guest_id",
-            "last_seen_at",
-        ),
-        Index(
-            "ix_account_observability_presence_sessions_invite_started",
-            "invite_id",
-            "started_at",
-        ),
-        Index(
-            "ix_account_observability_presence_sessions_started_geo",
-            "started_at",
-            "country_code",
-            "region_code",
-        ),
-        CheckConstraint(
-            "(user_id IS NOT NULL AND guest_id IS NULL) "
-            "OR (user_id IS NULL AND guest_id IS NOT NULL)",
-            name="ck_account_observability_presence_sessions_exactly_one_subject",
-        ),
-        CheckConstraint(
-            "last_seen_at >= started_at",
-            name="ck_ao_presence_sessions_last_seen_after_start",
-        ),
-        CheckConstraint(
-            "ended_at IS NULL OR ended_at >= started_at",
-            name="ck_ao_presence_sessions_end_after_start",
-        ),
-        CheckConstraint(
-            "region_code IS NULL OR country_code IS NOT NULL",
-            name="ck_ao_presence_sessions_region_requires_country",
-        ),
-        CheckConstraint(
-            "country_code IS NULL OR length(country_code) = 2",
-            name="ck_ao_presence_sessions_country_code_length",
-        ),
-    )
-    __mapper_args__ = {"eager_defaults": True}
 
 
 # =========================
@@ -5145,4 +4886,277 @@ class ContinuityStatePacketLink(Base):
             name="uq_cty_state_packet_link",
         ),
     )
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
+# Account Observability
+# =========================
+
+ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL = "','".join(
+    sorted(INVITE_STATUSES)
+)
+ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHOD_VALUES_SQL = "','".join(
+    sorted(ATTRIBUTION_METHODS)
+)
+ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCE_VALUES_SQL = "','".join(
+    sorted(ATTRIBUTION_CONFIDENCES)
+)
+
+
+class AccountObservabilityInviteLink(Base):
+    """Operator-authored invite source with one-way token persistence."""
+
+    __tablename__ = "account_observability_invite_links"
+
+    invite_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    campaign_label: Mapped[str | None] = mapped_column(String(255))
+    placement_label: Mapped[str | None] = mapped_column(String(255))
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=AccountObservabilityInviteStatus.ACTIVE.value,
+        server_default=AccountObservabilityInviteStatus.ACTIVE.value,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_account_observability_invite_links_token_hash",
+        ),
+        CheckConstraint(
+            f"status IN ('{ACCOUNT_OBSERVABILITY_INVITE_STATUS_VALUES_SQL}')",
+            name="account_observability_invite_status_check",
+        ),
+        CheckConstraint(
+            "((status = 'active' AND disabled_at IS NULL AND revoked_at IS NULL) "
+            "OR (status = 'disabled' AND disabled_at IS NOT NULL AND revoked_at IS NULL) "
+            "OR (status = 'revoked' AND revoked_at IS NOT NULL))",
+            name="account_observability_invite_lifecycle_check",
+        ),
+        Index(
+            "ix_account_observability_invite_links_status_created_at",
+            "status",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AccountObservabilityGuestIdentity(Base):
+    """Server-issued pseudonymous guest identity for future attribution."""
+
+    __tablename__ = "account_observability_guest_identities"
+
+    guest_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    first_invite_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "account_observability_invite_links.invite_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    converted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_account_observability_guest_identities_first_invite_id",
+            "first_invite_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AccountObservabilityAccountMetadata(Base):
+    """One-to-one, non-auth observability metadata for a canonical user."""
+
+    __tablename__ = "account_observability_account_metadata"
+
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    registered_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
+    acquisition_invite_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "account_observability_invite_links.invite_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    prior_guest_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "account_observability_guest_identities.guest_id",
+            ondelete="SET NULL",
+        ),
+    )
+    attribution_method: Mapped[str | None] = mapped_column(String(64))
+    attribution_confidence: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"attribution_method IS NULL OR attribution_method IN ('{ACCOUNT_OBSERVABILITY_ATTRIBUTION_METHOD_VALUES_SQL}')",
+            name="account_observability_attribution_method_check",
+        ),
+        CheckConstraint(
+            f"attribution_confidence IS NULL OR attribution_confidence IN ('{ACCOUNT_OBSERVABILITY_ATTRIBUTION_CONFIDENCE_VALUES_SQL}')",
+            name="account_observability_attribution_confidence_check",
+        ),
+        CheckConstraint(
+            "((acquisition_invite_id IS NULL AND attribution_method IS NULL AND attribution_confidence IS NULL) "
+            "OR (acquisition_invite_id IS NOT NULL "
+            "AND attribution_method = 'first_party_first_touch' "
+            "AND attribution_confidence = 'verified'))",
+            name="account_observability_attribution_consistency_check",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class AccountObservabilityPresenceSession(Base):
+    """Content-free foreground presence lease for one account or guest."""
+
+    __tablename__ = "account_observability_presence_sessions"
+
+    presence_session_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    guest_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "account_observability_guest_identities.guest_id",
+            ondelete="CASCADE",
+        ),
+    )
+    invite_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "account_observability_invite_links.invite_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    region_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "((user_id IS NOT NULL) <> (guest_id IS NOT NULL))",
+            name="account_observability_presence_exactly_one_subject_check",
+        ),
+        CheckConstraint(
+            "last_seen_at >= started_at",
+            name="account_observability_presence_last_seen_order_check",
+        ),
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at >= started_at",
+            name="account_observability_presence_ended_order_check",
+        ),
+        CheckConstraint(
+            "region_code IS NULL OR country_code IS NOT NULL",
+            name="account_observability_presence_region_country_check",
+        ),
+        CheckConstraint(
+            "country_code IS NULL OR (length(country_code) = 2 AND country_code = upper(country_code))",
+            name="account_observability_presence_country_code_check",
+        ),
+        Index(
+            "ix_account_observability_presence_sessions_user_last_seen_at",
+            "user_id",
+            "last_seen_at",
+        ),
+        Index(
+            "ix_account_observability_presence_sessions_guest_last_seen_at",
+            "guest_id",
+            "last_seen_at",
+        ),
+        Index(
+            "ix_account_observability_presence_sessions_invite_started_at",
+            "invite_id",
+            "started_at",
+        ),
+        Index(
+            "ix_acct_obs_presence_last_seen_country_region",
+            "last_seen_at",
+            "country_code",
+            "region_code",
+        ),
+    )
+
     __mapper_args__ = {"eager_defaults": True}

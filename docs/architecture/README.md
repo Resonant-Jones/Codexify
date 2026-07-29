@@ -334,3 +334,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - Keep present-state descriptions out of `roadmap-signals.md`; keep recommendations there instead.
 - When a change increases coupling or risk, add it to `tech-debt-and-risks.md` in the same PR.
 - Re-run the repo's docs check after edits and record the result, even if the docs command is currently broken.
+
+### Account observability implementation boundary
+
+[Admin Account Observability Contract](./admin-account-observability-contract.md) and [ADR-049](./adr/ADR-049-admin-account-observability-and-invite-attribution.md) govern an internal Guardian implementation through Slice 3: persistence/tokens, first-touch invite attribution, explicit foreground account/guest heartbeat, and deterministic conversion-safe retention cleanup. This does not include GeoIP, aggregates, operator reporting/snapshot routes, UI, or supported-path proof and does not widen the beta release promise.
