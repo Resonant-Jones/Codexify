@@ -82,6 +82,11 @@ The sender snapshot preserves the participant's display label at send time so tr
 - participant removal (SET NULL on FK)
 - participant deletion (SET NULL on FK)
 
+The provenance migration includes a narrow database trigger that clears the
+paired display snapshot when the foreign key action nulls the participant ID.
+This preserves the strict paired-nullability check while retaining the message
+row and its content.
+
 The snapshot is presentation metadata only — not global identity proof, not an email field, not a Contact reference, and not a live reference to the participant's current display name.
 
 For a metadata-bearing Hosted Room Guardian completion, the worker validates the
@@ -105,6 +110,18 @@ No Contact, presence, IP address, device fingerprint, or telemetry fields exist 
 The enabled resident-agent field is a bounded, inspectable list of existing agent identifiers; it is not a second agent registry or a persisted capability-grant set. Contact persistence is not introduced here, so invitation intent retains only an intended display-name snapshot and does not claim Contact identity.
 
 No ambient-presence, device, location, behavioral, or cross-node synchronization state is stored. API creation, invitation exchange, room-scoped sessions, authorization, message operations, agent invocation, Contacts workflows, RoomShell, and management UI remain unimplemented.
+
+### Existing-instance migration reconciliation
+
+An existing-instance migration may recognize physical schema that is already
+correct for the migration's canonical definition. Recognition requires exact
+structural validation of the relevant columns, nullability, constraints,
+foreign keys, and indexes; it is not an unconditional `IF NOT EXISTS` skip.
+Incompatible structures or existing data that cannot satisfy a new constraint
+must fail closed with bounded evidence. Schema/history reconciliation still
+occurs through normal Alembic execution and version advancement. Stamping,
+direct `alembic_version` edits, and manual schema repair are not substitutes
+for migration execution.
 
 ### Documents, media, and generated artifacts
 

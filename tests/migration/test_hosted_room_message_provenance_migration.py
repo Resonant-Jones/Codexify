@@ -37,6 +37,8 @@ def _database_url(base_url: str, database_name: str) -> str:
 
 
 def _admin_database_url(base_url: str) -> str:
+    # psycopg.connect() expects the plain PostgreSQL URL scheme; the
+    # SQLAlchemy/Alembic URL may use postgresql+psycopg.
     return (
         make_url(base_url)
         .set(drivername="postgresql", database="postgres")
@@ -120,6 +122,260 @@ def upgraded_db(temporary_postgres, monkeypatch):
     engine.dispose()
 
 
+@pytest.fixture
+def parent_db(temporary_postgres, monkeypatch):
+    """Create the disposable existing-instance fixture at the parent revision."""
+    from alembic import command
+    from alembic.config import Config
+
+    repo_root = Path(__file__).resolve().parents[2]
+    config = Config(str(repo_root / "backend" / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", temporary_postgres)
+    config.set_main_option(
+        "script_location",
+        str(repo_root / "guardian" / "db" / "migrations"),
+    )
+    command.upgrade(config, PREVIOUS_REVISION)
+    engine = create_engine(temporary_postgres, future=True)
+    yield config, engine, command
+    engine.dispose()
+
+
+def _create_matching_preexisting_schema(engine) -> None:
+    """Reproduce the tester's physical schema drift without changing history."""
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id VARCHAR(36)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN sender_display_name_snapshot VARCHAR(255)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD CONSTRAINT ck_chat_messages_paired_provenance CHECK ("
+                "(hosted_room_participant_id IS NULL "
+                "AND sender_display_name_snapshot IS NULL) OR ("
+                "hosted_room_participant_id IS NOT NULL "
+                "AND sender_display_name_snapshot IS NOT NULL "
+                "AND sender_display_name_snapshot <> ''))"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD CONSTRAINT fk_chat_messages_hosted_room_participant_id "
+                "FOREIGN KEY (hosted_room_participant_id) "
+                "REFERENCES public.hosted_room_participants(id) "
+                "ON DELETE SET NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX ix_chat_messages_hosted_room_participant_id "
+                "ON public.chat_messages (hosted_room_participant_id)"
+            )
+        )
+
+
+def _assert_provenance_schema(engine) -> None:
+    inspector = inspect(engine)
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns("chat_messages")
+    }
+    assert columns["hosted_room_participant_id"]["type"].length == 36
+    assert columns["hosted_room_participant_id"]["nullable"] is True
+    assert columns["sender_display_name_snapshot"]["type"].length == 255
+    assert columns["sender_display_name_snapshot"]["nullable"] is True
+    assert any(
+        foreign_key["name"] == "fk_chat_messages_hosted_room_participant_id"
+        and foreign_key["referred_table"] == "hosted_room_participants"
+        and foreign_key["referred_columns"] == ["id"]
+        and (foreign_key.get("options") or {}).get("ondelete") == "SET NULL"
+        for foreign_key in inspector.get_foreign_keys("chat_messages")
+    )
+    assert any(
+        check["name"] == "ck_chat_messages_paired_provenance"
+        for check in inspector.get_check_constraints("chat_messages")
+    )
+    assert any(
+        index["name"] == "ix_chat_messages_hosted_room_participant_id"
+        and index["column_names"] == ["hosted_room_participant_id"]
+        and not index["unique"]
+        for index in inspector.get_indexes("chat_messages")
+    )
+
+
+def test_matching_preexisting_schema_reconciles_and_preserves_data(parent_db):
+    config, engine, command = parent_db
+    _seed_historical_data(engine)
+    with engine.connect() as connection:
+        before = connection.execute(
+            text(
+                "SELECT id, role, content FROM chat_messages ORDER BY id"
+            )
+        ).fetchall()
+
+    _create_matching_preexisting_schema(engine)
+    command.upgrade(config, "head")
+
+    _assert_provenance_schema(engine)
+    with engine.connect() as connection:
+        after = connection.execute(
+            text(
+                "SELECT id, role, content FROM chat_messages ORDER BY id"
+            )
+        ).fetchall()
+        versions = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalars().all()
+        sequence_owner = connection.execute(
+            text(
+                "SELECT sequence.relname, table_name.relname, attribute.attname "
+                "FROM pg_class AS sequence "
+                "JOIN pg_depend AS dependency "
+                "ON dependency.objid = sequence.oid "
+                "AND dependency.deptype = 'a' "
+                "JOIN pg_class AS table_name "
+                "ON table_name.oid = dependency.refobjid "
+                "JOIN pg_attribute AS attribute "
+                "ON attribute.attrelid = table_name.oid "
+                "AND attribute.attnum = dependency.refobjsubid "
+                "WHERE sequence.relkind = 'S' "
+                "AND table_name.relname = 'chat_messages' "
+                "AND attribute.attname = 'id'"
+            )
+        ).one()
+    assert after == before
+    assert versions == ["8c4d2e7f1a9b"]
+    assert tuple(sequence_owner) == (
+        "chat_messages_id_seq",
+        "chat_messages",
+        "id",
+    )
+
+
+def test_missing_companion_objects_are_created(parent_db):
+    config, engine, command = parent_db
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id VARCHAR(36)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN sender_display_name_snapshot VARCHAR(255)"
+            )
+        )
+
+    command.upgrade(config, PROVENANCE_REVISION)
+    _assert_provenance_schema(engine)
+
+
+def test_wrong_column_type_fails_closed(parent_db):
+    config, engine, command = parent_db
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id INTEGER"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="hosted_room_participant_id"):
+        command.upgrade(config, PROVENANCE_REVISION)
+
+
+def test_wrong_column_nullability_fails_closed(parent_db):
+    config, engine, command = parent_db
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id VARCHAR(36) NOT NULL "
+                "DEFAULT 'invalid'"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="nullable"):
+        command.upgrade(config, PROVENANCE_REVISION)
+
+
+def test_wrong_foreign_key_target_fails_closed(parent_db):
+    config, engine, command = parent_db
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id VARCHAR(36)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN sender_display_name_snapshot VARCHAR(255)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD CONSTRAINT fk_chat_messages_hosted_room_participant_id "
+                "FOREIGN KEY (hosted_room_participant_id) "
+                "REFERENCES public.hosted_room_invites(id)"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="foreign key"):
+        command.upgrade(config, PROVENANCE_REVISION)
+
+
+def test_invalid_existing_paired_data_fails_closed(parent_db):
+    config, engine, command = parent_db
+    _seed_historical_data(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN hosted_room_participant_id VARCHAR(36)"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE public.chat_messages "
+                "ADD COLUMN sender_display_name_snapshot VARCHAR(255)"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE public.chat_messages SET sender_display_name_snapshot = "
+                "'orphaned provenance' WHERE id = 1"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="violate the paired-provenance"):
+        command.upgrade(config, PROVENANCE_REVISION)
+
+
+def test_repeated_existing_schema_inspection_is_safe(parent_db):
+    config, engine, command = parent_db
+    _create_matching_preexisting_schema(engine)
+    command.upgrade(config, "head")
+    command.downgrade(config, PREVIOUS_REVISION)
+    _assert_provenance_schema(engine)
+    command.upgrade(config, "head")
+    _assert_provenance_schema(engine)
+
+
 # ── Migration schema correctness ─────────────────────────────────────────
 
 
@@ -195,7 +451,12 @@ def _seed_historical_data(engine):
                 "INSERT INTO projects (user_id, name, description, created_at, updated_at) "
                 "VALUES (:uid, :name, :desc, :now, :now)"
             ),
-            {"uid": "owner-1", "name": "General", "desc": "Default", "now": now},
+            {
+                "uid": "owner-1",
+                "name": "Hosted Room provenance fixture",
+                "desc": "Migration test fixture",
+                "now": now,
+            },
         )
         # Thread
         conn.execute(
@@ -203,13 +464,21 @@ def _seed_historical_data(engine):
                 "INSERT INTO chat_threads (user_id, title, summary, created_at, updated_at) "
                 "VALUES (:uid, :title, :summary, :now, :now)"
             ),
-            {"uid": "owner-1", "title": "Test Thread", "summary": "", "now": now},
+            {
+                "uid": "owner-1",
+                "title": "Hosted Room provenance fixture thread",
+                "summary": "",
+                "now": now,
+            },
         )
 
     # Determine thread ID
     with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT id FROM chat_threads WHERE title = 'Test Thread'")
+            text(
+                "SELECT id FROM chat_threads "
+                "WHERE title = 'Hosted Room provenance fixture thread'"
+            )
         ).fetchone()
     thread_id = row[0]
 
@@ -520,8 +789,9 @@ def test_downgrade_removes_provenance_columns(temporary_postgres, monkeypatch):
     _seed_historical_data(engine)
     engine.dispose()
 
-    # Downgrade one revision
-    command.downgrade(config, "-1")
+    # Downgrade through the child revisions to the immediate parent so this
+    # focused test exercises the provenance migration's own downgrade.
+    command.downgrade(config, PREVIOUS_REVISION)
 
     # Verify columns are gone
     engine2 = create_engine(temporary_postgres, future=True)
