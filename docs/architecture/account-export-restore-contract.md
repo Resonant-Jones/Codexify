@@ -200,6 +200,23 @@ The failure policy is:
 
 Repair is only allowed when it is explicitly recorded in the restore report and does not erase provenance. If a payload, checksum, count, or relationship set is contradictory, restore must stop instead of guessing.
 
+### Background Account-Import Completion
+
+For the durable OpenAI account-import job, upload acceptance, worker execution,
+and terminal completion are separate states. A `completed` or
+`completed_with_warnings` result must be written only after the intended
+canonical project, thread, message, or media writes have committed and their
+bounded result counts are known for the importing account. A worker that
+finishes traversal with zero committed canonical entities and no explicit
+deduplication outcome must instead record `failed` with the canonical
+`account_import_no_committed_entities` error code. The terminal result retains
+bounded source conversation discovery, acceptance, skip, failure, and
+transaction-commit evidence; it must not include source message content or
+uploaded paths.
+
+An all-deduplicated replay is an explicit no-op: it may complete with warnings
+and its duplicate count, rather than being presented as a fresh import.
+
 ## Migration Normalization Note
 
 Third-party exports are handled by adapters at ingest.

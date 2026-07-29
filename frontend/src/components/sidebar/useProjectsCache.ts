@@ -15,9 +15,10 @@ import {
 type UseProjectsCacheOptions = {
   initialProjects?: Project[];
   threadsForLooseCount?: Thread[];
+  enabled?: boolean;
 };
 
-type UseProjectsCacheResult = {
+export type UseProjectsCacheResult = {
   projectList: Project[];
   setProjectList: React.Dispatch<React.SetStateAction<Project[]>>;
   refreshProjectsFromServer: () => Promise<void>;
@@ -123,6 +124,7 @@ function equalProjectLists(a: Project[], b: Project[]): boolean {
 export function useProjectsCache({
   initialProjects = [],
   threadsForLooseCount = [],
+  enabled = true,
 }: UseProjectsCacheOptions = {}): UseProjectsCacheResult {
   const [projectList, setProjectList] = useState<Project[]>(() => {
     const cache = readProjectsCache();
@@ -131,19 +133,22 @@ export function useProjectsCache({
   const hasFetchedRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!initialProjects.length) return;
     setProjectList((prev) => {
       const merged = mergeProjects(prev, initialProjects);
       // Avoid churn when the merged list is identical but newly allocated.
       return equalProjectLists(prev, merged) ? prev : merged;
     });
-  }, [initialProjects]);
+  }, [enabled, initialProjects]);
 
   useEffect(() => {
+    if (!enabled) return;
     writeProjectsCache(projectList);
-  }, [projectList]);
+  }, [enabled, projectList]);
 
   useEffect(() => {
+    if (!enabled) return;
     const defaultProjectId = resolveSidebarGeneralProjectId(projectList);
     if (!defaultProjectId) return;
     try {
@@ -153,7 +158,7 @@ export function useProjectsCache({
     } catch {
       /* ignore */
     }
-  }, [projectList]);
+  }, [enabled, projectList]);
 
   const refreshProjectsFromServer = useCallback(async (options: { throwOnError?: boolean } = {}) => {
     try {
@@ -174,10 +179,11 @@ export function useProjectsCache({
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     if (hasFetchedRef.current) return;
     hasFetchedRef.current = true;
     void refreshProjectsFromServer({ throwOnError: true });
-  }, [refreshProjectsFromServer]);
+  }, [enabled, refreshProjectsFromServer]);
 
   const looseCount = useMemo(
     () => (threadsForLooseCount || []).filter((t) => !t.projectId).length,

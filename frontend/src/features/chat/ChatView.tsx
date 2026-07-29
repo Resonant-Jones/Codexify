@@ -227,6 +227,7 @@ export function ChatView({
   endCompletion: _endCompletion,
   className,
   bottomPadding = 0,
+  composerProjected = false,
   autoReadEnabled = false,
   voiceReadAloudEnabled = false,
   voiceProvider = null,
@@ -256,6 +257,7 @@ export function ChatView({
   endCompletion: () => void;
   className?: string;
   bottomPadding?: number;
+  composerProjected?: boolean;
   autoReadEnabled?: boolean;
   voiceReadAloudEnabled?: boolean;
   voiceProvider?: string | null;
@@ -297,6 +299,13 @@ export function ChatView({
   const mobileShellProfile = useMobileShellProfile();
   const viewportInsets = useViewportInsets(mobileShellProfile.active);
   const shouldStickToLatestRef = useRef(true);
+  const effectiveBottomPad = composerProjected
+    ? bottomPadding
+    : resolveMessageLaneBottomPad(
+        mobileShellProfile.active,
+        viewportInsets.isKeyboardOpen,
+        bottomPadding
+      );
 
   const currentVoiceSelectionKey = buildVoiceSelectionKey(
     voiceProvider,
@@ -472,7 +481,7 @@ export function ChatView({
   }, [measureChatViewport, viewportLayoutSignature]);
 
   useLayoutEffect(() => {
-    if (!initialScrollAppliedRef.current) return;
+    if (!initialScrollAppliedRef.current && !composerProjected) return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -481,7 +490,8 @@ export function ChatView({
     }
     measureChatViewport();
   }, [
-    bottomPadding,
+    effectiveBottomPad,
+    composerProjected,
     containerRef,
     measureChatViewport,
     viewportInsets.keyboardInset,
@@ -867,14 +877,9 @@ export function ChatView({
   }, []);
 
   const shouldMask = hasOverflow && bottomPadding > 0;
-  // Mobile bottom-edge contract: when keyboard is open on phone, the composer
-  // anchors the bottom and the message lane should not add extra padding.
-  const isPhoneClass = mobileShellProfile.active;
-  const effectiveBottomPad = resolveMessageLaneBottomPad(
-    isPhoneClass,
-    viewportInsets.isKeyboardOpen,
-    bottomPadding ?? 0
-  );
+  // Resting mobile composer uses the canonical keyboard-open bottom-edge
+  // contract. A projected composer retains its measured reserve so the
+  // transcript can keep the active turn visible above the foreground layer.
   const scrollStyle: React.CSSProperties = useMemo(
     () => ({
       "--chat-safe-area-bottom": mobileShellProfile.chat.composer.bottomSafeArea,

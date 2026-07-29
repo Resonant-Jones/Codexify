@@ -21,11 +21,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ChevronRight,
+  Menu,
   Mic2,
   MoreVertical,
   Zap,
 } from "lucide-react";
 import { Thread, type ThreadConfig } from "@/types/ui";
+import type { Project } from "@/types/common";
 import type { ProviderRuntimeState } from "@/contracts/runtimeTokens";
 import { describeProviderState, normalizeProviderRuntimeState, PROVIDER_RUNTIME_STATES, CHAT_ORPHANED_TURN_RECOVERED, CHAT_THREAD_CREATED } from "@/contracts/runtimeTokens";
 import { mapRuntimeToVisualState } from "@/shared/runtimeVisualState";
@@ -51,6 +53,7 @@ import api, {
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
+import { cn } from "@/lib/utils";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
 import FrameCard from "@/components/surface/FrameCard";
 import { Button } from "@/components/ui/button";
@@ -910,6 +913,8 @@ export function GuardianChat({
   workspaceOpen: _workspaceOpen = false,
   activeThread,
   workspaceProjectId = null,
+  projectOptions = [],
+  onComposerProjectChange,
   onSendMessage,
   onThreadPersisted: _onThreadPersisted,
   onNewChat,
@@ -933,6 +938,9 @@ export function GuardianChat({
   onSessionModelChange,
   onSessionInferenceModeChange,
   onSessionDraftChange,
+  compactMobileHeader = false,
+  mobileComposerProjectionEnabled = false,
+  mobileComposerProjectionSuspended = false,
 }: {
   guardianName: string;
   userName: string;
@@ -945,6 +953,11 @@ export function GuardianChat({
   workspaceOpen?: boolean;
   activeThread: Thread;
   workspaceProjectId?: string | number | null;
+  projectOptions?: readonly Project[];
+  onComposerProjectChange?: (
+    projectId: string | null,
+    projectName: string | null
+  ) => void;
   onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
   onThreadPersisted?: (
     threadId: number,
@@ -973,6 +986,9 @@ export function GuardianChat({
   onSessionModelChange?: (modelId: string) => void;
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
+  compactMobileHeader?: boolean;
+  mobileComposerProjectionEnabled?: boolean;
+  mobileComposerProjectionSuspended?: boolean;
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
@@ -1113,6 +1129,8 @@ export function GuardianChat({
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
+  const [isMobileComposerProjected, setIsMobileComposerProjected] =
+    useState(false);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const [codexDraft, setCodexDraft] = useState<CodexDraft | null>(null);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1604,8 +1622,6 @@ export function GuardianChat({
 
     measure();
     window.addEventListener("resize", scheduleMeasure);
-    window.visualViewport?.addEventListener("resize", scheduleMeasure);
-    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
 
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMeasure);
@@ -1617,8 +1633,6 @@ export function GuardianChat({
       }
       observer?.disconnect();
       window.removeEventListener("resize", scheduleMeasure);
-      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
-      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
     };
   }, [mobileShellProfile.chat.composer.shellMaxHeight]);
   const handleSessionTabOpenRequest = useCallback(() => {
@@ -3462,14 +3476,20 @@ export function GuardianChat({
           void handleCodexDraftRequest(createdThreadId);
         }
 
-        const completionOutcome = await completeThread(createdThreadId, options);
-        if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
-          setTurnLockForThread(createdThreadId, false);
-          if (completionOutcome === "failed") {
-            throw new Error("Assistant response failed.");
-          }
-          return;
-        }
+        // The authored message is durable at this point. Resolve the composer
+        // send boundary now so mobile focus can clear without conflating that
+        // persistence success with assistant completion.
+        setTimeout(() => {
+          void (async () => {
+            const completionOutcome = await completeThread(createdThreadId, options);
+            if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
+              setTurnLockForThread(createdThreadId, false);
+              if (completionOutcome === "failed") {
+                showToast("Assistant response failed.");
+              }
+            }
+          })();
+        }, 100);
       } catch (error) {
         console.error("Failed to create thread or send message:", error);
         setPendingTurnLock(false);
@@ -4018,8 +4038,28 @@ export function GuardianChat({
   );
 
   const body = (
-    <div className="relative flex h-full w-full min-h-0 flex-col bg-transparent">
+    <div
+      className="relative flex h-full w-full min-h-0 flex-col bg-transparent"
+      style={
+        mobileComposerProjectionEnabled
+          ? ({
+              "--guardian-composer-mobile-input-size": "16px",
+              "--guardian-composer-projection-inset": "var(--card-pad)",
+              "--guardian-composer-projection-gap":
+                "calc(var(--card-pad) / 2)",
+              "--guardian-composer-compact-gap":
+                "calc(var(--card-pad) / 2)",
+              "--guardian-composer-compact-min-height":
+                "calc(var(--card-pad) * 3)",
+              "--guardian-composer-command-palette-max-height":
+                "calc(var(--radius-tile) * 10)",
+              "--guardian-composer-summary-max-width": "40%",
+            } as CSSProperties)
+          : undefined
+      }
+    >
       {/* Single header rail */}
+      {!compactMobileHeader && (
       <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
       <div
           className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full"
@@ -4068,6 +4108,24 @@ export function GuardianChat({
           </div>
         </div>
       </header>
+      )}
+      {compactMobileHeader && (
+      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
+        <div className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full">
+          <div className="flex-1 min-w-0">
+            <SessionRail
+              tabs={sessionTabs}
+              activeTabId={activeSessionTabId}
+              isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
+              showTabs={sessionTabs.length > 1}
+              onActivateTab={handleSessionTabActivateRequest}
+              onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
+              onOpenTab={handleSessionTabOpenRequest}
+            />
+          </div>
+        </div>
+      </header>
+      )}
 
       {llmBackendUnavailable && (
         <div
@@ -4186,6 +4244,7 @@ export function GuardianChat({
               endCompletion={endCompletion}
               className="flex flex-col flex-1 min-h-0"
               bottomPadding={composerShellReserve}
+              composerProjected={isMobileComposerProjected}
               autoReadEnabled={autoReadEnabled}
               depthMode={depth}
               profileId={resolvedProfile.id}
@@ -4216,7 +4275,24 @@ export function GuardianChat({
         )}
       </div>
 
-      <div className="shrink-0 z-20 mt-2 flex w-full justify-center">
+      <div
+        data-testid="composer-shell-positioner"
+        data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
+        className={cn(
+          "z-20 flex justify-center",
+          isMobileComposerProjected
+            ? "absolute"
+            : "mt-2 w-full shrink-0"
+        )}
+        style={
+          isMobileComposerProjected
+            ? {
+                insetInline: "var(--guardian-composer-projection-inset)",
+                bottom: "var(--guardian-composer-projection-gap)",
+              }
+            : undefined
+        }
+      >
         <div
           ref={composerShellRef}
           data-testid="composer-shell"
@@ -4228,7 +4304,9 @@ export function GuardianChat({
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
-            minHeight: "140px",
+            minHeight: mobileComposerProjectionEnabled
+              ? "var(--guardian-composer-compact-min-height)"
+              : "140px",
             maxHeight: mobileShellProfile.chat.composer.shellMaxHeight,
           }}
         >
@@ -4259,9 +4337,26 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
                 projectId={composerProjectId}
                 projectName={activeThread.projectName ?? null}
+                projectOptions={projectOptions.map((project) => ({
+                  value: String(project.id),
+                  label: project.name,
+                }))}
+                onProjectChange={(projectId) => {
+                  const project =
+                    projectOptions.find(
+                      (option) => String(option.id) === projectId
+                    ) ?? null;
+                  onComposerProjectChange?.(
+                    projectId,
+                    project?.name ?? null
+                  );
+                }}
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
+                mobileProjectionEnabled={mobileComposerProjectionEnabled}
+                projectionSuspended={mobileComposerProjectionSuspended}
+                onMobileProjectionChange={setIsMobileComposerProjected}
                 activeProviderId={selectedProvider?.id ?? activeProviderId}
                 providerOptions={providerOptions}
                 providerOpenSignal={providerMenuOpenSignal}

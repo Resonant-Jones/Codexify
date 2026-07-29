@@ -147,6 +147,7 @@ Source anchors:
 - Connector runs and raw documents delete with connector configs.
 - `/api/events` can delete durable outbox rows through the last delivered event ID for a tenant, so outbox retention is consumption-shaped rather than archival.
 - Private account-import staging is retained after terminal completion in this slice so job diagnostics and restart evidence are not invalidated. Automated staging garbage collection is deferred and must be account/job aware when added.
+- Failed zero-write account-import jobs may be explicitly retried by the owning account through `POST /api/imports/openai-account/{job_id}/retry`. Canonical staging visibility is required; historical paths outside the active staging root are unsupported. Retry does not move or duplicate staged bytes. Original failure receipts remain durable in `error_details`. Retry-attempt evidence is append-only under `checkpoint.retry_attempts`. Zero-write gating protects against duplicate canonical imports; partial-write retry remains unsupported.
 - Memory retention pruning is `Unverified`; a config surface exists, but a repo-scanned maintenance path was not confirmed.
 
 ## Data Risk Hotspots

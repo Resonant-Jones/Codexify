@@ -42,6 +42,7 @@ class FakeWorkerService:
             ("enqueue", (job_id, user_id))
         )
         self.raise_materialize: Exception | None = None
+        self.raise_complete: Exception | None = None
 
     def mark_running(self, **kwargs):
         self.calls.append(("running", kwargs))
@@ -62,6 +63,10 @@ class FakeWorkerService:
         self.calls.append(("conversation-batch", kwargs["batch"]))
         return {}
 
+    def record_source_summary(self, **kwargs):
+        self.calls.append(("source-summary", kwargs["summary"]))
+        return {}
+
     def import_image_record(self, **kwargs):
         path = kwargs["record"].path
         self.calls.append(("image", path))
@@ -78,6 +83,8 @@ class FakeWorkerService:
 
     def complete_job(self, **kwargs):
         self.calls.append(("complete", kwargs))
+        if self.raise_complete:
+            raise self.raise_complete
         return {"status": "completed"}
 
     def fail_job(self, **kwargs):
@@ -125,7 +132,17 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
                 "messages_imported": 2,
             }
         )
-        return SimpleNamespace(errors=[])
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=1,
+            conversations_accepted=1,
+            conversations_skipped_title=0,
+            conversations_skipped_limit=0,
+            conversations_skipped_duplicate=0,
+            conversations_skipped_checkpoint=0,
+            conversations_failed=0,
+            text_import_complete=True,
+        )
 
     monkeypatch.setattr(
         account_import_worker,
@@ -156,6 +173,16 @@ def test_worker_resumes_partial_checkpoint_and_processes_remaining_batches(
 
     assert result is True
     assert observed_completed_ids == [{"already-committed"}]
+    assert (
+        "source-summary",
+        {
+            "conversations_discovered": 1,
+            "conversations_accepted": 1,
+            "conversations_skipped": 0,
+            "conversations_failed": 0,
+            "conversation_transactions_committed": True,
+        },
+    ) in service.calls
     assert ("image", "media/already.png") not in service.calls
     assert ("image", "media/new.png") in service.calls
     media_batches = [payload for name, payload in service.calls if name == "media-batch"]
@@ -203,6 +230,66 @@ def test_worker_failure_is_persisted_with_bounded_error_code():
             "message": "staged bytes were corrupted",
         }
     ]
+
+
+def test_worker_records_zero_write_completion_as_terminal_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeWorkerService()
+    service.raise_complete = AccountImportError(
+        "The export finished processing, but no canonical entities were committed.",
+        code="account_import_no_committed_entities",
+        status_code=500,
+    )
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[],
+        legacy_detected=True,
+        sharded_detected=False,
+        detected_format="legacy",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        lambda _root, **_kwargs: SimpleNamespace(
+            errors=[],
+            conversations_discovered=1,
+            conversations_accepted=1,
+            conversations_skipped_title=0,
+            conversations_skipped_limit=0,
+            conversations_skipped_duplicate=0,
+            conversations_skipped_checkpoint=0,
+            conversations_failed=1,
+            text_import_complete=True,
+        ),
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "build_openai_export_image_evidence_index",
+        lambda _inventory: {},
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {"type": TASK_TYPE, "job_id": "job-zero", "user_id": "account-a"},
+        service=service,
+    )
+
+    assert result is False
+    assert ("complete", {"job_id": "job-zero", "user_id": "account-a"}) in service.calls
+    assert (
+        "failed",
+        {
+            "job_id": "job-zero",
+            "user_id": "account-a",
+            "code": "account_import_no_committed_entities",
+            "message": "The export finished processing, but no canonical entities were committed.",
+        },
+    ) in service.calls
 
 
 def test_worker_startup_requeues_queued_and_running_jobs():

@@ -2,7 +2,7 @@
 This file is Codexify's canonical short-form source of truth for current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
 ## Last updated
-2026-07-23
+2026-07-28
 
 ## Interpretation rule
 This file is authoritative for:
@@ -16,6 +16,8 @@ This file is authoritative for:
 Codexify is in local-first beta hardening on `main`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent `main` changes are mostly release cleanup, health/probing fixes, UI polish, and release-truth documentation, plus email implementation-target inspection work that does not widen runtime support.
 
 ## What changed recently
+- Added a supported account-scoped retry endpoint for failed zero-write OpenAI account-import jobs (`POST /api/imports/openai-account/{job_id}/retry`).
+- Repaired tester account-import staging continuity so both backend and worker resolve shared import staging from one canonical project directory.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
 - Removed the legacy document generation UI from the frontend.
 - Fixed mobile composer viewport settling.
@@ -38,6 +40,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Thread-first project retrieval is restored on `main`.
 - Supported Compose live proof receipts exist as a bounded proof and validation seam, not a release expansion.
 - OpenAI export import and Task Prompt Archive are present on `main`.
+- Failed zero-write account-import jobs have an explicit owner-scoped retry endpoint that requires canonical staged-data visibility, preserves original failure evidence, and prevents duplicate queue publications.
 
 ## Not yet true / do not assume
 - Do not assume cloud-provider beta support.
@@ -49,6 +52,11 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Do not assume shared presence, hosted rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint and model inventory proof.
+- Do not assume partial-write account-import jobs are retryable (zero-write only).
+- Do not assume failed account-import jobs are retried automatically.
+- Do not assume missing historical staging is copied automatically.
+- Do not assume historical payloads in obsolete worktrees are canonical.
+- Do not assume the retry endpoint repairs or deduplicates partial imports.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.
