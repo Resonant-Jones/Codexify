@@ -72,16 +72,16 @@ def test_chat_complete_normalizes_source_mode_and_encodes_origin(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        "guardian.core.chat_completion_service.enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._publish_completion_start_event",
+        "guardian.core.chat_completion_service._publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
     monkeypatch.setattr(
@@ -271,16 +271,16 @@ def test_chat_complete_derives_retrieval_override_without_changing_source_mode(
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+        "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
     )
     monkeypatch.setattr(
-        "guardian.routes.chat.enqueue",
+        "guardian.core.chat_completion_service.enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
         ),
     )
     monkeypatch.setattr(
-        "guardian.routes.chat._publish_completion_start_event",
+        "guardian.core.chat_completion_service._publish_completion_start_event",
         lambda **_kwargs: {"ok": True, "event_id": "evt-1"},
     )
     monkeypatch.setattr(

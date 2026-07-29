@@ -1,13 +1,16 @@
 # Chat Runtime Contract
 
 Purpose: Define the normative frontend/shared-runtime contract for provider runtime state, request execution state, transport visibility state, message-versus-attempt identity, UI presentation, replay handling, and request-state transitions.
-Last updated: 2026-03-29
+Last updated: 2026-07-28
 Source anchors:
 - docs/architecture/chat-runtime-gap-analysis.md
 - docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
+- docs/architecture/adr/003-message-identity-vs-request-identity.md
 - frontend/src/
 - guardian/routes/chat.py
+- guardian/core/chat_completion_service.py
+- guardian/db/models.py
 - guardian/queue/task_events.py
 - guardian/workers/chat_worker.py
 
@@ -15,6 +18,39 @@ Source anchors:
 
 - Frontend and shared runtime-contract layer only.
 - No speculative backend redesign in this first pass.
+
+## Completion Acceptance Ownership
+
+The ordinary HTTP completion route and the shared completion acceptance operation have separate responsibilities:
+
+- `guardian/routes/chat.py` authenticates the request, validates and authorizes the thread/account/project, prepares retrieval/context and canonical task input, and serializes the existing HTTP response.
+- `guardian/core/chat_completion_service.py::enqueue_chat_completion` owns the reusable acceptance control plane: canonical task identity, thread-scoped turn-lock acquisition and evidence-based stale-lock recovery, publication to `codexify:queue:chat`, `task.created` publication, `accepted` versus `accepted_degraded` calculation, and queue-failure reconciliation.
+- `guardian/workers/chat_worker.py` owns dequeue, provider execution, terminal evidence, assistant-message persistence, and worker-side lock release.
+
+Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. Hosted Room owner and guest invocation routes construct the bounded `ChatCompletionTask.hosted_room_invocation` context only after route-specific authority checks, then use the same shared acceptance operation. Ordinary tasks bypass Hosted Room validation and persistence provenance.
+
+### Completion task identity context
+
+The optional bounded task context keeps these identities distinct for future
+authorization and revalidation:
+
+- `room_id` — Hosted Room identity
+- `thread_id` — backing chat thread identity
+- `source_message_id` — authored source-message identity
+- `actor_participant_id` — resident actor participant identity
+- `requester_participant_id` — guest requester participant identity, when present
+- `request_id` — completion attempt/request identity
+- `task_id` — queued execution identity
+- future assistant `message_id` — durable generated-message identity
+
+The context records authority information but grants no authority by itself.
+Owner requests omit `requester_participant_id`; guest requests require it.
+Routes and the route-neutral preparation service remain responsible for
+authentication, authorization, and task construction. The worker revalidates
+room, source-message, actor, requester, invitation, and lifecycle state before
+model execution and again immediately before assistant persistence. Public
+invocation routes expose acceptance only; they do not imply execution or
+assistant persistence.
 
 ## Canonical Provider States
 
@@ -275,3 +311,68 @@ These are intentionally separate tasks. They are not implemented by this contrac
 3. Reconnect or resubscribe behavior for transport visibility recovery.
 4. Duplicate suppression for late terminal events and recovered streams.
 5. User-visible reconnecting or response-delayed banner policy.
+
+## Hosted Room Message Authorship
+
+`ChatMessage` now carries optional Hosted Room participant provenance:
+
+- `hosted_room_participant_id` — nullable FK to `hosted_room_participants.id` (ON DELETE SET NULL)
+- `sender_display_name_snapshot` — nullable, bounded (255 chars), immutable after creation
+
+Key rules:
+
+- Hosted Room human messages retain the canonical user/human role.
+- Future agent messages retain the canonical assistant role.
+- Participant authorship is separate from chat role — roles such as `member`, `owner`, or display names must not become chat roles.
+- Message ID remains distinct from participant ID and request ID (ADR-003).
+- Participant provenance is either both fields null (ordinary messages) or both non-null with a non-blank snapshot (room messages).
+- Sender display name is a durable presentation snapshot, not global identity proof.
+- Content remains semantically clean — participant identity is never embedded in message text.
+- Participant-room-thread consistency is a worker/service proof obligation for
+  metadata-bearing tasks; routes and task producers remain responsible for
+  authorization before task construction.
+- No message routes are implemented by this contract.
+- No mention-triggered agent invocation behavior changes; explicit Guardian
+  invocation is defined by the dedicated routes below.
+
+### Canonical message-persistence seam
+
+The canonical `create_message` persistence interface accepts optional structured
+Hosted Room provenance through `hosted_room_participant_id` and
+`sender_display_name_snapshot`. Ordinary callers omit both parameters and retain
+paired NULL provenance. When supplied, both values are validated and inserted
+atomically with the message row; provenance is never added through a later
+message update.
+
+Participant identity remains separate from the message role and content, and the
+persistence layer does not grant or validate room authority. Worker and service
+layers remain responsible for participant, room, requester, and lifecycle
+authorization before using the seam. When a bounded Hosted Room task is present,
+the chat worker passes the validated Guardian participant ID and the canonical
+`Guardian` display snapshot in the same assistant insert. The worker does not
+change model, prompt, retrieval, retry, queue, or task-schema behavior. Explicit
+Hosted Room invocation routes prepare the bounded task context and delegate to
+canonical acceptance; no later provenance update is used.
+
+### Hosted Room message routes
+
+Owner routes (authenticated account scope):
+- `GET /api/hosted-rooms/{room_id}/messages` — list transcript with cursor pagination
+- `POST /api/hosted-rooms/{room_id}/messages` — post human message
+
+Guest routes (room-session cookie):
+- `GET /api/hosted-room-session/messages` — list transcript with cursor pagination
+- `POST /api/hosted-room-session/messages` — post human message
+
+Explicit Guardian invocation routes:
+- `POST /api/hosted-rooms/{room_id}/actors/{participant_id}/invoke` — owner-authorized asynchronous invocation
+- `POST /api/hosted-room-session/actors/{participant_id}/invoke` — guest-session-authorized asynchronous invocation
+
+Message behavior:
+- Human messages persist as canonical `ChatMessage` rows with role `user`.
+- Participant provenance (`hosted_room_participant_id` + `sender_display_name_snapshot`) is mandatory for newly posted room human messages.
+- Server resolves room, thread, and participant — clients cannot supply these values.
+- Read projection excludes account IDs, `extra_meta` internals, and request/task IDs.
+- Pagination: `after_id` (cursor) + `limit` (default 100, max 200), ascending ID order.
+- Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
+- No completion side effect from posting a message: mentions (`@Guardian`, `@Luna`) persist as text; explicit invocation requires one of the two routes above and a source `message_id`.

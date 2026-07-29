@@ -4,6 +4,7 @@ import pytest
 
 from guardian.queue.redis_queue import QueueEnqueueError
 from guardian.core.dependencies import RequestUserScope
+from guardian.core import chat_completion_service
 from guardian.routes import chat as chat_routes
 
 
@@ -28,9 +29,13 @@ def test_chat_complete_enqueue_failure_returns_503(
     def _raise_enqueue(*_args, **_kwargs):
         raise error
 
-    monkeypatch.setattr(chat_routes, "enqueue", _raise_enqueue)
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", lambda *_a, **_k: True)
-    monkeypatch.setattr(chat_routes, "release_turn_lock", lambda *_a, **_k: None)
+    monkeypatch.setattr(chat_completion_service, "enqueue", _raise_enqueue)
+    monkeypatch.setattr(
+        chat_completion_service, "acquire_turn_lock", lambda *_a, **_k: True
+    )
+    monkeypatch.setattr(
+        chat_completion_service, "release_turn_lock", lambda *_a, **_k: None
+    )
     test_client.app.dependency_overrides[
         chat_routes.get_request_user_scope
     ] = lambda: RequestUserScope(

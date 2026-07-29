@@ -159,6 +159,79 @@ The configured provider is not the same thing as discovered provider inventory. 
   - publish relay or SSE updates
 - Anchors: `guardian/routes/federation.py`, `guardian/routes/federation_context.py`, `guardian/sync/api.py`
 
+## Hosted Room Owner API (Management Plane)
+
+A Hosted Room is an account-owned collaboration boundary backed by exactly one canonical chat thread. The owner management API exposes authenticated room lifecycle operations, while the separate guest-session surface provides bounded transcript access and explicit Guardian invocation.
+
+| Surface | Responsibility | Key anchors |
+|---|---|---|
+| Hosted Room owner router | Authenticated create, list, inspect, update, and close operations; all scoped to the authenticated account | `guardian/routes/hosted_rooms.py` |
+| Hosted Room invocation routes | Explicit owner or guest Guardian invocation preparation and delegation to canonical chat acceptance | `guardian/routes/hosted_rooms.py`, `guardian/routes/hosted_room_guest.py`, `guardian/core/hosted_room_invocation.py` |
+
+Key properties:
+- One room maps to one canonical chat thread; no parallel transcript store exists.
+- Room creation is transactional: room, backing thread, and owner participant are created atomically.
+- Owner lifecycle routes require the normal authenticated account context; ownership is never client-supplied.
+- Invitation issuance uses high-entropy tokens (256-bit, URL-safe); only SHA-256 verifiers are persisted.
+- Plaintext invitation credentials are returned exactly once at creation; no retrieval endpoint exists.
+- Invitation listing and revocation are owner-authenticated and room-scoped.
+- Invitation exchange is unauthenticated: a one-time plaintext token becomes a signed HTTP-only room-session cookie.
+- One accepted invitation produces exactly one member participant; replay is rejected.
+- Guest session tokens are HMAC-SHA256-signed with purpose ``hosted_room_guest_session``, domain-separated from account sessions.
+- Every authorized guest request revalidates room, invitation, and participant lifecycle truth against persistence — no server-side session table required.
+- Lifecycle changes (revocation, removal, closure, expiry) invalidate access immediately.
+- Normal account auth and room guest auth remain separate; guest sessions cannot use owner lifecycle routes.
+- Owner routes remain account-scoped management and invocation surfaces; guest authority remains limited to the separate signed room-session route.
+- Hosted Rooms do not change read-only Share-link semantics.
+
+What does not exist yet:
+- No automatic completion from posting a message or mention.
+- No Luna invocation.
+- No guest participant listing or room mutation.
+- No RoomShell or Contacts launch flow.
+- No release-qualified end-to-end Guardian runtime claim; explicit route acceptance remains distinct from worker execution and assistant persistence.
+- No presence or Tailscale automation.
+- No participant-removal owner API.
+- No session invalidation after revocation (already works via per-request lifecycle check).
+
+### Hosted Room explicit Guardian invocation
+
+The explicit invocation plane is intentionally separate from ordinary message
+posting and mention text:
+
+| Caller | Endpoint | Authority |
+|---|---|---|
+| Owner | `POST /api/hosted-rooms/{room_id}/actors/{participant_id}/invoke` | Authenticated account owns the room |
+| Guest | `POST /api/hosted-room-session/actors/{participant_id}/invoke` | Current signed room-session participant |
+
+Both endpoints accept exactly `{"message_id": <positive integer>}`. The source
+must be an existing human room message on the room's canonical backing thread;
+the selected participant must be the single active resident Guardian binding.
+The service also revalidates room lifecycle, backing thread, and owner/guest
+requester lineage before constructing `ChatCompletionTask` with
+`HostedRoomInvocationMetadata`. Acceptance then uses
+`enqueue_chat_completion`, including its canonical turn lock, queue, task event,
+and degraded-acceptance behavior. The `202` response contains only request,
+acceptance, task, room, source, and actor identity metadata. It contains no
+assistant content, credentials, provider/model controls, or additional
+transcript row.
+
+### Hosted Room message API
+
+| Surface | Responsibility | Key anchors |
+|---|---|---|
+| Shared message service | Persistence, serialization, participant-resolution, consistency validation | `guardian/core/hosted_room_messages.py` |
+| Owner message routes | Authenticated read and post on the room's backing thread | `guardian/routes/hosted_rooms.py` |
+| Guest message routes | Session-authenticated read and post on the room's backing thread | `guardian/routes/hosted_room_guest.py` |
+
+Key properties:
+- One canonical backing thread for all room messages; no parallel transcript.
+- Human messages use role `user`; structured sender provenance via `hosted_room_participant_id` + `sender_display_name_snapshot`.
+- Content remains clean — sender identity never encoded in message text.
+- Cursor-based pagination (after_id + limit) supports polling without WebSockets.
+- Lifecycle invalidation: room closure, invitation revocation/expiry, participant removal all block read/write immediately.
+- Mentions persist as ordinary text; they do not invoke an agent, enqueue completion, or create an assistant message. Invocation requires the explicit endpoint and source `message_id`.
+
 ## Testing Reality
 
 - Backend coverage is concentrated in Python tests for routes, core services, workers, realtime, federation, and migrations.
