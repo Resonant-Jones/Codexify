@@ -28,6 +28,7 @@ export default defineConfig({
     ],
     exclude: [
       "node_modules/**",
+      "tests/playwright/**",
       "components/persona/__tests__/appshell-glass.test.tsx",
       "components/persona/__tests__/appshell-lastview-persist.test.tsx",
       "components/persona/__tests__/theme-toggle-and-storage.test.tsx",
