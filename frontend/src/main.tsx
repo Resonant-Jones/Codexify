@@ -13,6 +13,7 @@ import {
 } from "./lib/api";
 import { resolveAuthStateOnBoot } from "./lib/authState";
 import { GuardianAPI } from "./lib/guardianApi";
+import { resolveInviteAttribution } from "./lib/inviteAttribution";
 import {
   getRuntimeConfigSync,
   initRuntimeConfig,
@@ -141,5 +142,6 @@ configureGC({
   token: readRuntimeApiKey() || readDevApiKey() || undefined,
 });
 resolveAuthStateOnBoot();
+void resolveInviteAttribution();
 void bootstrap();
 renderApp();
