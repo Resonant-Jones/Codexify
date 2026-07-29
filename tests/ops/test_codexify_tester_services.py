@@ -130,6 +130,26 @@ def test_tester_status_marks_a_missing_account_import_worker_degraded(tmp_path: 
     assert "project=codexify\n" not in result.stdout
 
 
+def test_tester_compose_files_include_project_directory() -> None:
+    script = LIFECYCLE.read_text(encoding="utf-8")
+
+    assert "--project-directory" in script
+    assert '--project-directory "$REPO_ROOT"' in script
+    # --project-directory must precede -p to avoid ambiguity
+    project_dir_idx = script.index("--project-directory")
+    project_name_idx = script.index('-p "$TESTER_PROJECT"')
+    assert project_dir_idx < project_name_idx
+
+
+def test_tester_compose_files_reference_canonical_root() -> None:
+    script = LIFECYCLE.read_text(encoding="utf-8")
+
+    # Both compose files must reference the resolved REPO_ROOT, not a relative path
+    assert '-f "$REPO_ROOT/docker-compose.yml"' in script
+    assert '-f "$REPO_ROOT/docker-compose.tester.yml"' in script
+    assert '--project-directory "$REPO_ROOT"' in script
+
+
 def test_tester_status_accepts_a_running_account_import_worker(tmp_path: Path) -> None:
     rows = [f"{service}|running|" for service in EXPECTED_REQUIRED_SERVICES]
 

@@ -26,6 +26,7 @@ Source anchors:
 | System | What it stores today | Key anchors |
 |---|---|---|
 | Postgres | Projects, threads, messages, Hosted Room metadata, memories, media metadata, durable account-import jobs/checkpoints, documents, audit logs, command runs, cron runs, collaboration data, provider state | `guardian/db/models.py`, `guardian/core/db.py`, `guardian/db/migrations/` |
+| Postgres account observability | Guardian-owned invite lineage, pseudonymous guest identities, account metadata, and content-free foreground presence sessions; presence rows and unconverted guest lineage are retention-governed | `guardian/db/models.py`, `guardian/account_observability/`, `guardian/db/migrations/versions/b2c3d4e5f6a7_add_account_observability_foundation.py` |
 | Redis | Chat queue, account-import queue, document/chat-embed/cron queues, cancellation set, canonical turn locks, task-event streams, worker heartbeat keys, turn-completion anchor cache, health-probe queue round-trip, queue-depth observation | `guardian/queue/redis_queue.py`, `guardian/queue/account_import_queue.py`, `guardian/queue/task_events.py`, `guardian/queue/turn_lock.py`, `guardian/workers/chat_worker.py`, `guardian/routes/health.py` |
 | Vector store | Semantic retrieval corpus for messages and documents | `guardian/vector/store.py`, `guardian/runtime/embed/embedder.py`, `guardian/context/broker.py` |
 | File or object storage | Uploaded/generated media bytes and document/image/audio artifacts exposed through the signed media surface | `guardian/core/storage.py`, `guardian/routes/media.py` |
@@ -50,7 +51,7 @@ Source anchors:
 
 ### Hosted Room persistence entities
 
-The persistence foundation governed by [[adr/053-node-hosted-room-access-boundary|ADR-053]] adds storage truth without adding a Hosted Room access runtime. ADR-053 remains `Proposed`.
+The persistence foundation governed by [[adr/053-node-hosted-room-access-boundary|ADR-053]] provides storage truth for the bounded Hosted Room owner, guest-session, message, and explicit Guardian-invocation routes. ADR-053 remains `Proposed`; implemented code paths do not establish release qualification or cross-node Hosted Room support.
 
 | Entity | Why it matters | Key invariants |
 |---|---|---|
@@ -98,7 +99,7 @@ messages and ordinary assistant completions omit both values. Provenance is not
 backfilled from display names, and database constraints remain the final
 authority for paired nullability.
 
-Future Hosted Room message routes must verify:
+Hosted Room message routes verify:
 - participant belongs to the room
 - room's backing thread equals the message thread
 - participant is active
@@ -109,7 +110,7 @@ No Contact, presence, IP address, device fingerprint, or telemetry fields exist 
 
 The enabled resident-agent field is a bounded, inspectable list of existing agent identifiers; it is not a second agent registry or a persisted capability-grant set. Contact persistence is not introduced here, so invitation intent retains only an intended display-name snapshot and does not claim Contact identity.
 
-No ambient-presence, device, location, behavioral, or cross-node synchronization state is stored. API creation, invitation exchange, room-scoped sessions, authorization, message operations, agent invocation, Contacts workflows, RoomShell, and management UI remain unimplemented.
+No ambient-presence, device, location, behavioral, or cross-node synchronization state is stored. Bounded owner creation, invitation exchange, room-scoped sessions, authorization, human message operations, and explicit Guardian invocation are implemented. Contacts workflows, RoomShell, management UI, non-Guardian agent invocation, cross-node rooms, and release qualification remain unimplemented.
 
 ### Existing-instance migration reconciliation
 
@@ -158,6 +159,7 @@ for migration execution.
 | `collaboration_permissions` | Explicit per-document access rules | uniqueness on `(document_id, user_id)` |
 | `collaboration_audit_log` | Collaboration activity trace | backs auditability on shared docs |
 | `ws_audit_log` | WebSocket RPC audit trail | stores method, hashes, and latency metadata |
+| `user_profiles` | Account-owned presentation metadata | 1:1 with `users.id`; `accent_color` is non-null, constrained to canonical token set `['default','blue','cyan','emerald','amber','rose','violet','slate']`, server default `'default'`. |
 
 ## Relationships the Code Relies On
 
@@ -215,7 +217,7 @@ for migration execution.
 - Federation and collaboration access are explicit, not ambient.
   - Anchors: `guardian/routes/federation.py`, `guardian/realtime/collaboration.py`, `guardian/db/models.py`
 - Hosted Room storage does not itself grant authority.
-  - Network reachability, invitation exchange, room sessions, route authorization, and UI behavior remain separate, unimplemented proof surfaces.
+  - Invitation exchange, room sessions, and owner/guest route authorization are enforced by their bounded runtime paths; network reachability, UI behavior, cross-node operation, and release qualification remain separate proof surfaces.
   - Invitation values are stored only as hashes, and display names or optional account bindings are not ambient authority.
 
 ### Soft delete and archival surfaces
@@ -233,6 +235,7 @@ for migration execution.
 - Connector runs and raw documents delete with connector configs.
 - `/api/events` can delete durable outbox rows through the last delivered event ID for a tenant, so outbox retention is consumption-shaped rather than archival.
 - Private account-import staging is retained after terminal completion in this slice so job diagnostics and restart evidence are not invalidated. Automated staging garbage collection is deferred and must be account/job aware when added.
+- Failed zero-write account-import jobs may be explicitly retried by the owning account through `POST /api/imports/openai-account/{job_id}/retry`. Canonical staging visibility is required; historical paths outside the active staging root are unsupported. Retry does not move or duplicate staged bytes. Original failure receipts remain durable in `error_details`. Retry-attempt evidence is append-only under `checkpoint.retry_attempts`. Zero-write gating protects against duplicate canonical imports; partial-write retry remains unsupported.
 - Memory retention pruning is `Unverified`; a config surface exists, but a repo-scanned maintenance path was not confirmed.
 
 ## Data Risk Hotspots
@@ -312,3 +315,13 @@ Redis currently carries multiple distinct responsibilities for the main chat loo
   - `guardian/vector/store.py` defaults to a configurable store abstraction
   - `guardian/workers/document_embed_worker.py` currently instantiates the runtime embedder with `store="chroma"`
 - This means retrieval and embedding paths should be treated as a coupled surface during provider or vector-backend changes.
+
+## Account Observability Persistence (Internal Slices 1–3)
+
+Migration `b2c3d4e5f6a7` owns the Guardian tables for invite definitions, pseudonymous guest lineage, canonical account observability metadata, and content-free foreground presence sessions. The runtime writers are `guardian.account_observability.invites` for first-touch invite lineage, `guardian.routes.auth` for registration conversion, and `guardian.account_observability.presence` for explicit foreground heartbeats. Ordinary API, message, model, document, and route traffic does not write presence or account `last_seen_at`.
+
+`POST /api/account-observability/heartbeat` resolves authenticated accounts through Guardian's signed session seam. It resolves guests from the server-issued `codexify_guest_attribution` cookie only after `record_heartbeat` verifies a live canonical guest row; malformed, fabricated, absent, and soft-deleted guest identities fail closed. The writer persists no raw or hashed IP, user-agent, route, page, message, thread, project, content, referrer, device fingerprint, or precise-geography value.
+
+`guardian.account_observability.retention.run_cleanup` owns deterministic row-level cleanup and is exposed through `POST /api/operator/account-observability/retention/cleanup` with dry-run support. It closes open leases whose latest accepted heartbeat is strictly older than 30 minutes, deletes presence rows whose `created_at` is strictly older than 30 days in batches of 500, and soft-deletes guest lineage strictly older than 90 days only when no converted-account metadata requires that lineage. Converted attribution is deferred, invite definitions and canonical account registration metadata are preserved, and each run returns execution/cutoff timestamps plus expired, deleted, and deferred counts.
+
+This is internal capability evidence only. GeoIP, aggregates, operator reporting reads, UI, and supported-path proof remain absent.

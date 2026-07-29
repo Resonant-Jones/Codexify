@@ -43,7 +43,9 @@ import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
-import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
+import GuardianChatWithSidebar, {
+  type GuardianApplicationDestination,
+} from "@/components/persona/layout/GuardianChatWithSidebar";
 import {
   MOBILE_MOTION,
   getMobileWorkspaceMotionState,
@@ -247,9 +249,26 @@ const APP_SHELL_VIEWS = [
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
+const GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS = [
+  { view: "guardian", label: "Guardian", priority: "primary" },
+  { view: "documents", label: "Documents", priority: "primary" },
+  { view: "gallery", label: "Gallery", priority: "primary" },
+  { view: "dashboard", label: "Dashboard", priority: "secondary" },
+  { view: "settings", label: "Settings", priority: "secondary" },
+] as const satisfies readonly GuardianApplicationDestination[];
+
 const APP_SHELL_VIEW_SET = new Set<AppShellView>(APP_SHELL_VIEWS);
 const DOCK_AUTO_COLLAPSE_DELAY_MS = 900;
 const DOCK_TOP_ENGAGEMENT_ZONE_PX = 48;
+
+export function resolveAppShellPresentationProfile(
+  activeView: AppShellView,
+  isPhoneShell: boolean
+): "default" | "guardian_frame_first" {
+  return isPhoneShell && activeView === "guardian"
+    ? "guardian_frame_first"
+    : "default";
+}
 
 function isAppShellView(value: string | null): value is AppShellView {
   return value != null && APP_SHELL_VIEW_SET.has(value as AppShellView);
@@ -1898,6 +1917,12 @@ export default function AppShell({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
+  const appShellPresentationProfile = resolveAppShellPresentationProfile(
+    view,
+    isPhoneShell
+  );
+  const isNarrowGuardianFrameShell =
+    appShellPresentationProfile === "guardian_frame_first";
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
     () => getMobileTopNavDockStyle(mobileShellProfile),
@@ -2904,6 +2929,118 @@ export default function AppShell({
       {shareUtilityAction}
     </>
   );
+  const runtimeStatusNotice = showRuntimeBanner ? (
+    <div className="relative z-10 w-full mt-3">
+      <div
+        className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+        style={{
+          borderColor: "var(--panel-border)",
+          background:
+            "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
+          color: "var(--text)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-semibold tracking-wide">
+            {runtimePresentation.title}
+          </span>
+          <span className="opacity-80">failure: {runtimeFailureKind}</span>
+          <span className="opacity-70">
+            last healthy: {runtimeLastHealthy}
+          </span>
+        </div>
+        {runtimeDetail ? (
+          <div
+            className="text-[11px] opacity-75"
+            style={{ color: "var(--muted)" }}
+          >
+            {runtimePresentation.detail} — detail: {runtimeDetail}
+          </div>
+        ) : (
+          <div
+            className="text-[11px] opacity-75"
+            style={{ color: "var(--muted)" }}
+          >
+            {runtimePresentation.detail}
+          </div>
+        )}
+        {runtimeDiagnosticLines.length > 0 ? (
+          <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+            <summary className="cursor-pointer select-none opacity-80">
+              Technical details
+            </summary>
+            <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+              {runtimeDiagnosticLines.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+  const liveUpdatesNotice =
+    liveUpdatesDisconnected && !runtimeDegraded ? (
+      <div className="relative z-10 w-full mt-3">
+        <div
+          className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
+          style={{
+            borderColor: "var(--panel-border)",
+            background:
+              "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
+            color: "var(--text)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-semibold tracking-wide">
+              Live updates disconnected
+            </span>
+            <span className="opacity-80">
+              state: {runtimeHealth.diagnostics.liveEvents.connectionState}
+            </span>
+          </div>
+          <div
+            className="text-[11px] opacity-75"
+            style={{ color: "var(--muted)" }}
+          >
+            Guardian is healthy, but the live event stream has not stayed
+            connected.
+          </div>
+          {liveUpdateDiagnosticLines.length > 0 ? (
+            <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
+              <summary className="cursor-pointer select-none opacity-80">
+                Technical details
+              </summary>
+              <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
+                {liveUpdateDiagnosticLines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
+  const guardianMobileFramePrelude = isNarrowGuardianFrameShell ? (
+    <div
+      data-testid="guardian-mobile-frame-prelude"
+      className="flex shrink-0 flex-col"
+    >
+      <div
+        role="toolbar"
+        aria-label="Guardian utilities"
+        data-testid="guardian-mobile-frame-utilities"
+        className="flex flex-wrap items-center gap-[var(--pill-gap)] p-[var(--card-pad)]"
+        style={{
+          borderBlockEnd: "var(--frame) solid var(--panel-border)",
+        }}
+      >
+        {mobileHeaderUtilityActions}
+      </div>
+      {runtimeStatusNotice}
+      {liveUpdatesNotice}
+    </div>
+  ) : null;
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🎭 SECTION: Dynamic Background Dramatic Effects
@@ -2962,6 +3099,9 @@ export default function AppShell({
           'SF Pro Display, SF Pro Icons, Apple System, BlinkMacSystemFont, ".SFNSDisplay-Regular", "Helvetica Neue", Helvetica, Arial, sans-serif',
       } as React.CSSProperties}
       aria-busy={startupLocked}
+      data-narrow-guardian-frame-shell={
+        isNarrowGuardianFrameShell ? "true" : "false"
+      }
     >
       {/*
         --bezel: Visual margin between the refractive glass and the opaque content surface.
@@ -2983,18 +3123,25 @@ export default function AppShell({
         />
       </div>
       <div
-        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden py-[var(--edge-chrome)] mx-auto ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
+        className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden mx-auto ${isNarrowGuardianFrameShell ? "" : "py-[var(--edge-chrome)]"} ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
           borderRadius: "var(--viewport-radius)",
-          paddingLeft: "var(--edge-chrome)",
-          paddingRight: "var(--edge-chrome)",
+          paddingLeft: isNarrowGuardianFrameShell
+            ? undefined
+            : "var(--edge-chrome)",
+          paddingRight: isNarrowGuardianFrameShell
+            ? undefined
+            : "var(--edge-chrome)",
           boxSizing: "border-box",
           color: "var(--text)",
           colorScheme: resolved,
         }}
         data-shell-profile={mobileShellProfile.shellMode}
+        data-frame-first-guardian={
+          isNarrowGuardianFrameShell ? "true" : "false"
+        }
         data-dock-engaged={dockEngaged ? "true" : "false"}
       >
       <div id="cfy-portal-root" />
@@ -3008,7 +3155,8 @@ export default function AppShell({
         />
       )} */}
       {/* Glass Pill Menu Bar + Header Actions */}
-      <div
+      {!isNarrowGuardianFrameShell && (
+        <div
         ref={topChromeRef}
         data-testid="app-shell-top-chrome"
         className={`codexify-shell__top-chrome relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
@@ -3140,16 +3288,6 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "flowBuilder" ? "active" : "inactive"}
-                aria-current={view === "flowBuilder" ? "page" : undefined}
-                onClick={() => navigateToView("flowBuilder")}
-                style={getMobileNavPillStyle("flowBuilder")}
-              >
-                Flow Builder
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={view === "personaStudio" ? "active" : "inactive"}
                 aria-current={view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
@@ -3174,89 +3312,11 @@ export default function AppShell({
         >
           {isPhoneShell ? mobileHeaderUtilityActions : desktopHeaderUtilityActions}
         </div>
-      </div>
-
-      {showRuntimeBanner && (
-        <div className="relative z-10 w-full mt-3">
-          <div
-            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 90%, transparent)",
-              color: "var(--text)",
-            }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold tracking-wide">
-                {runtimePresentation.title}
-              </span>
-              <span className="opacity-80">failure: {runtimeFailureKind}</span>
-              <span className="opacity-70">
-                last healthy: {runtimeLastHealthy}
-              </span>
-            </div>
-            {runtimeDetail ? (
-              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
-                {runtimePresentation.detail} — detail: {runtimeDetail}
-              </div>
-            ) : (
-              <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
-                {runtimePresentation.detail}
-              </div>
-            )}
-            {runtimeDiagnosticLines.length > 0 ? (
-              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-                <summary className="cursor-pointer select-none opacity-80">
-                  Technical details
-                </summary>
-                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-                  {runtimeDiagnosticLines.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
-          </div>
         </div>
       )}
-      {liveUpdatesDisconnected && !runtimeDegraded ? (
-        <div className="relative z-10 w-full mt-3">
-          <div
-            className="flex w-full flex-col gap-1 rounded-[14px] border px-4 py-2 text-xs sm:text-sm"
-            style={{
-              borderColor: "var(--panel-border)",
-              background:
-                "color-mix(in oklab, var(--panel-bg) 92%, transparent)",
-              color: "var(--text)",
-            }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold tracking-wide">
-                Live updates disconnected
-              </span>
-              <span className="opacity-80">
-                state: {runtimeHealth.diagnostics.liveEvents.connectionState}
-              </span>
-            </div>
-            <div className="text-[11px] opacity-75" style={{ color: "var(--muted)" }}>
-              Guardian is healthy, but the live event stream has not stayed connected.
-            </div>
-            {liveUpdateDiagnosticLines.length > 0 ? (
-              <details className="mt-1 rounded-md border border-dashed border-[color:var(--panel-border)] px-2 py-1 text-[11px]">
-                <summary className="cursor-pointer select-none opacity-80">
-                  Technical details
-                </summary>
-                <div className="mt-2 flex flex-col gap-1 font-mono text-[10px] leading-4 opacity-85">
-                  {liveUpdateDiagnosticLines.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+
+      {!isNarrowGuardianFrameShell && runtimeStatusNotice}
+      {!isNarrowGuardianFrameShell && liveUpdatesNotice}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           📺 SECTION: Main Content Area
@@ -3267,13 +3327,18 @@ export default function AppShell({
           - Documents
           - Settings
          ───────────────────────────────────────────────────────────────────────────── */}
-      <div className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch">
+      <div
+        data-testid="app-shell-main-content"
+        className="relative z-10 isolate flex flex-col flex-1 min-h-0 overflow-hidden items-stretch"
+      >
         <div
           className="flex-1 h-full min-h-0 flex overflow-hidden"
           style={{
-            paddingTop: dockCollapsed
-              ? "var(--dock-collapsed-page-gutter)"
-              : "var(--page-gutter-top)",   // always-on gutter under the pill dock
+            paddingTop: isNarrowGuardianFrameShell
+              ? undefined
+              : dockCollapsed
+                ? "var(--dock-collapsed-page-gutter)"
+                : "var(--page-gutter-top)",   // always-on gutter under the pill dock
             paddingRight: "var(--page-pad)",        // mode-dependent
             paddingBottom: "var(--page-pad)",       // mode-dependent
             paddingLeft: "var(--page-pad)",         // mode-dependent
@@ -3606,6 +3671,13 @@ export default function AppShell({
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                         onProjectChange={handleGuardianProjectChange}
+                        activeApplicationView={view}
+                        applicationDestinations={
+                          GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS
+                        }
+                        onNavigateApplicationView={navigateToView}
+                        frameFirstMobile={isNarrowGuardianFrameShell}
+                        mobileFramePrelude={guardianMobileFramePrelude}
                       />
                     </ErrorBoundary>
                   </div>

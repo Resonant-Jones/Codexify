@@ -30,7 +30,7 @@ export default function SettingsPanelDock({
       }}
     >
       <div
-        className="glass-pill isolate relative flex w-full min-w-0 items-stretch gap-[var(--settings-dock-gap)] overflow-x-auto p-[var(--settings-dock-padding)]"
+        className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
             "--pill-active-text": "var(--text-on-accent)",
@@ -41,7 +41,9 @@ export default function SettingsPanelDock({
           } as CSSProperties
         }
       >
-        {children}
+        <div className="flex w-max min-w-full items-stretch justify-evenly gap-[var(--settings-dock-gap)] whitespace-nowrap">
+          {children}
+        </div>
       </div>
     </nav>
   );

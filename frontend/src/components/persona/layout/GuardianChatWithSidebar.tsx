@@ -5,8 +5,17 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
+import { ChevronRight, Menu, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import GuardianChat from "@/features/chat/GuardianChat";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
+import { useProjectsCache } from "@/components/sidebar/useProjectsCache";
+import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { Thread, Message, type ThreadConfig } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
@@ -62,6 +71,7 @@ import type {
 import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
+import { getMobileNavigationControlStyle } from "./mobileNavigationContract";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -198,6 +208,19 @@ const DEVICE_ID_STORAGE_KEY = "cfy.deviceId";
 const THREAD_PAGE_SIZE = 50;
 const NEW_THREAD_TITLE = "New Thread";
 
+export type GuardianApplicationView =
+  | "guardian"
+  | "documents"
+  | "gallery"
+  | "dashboard"
+  | "settings";
+
+export type GuardianApplicationDestination = {
+  view: GuardianApplicationView;
+  label: string;
+  priority: "primary" | "secondary";
+};
+
 function readStoredGeneralProjectId(): number | null {
   if (typeof window === "undefined") return null;
   const candidates = [
@@ -246,6 +269,11 @@ type GuardianChatWithSidebarProps = {
   providerRuntimeState?: ProviderRuntimeState | null;
   runtimeHealth?: RuntimeHealthStatus | null;
   onProjectChange?: (projectId: string | null, projectName: string | null) => void;
+  activeApplicationView?: GuardianApplicationView;
+  applicationDestinations?: readonly GuardianApplicationDestination[];
+  onNavigateApplicationView?: (view: GuardianApplicationView) => void;
+  frameFirstMobile?: boolean;
+  mobileFramePrelude?: React.ReactNode;
 };
 
 export default function GuardianChatWithSidebar({
@@ -264,6 +292,11 @@ export default function GuardianChatWithSidebar({
   providerRuntimeState = null,
   runtimeHealth = null,
   onProjectChange,
+  activeApplicationView = "guardian",
+  applicationDestinations = [],
+  onNavigateApplicationView,
+  frameFirstMobile = false,
+  mobileFramePrelude,
 }: GuardianChatWithSidebarProps) {
   const auth = useAuthState();
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
@@ -272,6 +305,7 @@ export default function GuardianChatWithSidebar({
     return stored === null ? true : stored === "true";
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [isAppNavigationOpen, setIsAppNavigationOpen] = React.useState(false);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const stored = window.localStorage.getItem("cfy.lastProjectId");
@@ -305,6 +339,7 @@ export default function GuardianChatWithSidebar({
   const isPhoneShell = mobileShellProfile.active;
   const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split";
   const [threads, setThreads] = React.useState<Thread[]>([]);
+  const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [threadsHasMore, setThreadsHasMore] = React.useState(true);
@@ -314,6 +349,13 @@ export default function GuardianChatWithSidebar({
   const sessionHydratedRef = React.useRef(false);
   const paginationRef = React.useRef({ offset: 0, hasMore: true, loading: false });
   const threadsRef = React.useRef<Thread[]>([]);
+  const mobileSidebarTriggerRef = React.useRef<HTMLElement | null>(null);
+  const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
+  const mobileSidebarCloseRef = React.useRef<HTMLButtonElement | null>(null);
+  const mobileAppNavigationTriggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const restoreMobileSidebarFocusRef = React.useRef(false);
+  const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
+  const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
   const { data: providerStateData } = useProviderState();
@@ -575,13 +617,32 @@ export default function GuardianChatWithSidebar({
     [isDesktopLayout]
   );
 
+  const closeMobileToolsMenu = React.useCallback(() => {
+    setMobileToolsMenuOpen(false);
+  }, []);
+
   const closeSidebar = React.useCallback(() => {
+    if (!isDesktopLayout) {
+      restoreMobileSidebarFocusRef.current = true;
+      setIsAppNavigationOpen(false);
+    }
     setSidebarOpen(false);
-  }, [setSidebarOpen]);
+  }, [isDesktopLayout, setSidebarOpen]);
 
   const toggleSidebar = React.useCallback(() => {
+    if (
+      !isDesktopLayout &&
+      !isSidebarOpen &&
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
+    ) {
+      mobileSidebarTriggerRef.current = document.activeElement;
+    }
+    if (!isDesktopLayout && !isSidebarOpen) {
+      setIsAppNavigationOpen(false);
+    }
     setSidebarOpen(!isSidebarOpen);
-  }, [isSidebarOpen, setSidebarOpen]);
+  }, [isDesktopLayout, isSidebarOpen, setSidebarOpen]);
 
   React.useEffect(() => {
     if (isDesktopLayout && isMobileSidebarOpen) {
@@ -593,23 +654,45 @@ export default function GuardianChatWithSidebar({
     if (!isMobileOverlayActive || typeof document === "undefined") return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    mobileSidebarCloseRef.current?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
     };
   }, [isMobileOverlayActive]);
 
   React.useEffect(() => {
+    if (
+      isMobileOverlayActive ||
+      !restoreMobileSidebarFocusRef.current
+    ) {
+      return;
+    }
+    restoreMobileSidebarFocusRef.current = false;
+    mobileSidebarTriggerRef.current?.focus();
+  }, [isMobileOverlayActive]);
+
+  React.useEffect(() => {
     if (!isMobileOverlayActive || typeof window === "undefined") return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setSidebarOpen(false);
+        if (isAppNavigationOpen) {
+          event.preventDefault();
+          setIsAppNavigationOpen(false);
+          mobileAppNavigationTriggerRef.current?.focus();
+          return;
+        }
+        closeSidebar();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isMobileOverlayActive, setSidebarOpen]);
+  }, [closeSidebar, isAppNavigationOpen, isMobileOverlayActive]);
+
+  React.useEffect(() => {
+    setIsAppNavigationOpen(false);
+  }, [activeApplicationView]);
 
   const mapThreadRecord = React.useCallback(
     (raw: any): Thread | null => {
@@ -1049,7 +1132,16 @@ export default function GuardianChatWithSidebar({
       window.history.pushState({}, "", `/chat/${id}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
-  }, [activeSessionTabId, sessionSpine, threads]);
+    if (!isDesktopLayout) {
+      closeSidebar();
+    }
+  }, [
+    activeSessionTabId,
+    closeSidebar,
+    isDesktopLayout,
+    sessionSpine,
+    threads,
+  ]);
 
 
   // Never auto-select on list refresh. If selected thread disappears, clear it.
@@ -1107,6 +1199,14 @@ export default function GuardianChatWithSidebar({
       lastInteractionAt: null,
     };
   }, [threads, activeId, userName, guardianName, selectedProjectId, selectedProjectName]);
+
+  const effectiveThreadIdForMenu = React.useMemo(() => {
+    if (!activeThread || activeThread.id === "temp") return null;
+    const n = Number(activeThread.id);
+    return Number.isFinite(n) ? n : null;
+  }, [activeThread]);
+
+  const threadTitleForMenu = activeThread?.title ?? "";
 
   const handleNewChatImmediate = () => {
     void handleNewChat();
@@ -1543,6 +1643,102 @@ export default function GuardianChatWithSidebar({
   const stopDrawerEvent = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
+  const containMobileDrawerFocus = React.useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "Tab") return;
+      const drawer = mobileSidebarDrawerRef.current;
+      if (!drawer) return;
+
+      const focusableControls = Array.from(
+        drawer.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter(
+        (control) =>
+          !control.hasAttribute("hidden") &&
+          control.getAttribute("aria-hidden") !== "true"
+      );
+      if (focusableControls.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const firstControl = focusableControls[0];
+      const lastControl = focusableControls[focusableControls.length - 1];
+      const activeControl =
+        typeof document === "undefined" ? null : document.activeElement;
+
+      if (
+        event.shiftKey &&
+        (activeControl === firstControl ||
+          !(activeControl instanceof Node) ||
+          !drawer.contains(activeControl))
+      ) {
+        event.preventDefault();
+        lastControl.focus();
+      } else if (!event.shiftKey && activeControl === lastControl) {
+        event.preventDefault();
+        firstControl.focus();
+      }
+    },
+    []
+  );
+  const handleApplicationNavigation = React.useCallback(
+    (nextView: GuardianApplicationView) => {
+      setIsAppNavigationOpen(false);
+      closeSidebar();
+      onNavigateApplicationView?.(nextView);
+    },
+    [closeSidebar, onNavigateApplicationView]
+  );
+  const primaryApplicationDestinations = useMemo(
+    () =>
+      applicationDestinations.filter(
+        (destination) => destination.priority === "primary"
+      ),
+    [applicationDestinations]
+  );
+  const secondaryApplicationDestinations = useMemo(
+    () =>
+      applicationDestinations.filter(
+        (destination) => destination.priority === "secondary"
+      ),
+    [applicationDestinations]
+  );
+
+  const renderApplicationDestinations = React.useCallback(
+    (destinations: readonly GuardianApplicationDestination[]) =>
+      destinations.map((destination) => {
+        const isActive = activeApplicationView === destination.view;
+        return (
+          <button
+            key={destination.view}
+            type="button"
+            className="pill-tab flex w-full items-center justify-start text-left"
+            data-testid={`guardian-mobile-destination-${destination.view}`}
+            data-state={isActive ? "active" : "inactive"}
+            aria-current={isActive ? "page" : undefined}
+            onClick={() => handleApplicationNavigation(destination.view)}
+            style={getMobileNavigationControlStyle(true)}
+          >
+            {destination.label}
+          </button>
+        );
+      }),
+    [activeApplicationView, handleApplicationNavigation]
+  );
+
+  // Extract prelude toolbar and runtime notices for compact mobile header
+  const preludeParts = React.useMemo(() => {
+    if (!frameFirstMobile || !mobileFramePrelude) return { toolbar: null, notices: null };
+    const element = mobileFramePrelude as React.ReactElement | null;
+    if (!element || !React.isValidElement(element)) return { toolbar: null, notices: null };
+    const children = React.Children.toArray(element.props.children ?? []) as React.ReactNode[];
+    // First child is the toolbar div (role="toolbar"), rest are runtime/live-update notices
+    const toolbar = children[0] ?? null;
+    const notices = children.length > 1 ? children.slice(1) : null;
+    return { toolbar, notices };
+  }, [frameFirstMobile, mobileFramePrelude]);
 
   const mobileOverlay = isMobileOverlayActive && portalTarget
     ? createPortal(
@@ -1554,17 +1750,29 @@ export default function GuardianChatWithSidebar({
             data-testid="mobile-sidebar-scrim"
             style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
             role="button"
+            aria-label="Dismiss navigation and threads sidebar"
             tabIndex={0}
             onClick={closeSidebar}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
-                closeSidebar();
+                event.stopPropagation();
+                if (isAppNavigationOpen) {
+                  setIsAppNavigationOpen(false);
+                  mobileAppNavigationTriggerRef.current?.focus();
+                } else {
+                  closeSidebar();
+                }
               }
             }}
           />
           <aside
+            ref={mobileSidebarDrawerRef}
             data-testid="mobile-sidebar-drawer"
             className="h-full overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Guardian navigation and threads"
+            onKeyDown={containMobileDrawerFocus}
             style={{
               position: "absolute",
               top: 0,
@@ -1591,20 +1799,100 @@ export default function GuardianChatWithSidebar({
                 className="flex h-full w-full min-h-0 min-w-0 flex-col box-border"
               >
                 <PanelShell surfaceStyle={sidebarSurfaceStyle}>
-                  <SidebarRoot
-                    threads={threads}
-                    activeId={activeId}
-                    onSelect={handleSelectThread}
-                    onNewChat={handleNewChatImmediate}
-                    projectId={selectedProjectId}
-                    projectName={selectedProjectName}
-                    onProjectChange={handleSelectedProjectChange}
-                    hasMoreThreads={threadsHasMore}
-                    loadingMoreThreads={threadsLoadingMore}
-                    onLoadMoreThreads={loadMoreThreads}
-                    onBeforeDeleteThread={handleBeforeDeleteThread}
-                    onDeleteThread={handleDeleteThread}
-                  />
+                  <div className="flex h-full min-h-0 flex-col">
+                    <header
+                      className="flex shrink-0 items-center justify-between gap-[var(--card-pad)] p-[var(--card-pad)]"
+                      style={{
+                        borderBlockEnd:
+                          "var(--frame) solid var(--panel-border)",
+                      }}
+                    >
+                      <button
+                        ref={mobileAppNavigationTriggerRef}
+                        type="button"
+                        className="icon-inline flex shrink-0 items-center justify-center rounded-[var(--radius-micro)] bg-[var(--accent)] p-[calc(var(--radius-micro)/2)]"
+                        aria-label={
+                          isAppNavigationOpen
+                            ? "Close Codexify navigation"
+                            : "Open Codexify navigation"
+                        }
+                        aria-expanded={isAppNavigationOpen}
+                        aria-controls="guardian-mobile-application-navigation"
+                        onClick={() =>
+                          setIsAppNavigationOpen((isOpen) => !isOpen)
+                        }
+                      >
+                        <img
+                          src={codexifyMarkSrc}
+                          alt=""
+                          aria-hidden="true"
+                          data-testid="guardian-mobile-codexify-mark"
+                          className="block h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] shrink-0 object-contain"
+                        />
+                      </button>
+                      <button
+                        ref={mobileSidebarCloseRef}
+                        type="button"
+                        className="icon-inline shrink-0"
+                        aria-label="Close navigation and threads sidebar"
+                        onClick={closeSidebar}
+                        style={getMobileNavigationControlStyle(true, {
+                          square: true,
+                        })}
+                      >
+                        <X
+                          aria-hidden="true"
+                          className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]"
+                        />
+                      </button>
+                    </header>
+                    {isAppNavigationOpen &&
+                      onNavigateApplicationView &&
+                      applicationDestinations.length > 0 && (
+                        <nav
+                          id="guardian-mobile-application-navigation"
+                          aria-label="Application destinations"
+                          data-testid="guardian-mobile-application-navigation"
+                          className="shrink-0 p-[var(--card-pad)]"
+                        >
+                          <div className="flex flex-col gap-[var(--pill-gap)]">
+                            {renderApplicationDestinations(
+                              primaryApplicationDestinations
+                            )}
+                          </div>
+                          {secondaryApplicationDestinations.length > 0 && (
+                            <div
+                              className="mt-[var(--card-pad)] flex flex-col gap-[var(--pill-gap)] pt-[var(--card-pad)]"
+                              style={{
+                                borderBlockStart:
+                                  "var(--frame) solid var(--panel-border)",
+                              }}
+                            >
+                              {renderApplicationDestinations(
+                                secondaryApplicationDestinations
+                              )}
+                            </div>
+                          )}
+                        </nav>
+                      )}
+                    <div className="min-h-0 flex-1">
+                      <SidebarRoot
+                        threads={threads}
+                        activeId={activeId}
+                        onSelect={handleSelectThread}
+                        onNewChat={handleNewChatImmediate}
+                        projectId={selectedProjectId}
+                        projectName={selectedProjectName}
+                        onProjectChange={handleSelectedProjectChange}
+                        projectCache={projectCache}
+                        hasMoreThreads={threadsHasMore}
+                        loadingMoreThreads={threadsLoadingMore}
+                        onLoadMoreThreads={loadMoreThreads}
+                        onBeforeDeleteThread={handleBeforeDeleteThread}
+                        onDeleteThread={handleDeleteThread}
+                      />
+                    </div>
+                  </div>
                 </PanelShell>
               </div>
             </div>
@@ -1624,6 +1912,11 @@ export default function GuardianChatWithSidebar({
         )}
         data-guardian-layout={guardianLayoutMode}
         data-shell-profile={mobileShellProfile.shellMode}
+        data-guardian-frame-shell={
+          frameFirstMobile ? "frame-first" : "standard"
+        }
+        aria-hidden={isMobileOverlayActive ? true : undefined}
+        inert={isMobileOverlayActive ? true : undefined}
         style={{
           maxWidth: mobileShellProfile.guardian.frameMaxWidth,
           gridTemplateColumns:
@@ -1675,6 +1968,7 @@ export default function GuardianChatWithSidebar({
                   projectId={selectedProjectId}
                   projectName={selectedProjectName}
                   onProjectChange={handleSelectedProjectChange}
+                  projectCache={projectCache}
                   hasMoreThreads={threadsHasMore}
                   loadingMoreThreads={threadsLoadingMore}
                   onLoadMoreThreads={loadMoreThreads}
@@ -1687,6 +1981,8 @@ export default function GuardianChatWithSidebar({
         )}
         {/* Chat Panel */}
         <div
+          data-testid="guardian-primary-frame"
+          data-frame-owner={frameFirstMobile ? "mobile-guardian" : "guardian"}
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
             gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
@@ -1699,6 +1995,155 @@ export default function GuardianChatWithSidebar({
             disabled={chatDisabled}
           >
             <div className="flex h-full min-h-0 overflow-hidden flex-col">
+              {frameFirstMobile && (
+                <>
+                  {/* Compact two-control mobile Guardian header */}
+                  <div
+                    data-testid="guardian-mobile-compact-header"
+                    className="flex shrink-0 items-center justify-between gap-[var(--card-pad)] px-[var(--card-pad)] py-2"
+                    style={{
+                      borderBlockEnd: "var(--frame) solid var(--panel-border)",
+                    }}
+                  >
+                    {/* Left: sidebar control */}
+                    <button
+                      type="button"
+                      className="icon-inline shrink-0"
+                      aria-label={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+                      onClick={toggleSidebar}
+                      style={{
+                        borderRadius: "var(--radius-micro)",
+                        ...getMobileNavigationControlStyle(true, { square: true }),
+                      }}
+                    >
+                      <ChevronRight
+                        aria-hidden="true"
+                        className={`h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] transition-transform duration-200 ${
+                          isSidebarOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {/* Right: Guardian tools menu */}
+                    <DropdownMenu open={mobileToolsMenuOpen} onOpenChange={setMobileToolsMenuOpen}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          ref={mobileToolsMenuOpenerRef}
+                          type="button"
+                          className="icon-inline shrink-0"
+                          aria-label="Open Guardian tools"
+                          style={{
+                            borderRadius: "var(--radius-micro)",
+                            ...getMobileNavigationControlStyle(true, { square: true }),
+                          }}
+                          data-testid="guardian-mobile-tools-trigger"
+                        >
+                          <Menu
+                            aria-hidden="true"
+                            className="h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)]"
+                          />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="min-w-[200px]"
+                        onClick={(e) => {
+                          // Close the menu when any button inside is clicked (for prelude toolbar buttons)
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button')) {
+                            // Delay to let the button's own handler fire first
+                            window.setTimeout(() => closeMobileToolsMenu(), 0);
+                          }
+                        }}
+                      >
+                        {/* Conversation group */}
+                        <DropdownMenuItem
+                          onClick={() => {
+                            handleNewChatImmediate();
+                            closeMobileToolsMenu();
+                          }}
+                          data-testid="guardian-mobile-tools-new-thread"
+                        >
+                          New thread
+                        </DropdownMenuItem>
+
+                        {/* Pre-existing utility actions from the AppShell prelude toolbar */}
+                        {preludeParts.toolbar}
+
+                        {/* Thread-level actions from GuardianChat headerActions */}
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            const next = window.prompt("Rename thread", threadTitleForMenu || "");
+                            const title = next?.trim();
+                            if (!title || title === threadTitleForMenu) return;
+                            try {
+                              await api.patch(`/chat/${effectiveThreadIdForMenu}`, { title });
+                              window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind: "rename", id: String(effectiveThreadIdForMenu), title } }));
+                            } catch (e) {
+                              console.warn(e);
+                              alert("Rename failed.");
+                            }
+                          }}
+                        >
+                          Rename Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            void handleBranchThread(effectiveThreadIdForMenu);
+                          }}
+                        >
+                          Branch Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            if (!window.confirm("Archive this thread? It will be hidden from the sidebar.")) return;
+                            void handleArchiveThread(effectiveThreadIdForMenu);
+                          }}
+                        >
+                          Archive Thread
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            closeMobileToolsMenu();
+                            if (effectiveThreadIdForMenu == null) {
+                              alert("Thread is not persisted yet");
+                              return;
+                            }
+                            if (!window.confirm("Delete this thread? This cannot be undone.")) return;
+                            void api.delete(`/chat/${effectiveThreadIdForMenu}`).then(() => {
+                              window.dispatchEvent(new CustomEvent("cfy:threads:refresh", { detail: { kind: "delete", id: String(effectiveThreadIdForMenu) } }));
+                            }).catch((e: any) => {
+                              console.warn(e);
+                              alert("Delete failed. Please try again.");
+                            });
+                          }}
+                        >
+                          Delete Thread
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  {/* Runtime / auth truth notices remain outside the utility menu */}
+                  {preludeParts.notices}
+                </>
+              )}
+              {!frameFirstMobile && mobileFramePrelude}
               <PromptLibraryPortal />
               <PromptCostIndicator summary={imprintZero.status?.system_prompt_meta} />
               {auth.ready && auth.status === "unauthenticated" && (
@@ -1762,6 +2207,8 @@ export default function GuardianChatWithSidebar({
                   runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
                   workspaceProjectId={selectedProjectId}
+                  projectOptions={projectCache.projectList}
+                  onComposerProjectChange={handleSelectedProjectChange}
                   onSendMessage={handleSendMessage}
                   onThreadPersisted={handleDraftThreadPersisted}
                   onNewChat={handleNewChatImmediate}
@@ -1794,6 +2241,12 @@ export default function GuardianChatWithSidebar({
                     }
                   }}
                   bare
+                  compactMobileHeader={frameFirstMobile}
+                  mobileComposerProjectionEnabled={frameFirstMobile}
+                  mobileComposerProjectionSuspended={
+                    frameFirstMobile &&
+                    (isMobileOverlayActive || mobileToolsMenuOpen)
+                  }
                 />
               </div>
             </div>

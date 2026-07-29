@@ -22,6 +22,8 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Added Hosted Room guest session exchange: pending invitations can be exchanged once for a signed HTTP-only room-session cookie. Exchange creates one durable human member participant and marks the invitation accepted. Session inspection revalidates room/invite/participant lifecycle truth on every request.
 - Added Hosted Room invitation management API: authenticated room owners can issue room-scoped invitations with one-time plaintext credentials, list invitation metadata, and revoke invitations. Only token verifiers (SHA-256) are persisted; plaintext tokens are never stored.
 - Added Hosted Room owner lifecycle API: authenticated owners can create, list, inspect, update, and close Hosted Rooms backed by canonical chat threads. Room creation is atomic (room, thread, owner participant). Account isolation is enforced on all owner routes.
+- Added a supported account-scoped retry endpoint for failed zero-write OpenAI account-import jobs (`POST /api/imports/openai-account/{job_id}/retry`).
+- Repaired tester account-import staging continuity so both backend and worker resolve shared import staging from one canonical project directory.
 - Added an email implementation-target inspection and campaign index on `main`; this is planning and target mapping only.
 - Removed the legacy document generation UI from the frontend.
 - Fixed mobile composer viewport settling.
@@ -30,6 +32,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Separated live Continuity database proof from broader operator routes.
 - Restored thread-first project retrieval.
 - Removed Zac's last name from the email campaign materials.
+- Added a docs/proof-only Project Pulse exact-ID read proof fixture contract and static fixture after implementation-target inspection. This does not implement Project Pulse, routes, services, adapter methods, schemas, migrations, UI, CLI, workers, command bus, provider calls, retrieval changes, graph use, browser capture, export/restore, tests, runtime fixture loading, database seeds, writes, or supported-beta activation.
 
 ## Current supported reality
 - Local Docker Compose remains the supported install path.
@@ -43,6 +46,7 @@ Codexify is in local-first beta hardening on `main`. The supported path remains 
 - Thread-first project retrieval is restored on `main`.
 - Supported Compose live proof receipts exist as a bounded proof and validation seam, not a release expansion.
 - OpenAI export import and Task Prompt Archive are present on `main`.
+- Failed zero-write account-import jobs have an explicit owner-scoped retry endpoint that requires canonical staged-data visibility, preserves original failure evidence, and prevents duplicate queue publications.
 
 ### Hosted Room owner API
 
@@ -84,7 +88,7 @@ What is now implemented:
 
 What remains unimplemented:
 - Luna invocation.
-- Agent participant provenance.
+- Non-Guardian agent participant provenance.
 - Automatic assistant responses.
 - RoomShell.
 - Participant removal API.
@@ -92,7 +96,6 @@ What remains unimplemented:
 - Ambient presence.
 - Automatic Tailscale onboarding.
 - Cross-node rooms.
-- Session invalidation after revocation (already works via per-request lifecycle check).
 - Release qualification.
 
 Enabled-agent configuration is stored and the active resident Guardian binding grants only the explicit Guardian invocation routes described above; it does not create mention-driven behavior.
@@ -110,9 +113,14 @@ still does not widen the release-qualified Hosted Room feature boundary.
 - Do not assume the email campaign index or inspection implies an email runtime, mailbox, or send path.
 - Do not assume the Continuity operator surface is supported beta, user-facing, Project Pulse, export/restore, graph, chat runtime, worker, or command bus behavior.
 - Do not assume the Guardian delegation loop or Guardian Codex Runner bridge docs imply an end-to-end supported delegation/runtime path.
-- Do not assume shared presence, hosted rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
+- Do not assume shared presence, release-qualified or cross-node Hosted Rooms, chat transport recovery, thread lenses, or Guardian orientation docs are shipped runtime behavior.
 - Do not infer a wider release promise from docs-only onboarding, scaffolds, or audit artifacts.
 - Do not assume any local runtime is available without live endpoint and model inventory proof.
+- Do not assume partial-write account-import jobs are retryable (zero-write only).
+- Do not assume failed account-import jobs are retried automatically.
+- Do not assume missing historical staging is copied automatically.
+- Do not assume historical payloads in obsolete worktrees are canonical.
+- Do not assume the retry endpoint repairs or deduplicates partial imports.
 
 ## Active blockers
 - Queue-coupled chat still depends on Redis plus worker health.

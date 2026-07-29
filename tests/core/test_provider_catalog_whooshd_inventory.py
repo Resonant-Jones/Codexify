@@ -5,7 +5,6 @@ from guardian.core.config import Settings
 from guardian.core.llm_catalog import build_llm_catalog
 from guardian.core.provider_registry import validate_provider_model_selection
 
-
 _GEMMA = "mlx-community/gemma-4-e2b-it-4bit"
 _LLAMA = "llama-3.2-3b-mlx"
 _QWEN_VL = "qwen2-vl-2b-mlx"
@@ -173,6 +172,28 @@ def test_deepseek_catalog_rejects_unpinned_models(monkeypatch) -> None:
     )
 
 
+def test_deepseek_catalog_rejects_retired_deepseek_chat(monkeypatch) -> None:
+    monkeypatch.delenv("CODEXIFY_SUPPORTED_PROFILE", raising=False)
+    settings = _settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+    )
+
+    allowed, reason = validate_provider_model_selection(
+        provider_id="deepseek",
+        model_id="deepseek-chat",
+        settings=settings,
+    )
+
+    assert allowed is False
+    assert reason == (
+        "Requested model 'deepseek-chat' is not available for provider 'deepseek'"
+    )
+
+
 def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(
     monkeypatch,
 ) -> None:
@@ -183,6 +204,7 @@ def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_LOCAL_ONLY_MODE=True,
         CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL="http://100.127.148.28:8000/v1",
         DEEPSEEK_API_KEY="test-deepseek-key",
     )
 

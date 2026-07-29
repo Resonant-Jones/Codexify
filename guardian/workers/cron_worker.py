@@ -93,10 +93,13 @@ def process_cron_message(
     error_message: str | None = None
     succeeded = False
     try:
-        result = task_executor(
-            job_type=str(payload.get("job_type") or ""),
-            payload=payload.get("payload"),
-        )
+        execute_kwargs = {
+            "job_type": str(payload.get("job_type") or ""),
+            "payload": payload.get("payload"),
+        }
+        if executor is None:
+            execute_kwargs["db"] = resolved_db
+        result = task_executor(**execute_kwargs)
         succeeded = True
     except Exception as exc:
         error_message = _truncate_error(str(exc) or exc.__class__.__name__)

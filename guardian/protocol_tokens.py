@@ -348,6 +348,16 @@ class AccountImportEventType(str, Enum):
     BATCH_COMMITTED = "account_import.batch_committed"
     COMPLETED = "account_import.completed"
     FAILED = "account_import.failed"
+    RETRY_ATTEMPT = "account_import.retry_attempt"
+
+
+class AccountImportErrorCode(str, Enum):
+    """Machine-readable failure reasons for durable account imports."""
+
+    NO_COMMITTED_ENTITIES = "account_import_no_committed_entities"
+    RESTAGING_REQUIRED = "account_import_restaging_required"
+    RETRY_NOT_ZERO_WRITE = "account_import_retry_not_zero_write"
+    RETRY_ALREADY_QUEUED = "account_import_retry_already_queued"
 
 
 class CampaignGoalStatus(str, Enum):
@@ -574,6 +584,9 @@ ACCOUNT_IMPORT_STATUSES: frozenset[str] = frozenset(
 ACCOUNT_IMPORT_EVENT_TYPES: frozenset[str] = frozenset(
     {event_type.value for event_type in AccountImportEventType}
 )
+ACCOUNT_IMPORT_ERROR_CODES: frozenset[str] = frozenset(
+    {error_code.value for error_code in AccountImportErrorCode}
+)
 CAMPAIGN_GOAL_STATUSES: frozenset[str] = frozenset(
     {status.value for status in CampaignGoalStatus}
 )
@@ -643,6 +656,7 @@ __all__ = [
     "EmbeddingLifecycleStatus",
     "AccountImportStatus",
     "AccountImportEventType",
+    "AccountImportErrorCode",
     "CampaignGoalStatus",
     "CampaignStatus",
     "CampaignExecutionAttemptStatus",
@@ -692,6 +706,7 @@ __all__ = [
     "EMBEDDING_LIFECYCLE_STATUSES",
     "ACCOUNT_IMPORT_STATUSES",
     "ACCOUNT_IMPORT_EVENT_TYPES",
+    "ACCOUNT_IMPORT_ERROR_CODES",
     "CAMPAIGN_GOAL_STATUSES",
     "CAMPAIGN_STATUSES",
     "CAMPAIGN_EXECUTION_ATTEMPT_STATUSES",

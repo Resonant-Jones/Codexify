@@ -34,6 +34,7 @@ def execute_cron_job(
     payload: dict[str, Any] | None,
     webhook_dispatcher: Callable[..., int] | None = None,
     timeout_seconds: float = 10.0,
+    db: Any | None = None,
 ) -> dict[str, Any]:
     """Execute one cron job payload and return a structured result."""
 
@@ -42,6 +43,22 @@ def execute_cron_job(
 
     if normalized_type == "noop":
         return {"ok": True, "job_type": "noop", "result": "noop_executed"}
+
+    if normalized_type == "account_observability_retention":
+        if db is None:
+            raise ValueError(
+                "account_observability_retention requires a configured database"
+            )
+        from guardian.account_observability.retention import run_cleanup
+
+        with db.get_session() as session:
+            receipt = run_cleanup(session)
+            session.commit()
+        return {
+            "ok": True,
+            "job_type": normalized_type,
+            "result": receipt.as_dict(),
+        }
 
     if normalized_type == "webhook":
         try:

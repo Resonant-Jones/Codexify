@@ -1,7 +1,7 @@
 """add Hosted Room persistence foundation
 
-Revision ID: b2c3d4e5f6a7
-Revises: a1c2d3e4f5b6
+Revision ID: b2c3d4e5f6a8
+Revises: b2c3d4e5f6a7
 Create Date: 2026-07-27 18:00:00.000000
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "b2c3d4e5f6a7"
-down_revision: Union[str, Sequence[str], None] = "a1c2d3e4f5b6"
+revision: str = "b2c3d4e5f6a8"
+down_revision: Union[str, Sequence[str], None] = "b2c3d4e5f6a7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

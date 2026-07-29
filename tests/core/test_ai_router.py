@@ -8,6 +8,8 @@ import requests
 from fastapi import HTTPException
 
 import guardian.core.ai_router as ai_router
+import guardian.core.provider_registry as provider_registry
+import guardian.core.supported_profile as supported_profile
 from guardian.core.ai_router import (
     LOCAL_MODEL_MISSING_FAILURE_KIND,
     LOCAL_MODEL_RESOLUTION_ERROR,
@@ -15,10 +17,9 @@ from guardian.core.ai_router import (
     call_local,
     call_minimax,
     chat_with_ai,
+    resolve_local_execution_model,
     stream_local,
 )
-import guardian.core.provider_registry as provider_registry
-import guardian.core.supported_profile as supported_profile
 from guardian.core.config import Settings
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
@@ -108,7 +109,9 @@ def test_call_alibaba_uses_default_dashscope_base_and_timeout(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return _MockResponse({"choices": [{"message": {"content": "Alibaba reply"}}]})
+        return _MockResponse(
+            {"choices": [{"message": {"content": "Alibaba reply"}}]}
+        )
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
     monkeypatch.setattr(
@@ -199,7 +202,9 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
         captured["json"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
-        return _MockResponse({"choices": [{"message": {"content": "DeepSeek routed"}}]})
+        return _MockResponse(
+            {"choices": [{"message": {"content": "DeepSeek routed"}}]}
+        )
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
@@ -245,7 +250,9 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
         calls.append(url)
         if "127.0.0.1:11434" in url:
             raise requests.exceptions.ConnectionError("connection refused")
-        return _MockRawResponse({"message": {"content": "Local fallback reply"}})
+        return _MockRawResponse(
+            {"message": {"content": "Local fallback reply"}}
+        )
 
     monkeypatch.setattr(ai_router.requests, "post", _mock_post)
 
@@ -267,10 +274,12 @@ def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
 
     assert result == "Local fallback reply"
     assert calls[0].startswith("http://127.0.0.1:11434")
-    assert any("host.docker.internal:11434" in attempted_url for attempted_url in calls)
+    assert any(
+        "host.docker.internal:11434" in attempted_url for attempted_url in calls
+    )
 
 
-def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
+def test_stream_local_strict_mode_pins_configured_model_over_registered_whooshd_profile(
     monkeypatch,
 ):
     _disable_supported_profile(monkeypatch)
@@ -307,8 +316,10 @@ def test_stream_local_strict_mode_allows_registered_whooshd_profile_selection(
     )
 
     assert tokens == ["Whoosh", "d"]
-    assert captured["json"]["model"] == "gemma-4-12b-it-optiq-4bit"
-    assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
+    assert captured["json"]["model"] == "library2/ministral-3:8b"
+    assert captured["url"] == (
+        "http://host.docker.internal:8000/v1/chat/completions"
+    )
 
 
 def test_stream_local_preserves_done_terminal_evidence(monkeypatch):
@@ -377,7 +388,7 @@ def test_stream_local_classifies_eof_without_done_as_incomplete(monkeypatch):
     assert terminal.retry_permitted is False
 
 
-def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selection(
+def test_stream_local_strict_mode_pins_configured_model_over_registered_whooshd_qat_profile(
     monkeypatch,
 ):
     _disable_supported_profile(monkeypatch)
@@ -413,8 +424,10 @@ def test_stream_local_strict_mode_allows_registered_whooshd_qat_profile_selectio
     )
 
     assert tokens == ["QAT"]
-    assert captured["json"]["model"] == "gemma-4-12b-it-qat-4bit"
-    assert captured["url"] == ("http://host.docker.internal:8000/v1/chat/completions")
+    assert captured["json"]["model"] == "library2/ministral-3:8b"
+    assert captured["url"] == (
+        "http://host.docker.internal:8000/v1/chat/completions"
+    )
 
 
 def test_chat_with_ai_local_failure_surfaces_attempt_diagnostics(monkeypatch):
@@ -481,7 +494,9 @@ def test_chat_with_ai_local_uses_configured_endpoint_chain_order(monkeypatch):
 
     assert result == "Local chain reply"
     assert calls[0].startswith("http://primary.local:11434")
-    assert any("secondary.local:11434" in attempted_url for attempted_url in calls)
+    assert any(
+        "secondary.local:11434" in attempted_url for attempted_url in calls
+    )
 
 
 def test_chat_with_ai_non_strict_local_mode_ignores_stale_local_chat_model(
@@ -586,6 +601,32 @@ def test_chat_with_ai_local_only_blank_local_chat_model_fails_clearly():
     assert exc.value.detail["error"] == LOCAL_MODEL_RESOLUTION_ERROR
     assert exc.value.detail["failure_kind"] == LOCAL_MODEL_MISSING_FAILURE_KIND
     assert exc.value.detail["configured_source"] == "LOCAL_CHAT_MODEL"
+
+
+def test_dual_provider_profile_keeps_local_chat_model_authoritative(
+    monkeypatch,
+):
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    settings = Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_PROVIDER_VENDOR="whooshd",
+        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_LLM_MODEL="gemma-4-12b-it-qat-4bit",
+    )
+
+    result = resolve_local_execution_model(
+        settings=settings,
+        requested_model="model-retained-from-another-profile",
+    )
+
+    assert result.ok
+    assert result.strict is True
+    assert result.model == "gemma-4-12b-it-qat-4bit"
+    assert result.source == "LOCAL_CHAT_MODEL"
 
 
 def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
@@ -770,7 +811,10 @@ def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -811,7 +855,10 @@ def test_stream_local_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "local"
-    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -840,7 +887,10 @@ def test_call_alibaba_missing_key_surfaces_auth_config_failure():
     assert exc.value.status_code == 400
     assert exc.value.detail["provider"] == "alibaba"
     assert exc.value.detail["failure_kind"] == "auth_config_error"
-    assert exc.value.detail["provider_error"] == "ALIBABA_API_KEY is not configured"
+    assert (
+        exc.value.detail["provider_error"]
+        == "ALIBABA_API_KEY is not configured"
+    )
 
 
 def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
@@ -875,7 +925,10 @@ def test_call_alibaba_timeout_surfaces_provider_timeout(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "alibaba"
-    assert detail["failure_kind"] == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.PROVIDER_TIMEOUT.value
+    )
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.TIMEOUT.value
@@ -915,7 +968,10 @@ def test_call_minimax_transport_failure_surfaces_transport_error(monkeypatch):
     assert exc.value.status_code == 502
     detail = exc.value.detail
     assert detail["provider"] == "minimax"
-    assert detail["failure_kind"] == GuardianProviderFailureKind.TRANSPORT_ERROR.value
+    assert (
+        detail["failure_kind"]
+        == GuardianProviderFailureKind.TRANSPORT_ERROR.value
+    )
     assert (
         detail["transport_classification"]
         == GuardianProviderTransportClassification.CONNECTION_REFUSED.value

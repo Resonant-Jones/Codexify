@@ -23,7 +23,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-PREVIOUS_REVISION = "b2c3d4e5f6a7"
+PREVIOUS_REVISION = "b2c3d4e5f6a8"
 PROVENANCE_REVISION = "7a91c4e2f6b8"
 NEW_COLUMNS = {"hosted_room_participant_id", "sender_display_name_snapshot"}
 

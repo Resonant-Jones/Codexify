@@ -18,7 +18,11 @@ aliases:
 
 ## Status
 
-Proposed (docs-only)
+Accepted; Slices 1–3 implemented internally
+
+The runtime heartbeat and retention slice implemented on top of this ADR is
+contract-aligned and does not authorize the deferred operator snapshot,
+geography, aggregate, or UI surfaces.
 
 ## Date
 
@@ -38,7 +42,9 @@ Without an explicit architecture contract, future implementation could easily:
 - Confuse guest sessions with registered accounts.
 - Invent historical data for existing users.
 
-This ADR records the binding decisions before any schema, route, collection, or UI implementation begins.
+This ADR records the binding decisions for the schema and runtime collection
+slices; operator snapshot, geography, aggregate, and UI implementation remain
+separate follow-on work.
 
 ## Decision
 
@@ -192,6 +198,16 @@ Each of the seven implementation slices defined in the companion contract requir
 - Slice-appropriate proof (model tests, privacy sentinels, authorization tests, or end-to-end proof).
 
 No slice may widen the supported beta release promise without separate release-evidence work.
+
+## Implementation Status Evidence (2026-07-27)
+
+This evidence records implementation progress without changing the decision:
+
+- Slice 1: canonical tokens, migration `b2c3d4e5f6a7`, and Guardian persistence models are integrated.
+- Slice 2: `guardian.account_observability.invites`, the invite routes in `guardian.routes.account_observability`, registration attribution in `guardian.routes.auth`, and the first-party frontend bootstrap are integrated.
+- Slice 3: `guardian.account_observability.presence` serves `POST /api/account-observability/heartbeat`; `guardian.account_observability.retention.run_cleanup` is exposed by the operator cleanup route. Guest heartbeat candidates are authorized only by a live canonical persisted guest row, not by UUID shape.
+- Cleanup preserves invite definitions and converted-account attribution, deferring referenced guest lineage. Presence rows use the 30-day cutoff, guests the conversion-safe 90-day cutoff, and idle leases the 30-minute cutoff.
+- GeoIP, aggregates, operator reporting/snapshot routes, UI, and live supported-path proof remain unimplemented. This status does not widen the supported beta release promise.
 
 ## Conditions Requiring a Superseding ADR
 

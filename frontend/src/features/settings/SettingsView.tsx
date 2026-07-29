@@ -14,6 +14,7 @@ import SystemPromptInspector from "@/features/settings/components/SystemPromptIn
 import SettingsPanelDock from "@/features/settings/components/SettingsPanelDock";
 import SettingsPanelShell from "@/features/settings/components/SettingsPanelShell";
 import SettingsSectionCard from "@/features/settings/components/SettingsSectionCard";
+import SettingsRangeControl from "@/components/controls/SettingsRangeControl";
 import {
   SETTINGS_DENSITY,
   getSettingsHeadingRowStyle,
@@ -1130,7 +1131,7 @@ export function SettingsView({
         variant="ghost"
         size="sm"
         data-state={selected ? "active" : "inactive"}
-        className="pill-tab min-w-max shrink-0 px-3 py-2 text-[0.75rem] lg:min-w-0 lg:flex-1"
+        className="pill-tab min-w-max shrink-0 px-3 py-2 text-[0.75rem]"
         style={{ minWidth: SETTINGS_DENSITY.dockTabMinWidth }}
         onClick={() => activateTab(definition.value)}
         onKeyDown={(event) => handleTabKeyDown(event, definition.value)}
@@ -1143,7 +1144,10 @@ export function SettingsView({
   return (
     <div className="flex h-full min-h-0 w-full justify-center" style={{ color: "var(--text)" }}>
       <SettingsPanelShell className="w-full">
-        <div className="flex h-full min-h-0 w-full flex-col gap-[var(--settings-edge-chrome)]">
+        <div
+          className="flex h-full min-h-0 w-full flex-col"
+          style={{ gap: SETTINGS_DENSITY.dockContentGap }}
+        >
           <SettingsPanelDock>
             {visibleTabs.map(renderTabButton)}
           </SettingsPanelDock>
@@ -1156,7 +1160,7 @@ export function SettingsView({
             <div
               data-testid="settings-panel-content"
               data-layout="settings-content-grid"
-              className="flex w-full min-w-0 flex-col gap-[var(--shell-gap)]"
+              className="flex min-h-full w-full min-w-0 flex-col gap-[var(--shell-gap)]"
               style={{ maxWidth: SETTINGS_DENSITY.contentMaxWidth }}
             >
             {tab === "system" && (
@@ -1258,10 +1262,11 @@ export function SettingsView({
         {tab === "appearance" && (
           <SettingsSectionCard
             data-testid="settings-appearance-surface"
+            variant="canvas"
             role="tabpanel"
             id={getSettingsTabPanelId("appearance")}
             aria-labelledby={getSettingsTabButtonId("appearance")}
-            className="min-w-0"
+            className="flex min-w-0 flex-1 flex-col justify-start"
           >
             <style>{SETTINGS_APPEARANCE_GRID_LAYOUT_RULES}</style>
             <div
@@ -1384,10 +1389,9 @@ export function SettingsView({
                     {surfaceDepth}
                   </span>
                 </div>
-                <Input
+                <SettingsRangeControl
                   id="surface-depth-slider"
                   data-testid="surface-depth-slider"
-                  type="range"
                   min={0}
                   max={100}
                   step={1}
@@ -1398,7 +1402,6 @@ export function SettingsView({
                   aria-valuenow={surfaceDepth}
                   title="Lower values feel softer and lighter. Higher values feel deeper and darker."
                   onChange={(e) => setSurfaceDepth(Number(e.target.value))}
-                  className="material-slider"
                 />
               </div>
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
@@ -1419,10 +1422,9 @@ export function SettingsView({
                     {surfaceWarmth > 0 ? `+${surfaceWarmth}` : surfaceWarmth}
                   </span>
                 </div>
-                <Input
+                <SettingsRangeControl
                   id="surface-warmth-slider"
                   data-testid="surface-warmth-slider"
-                  type="range"
                   min={-100}
                   max={100}
                   step={1}
@@ -1433,7 +1435,6 @@ export function SettingsView({
                   aria-valuenow={surfaceWarmth}
                   title="Negative values cool the material toward graphite and steel. Positive values warm it toward ivory and amber."
                   onChange={(e) => setSurfaceWarmth(Number(e.target.value))}
-                  className="material-slider"
                 />
               </div>
             </div>
@@ -1450,29 +1451,79 @@ export function SettingsView({
                     {dashboardThreadRows} {dashboardThreadRows === 1 ? "row" : "rows"}
                   </span>
                 </div>
-                <Input
-                  type="range"
+                <SettingsRangeControl
+                  data-testid="dashboard-thread-rows-slider"
                   min={1}
                   max={4}
                   step={1}
                   value={dashboardThreadRows}
                   onChange={(e) => setDashboardThreadRows(Number(e.target.value))}
-                  className="w-full"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-[var(--shell-gap)] sm:grid-cols-2">
-              <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
-                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Depth</div>
-                <div className="w-full">
-                  <Input type="range" min={0} max={1} step={0.01} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
-                <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>Fade</div>
-                <div className="w-full">
-                  <Input type="range" min={0} max={1} step={0.01} value={fade} onChange={(e) => setFade(Number(e.target.value))} />
+            <div
+              className="space-y-[calc(var(--radius-micro)/2)]"
+              data-testid="background-treatment-section"
+            >
+              <div style={SETTINGS_DENSITY.sectionTitle}>Background Treatment</div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Adjust wallpaper depth and fade.
+              </p>
+              <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
+                <div className="grid grid-cols-1 gap-[var(--shell-gap)] sm:grid-cols-2">
+                  <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
+                    <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                      <label
+                        htmlFor="depth-slider"
+                        className="text-sm font-medium"
+                        style={SETTINGS_DENSITY.sectionTitle}
+                      >
+                        Depth
+                      </label>
+                      <span
+                        className="text-xs font-semibold tabular-nums"
+                        style={{ color: "var(--text)" }}
+                      >
+                        {depth}
+                      </span>
+                    </div>
+                    <SettingsRangeControl
+                      id="depth-slider"
+                      data-testid="depth-slider"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={depth}
+                      onChange={(e) => setDepth(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-[calc(var(--radius-micro)/2)]">
+                    <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
+                      <label
+                        htmlFor="fade-slider"
+                        className="text-sm font-medium"
+                        style={SETTINGS_DENSITY.sectionTitle}
+                      >
+                        Fade
+                      </label>
+                      <span
+                        className="text-xs font-semibold tabular-nums"
+                        style={{ color: "var(--text)" }}
+                      >
+                        {fade}
+                      </span>
+                    </div>
+                    <SettingsRangeControl
+                      id="fade-slider"
+                      data-testid="fade-slider"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={fade}
+                      onChange={(e) => setFade(Number(e.target.value))}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

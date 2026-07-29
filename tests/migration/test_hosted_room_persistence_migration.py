@@ -17,8 +17,8 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-PREVIOUS_REVISION = "a1c2d3e4f5b6"
-HOSTED_ROOM_REVISION = "b2c3d4e5f6a7"
+PREVIOUS_REVISION = "b2c3d4e5f6a7"
+HOSTED_ROOM_REVISION = "b2c3d4e5f6a8"
 HOSTED_ROOM_TABLES = {
     "hosted_rooms",
     "hosted_room_invites",

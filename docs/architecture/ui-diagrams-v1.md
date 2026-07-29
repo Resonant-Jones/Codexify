@@ -70,8 +70,9 @@ This diagram shows the immutable shell-to-view containment model and the major s
 flowchart TD
     A["Viewport"] --> B["Glass skin<br/>full-bleed, behind interactive UI"]
     A --> C["Scene wrapper"]
-    C --> D["Pill menu bar<br/>top-left, logically independent"]
-    C --> E["Main content area"]
+    C --> D["Desktop/default scene path"]
+    D --> D1["Global pill navigation<br/>top-left, logically independent"]
+    D --> E["Main content area"]
     E --> F["Single primary layout block per view"]
     F --> G["Primary card structure"]
     G --> H["Outer bezel"]
@@ -87,6 +88,25 @@ flowchart TD
     O --> R["Settings<br/>one primary card with compact full-width dock<br/>and responsive one/two-column tabpanel grid"]
     O --> S["Gallery<br/>single card to inner card to grid"]
     O --> T["Guardian<br/>card-wrapped content with optional sidebar"]
+    T --> U["Narrow Guardian drawer<br/>AppShell-owned app destinations<br/>plus SessionSpine-owned thread navigation"]
+    C --> V["Narrow Guardian exception"]
+    V --> W["Wallpaper or configured gradient"]
+    W --> X["Uniform edge chrome<br/>same token on all four sides"]
+    X --> Y["Frame-first Guardian primary card<br/>all current interaction content contained"]
+    Y --> Z["Navigation-complete drawer projection<br/>no persistent global pill in closed view"]
+    Y --> ZA["Compact mobile header"]
+    ZA --> ZB["Sidebar trigger"]
+    ZA --> ZC["Guardian tools menu"]
+    Y --> ZD["Runtime / auth truth notices"]
+    Y --> ZE["Transcript durable record layer<br/>internal scroll owner"]
+    Y --> ZF["Compact mobile composer pill<br/>attachment/add · authored text · voice · send"]
+    ZE --> ZG["Focused composition mode"]
+    ZG --> ZH["Projected composer<br/>foreground over lower transcript"]
+    ZG --> ZI["Keyboard below settled visible aperture"]
+    ZH --> ZJ["Command-only slash draft"]
+    ZJ --> ZK["Deterministic frontend registry/parser"]
+    ZK --> ZL["Command or value suggestions"]
+    ZL --> ZM["Existing configuration callback<br/>draft removed without transcript persistence"]
 ```
 
 **Evidence notes**
@@ -102,6 +122,126 @@ Conservative assumptions:
 Explicit exclusions:
 - No route graph, navigation flow, or frontend file/component map.
 - No runtime meaning assigned to workspace drawers, session rails, or sidebars beyond structural placement.
+
+Guardian/mobile interpretation:
+- On narrow Guardian layouts, the optional sidebar may be a
+  navigation-complete drawer rather than icon-only or stacked content.
+- The drawer is workspace-first by default. Its collapsed/default presentation
+  places the Threads / Projects header directly beneath drawer chrome; no
+  application destination remains rendered or focusable in that state.
+- The Codexify mark in drawer chrome is a disclosure trigger, not a route
+  destination. Expanding it inserts the existing AppShell-owned application
+  destinations above the stateful Threads / Projects workspace without
+  remounting that workspace.
+- Escape collapses expanded application navigation and restores focus to the
+  mark before a subsequent Escape closes the drawer. Destination selection and
+  drawer closure reset the disclosure to its default state.
+- AppShell continues to own application routing, while SessionSpine continues
+  to own thread/session state.
+- This remains presentation-side architecture subordinate to the single
+  Guardian primary card; it does not transfer routing ownership into Guardian
+  or thread/session ownership into AppShell.
+- In the narrow Guardian exception, AppShell omits the persistent global pill
+  and its reserved space because the drawer provides the replacement navigation
+  path. Desktop Guardian and non-Guardian views retain the default scene path.
+- The Guardian primary card fills the settled mobile shell inside a uniform
+  token-backed edge-chrome perimeter. The drawer overlays that frame without
+  becoming a second shell.
+- The narrow Guardian frame uses a compact two-control header:
+  - Left: sidebar trigger (navigation-drawer invocation).
+  - Right: Guardian tools menu (hamburger/utility-menu control).
+  - Displaced header actions remain available through the Guardian tools menu.
+  - Runtime-health and authentication-truth notices remain outside the
+    utility menu and preserve their exact meaning.
+  - The Codexify mark remains inside the drawer.
+  - Desktop Guardian retains its existing persistent controls.
+- The transcript is the durable record layer and remains the internal vertical
+  scroll owner. The AppShell document does not become the chat scroll owner.
+- In record mode, the compact header and runtime/auth truth remain stable, the
+  transcript occupies the record layer, and the composer rests at the lower
+  frame edge.
+- In focused composition mode, the frame and compact header remain stable while
+  the existing composer projects over the lower transcript and the existing
+  settled-viewport system places it above the keyboard aperture.
+- Successful authored-message submission enters the user turn into the durable
+  record, then blurs the composer, permits keyboard dismissal, and restores the
+  full record aperture. It does not prove assistant completion.
+- Failed submission preserves the authored draft and composer availability.
+- The narrow composer is one compact pill whose direct interaction surface
+  retains attachment/add, authored text, supported voice, and send. Persistent
+  project, provider, model, mode, and retrieval selectors are absent from this
+  narrow contract.
+- A command-only `/<command> [value]` draft enters a deterministic frontend
+  branch: slash-prefix detection, bounded command/value suggestions, invocation
+  of an existing configuration callback, then command-draft removal without
+  transcript persistence. The bounded registry currently projects `/project`,
+  `/provider`, `/model`, `/mode`, and `/retrieval` because those controls exist;
+  `/profile` remains absent until a canonical Composer profile control exists.
+- Unknown slash text, escaped `//` text, embedded slash prose, and ordinary
+  authored text remain on the existing message-send branch. Runtime execution
+  stays outside the command branch; no Guardian reasoning, prompt, backend
+  route, or command bus parses these commands.
+- Existing runtime availability, authorization, compatibility, and disabled
+  states remain authoritative. Desktop composer behavior and visible selectors
+  remain unchanged.
+- Documents/Gallery mobile-shell redesign remain unimplemented and outside
+  this diagram update.
+
+Narrow Guardian drawer states:
+
+```text
+Default workspace state
+├── drawer chrome
+│   ├── Codexify navigation trigger
+│   └── close drawer
+├── Threads / Projects header
+└── workspace content
+
+Expanded application-navigation state
+├── drawer chrome
+│   ├── Codexify navigation trigger, expanded
+│   └── close drawer
+├── application destinations
+├── Threads / Projects header
+└── workspace content
+```
+
+These states are presentation-side only. Desktop Guardian retains its current
+persistent sidebar and navigation presentation.
+
+Narrow Guardian interaction modes:
+
+```mermaid
+flowchart TD
+    A["Record mode"] --> A1["Compact header"]
+    A --> A2["Runtime and authentication truth"]
+    A --> A3["Transcript durable record"]
+    A --> A4["Composer at lower frame edge"]
+
+    B["Focused composition mode"] --> B1["Stable frame"]
+    B --> B2["Stable compact header"]
+    B --> B3["Transcript record beneath"]
+    B --> B4["Projected composer"]
+    B --> B5["Keyboard below settled visible aperture"]
+
+    C["Successful authored-message submit"] --> C1["User message enters durable record"]
+    C --> C2["Composer blurs"]
+    C --> C3["Keyboard dismisses"]
+    C --> C4["Transcript returns to full aperture"]
+
+    D["Rejected authored-message submit"] --> D1["Draft remains"]
+    D --> D2["Composer remains available"]
+    D --> D3["No record-mode success claim"]
+
+    E["Command-only slash draft"] --> E1["Deterministic frontend parser"]
+    E1 --> E2["Command or value suggestions"]
+    E2 --> E3["Existing configuration callback"]
+    E3 --> E4["Draft removed without transcript persistence"]
+
+    F["Ordinary authored text"] --> F1["Existing send boundary"]
+    F1 --> F2["Persisted user message"]
+    F2 --> F3["Existing completion flow"]
+```
 
 ## 7. Diagram 3: Rendering / Surface Composition Model (high confidence)
 

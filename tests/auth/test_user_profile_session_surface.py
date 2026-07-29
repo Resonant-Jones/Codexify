@@ -17,6 +17,7 @@ from guardian.core.session_store import SessionStore
 from guardian.db.models import PersonaProfile, User, UserProfile
 from guardian.routes import auth as auth_routes
 from guardian.routes import user_profile as user_profile_routes
+from guardian.user_profile_tokens import USER_ACCENT_COLORS
 
 
 class _ProfileAuthDb:
@@ -155,13 +156,17 @@ def _configure_remote_session_env(monkeypatch) -> None:
     monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
     monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
-    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "trusted-remote-session-secret")
+    monkeypatch.setenv(
+        "GUARDIAN_SESSION_SECRET", "trusted-remote-session-secret"
+    )
     monkeypatch.setenv("GUARDIAN_API_KEY", "trusted-remote-api-key")
     monkeypatch.delenv("GUARDIAN_JWT_SECRET", raising=False)
     monkeypatch.delenv("CODEXIFY_MULTI_USER_ENABLED", raising=False)
 
 
-def _login(client: TestClient, *, username: str, password: str) -> dict[str, object]:
+def _login(
+    client: TestClient, *, username: str, password: str
+) -> dict[str, object]:
     response = client.post(
         "/auth/login",
         json={"username": username, "password": password},
@@ -177,6 +182,7 @@ def _assert_profile_row(
     display_name: str | None,
     avatar_url: str | None,
     timezone: str | None,
+    accent_color: str = "default",
 ) -> None:
     row = auth_db.get_user_profile(user_id)
     assert row is not None
@@ -184,6 +190,7 @@ def _assert_profile_row(
     assert row.display_name == display_name
     assert row.avatar_url == avatar_url
     assert row.timezone == timezone
+    assert row.accent_color == accent_color
 
 
 def _disable_single_user_fallback(monkeypatch) -> None:
@@ -224,6 +231,7 @@ def test_session_user_can_read_default_profile(monkeypatch):
     assert profile["display_name"] is None
     assert profile["avatar_url"] is None
     assert profile["timezone"] is None
+    assert profile["accent_color"] == "default"
     _assert_profile_row(
         auth_db,
         user_id=canonical_user_id,
@@ -266,6 +274,7 @@ def test_session_user_can_update_profile_metadata(monkeypatch):
     assert profile["display_name"] == "Atlas"
     assert profile["avatar_url"] == "https://example.com/avatar.png"
     assert profile["timezone"] == "America/New_York"
+    assert profile["accent_color"] == "default"
     _assert_profile_row(
         auth_db,
         user_id=canonical_user_id,
@@ -440,8 +449,12 @@ def test_distinct_session_users_receive_distinct_profiles(monkeypatch):
     )
 
     with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
-        payload_a = _login(client, username="alpha@example.com", password="s3cret")
-        payload_b = _login(client, username="beta@example.com", password="s3cret")
+        payload_a = _login(
+            client, username="alpha@example.com", password="s3cret"
+        )
+        payload_b = _login(
+            client, username="beta@example.com", password="s3cret"
+        )
         _disable_single_user_fallback(monkeypatch)
 
         response_a = client.get(
@@ -491,3 +504,219 @@ def test_distinct_session_users_receive_distinct_profiles(monkeypatch):
         avatar_url=None,
         timezone=None,
     )
+
+
+# ── accent-color profile tests ───────────────────────────────────────────
+
+
+def test_profile_accent_can_be_updated_and_persisted(monkeypatch):
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-accent-1"
+    username = "accent@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+
+        # Default profile returns the default accent.
+        get_response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()["profile"]["accent_color"] == "default"
+
+        # Update to violet.
+        patch_response = client.patch(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+            json={"accent_color": "violet"},
+        )
+        assert patch_response.status_code == 200
+        assert patch_response.json()["profile"]["accent_color"] == "violet"
+
+        # Row persists.
+        _assert_profile_row(
+            auth_db,
+            user_id=canonical_user_id,
+            display_name=None,
+            avatar_url=None,
+            timezone=None,
+            accent_color="violet",
+        )
+
+        # Subsequent GET returns the saved value.
+        re_read = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+        )
+        assert re_read.status_code == 200
+        assert re_read.json()["profile"]["accent_color"] == "violet"
+
+
+def test_profile_each_canonical_accent_is_accepted(monkeypatch):
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-accent-2"
+    username = "accent-all@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+
+        for token in sorted(USER_ACCENT_COLORS):
+            patch_response = client.patch(
+                "/api/user/profile",
+                headers={"Authorization": f"Bearer {payload['token']}"},
+                json={"accent_color": token},
+            )
+            assert (
+                patch_response.status_code == 200
+            ), f"token {token!r} rejected"
+            assert patch_response.json()["profile"]["accent_color"] == token
+
+
+def test_profile_invalid_accent_rejected(monkeypatch):
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-accent-3"
+    username = "accent-bad@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+
+        for bad_value in (
+            "#ff00ff",
+            "var(--accent)",
+            "url(https://example.com)",
+            "linear-gradient(red, blue)",
+            "invalid",
+            "",
+            "Blue",
+        ):
+            patch_response = client.patch(
+                "/api/user/profile",
+                headers={"Authorization": f"Bearer {payload['token']}"},
+                json={"accent_color": bad_value},
+            )
+            assert patch_response.status_code == 422, (
+                f"value {bad_value!r} should return 422, "
+                f"got {patch_response.status_code}"
+            )
+
+
+def test_accent_update_cannot_change_canonical_user_id(monkeypatch):
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-accent-4"
+    username = "accent-owner@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+
+        # Profile creation is lazy; establish the default row before testing
+        # that an extra request field cannot mutate it.
+        get_response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+        )
+        assert get_response.status_code == 200
+
+        patch_response = client.patch(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+            json={
+                "accent_color": "amber",
+                "user_id": "intruder-account",
+            },
+        )
+
+    assert patch_response.status_code == 422
+    _assert_profile_row(
+        auth_db,
+        user_id=canonical_user_id,
+        display_name=None,
+        avatar_url=None,
+        timezone=None,
+        accent_color="default",
+    )
+
+
+def test_accent_update_does_not_mutate_persona_profiles(monkeypatch):
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-accent-5"
+    username = "accent-persona@example.com"
+    password = "s3cret"
+    persona_profile_id = "persona-accent-1"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+    auth_db.seed_persona_profile(profile_id=persona_profile_id)
+
+    before_persona = auth_db.get_persona_profile(persona_profile_id)
+    assert before_persona is not None
+    before_snapshot = {
+        "name": before_persona.name,
+        "system_prompt": before_persona.system_prompt,
+        "model_provider": before_persona.model_provider,
+        "model_id": before_persona.model_id,
+        "temperature": before_persona.temperature,
+    }
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+
+        response = client.patch(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload['token']}"},
+            json={"accent_color": "rose"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["profile"]["accent_color"] == "rose"
+
+    after_persona = auth_db.get_persona_profile(persona_profile_id)
+    assert after_persona is not None
+    assert {
+        "name": after_persona.name,
+        "system_prompt": after_persona.system_prompt,
+        "model_provider": after_persona.model_provider,
+        "model_id": after_persona.model_id,
+        "temperature": after_persona.temperature,
+    } == before_snapshot

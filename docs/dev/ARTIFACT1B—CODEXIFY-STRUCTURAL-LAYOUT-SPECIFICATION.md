@@ -141,15 +141,24 @@ Nesting:
 
 Rules:
 
-Always sticks to top-left
+Desktop and default/non-Guardian profiles retain the top-left pill navigation.
 
-Always uses glass component + pill style
+When rendered, navigation always uses the glass component + pill style.
 
 No margins except those uniquely required by visual balance
 
 NEVER alters the main content geometry
 
 Navigation is logically independent (no absolute overlays except pill)
+
+Bounded narrow Guardian exception:
+
+- Narrow Guardian MAY omit the global pill because its drawer is
+  navigation-complete.
+- The omission MUST remove the navigation wrapper and its layout reservation;
+  hidden or off-screen tabbable controls are not permitted.
+- Desktop Guardian and every non-Guardian view retain the global pill contract.
+- Application routing remains AppShell-owned.
 
 VII. MAIN CONTENT AREA
 
@@ -280,6 +289,99 @@ Content MUST be wrapped in card structure
 Height: 100%
 
 No extra wrappers outside token-approved structure
+
+Narrow/mobile Guardian navigation projection:
+
+- The Guardian sidebar MAY act as a navigation-complete drawer on narrow/mobile
+  layouts.
+- The drawer MAY contain compact Codexify application identity, application
+  destinations, and the existing thread/session picker.
+- The narrow drawer is workspace-first by default. Its chrome contains the
+  Codexify mark disclosure and the independent drawer-close control; with the
+  disclosure collapsed, Threads / Projects is the first content header directly
+  beneath that chrome.
+- Activating the Codexify mark expands the existing application destinations
+  above Threads / Projects through ordinary layout flow. Threads / Projects and
+  its search, selection, and content state remain mounted and visible beneath
+  the expanded section.
+- Escape dismisses the expanded application destinations first and restores
+  focus to the Codexify mark. A subsequent Escape follows the existing
+  drawer-close behavior. Closing the drawer or selecting a destination also
+  resets the disclosure to its collapsed default.
+- Application routing remains owned by AppShell. The Guardian drawer receives
+  only a bounded active-view value, destination metadata, and navigation
+  callback.
+- Thread and session state remain owned by SessionSpine and continue through
+  the existing sidebar and session intent seams.
+- The drawer remains subordinate to the single Guardian primary card and MUST
+  NOT become a second application shell.
+- Narrow Guardian MAY omit the global navigation pill because this drawer
+  preserves complete application-navigation continuity. Desktop Guardian and
+  non-Guardian views retain the pill.
+- Narrow Guardian becomes one frame-first mobile primary block. The current
+  utility/header controls, runtime notices, session rail, transcript or empty
+  state, and composer remain inside the canonical Guardian frame.
+- Wallpaper or the configured gradient remains visible around that frame
+  through one uniform `--edge-chrome` perimeter on all four sides.
+- The drawer remains a subordinate overlay/projection and MUST NOT resize the
+  underlying frame.
+- Narrow Guardian uses a compact two-control header:
+  - The left control owns navigation-drawer invocation (sidebar toggle).
+  - The right control owns secondary Guardian tools (utility menu).
+  - Displaced header actions (Open Workspace, settings, voice/audio, profile,
+    new thread, thread-level actions, and overflow) remain available through
+    the Guardian tools utility menu.
+  - Runtime-health and authentication-truth notices remain outside the
+    utility menu and preserve their exact meaning.
+  - The Codexify mark remains inside the drawer.
+- Desktop Guardian retains its existing persistent controls (global
+  navigation pill, persistent sidebar, Open Workspace, settings/audio/profile
+  icons, chat action icons, and runtime-notice positioning).
+- This Codexify-mark disclosure contract applies only to the narrow Guardian
+  drawer. Desktop Guardian navigation and its persistent sidebar remain
+  unchanged.
+- The transcript is the durable record layer and remains the internal vertical
+  scroll owner.
+- In narrow Guardian only, focusing the composer makes that existing composer a
+  foreground interaction projection over the lower transcript. The projection
+  may visually occlude record content, but remains inside and subordinate to
+  the single Guardian primary card.
+- The frame and compact header retain their geometry while the keyboard changes
+  the settled visible aperture. The page is not rebuilt around the input, and
+  the AppShell document does not become the chat scroll owner.
+- Near the latest turn, transcript-only compensation keeps the active subject
+  visible above the projected composer. A user reading meaningfully older
+  content retains that reading position.
+- After the existing authored-message submission promise resolves, the draft
+  clears through its existing seam, the composer blurs, the keyboard may
+  dismiss, and the full record aperture returns. This boundary proves authored
+  message submission only; it does not claim assistant completion.
+- A rejected submission preserves the draft and focus availability and does
+  not falsely enter record mode.
+- Opening the navigation drawer or Guardian tools menu suspends the projection
+  and preserves the draft.
+- Narrow Guardian uses one compact composer pill. Its direct mobile interaction
+  surface retains the existing attachment/add actions, authored text input,
+  supported voice action, and send action. It does not retain a persistent
+  selector row.
+- Advanced project, provider, model, inference-mode, and retrieval
+  configuration is available through the bounded deterministic frontend
+  commands `/project`, `/provider`, `/model`, `/mode`, and `/retrieval` when
+  the corresponding existing control and option set are available. A
+  `/profile` command is present only when the Composer already owns a canonical
+  profile control and option set.
+- The command-only draft grammar is `/<command> [value]`. A recognized command
+  invokes the existing configuration callback, clears its command draft, and
+  never enters the transcript or authored-message persistence path. Commands
+  embedded in prose, unknown slash text, and escaped `//` text remain ordinary
+  user-authored text and continue through the existing send boundary.
+- Command parsing is a presentation-side, deterministic registry operation. It
+  does not invoke Guardian reasoning, prompts, a model, backend routes, or the
+  command bus. Existing availability, compatibility, authorization, and
+  disabled-state truth surfaces remain authoritative.
+- Desktop Guardian retains its existing composer flow, typography, controls,
+  visible selectors, and focus behavior.
+- Documents and Gallery do not inherit this mobile-shell exception.
 
 Session Pill Rail (implemented):
 

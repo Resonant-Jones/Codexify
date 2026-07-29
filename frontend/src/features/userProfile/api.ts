@@ -1,10 +1,12 @@
 import api from "@/lib/api";
+import { normalizeUserAccentToken } from "@/contracts/userAccentTokens";
 
 export type UserProfileRecord = {
   user_id: string;
   display_name: string | null;
   avatar_url: string | null;
   timezone: string | null;
+  accent_color: string;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -18,6 +20,7 @@ export type UserProfileUpdateRequest = {
   display_name?: string | null;
   avatar_url?: string | null;
   timezone?: string | null;
+  accent_color?: string | null;
 };
 
 function normalizeOptionalText(value: unknown): string | null {
@@ -39,6 +42,7 @@ function normalizeProfile(
     display_name: normalizeOptionalText(profile?.display_name),
     avatar_url: normalizeOptionalText(profile?.avatar_url),
     timezone: normalizeOptionalText(profile?.timezone),
+    accent_color: normalizeUserAccentToken(profile?.accent_color),
     created_at:
       typeof profile?.created_at === "string" ? profile.created_at : null,
     updated_at:
@@ -59,6 +63,9 @@ function normalizeUpdateRequest(
   }
   if (body.timezone !== undefined) {
     request.timezone = body.timezone;
+  }
+  if (body.accent_color !== undefined) {
+    request.accent_color = body.accent_color;
   }
 
   return request;

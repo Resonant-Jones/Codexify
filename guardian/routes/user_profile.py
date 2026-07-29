@@ -12,6 +12,10 @@ from sqlalchemy import select
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import RequestUserScope, get_request_user_scope
 from guardian.db.models import User, UserProfile
+from guardian.user_profile_tokens import (
+    DEFAULT_USER_ACCENT_COLOR,
+    USER_ACCENT_COLORS,
+)
 
 router = APIRouter(prefix="/api/user", tags=["User Profile"])
 
@@ -28,6 +32,7 @@ class UserProfileResponse(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     timezone: str | None = None
+    accent_color: str = DEFAULT_USER_ACCENT_COLOR
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -38,15 +43,27 @@ class UserProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
     timezone: str | None = Field(default=None, max_length=128)
+    accent_color: str | None = Field(default=None, max_length=16)
 
     model_config = ConfigDict(extra="forbid")
 
     @field_validator(
-        "display_name", "avatar_url", "timezone", mode="before"
+        "display_name", "avatar_url", "timezone", "accent_color", mode="before"
     )
     @classmethod
     def _normalize_text(cls, value: Any) -> str | None:
         return _normalize_optional_text(value)
+
+    @field_validator("accent_color")
+    @classmethod
+    def _validate_accent_color(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("accent_color must be a canonical token")
+        if value not in USER_ACCENT_COLORS:
+            raise ValueError(
+                f"accent_color must be one of {sorted(USER_ACCENT_COLORS)}"
+            )
+        return value
 
 
 def _profile_db():
@@ -65,6 +82,7 @@ def _profile_payload(profile: UserProfile) -> UserProfileResponse:
         display_name=profile.display_name,
         avatar_url=profile.avatar_url,
         timezone=profile.timezone,
+        accent_color=profile.accent_color,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )
@@ -76,7 +94,9 @@ def _require_canonical_user(
 ) -> str:
     owner_id = str(request_user_scope.user_id or "").strip()
     if not owner_id:
-        raise HTTPException(status_code=401, detail="Missing authenticated user")
+        raise HTTPException(
+            status_code=401, detail="Missing authenticated user"
+        )
     if session.get(User, owner_id) is None:
         raise HTTPException(status_code=404, detail="user not found")
     return owner_id
@@ -109,7 +129,9 @@ def resolve_user_profile_owner(
     with db.get_session() as session:
         canonical_owner_id = str(owner_id or "").strip()
         if not canonical_owner_id:
-            raise HTTPException(status_code=401, detail="Missing authenticated user")
+            raise HTTPException(
+                status_code=401, detail="Missing authenticated user"
+            )
         user = session.get(User, canonical_owner_id)
         if user is None:
             raise HTTPException(status_code=404, detail="user not found")
@@ -125,7 +147,10 @@ def get_profile(
     with db.get_session() as session:
         owner_id = _require_canonical_user(session, request_user_scope)
         profile = _get_or_create_profile(session, owner_id)
-        return {"ok": True, "profile": _profile_payload(profile).model_dump(mode="json")}
+        return {
+            "ok": True,
+            "profile": _profile_payload(profile).model_dump(mode="json"),
+        }
 
 
 @router.patch("/profile")
@@ -150,9 +175,14 @@ def update_profile(
             profile.avatar_url = body.avatar_url
         if "timezone" in update_values:
             profile.timezone = body.timezone
+        if "accent_color" in update_values:
+            profile.accent_color = body.accent_color
         session.commit()
         session.refresh(profile)
-        return {"ok": True, "profile": _profile_payload(profile).model_dump(mode="json")}
+        return {
+            "ok": True,
+            "profile": _profile_payload(profile).model_dump(mode="json"),
+        }
 
 
 __all__ = ["router"]

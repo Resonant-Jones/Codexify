@@ -215,6 +215,29 @@ async def get_openai_account_import(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.post("/api/imports/openai-account/{job_id}/retry")
+async def retry_openai_account_import(
+    job_id: str,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Retry a failed zero-write account import after verifying staging continuity."""
+
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(
+            service.retry_failed_account_import,
+            job_id=job_id,
+            user_id=user_id,
+        )
+        return JSONResponse(status_code=202, content=result)
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/api/imports/account/metadata")
 @router.post("/imports/account/metadata")
 async def import_account_metadata(

@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.compiler import compiles
 
-from guardian.db.migrations.versions.b2c3d4e5f6a7_add_hosted_room_persistence import (
+from guardian.db.migrations.versions.b2c3d4e5f6a8_add_hosted_room_persistence import (
     INVITE_STATUSES,
     PARTICIPANT_KINDS,
     PARTICIPANT_ROLES,

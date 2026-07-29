@@ -1,11 +1,11 @@
 # Admin Account Observability Contract
 
 > Classification: architecture contract
-> Status: proposed (docs-only)
+> Status: accepted; implementation in progress
 > Privacy sensitivity: high
-> Implementation status: not implemented; this contract defines the normative boundary for future implementation slices.
-> Release claim: this contract does not widen the supported beta release promise.
-> Last updated: 2026-07-21
+> Implementation status: Slices 1–3 are implemented as an internal Guardian capability; Slices 4–7 remain unimplemented.
+> Release claim: this branch-local capability does not widen the supported beta release promise.
+> Last updated: 2026-07-27
 
 ## Purpose
 
@@ -51,14 +51,21 @@ This contract explicitly does **not** cover:
 - The dashboard snapshot (`GET /api/dashboard/snapshot`) requires dual authority: service API key plus authenticated human Guardian session.
 - Admin routes use `X-Admin-Token` header-based authorization.
 
+### Implemented internal capability (Slices 1–3)
+
+- Migration `b2c3d4e5f6a7` and `guardian.db.models` define canonical invite, guest-lineage, account-metadata, and content-free presence-session persistence.
+- `guardian.account_observability.invites` and `guardian.routes.account_observability` own invite creation, resolution, and first-touch attribution; `guardian.routes.auth` preserves that lineage during registration.
+- `POST /api/account-observability/heartbeat` delegates to `guardian.account_observability.presence.record_heartbeat`. Authenticated identity comes from the signed Guardian session seam. Guest identity comes from the server-issued `codexify_guest_attribution` cookie and is accepted only when the corresponding canonical guest row exists and is not deleted.
+- Presence is approximate within the five-minute active window. The client calls the route only while foregrounded; the server does not infer browser visibility. Repeated heartbeats coalesce into one open subject lease, and thirty-minute idle expiry remains authoritative.
+- `POST /api/operator/account-observability/retention/cleanup` invokes `guardian.account_observability.retention.run_cleanup`. It supports dry-run receipts, expires idle sessions at 30 minutes, deletes presence rows older than 30 days in bounded batches, and soft-deletes unconverted/unreferenced guest lineage older than 90 days.
+- Guest rows referenced by converted-account metadata are explicitly deferred so canonical first-touch attribution survives. Invite definitions are never deleted by cleanup.
+
 ### What is not yet true
 
-- No canonical guest identity model exists.
-- No presence heartbeat model, session table, or `last_seen_at` field exists.
-- No invite-link, referral, or attribution persistence exists.
-- No registration-attribution linkage exists.
+- No public registration or operator analytics snapshot is part of the supported beta claim set.
+- The persistence foundation and Slice 3 heartbeat/retention runtime are not a release-wide analytics proof.
 - No active-user counting, geography resolution, or invite-conversion analytics exist.
-- Public account registration is not part of the supported beta claim set.
+- Guest heartbeat acceptance requires an already server-issued, live guest identity; this slice does not mint or reset guest identities.
 
 ### What this contract may assume
 
@@ -224,7 +231,7 @@ The following must **never** be collected, persisted, or derivable from the anal
 | Active window | 5 minutes | Since latest accepted foreground heartbeat |
 | Idle session expiry | 30 minutes | Without an accepted foreground heartbeat |
 
-These values must be documented as future canonical configuration values rather than scattered literals.
+These values are canonical runtime defaults registered in `guardian/account_observability/tokens.py`, not client-provided timing values.
 
 ### Presence rules
 
@@ -237,6 +244,15 @@ These values must be documented as future canonical configuration values rather 
 7. `last_seen_at` is presence metadata only.
 8. A model generation, API request, message send, or document access must not update presence unless it is also accompanied by the canonical presence heartbeat.
 9. Live counts are approximate within the active-window tolerance.
+
+The canonical operation is `POST /api/account-observability/heartbeat` with an empty
+JSON object. The route resolves an authenticated account from existing Guardian
+session/API-key context or a guest from the server-issued `codexify_guest_attribution`
+cookie. It returns only active state, bounded lease timing, and server UTC time.
+It never accepts account IDs, guest IDs, timestamps, durations, routes, content,
+referrers, user agents, location, or device dimensions. Cleanup is available to
+operators at `POST /api/operator/account-observability/retention/cleanup` and is
+also registered as the `account_observability_retention` cron job type.
 
 ## Coarse-Geography Policy
 
@@ -431,6 +447,12 @@ The `GET /api/operator/account-observability/active-accounts` route must be pagi
 6. A deleted account must not continue appearing in the active-account list.
 7. Retention cleanup must be deterministic and testable.
 
+The implemented cleanup first ends open sessions idle beyond 30 minutes, deletes
+presence rows older than 30 days in bounded batches, and deletes only unconverted,
+unreferenced guest identities older than 90 days. Converted guest lineage remains
+available so account attribution is not lost. Invite definitions and account
+registration metadata are not deleted by this job.
+
 ## Export and Restore Implications
 
 1. Account registration timestamp is account metadata; it must be included in the account export.
@@ -502,16 +524,16 @@ Every section must show its `as_of`, coverage, and degraded state.
 
 ## Implementation Sequencing
 
-The following slices are ordered and must be implemented as separate atomic tasks:
+The following slices remain ordered and separately governed; Slices 1–3 are implemented internally in this branch and Slices 4–7 remain deferred:
 
-### Slice 1: Canonical tokens, persistence entities, migration, and focused model tests
+### Slice 1 (implemented): Canonical tokens, persistence entities, migration, and focused model tests
 
 - Register canonical token domains for metric names, attribution methods, invite statuses, freshness states, and presence states.
 - Create persistence entities (presence session, invite link, registration attribution, hourly aggregates).
 - Create Alembic migration.
 - Write focused model tests.
 
-### Slice 2: Invite creation/resolution and first-party attribution lineage
+### Slice 2 (implemented): Invite creation/resolution and first-party attribution lineage
 
 - Implement invite-link creation (operator-only).
 - Implement invite-token resolution endpoint.
@@ -520,10 +542,14 @@ The following slices are ordered and must be implemented as separate atomic task
 
 ### Slice 3: Guest/account foreground presence heartbeat and retention cleanup
 
-- Implement heartbeat endpoint.
-- Implement presence-session lifecycle (create, update, expire, end on logout).
-- Implement retention cleanup job for presence-session rows.
-- Write presence contract tests.
+- Implemented in the Guardian route, `guardian/account_observability/presence.py`,
+  and `guardian/account_observability/retention.py`.
+- Presence-session lifecycle creates/coalesces, refreshes, expires, and best-effort
+  ends account leases on logout; the guest reset/deletion hook remains deferred
+  because no existing guest-reset route is present in this checkout.
+- Cleanup is exposed through the existing cron worker seam and emits a structured
+  execution/cutoff/count receipt.
+- Focused presence, route, retention, and privacy tests cover the contract.
 
 ### Slice 4: Transient coarse-GeoIP resolution with no raw-IP persistence and privacy tests
 
@@ -558,14 +584,9 @@ Each slice requires its own atomic Task Spec and commit.
 
 ## Non-Goals
 
-- No database models in this task.
-- No Alembic migration in this task.
-- No account-registration implementation.
-- No guest-session implementation.
-- No heartbeat endpoint.
+- No public-account-registration expansion beyond the existing bounded route.
 - No GeoIP dependency.
 - No IP processing code.
-- No invite-link route.
 - No analytics aggregation worker.
 - No admin API route.
 - No dashboard snapshot modification.
@@ -573,7 +594,6 @@ Each slice requires its own atomic Task Spec and commit.
 - No Codexify.Space modification.
 - No Prometheus metrics.
 - No third-party analytics SDK.
-- No cookie implementation.
 - No privacy-policy copy.
 - No deployment changes.
 - No backfill.

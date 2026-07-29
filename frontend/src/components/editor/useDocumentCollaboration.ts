@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WsClient } from "@/lib/wsClient";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 import { normalizeDocumentCollaborationEvent } from "./collaborationEvents";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -66,19 +67,21 @@ const CURSOR_EXPIRY_MS = 5_000;
 // ─── URL construction ────────────────────────────────────────────────────────
 
 function buildCollabWsUrl(documentId: string, authToken?: string): string {
-  const env = (import.meta as any).env;
-  const apiBase: string =
-    env?.VITE_GUARDIAN_API_BASE ??
-    (typeof window !== "undefined" ? window.location.origin : "");
-
-  const wsProtocol = apiBase.startsWith("https") ? "wss" : "ws";
-  let url = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, "")}/ws/collab/${documentId}`;
+  const browserOrigin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "http://localhost";
+  const url = new URL(
+    resolveApiUrl(`/api/collab/ws/${encodeURIComponent(documentId)}`),
+    browserOrigin
+  );
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
 
   if (authToken) {
-    url += `?token=${encodeURIComponent(authToken)}`;
+    url.searchParams.set("token", authToken);
   }
 
-  return url;
+  return url.toString();
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────

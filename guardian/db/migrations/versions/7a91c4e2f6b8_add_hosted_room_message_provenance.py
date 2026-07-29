@@ -1,7 +1,7 @@
 """add Hosted Room participant provenance to chat_messages
 
 Revision ID: 7a91c4e2f6b8
-Revises: b2c3d4e5f6a7
+Revises: b2c3d4e5f6a8
 Create Date: 2026-07-28 00:00:00.000000
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.engine import Inspector
 
 revision: str = "7a91c4e2f6b8"
-down_revision: Union[str, Sequence[str], None] = "b2c3d4e5f6a7"
+down_revision: Union[str, Sequence[str], None] = "b2c3d4e5f6a8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

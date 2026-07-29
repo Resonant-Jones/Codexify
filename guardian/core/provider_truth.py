@@ -86,8 +86,16 @@ def build_provider_truth(
     if supported_profile_name is None:
         supported_profile_approved = None
     else:
+        allowlisted_cloud = {
+            item.strip().lower()
+            for item in str(
+                getattr(settings, "CODEXIFY_EGRESS_ALLOWLIST", "") or ""
+            ).split(",")
+            if item.strip()
+        }
         supported_profile_approved = bool(
-            supported_profile_valid and provider == selected_provider
+            supported_profile_valid
+            and (provider == selected_provider or provider in allowlisted_cloud)
         )
     if discoverable is None:
         if provider == "local":

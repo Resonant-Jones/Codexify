@@ -1,22 +1,37 @@
-import { Button } from "@/components/ui/button";
 import { ThemeMode } from "@/types/ui";
 
-export function SegmentedThemeControl({ mode, onChange }: { mode: ThemeMode; onChange: (m: ThemeMode) => void }) {
-  const items = ["light", "system", "dark"] as ThemeMode[];
+type SegmentedThemeControlProps = {
+  mode: ThemeMode;
+  onChange: (m: ThemeMode) => void;
+};
+
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "system", label: "System" },
+  { value: "dark", label: "Dark" },
+];
+
+export function SegmentedThemeControl({
+  mode,
+  onChange,
+}: SegmentedThemeControlProps) {
   return (
-    <div className="inline-flex rounded-xl border bg-white dark:bg-neutral-700 border-neutral-200 dark:border-neutral-600 overflow-hidden">
-      {items.map((m) => (
-        <Button
-          key={m}
+    <div
+      className="glass-pill inline-flex"
+      role="group"
+      aria-label="Theme mode"
+    >
+      {THEME_OPTIONS.map((option) => (
+        <button
+          key={option.value}
           type="button"
-          variant={mode === m ? "default" : "ghost"}
-          size="sm"
-          className="rounded-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-          style={{ outlineColor: "var(--accent-weak)" }}
-          onClick={() => onChange(m)}
+          className="pill-tab text-xs"
+          data-state={option.value === mode ? "active" : "inactive"}
+          aria-pressed={option.value === mode}
+          onClick={() => onChange(option.value)}
         >
-          {m[0].toUpperCase() + m.slice(1)}
-        </Button>
+          {option.label}
+        </button>
       ))}
     </div>
   );

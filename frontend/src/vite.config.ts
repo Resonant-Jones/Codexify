@@ -34,6 +34,7 @@ const DEV_ALLOWED_HOSTS = Array.from(
     'axisnode',
     'vaultnode',
     '100.100.42.37',
+    'codexify-test-1.tail6b75da.ts.net',
     ...ADDITIONAL_ALLOWED_HOSTS,
   ])
 );
@@ -133,6 +134,34 @@ export default defineConfig({
         }
       },
 
+      // The backend owns both WebSocket routes at their browser-visible paths.
+      // Keep these ahead of the general /api proxy: Vite only upgrades entries
+      // explicitly marked as WebSocket proxies, and rewriting /api/ws breaks the
+      // backend's canonical route.
+      '^/api/ws(?=/|$)': {
+        target: PROXY_TARGET.replace(/^http/, 'ws'),
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+        headers: DEV_API_HEADERS,
+      },
+      '^/api/collab/ws(?=/|$)': {
+        target: PROXY_TARGET.replace(/^http/, 'ws'),
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+        headers: DEV_API_HEADERS,
+      },
+
+      // Startup readiness is intentionally lightweight. It must remain
+      // same-origin so a scoped Tailscale browser never sees the backend host.
+      '^/health(?=/|$)': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: DEV_API_HEADERS,
+      },
+
       // Compatibility bridges: map some legacy '/api/*' routes to unprefixed backend paths
       // Chat (backend serves /api/chat/*)
       '^/api/chat(?=/|$)': {
@@ -230,14 +259,6 @@ export default defineConfig({
         secure: false,
       },
 
-      '^/api/ws(?=/|$)': {
-        target: (process.env.VITE_PROXY_TARGET ?? 'http://localhost:8888').replace(/^http/, 'ws'),
-        ws: true,
-        changeOrigin: true,
-        secure: false,
-        // /api/ws -> /ws
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
     },
   }
 })
