@@ -305,6 +305,7 @@ export default function GuardianChatWithSidebar({
     return stored === null ? true : stored === "true";
   });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [isAppNavigationOpen, setIsAppNavigationOpen] = React.useState(false);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const stored = window.localStorage.getItem("cfy.lastProjectId");
@@ -351,6 +352,7 @@ export default function GuardianChatWithSidebar({
   const mobileSidebarTriggerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarCloseRef = React.useRef<HTMLButtonElement | null>(null);
+  const mobileAppNavigationTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   const restoreMobileSidebarFocusRef = React.useRef(false);
   const mobileToolsMenuOpenerRef = React.useRef<HTMLButtonElement | null>(null);
   const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
@@ -622,6 +624,7 @@ export default function GuardianChatWithSidebar({
   const closeSidebar = React.useCallback(() => {
     if (!isDesktopLayout) {
       restoreMobileSidebarFocusRef.current = true;
+      setIsAppNavigationOpen(false);
     }
     setSidebarOpen(false);
   }, [isDesktopLayout, setSidebarOpen]);
@@ -634,6 +637,9 @@ export default function GuardianChatWithSidebar({
       document.activeElement instanceof HTMLElement
     ) {
       mobileSidebarTriggerRef.current = document.activeElement;
+    }
+    if (!isDesktopLayout && !isSidebarOpen) {
+      setIsAppNavigationOpen(false);
     }
     setSidebarOpen(!isSidebarOpen);
   }, [isDesktopLayout, isSidebarOpen, setSidebarOpen]);
@@ -669,6 +675,12 @@ export default function GuardianChatWithSidebar({
     if (!isMobileOverlayActive || typeof window === "undefined") return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (isAppNavigationOpen) {
+          event.preventDefault();
+          setIsAppNavigationOpen(false);
+          mobileAppNavigationTriggerRef.current?.focus();
+          return;
+        }
         closeSidebar();
       }
     };
@@ -676,7 +688,11 @@ export default function GuardianChatWithSidebar({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closeSidebar, isMobileOverlayActive]);
+  }, [closeSidebar, isAppNavigationOpen, isMobileOverlayActive]);
+
+  React.useEffect(() => {
+    setIsAppNavigationOpen(false);
+  }, [activeApplicationView]);
 
   const mapThreadRecord = React.useCallback(
     (raw: any): Thread | null => {
@@ -1669,6 +1685,7 @@ export default function GuardianChatWithSidebar({
   );
   const handleApplicationNavigation = React.useCallback(
     (nextView: GuardianApplicationView) => {
+      setIsAppNavigationOpen(false);
       closeSidebar();
       onNavigateApplicationView?.(nextView);
     },
@@ -1738,7 +1755,13 @@ export default function GuardianChatWithSidebar({
             onClick={closeSidebar}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
-                closeSidebar();
+                event.stopPropagation();
+                if (isAppNavigationOpen) {
+                  setIsAppNavigationOpen(false);
+                  mobileAppNavigationTriggerRef.current?.focus();
+                } else {
+                  closeSidebar();
+                }
               }
             }}
           />
@@ -1784,9 +1807,20 @@ export default function GuardianChatWithSidebar({
                           "var(--frame) solid var(--panel-border)",
                       }}
                     >
-                      <div
-                        aria-hidden="true"
-                        className="flex shrink-0 items-center justify-center rounded-[var(--radius-micro)] bg-[var(--accent)] p-[calc(var(--radius-micro)/2)]"
+                      <button
+                        ref={mobileAppNavigationTriggerRef}
+                        type="button"
+                        className="icon-inline flex shrink-0 items-center justify-center rounded-[var(--radius-micro)] bg-[var(--accent)] p-[calc(var(--radius-micro)/2)]"
+                        aria-label={
+                          isAppNavigationOpen
+                            ? "Close Codexify navigation"
+                            : "Open Codexify navigation"
+                        }
+                        aria-expanded={isAppNavigationOpen}
+                        aria-controls="guardian-mobile-application-navigation"
+                        onClick={() =>
+                          setIsAppNavigationOpen((isOpen) => !isOpen)
+                        }
                       >
                         <img
                           src={codexifyMarkSrc}
@@ -1795,7 +1829,7 @@ export default function GuardianChatWithSidebar({
                           data-testid="guardian-mobile-codexify-mark"
                           className="block h-[calc(var(--radius-micro)*2)] w-[calc(var(--radius-micro)*2)] shrink-0 object-contain"
                         />
-                      </div>
+                      </button>
                       <button
                         ref={mobileSidebarCloseRef}
                         type="button"
@@ -1812,9 +1846,11 @@ export default function GuardianChatWithSidebar({
                         />
                       </button>
                     </header>
-                    {onNavigateApplicationView &&
+                    {isAppNavigationOpen &&
+                      onNavigateApplicationView &&
                       applicationDestinations.length > 0 && (
                         <nav
+                          id="guardian-mobile-application-navigation"
                           aria-label="Application destinations"
                           data-testid="guardian-mobile-application-navigation"
                           className="shrink-0 p-[var(--card-pad)]"
