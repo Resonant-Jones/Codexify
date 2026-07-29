@@ -13,6 +13,14 @@ def test_startup_script_polls_readiness_after_kickstart() -> None:
     assert "time.sleep(2)" in content
 
 
+def test_startup_script_polls_codexify_worker_readiness() -> None:
+    content = SCRIPT.read_text()
+
+    assert "CODEXIFY_READINESS_TIMEOUT_SECONDS" in content
+    assert "Codexify did not become ready within" in content
+    assert "health_payloads" in content
+
+
 def test_concurrent_gate_validates_completion_bodies() -> None:
     content = SCRIPT.read_text()
 
