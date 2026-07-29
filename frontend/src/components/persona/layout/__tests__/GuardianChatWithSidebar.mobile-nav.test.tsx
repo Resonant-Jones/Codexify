@@ -240,7 +240,7 @@ describe("Guardian mobile application navigation", () => {
     });
   });
 
-  it("renders the identity mark in the drawer and reveals canonical destinations on demand", async () => {
+  it("renders the identity mark and all canonical destinations only in the open mobile drawer", async () => {
     const user = userEvent.setup();
     renderGuardian();
 
@@ -260,13 +260,8 @@ describe("Guardian mobile application navigation", () => {
     expect(mark).toHaveAttribute("alt", "");
     expect(mark).toHaveAttribute("aria-hidden", "true");
     expect(
-      screen.queryByTestId("guardian-mobile-application-navigation")
-    ).not.toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Open Codexify navigation" })
-    );
-
+      screen.getByTestId("guardian-mobile-application-navigation")
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId("guardian-mobile-destination-guardian")
     ).toHaveAttribute("aria-current", "page");
@@ -285,9 +280,6 @@ describe("Guardian mobile application navigation", () => {
 
     for (const destination of APPLICATION_DESTINATIONS) {
       await openMobileSidebar(user);
-      await user.click(
-        screen.getByRole("button", { name: "Open Codexify navigation" })
-      );
       await user.click(
         screen.getByTestId(
           `guardian-mobile-destination-${destination.view}`

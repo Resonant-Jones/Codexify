@@ -50,7 +50,6 @@ class ImportDiagnostics:
     completed_at: str = ""
     export_format: str = "unknown"
     conversations_discovered: int = 0
-    conversations_accepted: int = 0
     conversations_imported: int = 0
     conversations_skipped_title: int = 0
     conversations_skipped_limit: int = 0
@@ -92,7 +91,6 @@ class ImportDiagnostics:
             "completed_at": self.completed_at,
             "export_format": self.export_format,
             "conversations_discovered": self.conversations_discovered,
-            "conversations_accepted": self.conversations_accepted,
             "conversations_imported": self.conversations_imported,
             "conversations_skipped_title": self.conversations_skipped_title,
             "conversations_skipped_limit": self.conversations_skipped_limit,
@@ -509,7 +507,6 @@ def import_openai_export_conversations(
                 )
 
     # --- Count messages discovered ---
-    diagnostics.conversations_accepted = len(all_conversations)
     for conv in all_conversations:
         msg_count = _count_messages_in_conversation(conv)
         diagnostics.messages_discovered += msg_count

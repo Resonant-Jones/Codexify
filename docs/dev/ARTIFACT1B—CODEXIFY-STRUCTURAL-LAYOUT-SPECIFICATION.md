@@ -296,18 +296,6 @@ Narrow/mobile Guardian navigation projection:
   layouts.
 - The drawer MAY contain compact Codexify application identity, application
   destinations, and the existing thread/session picker.
-- The narrow drawer is workspace-first by default. Its chrome contains the
-  Codexify mark disclosure and the independent drawer-close control; with the
-  disclosure collapsed, Threads / Projects is the first content header directly
-  beneath that chrome.
-- Activating the Codexify mark expands the existing application destinations
-  above Threads / Projects through ordinary layout flow. Threads / Projects and
-  its search, selection, and content state remain mounted and visible beneath
-  the expanded section.
-- Escape dismisses the expanded application destinations first and restores
-  focus to the Codexify mark. A subsequent Escape follows the existing
-  drawer-close behavior. Closing the drawer or selecting a destination also
-  resets the disclosure to its collapsed default.
 - Application routing remains owned by AppShell. The Guardian drawer receives
   only a bounded active-view value, destination metadata, and navigation
   callback.
@@ -337,9 +325,6 @@ Narrow/mobile Guardian navigation projection:
 - Desktop Guardian retains its existing persistent controls (global
   navigation pill, persistent sidebar, Open Workspace, settings/audio/profile
   icons, chat action icons, and runtime-notice positioning).
-- This Codexify-mark disclosure contract applies only to the narrow Guardian
-  drawer. Desktop Guardian navigation and its persistent sidebar remain
-  unchanged.
 - The transcript is the durable record layer and remains the internal vertical
   scroll owner.
 - In narrow Guardian only, focusing the composer makes that existing composer a
