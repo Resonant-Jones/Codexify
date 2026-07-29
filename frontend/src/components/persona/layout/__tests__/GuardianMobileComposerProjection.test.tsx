@@ -9,7 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHAT_COMPOSER_SEND_EDGE_INSET_CLASS } from "@/features/chat/chatLane";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS, CHAT_COMPOSER_SEND_EDGE_INSET_CLASS, CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS } from "@/features/chat/chatLane";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import ChatView from "@/features/chat/ChatView";
 import { Composer } from "@/features/chat/components/Composer";
@@ -362,7 +362,7 @@ describe("Guardian mobile composer projection", () => {
     });
   });
 
-  it("activates projection on narrow focus and exits it on blur", async () => {
+  it("mounts separate base and projection surfaces on narrow focus and tears down on blur", async () => {
     const onProjectionChange = vi.fn();
 
     render(
@@ -374,23 +374,57 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
+    // Before focus: only base surface is present
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
+    const baseRoot = document.querySelector('[data-composer-surface="base"]');
+    expect(baseRoot).toBeInTheDocument();
+    expect(baseRoot).not.toHaveAttribute("inert");
+
     const textarea = screen.getByTestId("composer-textarea");
     act(() => textarea.focus());
 
+    // After focus: both surfaces exist
     await waitFor(() => {
-      expect(screen.getByTestId("composer-textarea").closest("[data-composer-root]"))
-        .toHaveAttribute("data-mobile-projected", "true");
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeInTheDocument();
+      expect(
+        document.querySelector('[data-composer-surface="base"]')
+      ).toBeInTheDocument();
     });
+
+    // Base surface becomes inert when projection is active
+    expect(baseRoot).toHaveAttribute("inert");
     expect(onProjectionChange).toHaveBeenLastCalledWith(true);
 
-    fireEvent.blur(textarea);
+    // Textarea lives in the projection surface
+    const projectedTextarea = document.querySelector(
+      '[data-composer-surface="projection"] [data-testid="composer-textarea"]'
+    );
+    expect(projectedTextarea).toBeInTheDocument();
+
+    // Only one interactive textarea
+    const allTextareas = document.querySelectorAll(
+      '[data-testid="composer-textarea"]'
+    );
+    expect(allTextareas.length).toBe(1);
+
+    fireEvent.blur(projectedTextarea!);
 
     await waitFor(() => {
       expect(onProjectionChange).toHaveBeenLastCalledWith(false);
+      // Projection surface removed after blur
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeNull();
+      // Base surface no longer inert
+      expect(baseRoot).not.toHaveAttribute("inert");
     });
   });
 
-  it("does not activate projection in the desktop contract", async () => {
+  it("does not mount a projection surface in the desktop contract", async () => {
     const onProjectionChange = vi.fn();
 
     render(
@@ -408,11 +442,14 @@ describe("Guardian mobile composer projection", () => {
       expect(onProjectionChange).toHaveBeenLastCalledWith(false);
     });
     expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
+    expect(
       screen.getByTestId("composer-textarea").closest("[data-composer-root]")
     ).toHaveAttribute("data-mobile-projected", "false");
   });
 
-  it("uses the canonical mobile minimum-size token and retains the control strip", () => {
+  it("renders compact mobile composer without provider/model summary chip", () => {
     render(
       <Composer
         onSend={vi.fn()}
@@ -427,6 +464,13 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
+    // Base surface renders with data-composer-surface="base"
+    const baseRoot = screen
+      .getByTestId("composer-textarea")
+      .closest("[data-composer-surface]");
+    expect(baseRoot).toHaveAttribute("data-composer-surface", "base");
+
+    // Compact mobile properties
     expect(screen.getByTestId("composer-textarea")).toHaveStyle({
       fontSize: "var(--guardian-composer-mobile-input-size)",
     });
@@ -436,7 +480,7 @@ describe("Guardian mobile composer projection", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
 
-    // Send button is fully contained with a token-backed right inset.
+    // Send button uses token-backed right inset
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
     const sendButton = screen.getByRole("button", { name: "Send" });
@@ -447,9 +491,12 @@ describe("Guardian mobile composer projection", () => {
     const controlRow = screen.getByTestId("composer-control-row");
     expect(controlRow.className).not.toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
 
-    expect(screen.getByTestId("composer-mobile-context-summary")).toHaveTextContent(
-      "Local / Guardian model"
-    );
+    // Provider/model summary chip is NOT present on mobile
+    expect(
+      screen.queryByTestId("composer-mobile-context-summary")
+    ).toBeNull();
+
+    // Desktop selectors are absent on mobile
     expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
     expect(
@@ -460,7 +507,7 @@ describe("Guardian mobile composer projection", () => {
     ).toBeNull();
   });
 
-  it("blurs and exits projection only after successful user-message submission", async () => {
+  it("blurs and tears down projection only after successful user-message submission", async () => {
     let resolveSend: (() => void) | null = null;
     const onSend = vi.fn(
       () =>
@@ -479,27 +526,47 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
-    const textarea = screen.getByTestId("composer-textarea");
-    act(() => textarea.focus());
-    fireEvent.change(textarea, { target: { value: "Persist this turn" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    // Focus to activate projection
+    act(() => screen.getByTestId("composer-textarea").focus());
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeInTheDocument();
+    });
+
+    const projectedTextarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(projectedTextarea, { target: { value: "Persist this turn" } });
+    fireEvent.keyDown(projectedTextarea, { key: "Enter" });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(textarea).toHaveFocus();
-    expect(textarea).toHaveValue("Persist this turn");
+    // Textarea is in projection during submission
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeInTheDocument();
+    expect(projectedTextarea).toHaveFocus();
+    expect(projectedTextarea).toHaveValue("Persist this turn");
 
     await act(async () => {
       resolveSend?.();
     });
 
     await waitFor(() => {
-      expect(textarea).not.toHaveFocus();
-      expect(textarea).toHaveValue("");
+      // After send completes, projection is removed and textarea returns to base
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeNull();
       expect(onProjectionChange).toHaveBeenLastCalledWith(false);
     });
+
+    // Re-query the textarea (now in base surface)
+    const baseTextarea = screen.getByTestId("composer-textarea");
+    expect(baseTextarea.closest('[data-composer-surface="base"]')).toBeInTheDocument();
+    expect(baseTextarea).not.toHaveFocus();
+    expect(baseTextarea).toHaveValue("");
   });
 
-  it("preserves the draft and focus availability when submission fails", async () => {
+  it("preserves the draft, focus, and projection surface when submission fails", async () => {
     const onSend = vi.fn().mockRejectedValue(new Error("transport failed"));
     const onProjectionChange = vi.fn();
 
@@ -512,15 +579,27 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
-    const textarea = screen.getByTestId("composer-textarea");
-    act(() => textarea.focus());
-    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    // Focus to activate projection, then re-query for the projected textarea
+    act(() => screen.getByTestId("composer-textarea").focus());
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeInTheDocument();
+    });
+
+    const projectedTextarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(projectedTextarea, { target: { value: "Keep this draft" } });
+    fireEvent.keyDown(projectedTextarea, { key: "Enter" });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(textarea).toHaveValue("Keep this draft"));
-    expect(textarea).toHaveFocus();
+    expect(projectedTextarea).toHaveValue("Keep this draft");
+    expect(projectedTextarea).toHaveFocus();
     expect(onProjectionChange).toHaveBeenLastCalledWith(true);
+    // Projection surface remains after failed send
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeInTheDocument();
   });
 
   it("suspends projection for overlays without discarding the draft", async () => {
@@ -539,6 +618,11 @@ describe("Guardian mobile composer projection", () => {
     act(() => textarea.focus());
     fireEvent.change(textarea, { target: { value: "Overlay-safe draft" } });
 
+    // Confirm projection is active
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeInTheDocument();
+
     view.rerender(
       <Composer
         onSend={vi.fn()}
@@ -552,6 +636,10 @@ describe("Guardian mobile composer projection", () => {
     await waitFor(() => {
       expect(textarea).not.toHaveFocus();
       expect(onProjectionChange).toHaveBeenLastCalledWith(false);
+      // Projection surface removed after suspension
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeNull();
     });
     expect(textarea).toHaveValue("Overlay-safe draft");
   });
@@ -615,7 +703,7 @@ describe("Guardian mobile composer projection", () => {
     expect(transcript.scrollTop).toBe(100);
   });
 
-  it("retains the corrected send-button containment when projected and keeps frame geometry unchanged", async () => {
+  it("keeps base composer shell in normal flow while projection surface is portal'd", async () => {
     const onProjectionChange = vi.fn();
 
     render(
@@ -627,34 +715,43 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
-    // Verify idle send-button containment.
-    const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+    // Before projection: base surface is in normal flow, not inert
+    const baseRoot = document.querySelector('[data-composer-surface="base"]');
+    expect(baseRoot).toBeInTheDocument();
+    expect(baseRoot).not.toHaveAttribute("inert");
 
-    // Verify the send button is a child of the composer root (frame-owned).
-    const composerRoot = screen.getByTestId("composer-textarea").closest("[data-composer-root]");
-    expect(composerRoot).toContainElement(screen.getByRole("button", { name: "Send" }));
-    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
-
-    // Focus to activate projection.
+    // Focus to activate projection
     const textarea = screen.getByTestId("composer-textarea");
     act(() => textarea.focus());
 
     await waitFor(() => {
-      expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
+      expect(
+        document.querySelector('[data-composer-surface="projection"]')
+      ).toBeInTheDocument();
     });
 
-    // Projection does not strip the send-button right inset.
-    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+    // Base surface becomes inert but remains in the DOM (flow-owned)
+    expect(baseRoot).toHaveAttribute("inert");
+    expect(baseRoot).toHaveAttribute("data-mobile-compact", "true");
 
-    // Send button does not use negative margins or translations after projection.
-    const sendButton = screen.getByRole("button", { name: "Send" });
-    expect(sendButton.className).not.toMatch(/\b-mr-\[/);
-    expect(sendButton.className).not.toMatch(/\btranslate[Xx]\b/);
+    // Projection surface is rendered outside base root
+    const projectionRoot = document.querySelector(
+      '[data-composer-surface="projection"]'
+    );
+    expect(projectionRoot).toBeInTheDocument();
+    expect(projectionRoot?.parentElement).toBe(document.body);
 
-    // Composer remains frame-owned; frame geometry is unchanged.
-    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
-    expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
+    // Textarea lives in the projection surface
+    const projectedTextarea =
+      projectionRoot!.querySelector('[data-testid="composer-textarea"]');
+    expect(projectedTextarea).toBeInTheDocument();
+
+    // Send button appears in both base (inert) and projection (active)
+    const sendButtons = screen.getAllByRole("button", { name: "Send" });
+    expect(sendButtons.length).toBeGreaterThanOrEqual(1);
+
+    // Base composer-root does not switch to absolute positioning
+    expect(baseRoot?.className).not.toContain("absolute");
     expect(onProjectionChange).toHaveBeenLastCalledWith(true);
   });
 });

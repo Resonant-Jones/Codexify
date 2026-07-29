@@ -61,16 +61,18 @@ function renderComposer(
 }
 
 function focusAndType(value: string) {
-  const textarea = screen.getByTestId("composer-textarea");
-  act(() => textarea.focus());
-  fireEvent.change(textarea, { target: { value } });
-  return textarea;
+  act(() => screen.getByTestId("composer-textarea").focus());
+  // After focus, projection may activate and move the textarea.
+  // Re-query to get the active (projected) textarea.
+  const activeTextarea = screen.getByTestId("composer-textarea");
+  fireEvent.change(activeTextarea, { target: { value } });
+  return activeTextarea;
 }
 
 describe("Guardian mobile composer inline commands", () => {
   afterEach(() => cleanup());
 
-  it("renders the compact mobile pill without persistent advanced selectors", () => {
+  it("renders the compact mobile pill without persistent advanced selectors and without context summary", () => {
     renderComposer();
 
     const textarea = screen.getByTestId("composer-textarea");
@@ -103,9 +105,10 @@ describe("Guardian mobile composer inline commands", () => {
     expect(
       screen.queryByRole("button", { name: "Select retrieval source" })
     ).toBeNull();
-    expect(screen.getByTestId("composer-mobile-context-summary")).toHaveTextContent(
-      "General · Local / qwen3.5:9b"
-    );
+    // Provider/model summary chip is NOT present on mobile
+    expect(
+      screen.queryByTestId("composer-mobile-context-summary")
+    ).toBeNull();
   });
 
   it("preserves the existing visible selector row on desktop", () => {

@@ -1324,6 +1324,11 @@ export function GuardianChat({
     [catalogProviders]
   );
 
+  const modelLabel = useMemo(
+    () => selectedModel ? getModelMenuLabel(selectedModel) : activeModelId,
+    [selectedModel, activeModelId]
+  );
+
   const modelOptions = useMemo(
     () => {
       const models = selectedProvider?.models.filter(isChatSelectableModel) ?? [];
@@ -4278,20 +4283,7 @@ export function GuardianChat({
       <div
         data-testid="composer-shell-positioner"
         data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
-        className={cn(
-          "z-20 flex justify-center",
-          isMobileComposerProjected
-            ? "absolute"
-            : "mt-2 w-full shrink-0"
-        )}
-        style={
-          isMobileComposerProjected
-            ? {
-                insetInline: "var(--guardian-composer-projection-inset)",
-                bottom: "var(--guardian-composer-projection-gap)",
-              }
-            : undefined
-        }
+        className="z-20 mt-2 flex w-full shrink-0 justify-center"
       >
         <div
           ref={composerShellRef}
@@ -4358,6 +4350,17 @@ export function GuardianChat({
                 projectionSuspended={mobileComposerProjectionSuspended}
                 onMobileProjectionChange={setIsMobileComposerProjected}
                 activeProviderId={selectedProvider?.id ?? activeProviderId}
+                mobileModelId={selectedModel?.id ?? activeModelId}
+                mobileModelLabel={modelLabel}
+                mobileModelOptions={modelOptions}
+                onMobileModelChange={(modelId) => {
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    modelId,
+                  });
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
+                  }
+                }}
                 providerOptions={providerOptions}
                 providerOpenSignal={providerMenuOpenSignal}
                 onProviderChange={(providerId) => {

@@ -345,6 +345,83 @@ Explicit exclusions:
 - Direct code-component mapping.
 - Legacy or quarantined docs.
 
-## 10. Reviewer guidance
+## 10. Mobile Messaging Plane Projection Contract
+
+### Purpose
+
+This section defines the UI architecture contract for the mobile composer projection plane. It governs how the keyboard-time composer relates to the canonical base composer slot. This is UI architecture only and makes no backend/runtime support claim.
+
+### Contract statements
+
+1. **Canonical composer belongs to the base Guardian frame layer.**
+   - The canonical `Composer` component is always nested at the bottom of the Guardian frame in normal document flow.
+   - Its DOM container (`composer-shell-positioner`) must never switch to `absolute` or `fixed` positioning.
+   - The base slot retains its layout height so the frame does not collapse or jump when projection activates.
+
+2. **The keyboard-time composer is a temporary presentation projection.**
+   - When the software keyboard opens on a phone layout, a separate visual projection surface is rendered via a portal to `document.body` (outside any transformed or clipped FrameCard ancestor).
+   - The projection surface is anchored directly above the software keyboard using the visual viewport coordinate system (`visualViewport.height`, `keyboardInset` from `useViewportInsets`).
+   - The projection dismisses after successful authored-message persistence. Failed submission preserves the projection.
+
+3. **One logical composer state owns both presentations.**
+   - There is exactly one logical draft, attachment collection, send state, upload state, and submission path.
+   - Both the base slot and the projection surface share the same React state, callbacks, and event handlers.
+   - Only one textarea is interactive and present in the accessibility tab order at a time.
+   - The inactive surface is marked with `inert` and `aria-hidden`.
+   - Distinct `data-composer-surface="base"` and `data-composer-surface="projection"` markers identify each surface.
+
+4. **The visual viewport is the projection coordinate frame.**
+   - The projected surface is positioned using `position: fixed` with `bottom` equal to the keyboard inset from `useViewportInsets`.
+   - The page or frame must not be zoomed, scaled, translated, or scrolled to follow the keyboard.
+   - No `user-scalable=no`, `maximum-scale=1`, or any global rule disables user-controlled page zoom.
+   - The active phone textarea must have a computed font size of at least `16px` to prevent iOS focus zoom.
+
+5. **Projection lifecycle.**
+   - Focusing the phone textarea while a software keyboard is present activates the projection.
+   - Blurring the textarea or keyboard dismissal deactivates the projection.
+   - Successful user-message persistence clears the draft, blurs the active textarea, dismisses the projection, and returns presentation to the bottom composer.
+   - Failed submission preserves the draft, focus availability, and projected state.
+   - Overlay suspension (`projectionSuspended`) also preserves the draft.
+
+6. **Mobile model selection lives in the `+` actions surface.**
+   - The provider/model summary chip is removed from the mobile composer control row.
+   - Model selection is exposed through the `+` composer-actions popup (`ComposerActionMenu`).
+   - Selecting a model calls the existing `onModelChange` path; it does not send, clear, or fork the draft.
+   - The `+` popup remains a DropdownMenu; no full-screen model picker is introduced.
+
+### Mermaid diagram
+
+```mermaid
+flowchart TD
+    subgraph "Guardian Base Frame"
+        A["Transcript / ChatView"]
+        B["Bottom Composer Slot (canonical)<br/>data-composer-surface='base'<br/>normal flow, inert when projected"]
+    end
+
+    subgraph "Visual Viewport Projection Layer"
+        C["Projected Composer Surface<br/>data-composer-surface='projection'<br/>portal to document.body<br/>position: fixed, above keyboard"]
+    end
+
+    D["Software Keyboard"]
+
+    E["One shared Composer Controller/State<br/>- draft value<br/>- attachments<br/>- send/submission state<br/>- callbacks"]
+
+    E -->|"controls"| B
+    E -->|"controls when projected"| C
+    C -->|"anchored above"| D
+    B -.->|"inert when C active"| C
+```
+
+### Relationship to existing diagrams
+
+This projection contract refines the "Focused composition mode" interaction mode described in Section 6 (Diagram 2: Structural Layout Model). The projected composer replaces the earlier "composer-shell-positioner switches to absolute" implementation while preserving all existing interaction semantics (transcript scroll ownership, turn locking, draft sync, command palette, attachment flow).
+
+### Non-claims
+
+- This section makes no backend or runtime support claim.
+- It does not change provider routing, thread configuration, message identity, or queue semantics.
+- It does not widen the supported beta release surface.
+
+## 11. Reviewer guidance
 
 This pack is a baseline UI-facing architecture map. Resolve disagreements against the validated UI canon first, not against memory or implementation guesswork.
