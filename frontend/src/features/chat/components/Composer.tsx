@@ -52,6 +52,8 @@ const ACCEPTED_ATTACHMENTS =
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
 const MIN_COMPOSER_ROWS = 2;
 const MAX_COMPOSER_ROWS = 6;
+const MIN_COMPOSER_ROWS_MOBILE = 1;
+const MAX_COMPOSER_ROWS_MOBILE = 4;
 const FALLBACK_LINE_HEIGHT_PX = 24;
 const GENERIC_UPLOAD_ERROR_MESSAGE = "Upload failed. Please try again.";
 const COMPOSER_TEXTAREA_PAD_X = "var(--composer-text-pad-x, 14px)";
@@ -64,7 +66,8 @@ const parsePx = (value?: string | null) => {
 
 const measureComposerHeights = (
   el: HTMLTextAreaElement,
-  minimumRows = MIN_COMPOSER_ROWS
+  minimumRows = MIN_COMPOSER_ROWS,
+  maximumRows = MAX_COMPOSER_ROWS
 ) => {
   const style = window.getComputedStyle(el);
   const lineHeight = (() => {
@@ -79,15 +82,16 @@ const measureComposerHeights = (
 
   return {
     minHeight: lineHeight * minimumRows + paddingBlock + borderBlock,
-    maxHeight: lineHeight * MAX_COMPOSER_ROWS + paddingBlock + borderBlock,
+    maxHeight: lineHeight * maximumRows + paddingBlock + borderBlock,
   } as const;
 };
 
 const autosizeComposerTextarea = (
   el: HTMLTextAreaElement,
-  minimumRows = MIN_COMPOSER_ROWS
+  minimumRows = MIN_COMPOSER_ROWS,
+  maximumRows = MAX_COMPOSER_ROWS
 ) => {
-  const { minHeight, maxHeight } = measureComposerHeights(el, minimumRows);
+  const { minHeight, maxHeight } = measureComposerHeights(el, minimumRows, maximumRows);
   el.style.minHeight = `${minHeight}px`;
   el.style.maxHeight = `${maxHeight}px`;
   el.style.height = "auto";
@@ -203,9 +207,11 @@ export function Composer({
   projectName,
   projectOptions = [],
   onProjectChange,
-  mobileProjectionEnabled = false,
-  projectionSuspended = false,
-  onMobileProjectionChange,
+  compactMobile = false,
+  mobileModelId,
+  mobileModelLabel,
+  mobileModelOptions = [],
+  onMobileModelChange,
 }: {
   onSend: (t: string, options?: ComposerSendOptions) => Promise<void> | void;
   ensureThreadIdForAttachments?: (
@@ -227,6 +233,11 @@ export function Composer({
   activeModelId?: string;
   modelOptions?: ComposerSelectOption[];
   onModelChange?: (modelId: string) => void;
+  /** Mobile model selection props for the action menu */
+  mobileModelId?: string;
+  mobileModelLabel?: string;
+  mobileModelOptions?: ComposerSelectOption[];
+  onMobileModelChange?: (modelId: string) => void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -251,9 +262,7 @@ export function Composer({
   currentRequestState?: unknown;
   providerRuntimeState?: unknown;
   onCatalogRefresh?: () => void;
-  mobileProjectionEnabled?: boolean;
-  projectionSuspended?: boolean;
-  onMobileProjectionChange?: (projected: boolean) => void;
+  compactMobile?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -262,8 +271,6 @@ export function Composer({
   >(null);
   const [activeCommandOptionIndex, setActiveCommandOptionIndex] = useState(0);
   const [commandAnnouncement, setCommandAnnouncement] = useState("");
-  const isMobileComposerProjected =
-    mobileProjectionEnabled && isComposerFocused && !projectionSuspended;
   const syncDebounceMs = Math.max(
     0,
     draftSyncDebounceMs ?? DEFAULT_DRAFT_SYNC_DEBOUNCE_MS
@@ -301,17 +308,6 @@ export function Composer({
   const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
 
-  useEffect(() => {
-    onMobileProjectionChange?.(isMobileComposerProjected);
-  }, [isMobileComposerProjected, onMobileProjectionChange]);
-
-  useEffect(() => {
-    if (!mobileProjectionEnabled || !projectionSuspended) return;
-    if (ref.current === document.activeElement) {
-      ref.current.blur();
-    }
-    setIsComposerFocused(false);
-  }, [mobileProjectionEnabled, projectionSuspended]);
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
@@ -334,8 +330,12 @@ export function Composer({
 
   useLayoutEffect(() => {
     if (!ref.current) return;
-    autosizeComposerTextarea(ref.current, mobileProjectionEnabled ? 1 : MIN_COMPOSER_ROWS);
-  }, [mobileProjectionEnabled, value]);
+    autosizeComposerTextarea(
+      ref.current,
+      compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS,
+      compactMobile ? MAX_COMPOSER_ROWS_MOBILE : MAX_COMPOSER_ROWS
+    );
+  }, [compactMobile, value]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -769,9 +769,8 @@ export function Composer({
     [inlineCommandOptionSets, value]
   );
   const commandPaletteOpen =
-    mobileProjectionEnabled &&
+    compactMobile &&
     isComposerFocused &&
-    !projectionSuspended &&
     dismissedCommandDraft !== value &&
     inlineCommandResult.state !== "unknown" &&
     inlineCommandResult.state !== "executed";
@@ -780,14 +779,6 @@ export function Composer({
     : [];
   const commandPaletteMode =
     inlineCommandResult.command == null ? "command" : "value";
-  const compactContextSummary = [
-    projectName?.trim() || null,
-    selectedProviderLabel && selectedModelLabel
-      ? `${selectedProviderLabel} / ${selectedModelLabel}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const lineageLabel = projectName?.trim()
     ? `Send a message to ${projectName.trim()}`
     : "Send a message";
@@ -883,7 +874,7 @@ export function Composer({
     <Textarea
       data-testid="composer-textarea"
       ref={ref}
-      rows={mobileProjectionEnabled ? 1 : MIN_COMPOSER_ROWS}
+      rows={compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS}
       value={value}
       onChange={(event) => {
         updateDraftValue(event.target.value);
@@ -910,7 +901,7 @@ export function Composer({
         color: "var(--text)",
         overflow: "hidden",
         padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
-        ...(mobileProjectionEnabled
+        ...(compactMobile
           ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
           : {}),
       }}
@@ -942,6 +933,11 @@ export function Composer({
       onVoiceTurn={onVoiceTurn}
       voiceTurnDisabled={voiceTurnDisabled}
       voiceTurnLabel={voiceTurnLabel}
+      showModelMenu={compactMobile}
+      modelId={mobileModelId}
+      modelLabel={mobileModelLabel}
+      modelOptions={mobileModelOptions}
+      onModelChange={(nextId) => onMobileModelChange?.(nextId)}
     />
   );
 
@@ -979,13 +975,18 @@ export function Composer({
 
   return (
     <>
+      {/* Status announcement */}
+      <div className="sr-only" aria-live="polite" role="status">
+        {commandAnnouncement}
+      </div>
+
+      {/* Composer surface */}
       <div
         data-composer-root
-        data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
-        data-mobile-compact={mobileProjectionEnabled ? "true" : "false"}
+        data-mobile-compact={compactMobile ? "true" : "false"}
         className={cn(
           "flex w-full flex-col",
-          mobileProjectionEnabled
+          compactMobile
             ? "flex-none py-[var(--guardian-composer-compact-gap)]"
             : "flex-1 py-[var(--composer-pad-y,12px)]"
         )}
@@ -996,14 +997,11 @@ export function Composer({
           data-testid="composer-content-plane"
           className={cn(
             "flex min-h-0 flex-1 flex-col justify-end px-[var(--composer-pad-x,12px)]",
-            mobileProjectionEnabled
+            compactMobile
               ? "gap-[var(--guardian-composer-compact-gap)]"
               : "gap-2"
           )}
         >
-          <div className="sr-only" aria-live="polite" role="status">
-            {commandAnnouncement}
-          </div>
           {commandPaletteOpen ? (
             <div
               data-testid="composer-command-palette"
@@ -1086,9 +1084,9 @@ export function Composer({
               </div>
             </div>
           ) : null}
-          {!mobileProjectionEnabled ? renderComposerTextarea() : null}
+          {!compactMobile ? renderComposerTextarea() : null}
 
-          {!mobileProjectionEnabled &&
+          {!compactMobile &&
           !value.trim() &&
           !draftAttachments.length ? (
             <div
@@ -1147,7 +1145,7 @@ export function Composer({
             }}
           />
 
-          {mobileProjectionEnabled ? (
+          {compactMobile ? (
             <div
               data-testid="composer-control-row"
               className={cn(
@@ -1162,19 +1160,6 @@ export function Composer({
                 {renderComposerActionMenu()}
               </div>
               {renderComposerTextarea()}
-              {compactContextSummary ? (
-                <span
-                  data-testid="composer-mobile-context-summary"
-                  className="truncate rounded-[var(--radius-micro)] bg-[var(--chip-bg)] px-[var(--guardian-composer-compact-gap)] py-[calc(var(--guardian-composer-compact-gap)/2)] text-[11px]"
-                  style={{
-                    color: "var(--muted)",
-                    maxWidth: "var(--guardian-composer-summary-max-width)",
-                  }}
-                  title={compactContextSummary}
-                >
-                  {compactContextSummary}
-                </span>
-              ) : null}
               <div
                 data-testid="composer-send-slot"
                 className={cn(
@@ -1280,6 +1265,7 @@ export function Composer({
           ) : null}
         </div>
       </div>
+
       <ImageGenModal
         open={showImgGen}
         onOpenChange={setShowImgGen}

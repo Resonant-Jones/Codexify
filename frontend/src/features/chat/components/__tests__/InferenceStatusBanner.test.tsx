@@ -45,7 +45,9 @@ describe("InferenceStatusBanner", () => {
     );
 
     expect(screen.getByText("Thinking…")).toBeInTheDocument();
-    expect(screen.getByText("This may take a few minutes.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("This may take a few minutes.")
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     fireEvent.click(screen.getByRole("button", { name: "No Think" }));
@@ -64,7 +66,7 @@ describe("InferenceStatusBanner", () => {
     expect(screen.queryByText("Replying…")).not.toBeInTheDocument();
   });
 
-  it("renders a compact latency readout beneath the lifecycle label", () => {
+  it("keeps lifecycle timing diagnostics out of the user-facing card", () => {
     render(
       <InferenceStatusBanner
         state={buildState({
@@ -80,10 +82,28 @@ describe("InferenceStatusBanner", () => {
     );
 
     expect(screen.getByText("Thinking…")).toBeInTheDocument();
-    expect(screen.getByTestId("inference-latency-readout")).toBeInTheDocument();
-    expect(screen.getByText("Queued: 1.0s")).toBeInTheDocument();
-    expect(screen.getByText("Warmup: 2.0s")).toBeInTheDocument();
-    expect(screen.getByText("First token: 1.5s")).toBeInTheDocument();
-    expect(screen.getByText("Total: 6.0s")).toBeInTheDocument();
+    expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
+    expect(screen.queryByText("Queued: 1.0s")).not.toBeInTheDocument();
+    expect(screen.queryByText("Warmup: 2.0s")).not.toBeInTheDocument();
+    expect(screen.queryByText("First token: 1.5s")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total: 6.0s")).not.toBeInTheDocument();
+  });
+
+  it("keeps queued lifecycle details out of the user-facing card", () => {
+    render(
+      <InferenceStatusBanner
+        state={buildState({
+          phase: "sending",
+          statusText: "Queued…",
+          detailText: "Guardian is preparing a response.",
+        })}
+      />
+    );
+
+    expect(screen.getByText("Working…")).toBeInTheDocument();
+    expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Guardian is preparing a response.")
+    ).not.toBeInTheDocument();
   });
 });

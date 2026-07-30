@@ -939,8 +939,7 @@ export function GuardianChat({
   onSessionInferenceModeChange,
   onSessionDraftChange,
   compactMobileHeader = false,
-  mobileComposerProjectionEnabled = false,
-  mobileComposerProjectionSuspended = false,
+  compactMobile = false,
 }: {
   guardianName: string;
   userName: string;
@@ -987,8 +986,7 @@ export function GuardianChat({
   onSessionInferenceModeChange?: (mode: ComposerInferenceMode) => void;
   onSessionDraftChange?: (text: string) => void;
   compactMobileHeader?: boolean;
-  mobileComposerProjectionEnabled?: boolean;
-  mobileComposerProjectionSuspended?: boolean;
+  compactMobile?: boolean;
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
@@ -1129,8 +1127,6 @@ export function GuardianChat({
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
-  const [isMobileComposerProjected, setIsMobileComposerProjected] =
-    useState(false);
   const [threadTitle, setThreadTitle] = useState<string>(activeThread?.title ?? NEW_THREAD_TITLE);
   const [codexDraft, setCodexDraft] = useState<CodexDraft | null>(null);
   const voiceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1322,6 +1318,11 @@ export function GuardianChat({
         disabled: !provider.available || !provider.models.some(isChatSelectableModel),
       })),
     [catalogProviders]
+  );
+
+  const modelLabel = useMemo(
+    () => selectedModel ? getModelMenuLabel(selectedModel) : activeModelId,
+    [selectedModel, activeModelId]
   );
 
   const modelOptions = useMemo(
@@ -4041,12 +4042,9 @@ export function GuardianChat({
     <div
       className="relative flex h-full w-full min-h-0 flex-col bg-transparent"
       style={
-        mobileComposerProjectionEnabled
+        compactMobile
           ? ({
               "--guardian-composer-mobile-input-size": "16px",
-              "--guardian-composer-projection-inset": "var(--card-pad)",
-              "--guardian-composer-projection-gap":
-                "calc(var(--card-pad) / 2)",
               "--guardian-composer-compact-gap":
                 "calc(var(--card-pad) / 2)",
               "--guardian-composer-compact-min-height":
@@ -4244,7 +4242,6 @@ export function GuardianChat({
               endCompletion={endCompletion}
               className="flex flex-col flex-1 min-h-0"
               bottomPadding={composerShellReserve}
-              composerProjected={isMobileComposerProjected}
               autoReadEnabled={autoReadEnabled}
               depthMode={depth}
               profileId={resolvedProfile.id}
@@ -4277,21 +4274,7 @@ export function GuardianChat({
 
       <div
         data-testid="composer-shell-positioner"
-        data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
-        className={cn(
-          "z-20 flex justify-center",
-          isMobileComposerProjected
-            ? "absolute"
-            : "mt-2 w-full shrink-0"
-        )}
-        style={
-          isMobileComposerProjected
-            ? {
-                insetInline: "var(--guardian-composer-projection-inset)",
-                bottom: "var(--guardian-composer-projection-gap)",
-              }
-            : undefined
-        }
+        className="z-20 mt-2 flex w-full shrink-0 justify-center"
       >
         <div
           ref={composerShellRef}
@@ -4304,7 +4287,7 @@ export function GuardianChat({
             background: "color-mix(in oklab, var(--panel-bg) 95%, black)", // Deep opaque glass
             clipPath: "inset(0 round 24px)",
             isolation: "isolate",
-            minHeight: mobileComposerProjectionEnabled
+            minHeight: compactMobile
               ? "var(--guardian-composer-compact-min-height)"
               : "140px",
             maxHeight: mobileShellProfile.chat.composer.shellMaxHeight,
@@ -4354,10 +4337,19 @@ export function GuardianChat({
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
-                mobileProjectionEnabled={mobileComposerProjectionEnabled}
-                projectionSuspended={mobileComposerProjectionSuspended}
-                onMobileProjectionChange={setIsMobileComposerProjected}
+                compactMobile={compactMobile}
                 activeProviderId={selectedProvider?.id ?? activeProviderId}
+                mobileModelId={selectedModel?.id ?? activeModelId}
+                mobileModelLabel={modelLabel}
+                mobileModelOptions={modelOptions}
+                onMobileModelChange={(modelId) => {
+                  const nextSnapshot = mergeThreadConfigSnapshot({
+                    modelId,
+                  });
+                  if (nextSnapshot) {
+                    void saveThreadConfigSnapshot(nextSnapshot);
+                  }
+                }}
                 providerOptions={providerOptions}
                 providerOpenSignal={providerMenuOpenSignal}
                 onProviderChange={(providerId) => {

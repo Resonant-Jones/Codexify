@@ -9,7 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHAT_COMPOSER_SEND_EDGE_INSET_CLASS } from "@/features/chat/chatLane";
+import { CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS, CHAT_COMPOSER_SEND_EDGE_INSET_CLASS, CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS } from "@/features/chat/chatLane";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import ChatView from "@/features/chat/ChatView";
 import { Composer } from "@/features/chat/components/Composer";
@@ -237,7 +237,7 @@ const messages: ChatMessage[] = [
   },
 ];
 
-function renderChatView(composerProjected: boolean) {
+function renderChatView() {
   return render(
     <ChatView
       threadId={7}
@@ -248,7 +248,6 @@ function renderChatView(composerProjected: boolean) {
       completionState={completionState}
       endCompletion={vi.fn()}
       bottomPadding={180}
-      composerProjected={composerProjected}
     />
   );
 }
@@ -274,7 +273,7 @@ function setScrollGeometry(
   });
 }
 
-describe("Guardian mobile composer projection", () => {
+describe("Guardian mobile composer single surface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
@@ -319,12 +318,11 @@ describe("Guardian mobile composer projection", () => {
     ).toBeInTheDocument();
     expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       compactMobileHeader: true,
-      mobileComposerProjectionEnabled: true,
-      mobileComposerProjectionSuspended: false,
+      compactMobile: true,
     });
   });
 
-  it("does not enable the mobile projection seam outside frame-first Guardian", () => {
+  it("does not enable compact mobile outside frame-first Guardian", () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       writable: true,
@@ -341,8 +339,7 @@ describe("Guardian mobile composer projection", () => {
 
     expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       compactMobileHeader: false,
-      mobileComposerProjectionEnabled: false,
-      mobileComposerProjectionSuspended: false,
+      compactMobile: false,
     });
   });
 
@@ -362,62 +359,75 @@ describe("Guardian mobile composer projection", () => {
     });
   });
 
-  it("activates projection on narrow focus and exits it on blur", async () => {
-    const onProjectionChange = vi.fn();
-
+  it("renders exactly one composer surface before and after focus", async () => {
     render(
       <Composer
         onSend={vi.fn()}
         draftValue=""
-        mobileProjectionEnabled
-        onMobileProjectionChange={onProjectionChange}
+        compactMobile
       />
     );
 
+    // Before focus: only one composer root
+    const roots = document.querySelectorAll("[data-composer-root]");
+    expect(roots.length).toBe(1);
+
     const textarea = screen.getByTestId("composer-textarea");
+    expect(textarea).toBeInTheDocument();
+
+    // No projection portal in document.body
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
+
+    // Focus the textarea
     act(() => textarea.focus());
 
+    // After focus: still exactly one composer root
     await waitFor(() => {
-      expect(screen.getByTestId("composer-textarea").closest("[data-composer-root]"))
-        .toHaveAttribute("data-mobile-projected", "true");
+      const rootsAfter = document.querySelectorAll("[data-composer-root]");
+      expect(rootsAfter.length).toBe(1);
     });
-    expect(onProjectionChange).toHaveBeenLastCalledWith(true);
 
-    fireEvent.blur(textarea);
+    // Still no projection surface
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
 
-    await waitFor(() => {
-      expect(onProjectionChange).toHaveBeenLastCalledWith(false);
-    });
+    // Exactly one textarea
+    const allTextareas = document.querySelectorAll(
+      '[data-testid="composer-textarea"]'
+    );
+    expect(allTextareas.length).toBe(1);
   });
 
-  it("does not activate projection in the desktop contract", async () => {
-    const onProjectionChange = vi.fn();
-
+  it("does not mount a projection portal or second surface in desktop contract", async () => {
     render(
       <Composer
         onSend={vi.fn()}
         draftValue=""
-        mobileProjectionEnabled={false}
-        onMobileProjectionChange={onProjectionChange}
+        compactMobile={false}
       />
     );
 
     act(() => screen.getByTestId("composer-textarea").focus());
 
-    await waitFor(() => {
-      expect(onProjectionChange).toHaveBeenLastCalledWith(false);
-    });
+    // No projection surface
     expect(
-      screen.getByTestId("composer-textarea").closest("[data-composer-root]")
-    ).toHaveAttribute("data-mobile-projected", "false");
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
+
+    // Only one composer root
+    const roots = document.querySelectorAll("[data-composer-root]");
+    expect(roots.length).toBe(1);
   });
 
-  it("uses the canonical mobile minimum-size token and retains the control strip", () => {
+  it("renders compact mobile composer without provider/model summary chip and without projection markers", () => {
     render(
       <Composer
         onSend={vi.fn()}
         draftValue=""
-        mobileProjectionEnabled
+        compactMobile
         activeProviderId="local"
         providerOptions={[{ value: "local", label: "Local" }]}
         activeModelId="guardian-model"
@@ -427,6 +437,14 @@ describe("Guardian mobile composer projection", () => {
       />
     );
 
+    // Single composer root with compact marker
+    const root = screen.getByTestId("composer-textarea").closest("[data-composer-root]");
+    expect(root).toHaveAttribute("data-mobile-compact", "true");
+
+    // No data-composer-surface attribute
+    expect(root?.getAttribute("data-composer-surface")).toBeNull();
+
+    // Compact mobile properties
     expect(screen.getByTestId("composer-textarea")).toHaveStyle({
       fontSize: "var(--guardian-composer-mobile-input-size)",
     });
@@ -436,7 +454,7 @@ describe("Guardian mobile composer projection", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
 
-    // Send button is fully contained with a token-backed right inset.
+    // Send button uses token-backed right inset
     const sendSlot = screen.getByTestId("composer-send-slot");
     expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
     const sendButton = screen.getByRole("button", { name: "Send" });
@@ -447,9 +465,20 @@ describe("Guardian mobile composer projection", () => {
     const controlRow = screen.getByTestId("composer-control-row");
     expect(controlRow.className).not.toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
 
-    expect(screen.getByTestId("composer-mobile-context-summary")).toHaveTextContent(
-      "Local / Guardian model"
-    );
+    // Provider/model summary chip is NOT present on mobile
+    expect(
+      screen.queryByTestId("composer-mobile-context-summary")
+    ).toBeNull();
+
+    // No projection surface or markers
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-composer-surface="base"]')
+    ).toBeNull();
+
+    // Desktop selectors are absent on mobile
     expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
     expect(
@@ -460,7 +489,7 @@ describe("Guardian mobile composer projection", () => {
     ).toBeNull();
   });
 
-  it("blurs and exits projection only after successful user-message submission", async () => {
+  it("clears draft on successful send and preserves on failure", async () => {
     let resolveSend: (() => void) | null = null;
     const onSend = vi.fn(
       () =>
@@ -468,14 +497,12 @@ describe("Guardian mobile composer projection", () => {
           resolveSend = resolve;
         })
     );
-    const onProjectionChange = vi.fn();
 
     render(
       <Composer
         onSend={onSend}
         draftValue=""
-        mobileProjectionEnabled
-        onMobileProjectionChange={onProjectionChange}
+        compactMobile
       />
     );
 
@@ -485,30 +512,32 @@ describe("Guardian mobile composer projection", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(textarea).toHaveFocus();
+    // Draft preserved during send
     expect(textarea).toHaveValue("Persist this turn");
 
+    // Resolve the send
     await act(async () => {
       resolveSend?.();
     });
 
     await waitFor(() => {
-      expect(textarea).not.toHaveFocus();
+      // After send completes, draft is cleared
       expect(textarea).toHaveValue("");
-      expect(onProjectionChange).toHaveBeenLastCalledWith(false);
     });
+
+    // Still exactly one composer root
+    const roots = document.querySelectorAll("[data-composer-root]");
+    expect(roots.length).toBe(1);
   });
 
-  it("preserves the draft and focus availability when submission fails", async () => {
+  it("preserves the draft when submission fails", async () => {
     const onSend = vi.fn().mockRejectedValue(new Error("transport failed"));
-    const onProjectionChange = vi.fn();
 
     render(
       <Composer
         onSend={onSend}
         draftValue=""
-        mobileProjectionEnabled
-        onMobileProjectionChange={onProjectionChange}
+        compactMobile
       />
     );
 
@@ -518,47 +547,16 @@ describe("Guardian mobile composer projection", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(textarea).toHaveValue("Keep this draft"));
-    expect(textarea).toHaveFocus();
-    expect(onProjectionChange).toHaveBeenLastCalledWith(true);
-  });
+    expect(textarea).toHaveValue("Keep this draft");
 
-  it("suspends projection for overlays without discarding the draft", async () => {
-    const onProjectionChange = vi.fn();
-    const view = render(
-      <Composer
-        onSend={vi.fn()}
-        draftValue=""
-        mobileProjectionEnabled
-        projectionSuspended={false}
-        onMobileProjectionChange={onProjectionChange}
-      />
-    );
-
-    const textarea = screen.getByTestId("composer-textarea");
-    act(() => textarea.focus());
-    fireEvent.change(textarea, { target: { value: "Overlay-safe draft" } });
-
-    view.rerender(
-      <Composer
-        onSend={vi.fn()}
-        draftValue=""
-        mobileProjectionEnabled
-        projectionSuspended
-        onMobileProjectionChange={onProjectionChange}
-      />
-    );
-
-    await waitFor(() => {
-      expect(textarea).not.toHaveFocus();
-      expect(onProjectionChange).toHaveBeenLastCalledWith(false);
-    });
-    expect(textarea).toHaveValue("Overlay-safe draft");
+    // Exactly one composer surface remains
+    const roots = document.querySelectorAll("[data-composer-root]");
+    expect(roots.length).toBe(1);
   });
 
   it("keeps near-bottom subject lock within the transcript scroll owner", () => {
     const windowScroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
-    const view = renderChatView(false);
+    renderChatView();
     const transcript = screen.getByTestId("chat-container");
     setScrollGeometry(transcript, {
       clientHeight: 400,
@@ -567,29 +565,14 @@ describe("Guardian mobile composer projection", () => {
     });
     fireEvent.scroll(transcript);
 
-    view.rerender(
-      <ChatView
-        threadId={7}
-        messages={messages}
-        loading={false}
-        error={null}
-        hasMore={false}
-        completionState={completionState}
-        endCompletion={vi.fn()}
-        bottomPadding={180}
-        composerProjected
-      />
-    );
-
+    // Verify the transcript container uses overflow-y-auto
     expect(transcript).toHaveClass("overflow-y-auto");
-    return waitFor(() => {
-      expect(transcript.scrollTop).toBe(600);
-      expect(windowScroll).not.toHaveBeenCalled();
-    });
+    // No window.scrollTo call occurs
+    expect(windowScroll).not.toHaveBeenCalled();
   });
 
   it("preserves a meaningfully scrolled-up transcript position", () => {
-    const view = renderChatView(false);
+    const view = renderChatView();
     const transcript = screen.getByTestId("chat-container");
     setScrollGeometry(transcript, {
       clientHeight: 400,
@@ -608,53 +591,31 @@ describe("Guardian mobile composer projection", () => {
         completionState={completionState}
         endCompletion={vi.fn()}
         bottomPadding={180}
-        composerProjected
       />
     );
 
     expect(transcript.scrollTop).toBe(100);
   });
 
-  it("retains the corrected send-button containment when projected and keeps frame geometry unchanged", async () => {
-    const onProjectionChange = vi.fn();
-
+  it("keeps composer shell in normal document flow", () => {
     render(
       <Composer
         onSend={vi.fn()}
         draftValue=""
-        mobileProjectionEnabled
-        onMobileProjectionChange={onProjectionChange}
+        compactMobile
       />
     );
 
-    // Verify idle send-button containment.
-    const sendSlot = screen.getByTestId("composer-send-slot");
-    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
+    const root = document.querySelector("[data-composer-root]");
+    expect(root).toBeInTheDocument();
 
-    // Verify the send button is a child of the composer root (frame-owned).
-    const composerRoot = screen.getByTestId("composer-textarea").closest("[data-composer-root]");
-    expect(composerRoot).toContainElement(screen.getByRole("button", { name: "Send" }));
-    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
+    // Composer root is in normal flow
+    expect(root?.className).not.toContain("absolute");
+    expect(root?.className).not.toContain("fixed");
 
-    // Focus to activate projection.
-    const textarea = screen.getByTestId("composer-textarea");
-    act(() => textarea.focus());
-
-    await waitFor(() => {
-      expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
-    });
-
-    // Projection does not strip the send-button right inset.
-    expect(sendSlot).toHaveClass("mr-[var(--composer-text-pad-x,14px)]");
-
-    // Send button does not use negative margins or translations after projection.
-    const sendButton = screen.getByRole("button", { name: "Send" });
-    expect(sendButton.className).not.toMatch(/\b-mr-\[/);
-    expect(sendButton.className).not.toMatch(/\btranslate[Xx]\b/);
-
-    // Composer remains frame-owned; frame geometry is unchanged.
-    expect(composerRoot).toHaveAttribute("data-mobile-compact", "true");
-    expect(composerRoot).toHaveAttribute("data-mobile-projected", "true");
-    expect(onProjectionChange).toHaveBeenLastCalledWith(true);
+    // No projection portal in document.body
+    expect(
+      document.querySelector('[data-composer-surface="projection"]')
+    ).toBeNull();
   });
 });

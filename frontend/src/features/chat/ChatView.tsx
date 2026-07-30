@@ -227,7 +227,6 @@ export function ChatView({
   endCompletion: _endCompletion,
   className,
   bottomPadding = 0,
-  composerProjected = false,
   autoReadEnabled = false,
   voiceReadAloudEnabled = false,
   voiceProvider = null,
@@ -257,7 +256,6 @@ export function ChatView({
   endCompletion: () => void;
   className?: string;
   bottomPadding?: number;
-  composerProjected?: boolean;
   autoReadEnabled?: boolean;
   voiceReadAloudEnabled?: boolean;
   voiceProvider?: string | null;
@@ -299,9 +297,7 @@ export function ChatView({
   const mobileShellProfile = useMobileShellProfile();
   const viewportInsets = useViewportInsets(mobileShellProfile.active);
   const shouldStickToLatestRef = useRef(true);
-  const effectiveBottomPad = composerProjected
-    ? bottomPadding
-    : resolveMessageLaneBottomPad(
+  const effectiveBottomPad = resolveMessageLaneBottomPad(
         mobileShellProfile.active,
         viewportInsets.isKeyboardOpen,
         bottomPadding
@@ -481,7 +477,7 @@ export function ChatView({
   }, [measureChatViewport, viewportLayoutSignature]);
 
   useLayoutEffect(() => {
-    if (!initialScrollAppliedRef.current && !composerProjected) return;
+    if (!initialScrollAppliedRef.current) return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -491,7 +487,6 @@ export function ChatView({
     measureChatViewport();
   }, [
     effectiveBottomPad,
-    composerProjected,
     containerRef,
     measureChatViewport,
     viewportInsets.keyboardInset,

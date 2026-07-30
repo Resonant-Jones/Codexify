@@ -111,7 +111,14 @@ function LifecycleLatencyHarness({
       ? state
       : createIdleInferenceRequestState();
 
-  return <InferenceStatusBanner state={visibleState} />;
+  return (
+    <>
+      <InferenceStatusBanner state={visibleState} />
+      <output hidden data-testid="inference-latency-state">
+        {JSON.stringify(visibleState.latencyMetrics)}
+      </output>
+    </>
+  );
 }
 
 describe("GuardianChat lifecycle latency", () => {
@@ -124,7 +131,13 @@ describe("GuardianChat lifecycle latency", () => {
     taskEventSources.instances.length = 0;
   });
 
-  it("renders latency chips as timings arrive and completes with total time", async () => {
+  function readLatencyMetrics(): Array<{ label: string; value: string }> {
+    return JSON.parse(
+      screen.getByTestId("inference-latency-state").textContent ?? "[]"
+    );
+  }
+
+  it("tracks lifecycle timings without displaying diagnostic chips", async () => {
     render(
       <LifecycleLatencyHarness
         activeThreadId={1}
@@ -145,7 +158,7 @@ describe("GuardianChat lifecycle latency", () => {
       state: "QUEUED",
       queued_at: "2026-04-02T00:00:00.000Z",
     });
-    expect(screen.getByText("Queued…")).toBeInTheDocument();
+    expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
     expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
 
     emitTaskEvent(source, "task.state", {
@@ -154,7 +167,11 @@ describe("GuardianChat lifecycle latency", () => {
       state: "AWAITING_MODEL",
       awaiting_model_at: "2026-04-02T00:00:01.000Z",
     });
-    await screen.findByText("Queued: 1.0s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toEqual([
+        { label: "Queued", value: "1.0s" },
+      ]);
+    });
 
     emitTaskEvent(source, "task.state", {
       thread_id: 1,
@@ -162,7 +179,12 @@ describe("GuardianChat lifecycle latency", () => {
       state: "AWAITING_FIRST_TOKEN",
       awaiting_first_token_at: "2026-04-02T00:00:03.000Z",
     });
-    await screen.findByText("Warmup: 2.0s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toEqual([
+        { label: "Queued", value: "1.0s" },
+        { label: "Warmup", value: "2.0s" },
+      ]);
+    });
 
     emitTaskEvent(source, "task.state", {
       thread_id: 1,
@@ -171,7 +193,13 @@ describe("GuardianChat lifecycle latency", () => {
       first_token_at: "2026-04-02T00:00:04.500Z",
       first_output_at: "2026-04-02T00:00:04.500Z",
     });
-    await screen.findByText("First token: 1.5s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toEqual([
+        { label: "Queued", value: "1.0s" },
+        { label: "Warmup", value: "2.0s" },
+        { label: "First token", value: "1.5s" },
+      ]);
+    });
 
     emitTaskEvent(source, "task.completed", {
       thread_id: 1,
@@ -182,10 +210,13 @@ describe("GuardianChat lifecycle latency", () => {
     });
 
     await screen.findByText("Completed");
-    expect(screen.getByText("Queued: 1.0s")).toBeInTheDocument();
-    expect(screen.getByText("Warmup: 2.0s")).toBeInTheDocument();
-    expect(screen.getByText("First token: 1.5s")).toBeInTheDocument();
-    expect(screen.getByText("Total: 6.0s")).toBeInTheDocument();
+    expect(readLatencyMetrics()).toEqual([
+      { label: "Queued", value: "1.0s" },
+      { label: "Warmup", value: "2.0s" },
+      { label: "First token", value: "1.5s" },
+      { label: "Total", value: "6.0s" },
+    ]);
+    expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
   });
 
   it("shows first output rather than first token when only the terminal body knows the timing", async () => {
@@ -231,9 +262,18 @@ describe("GuardianChat lifecycle latency", () => {
       },
     });
 
-    await screen.findByText("First output: 2.0s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toContainEqual({
+        label: "First output",
+        value: "2.0s",
+      });
+    });
     expect(screen.queryByText("First token: 2.0s")).not.toBeInTheDocument();
-    expect(screen.getByText("Total: 5.0s")).toBeInTheDocument();
+    expect(readLatencyMetrics()).toContainEqual({
+      label: "Total",
+      value: "5.0s",
+    });
+    expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
   });
 
   it("does not show stale latency when the active thread changes or a new task starts", async () => {
@@ -263,7 +303,11 @@ describe("GuardianChat lifecycle latency", () => {
       state: "AWAITING_MODEL",
       awaiting_model_at: "2026-04-02T00:00:01.000Z",
     });
-    await screen.findByText("Queued: 1.0s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toEqual([
+        { label: "Queued", value: "1.0s" },
+      ]);
+    });
 
     rerender(
       <LifecycleLatencyHarness
@@ -272,7 +316,7 @@ describe("GuardianChat lifecycle latency", () => {
         taskId="task-1"
       />
     );
-    expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
+    expect(readLatencyMetrics()).toEqual([]);
 
     rerender(
       <LifecycleLatencyHarness
@@ -287,7 +331,7 @@ describe("GuardianChat lifecycle latency", () => {
     });
 
     const secondSource = taskEventSources.instances[1];
-    expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
+    expect(readLatencyMetrics()).toEqual([]);
 
     emitTaskEvent(firstSource, "task.completed", {
       thread_id: 1,
@@ -296,7 +340,7 @@ describe("GuardianChat lifecycle latency", () => {
         completed_at: "2026-04-02T00:00:03.000Z",
       },
     });
-    expect(screen.queryByText("Total: 3.0s")).not.toBeInTheDocument();
+    expect(readLatencyMetrics()).toEqual([]);
 
     emitTaskEvent(secondSource, "task.state", {
       thread_id: 1,
@@ -310,7 +354,11 @@ describe("GuardianChat lifecycle latency", () => {
       state: "AWAITING_MODEL",
       awaiting_model_at: "2026-04-02T00:01:01.000Z",
     });
-    await screen.findByText("Queued: 1.0s");
+    await waitFor(() => {
+      expect(readLatencyMetrics()).toEqual([
+        { label: "Queued", value: "1.0s" },
+      ]);
+    });
   });
 
   it("keeps the lifecycle banner free of latency when no timing data has been stamped", async () => {
@@ -326,7 +374,8 @@ describe("GuardianChat lifecycle latency", () => {
       expect(taskEventSources.instances).toHaveLength(1);
     });
 
-    expect(screen.getByText("Queued…")).toBeInTheDocument();
+    expect(screen.queryByText("Queued…")).not.toBeInTheDocument();
+    expect(readLatencyMetrics()).toEqual([]);
     expect(screen.queryByTestId("inference-latency-readout")).not.toBeInTheDocument();
   });
 });

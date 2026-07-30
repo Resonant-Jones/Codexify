@@ -1,4 +1,4 @@
-import { ImagePlus, Layers3, Paperclip, Volume2 } from "lucide-react";
+import { ImagePlus, Layers3, Paperclip, Volume2, Cpu } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -19,6 +19,13 @@ type DepthOption = {
   description: string;
 };
 
+type MobileModelOption = {
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+};
+
 type ComposerActionMenuProps = {
   disabled?: boolean;
   isPhoneShell?: boolean;
@@ -30,6 +37,12 @@ type ComposerActionMenuProps = {
   onVoiceTurn?: () => void;
   voiceTurnDisabled?: boolean;
   voiceTurnLabel?: string;
+  /** Optional model selection section, shown only on mobile */
+  showModelMenu?: boolean;
+  modelId?: string;
+  modelLabel?: string;
+  modelOptions?: MobileModelOption[];
+  onModelChange?: (modelId: string) => void;
 };
 
 export function ComposerActionMenu({
@@ -43,6 +56,11 @@ export function ComposerActionMenu({
   onVoiceTurn,
   voiceTurnDisabled = false,
   voiceTurnLabel = "Upload voice turn",
+  showModelMenu = false,
+  modelId,
+  modelLabel,
+  modelOptions = [],
+  onModelChange,
 }: ComposerActionMenuProps) {
   const [open, setOpen] = useState(false);
   const pressFeedback = usePressFeedback({
@@ -139,6 +157,59 @@ export function ComposerActionMenu({
               <span>{voiceTurnLabel}</span>
             </span>
           </DropdownMenuItem>
+        ) : null}
+        {showModelMenu && modelOptions.length > 0 && onModelChange ? (
+          <>
+            <div
+              className="px-2 pb-2 pt-3 text-[10px] font-medium uppercase tracking-[0.18em]"
+              style={{ color: "color-mix(in oklab, var(--muted) 82%, transparent)" }}
+            >
+              Model
+            </div>
+            {modelOptions.map((option) => {
+              const selected = option.value === modelId;
+              return (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={() => {
+                    if (option.disabled) return;
+                    closeAndRun(() => onModelChange(option.value));
+                  }}
+                  disabled={option.disabled}
+                  className="cursor-pointer px-2 py-2 disabled:cursor-not-allowed disabled:opacity-45"
+                  style={{
+                    borderRadius: "0.8rem",
+                    background: selected
+                      ? "color-mix(in oklab, var(--accent) 8%, transparent)"
+                      : "transparent",
+                  }}
+                >
+                  <span className="flex w-full items-start gap-2">
+                    <Cpu
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                      style={{ color: selected ? "var(--accent)" : "currentColor" }}
+                    />
+                    <span className="min-w-0">
+                      <span
+                        className="block text-[12px] font-medium"
+                        style={{ color: selected ? "var(--accent)" : "var(--text)" }}
+                      >
+                        {option.label}
+                      </span>
+                      {option.description ? (
+                        <span
+                          className="mt-0.5 block text-[11px]"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+          </>
         ) : null}
         <div
           className="px-2 pb-2 pt-3 text-[10px] font-medium uppercase tracking-[0.18em]"

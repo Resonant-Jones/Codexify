@@ -34,26 +34,22 @@ export function InferenceStatusBanner({
     state.phase === "streaming";
 
   const isPendingStop = state.isPendingCancel;
-  const latencyMetrics = state.latencyMetrics ?? [];
   const label = (() => {
     if (isPendingStop) return "Stopping…";
     if (state.phase === "failed") return "Reply failed";
     if (state.phase === "cancelled") return "Reply stopped";
     if (state.phase === "completed") return "Completed";
-    if (state.statusText) return state.statusText;
+    if (state.phase === "sending") return "Working…";
     if (state.phase === "thinking") return "Thinking…";
     if (state.phase === "streaming") return "Replying…";
-    if (state.phase === "sending") return "Sending…";
+    if (state.statusText) return state.statusText;
     return state.statusText ?? "Working…";
   })();
 
-  const detail =
-    state.detailText ??
-    (state.phase === "thinking"
-      ? "This may take a few minutes."
-      : state.phase === "failed"
-        ? state.errorText
-        : null);
+  const detail = isActive
+    ? null
+    : state.detailText ??
+      (state.phase === "failed" ? state.errorText : null);
 
   const tone =
     state.phase === "failed"
@@ -83,27 +79,6 @@ export function InferenceStatusBanner({
             </span>
           ) : null}
         </div>
-        {latencyMetrics.length > 0 ? (
-          <div
-            className="mt-1 flex flex-wrap gap-1 pl-5 text-[10px]"
-            data-testid="inference-latency-readout"
-          >
-            {latencyMetrics.map((metric) => (
-              <span
-                key={metric.label}
-                className="inline-flex items-center rounded-full border px-2 py-0.5 leading-none"
-                style={{
-                  borderColor: "color-mix(in oklab, var(--muted) 18%, transparent)",
-                  background:
-                    "color-mix(in oklab, var(--panel-bg, transparent) 82%, transparent)",
-                  color: "var(--muted)",
-                }}
-              >
-                {metric.label}: {metric.value}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-3 text-[11px]">
         {state.canCancel && onCancel ? (
