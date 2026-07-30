@@ -21,10 +21,11 @@ describe("SettingsPanelDock", () => {
     );
 
     const dock = screen.getByRole("tablist", { name: "Settings tabs" });
+    const navigationSurface =
+      "color-mix(in srgb, var(--panel-bg) 86%, var(--text) 14%)";
     expect(dock).toHaveClass("sticky", "flex", "w-full", "justify-center");
     expect(dock).toHaveStyle({
-      "--settings-nav-surface":
-        "color-mix(in srgb, var(--panel-bg) 94%, var(--text) 6%)",
+      "--settings-nav-surface": navigationSurface,
       "--pill-active-bg": "transparent",
       "--pill-active-text": "var(--text)",
       "--pill-active-border": "var(--accent)",
@@ -34,6 +35,11 @@ describe("SettingsPanelDock", () => {
       top: SETTINGS_DENSITY.edgeChrome,
       paddingInline: SETTINGS_DENSITY.edgeChrome,
     });
+    expect(navigationSurface).toContain("var(--panel-bg)");
+    expect(navigationSurface).toContain("var(--text)");
+    expect(navigationSurface).toContain("86%");
+    expect(navigationSurface).toContain("14%");
+    expect(navigationSurface).not.toContain("var(--accent)");
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     const rail = screen.getByTestId("settings-panel-dock").querySelector(".glass-pill");
     expect(rail).toHaveClass("glass-pill", "w-full", "overflow-x-auto");

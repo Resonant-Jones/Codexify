@@ -26,7 +26,7 @@ export default function SettingsPanelDock({
       style={
         {
           "--settings-nav-surface":
-            "color-mix(in srgb, var(--panel-bg) 94%, var(--text) 6%)",
+            "color-mix(in srgb, var(--panel-bg) 86%, var(--text) 14%)",
           "--pill-active-bg": "transparent",
           "--pill-active-text": "var(--text)",
           "--pill-active-border": "var(--accent)",
