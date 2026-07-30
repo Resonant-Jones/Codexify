@@ -15,6 +15,11 @@ services:
 
   backend:
     ports: !reset []
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
       LLM_PROVIDER: "local"
