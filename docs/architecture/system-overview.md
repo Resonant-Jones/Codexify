@@ -36,6 +36,10 @@ Source anchors:
 | Persistence and infra | Postgres system of record, Redis queues/locks/events, optional Neo4j, local/object media storage | `guardian/db/models.py`, `guardian/queue/redis_queue.py`, `guardian/core/storage.py`, `docker-compose.yml` |
 | Desktop shell | Tauri runtime that can inject backend base URL and API key into the frontend | `src-tauri/src/commands.rs`, `frontend/src/lib/runtimeConfig.ts` |
 
+### Guardian-to-Documents sidebar scope
+
+Guardian owns authoritative chat project and thread navigation. Entering Documents receives a one-way snapshot of Guardian's loaded sidebar context, then Documents owns its project/thread browsing selection locally. Documents queries linked uploaded documents with either exact `thread_id` lineage or `project_id` membership, and uses that same scope for uploads. This reuses existing document persistence and account checks; it does not change document relationships, retrieval policy, or the supported beta claim. Legacy or generated records without a matching `thread_id` remain outside thread scope rather than being assigned synthetic lineage.
+
 ## Deployment and Runtime Topology
 
 ### Default local topology

@@ -94,6 +94,46 @@ The only application publication may be
 `127.0.0.1:8081->8080/tcp`. Guardian 8888, Vite 5173, Whoosh'd 8000, Redis,
 Postgres, Neo4j, migrators, and workers must not have host bindings.
 
+### Backend replacement recovery
+
+The private-preview origin resolves the Compose `backend` service through
+Docker's embedded DNS and refreshes that upstream on a bounded interval. After
+the backend is restarted or force-recreated, `private-preview-origin` should
+continue routing to the current healthy container without an origin restart.
+
+The incident signature for the previous failure was:
+
+- the backend reports healthy;
+- `http://127.0.0.1:8081/health` returns `502 Bad Gateway`; and
+- the backend container was recently restarted or recreated.
+
+Inspect the container identities and health state:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -p codexify_private_preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  ps -q private-preview-origin backend
+
+docker inspect --format '{{json .State}}' \
+  codexify_private_preview-backend-1
+```
+
+Inspect nginx upstream failures without printing the resolved environment:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -p codexify_private_preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  logs --tail=200 private-preview-origin
+```
+
+Restarting only `private-preview-origin` can diagnose stale resolution in an
+older image/configuration, but it must no longer be the normal recovery
+requirement after backend replacement. An `exit 137` or `OOMKilled=true` state
+is a resource failure; this nginx change does not increase Docker memory or
+repair backend OOM pressure.
+
 ## Validation levels
 
 Static configuration proof:

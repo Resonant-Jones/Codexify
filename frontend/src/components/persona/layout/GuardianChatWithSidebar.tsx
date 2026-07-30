@@ -71,6 +71,7 @@ import type { DocumentContextTile } from "@/lib/documentContext";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import { getMobileNavigationControlStyle } from "./mobileNavigationContract";
+import type { GuardianSidebarSnapshot } from "@/components/documents/documentScopeProjection";
 
 type PanelShellProps = React.PropsWithChildren<{
   className?: string;
@@ -301,6 +302,7 @@ type GuardianChatWithSidebarProps = {
   providerRuntimeState?: ProviderRuntimeState | null;
   runtimeHealth?: RuntimeHealthStatus | null;
   onProjectChange?: (projectId: string | null, projectName: string | null) => void;
+  onSidebarSnapshot?: (snapshot: GuardianSidebarSnapshot) => void;
   activeApplicationView?: GuardianApplicationView;
   applicationDestinations?: readonly GuardianApplicationDestination[];
   onNavigateApplicationView?: (view: GuardianApplicationView) => void;
@@ -324,6 +326,7 @@ export default function GuardianChatWithSidebar({
   providerRuntimeState = null,
   runtimeHealth = null,
   onProjectChange,
+  onSidebarSnapshot,
   activeApplicationView = "guardian",
   applicationDestinations = [],
   onNavigateApplicationView,
@@ -373,6 +376,7 @@ export default function GuardianChatWithSidebar({
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const [activeId, setActiveId] = React.useState<string | null>(null);
+  const lastSidebarSnapshotSignatureRef = React.useRef<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [threadsHasMore, setThreadsHasMore] = React.useState(true);
   const [threadsLoadingMore, setThreadsLoadingMore] = React.useState(false);
@@ -422,6 +426,47 @@ export default function GuardianChatWithSidebar({
   React.useEffect(() => {
     threadsRef.current = threads;
   }, [threads]);
+
+  const sidebarSnapshot = React.useMemo<GuardianSidebarSnapshot>(() => {
+    const activeThreadId = Number(activeId);
+    const normalizedActiveThreadId =
+      Number.isInteger(activeThreadId) && activeThreadId > 0
+        ? activeThreadId
+        : null;
+    const selectedProjectNumeric = Number(selectedProjectId);
+    const selectedProjectNumericId =
+      Number.isInteger(selectedProjectNumeric) && selectedProjectNumeric > 0
+        ? selectedProjectNumeric
+        : null;
+    const activeThread = threads.find(
+      (thread) => Number(thread.id) === normalizedActiveThreadId
+    );
+    const activeThreadProjectNumeric = Number(activeThread?.projectId);
+
+    return {
+      // The projection deliberately omits messages; Documents only needs the
+      // sidebar directory, never Guardian transcript state.
+      threads: threads.map(({ messages: _messages, ...thread }) => ({ ...thread })),
+      activeThreadId: normalizedActiveThreadId,
+      selectedProjectId: selectedProjectNumericId,
+      selectedProjectName,
+      activeThreadProjectId:
+        Number.isInteger(activeThreadProjectNumeric) && activeThreadProjectNumeric > 0
+          ? activeThreadProjectNumeric
+          : null,
+    };
+  }, [activeId, selectedProjectId, selectedProjectName, threads]);
+  const sidebarSnapshotSignature = React.useMemo(
+    () => JSON.stringify(sidebarSnapshot),
+    [sidebarSnapshot]
+  );
+
+  React.useEffect(() => {
+    if (!onSidebarSnapshot) return;
+    if (lastSidebarSnapshotSignatureRef.current === sidebarSnapshotSignature) return;
+    lastSidebarSnapshotSignatureRef.current = sidebarSnapshotSignature;
+    onSidebarSnapshot(sidebarSnapshot);
+  }, [onSidebarSnapshot, sidebarSnapshot, sidebarSnapshotSignature]);
 
   React.useEffect(() => {
     if (!routeCapabilitiesReady) {
