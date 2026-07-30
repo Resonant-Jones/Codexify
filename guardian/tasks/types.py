@@ -17,9 +17,11 @@ from guardian.protocol_tokens import (
     DelegationJobStatus,
 )
 from guardian.core.request_correlation import (
+    is_safe_identifier,
     normalize_optional_identifier,
     normalize_request_id,
 )
+from guardian.hosted_rooms.actor_tokens import GUARDIAN_REF, RESIDENT_SOURCE
 
 
 def _utc_now_iso() -> str:
@@ -172,6 +174,117 @@ def _default_coding_permission_policy() -> CodingAgentPermissionPolicy:
         allowed_paths=(),
         max_runtime_seconds=60,
     )
+
+
+_HOSTED_ROOM_INVOCATION_FIELDS = frozenset(
+    {
+        "room_id",
+        "source_message_id",
+        "actor_participant_id",
+        "actor_source",
+        "actor_ref",
+        "requester_authority",
+        "requester_participant_id",
+    }
+)
+
+
+def _require_hosted_room_identifier(raw: Any, field_name: str) -> str:
+    if not isinstance(raw, str):
+        raise ValueError(f"{field_name} must be a bounded string identifier")
+    value = raw.strip()
+    if not is_safe_identifier(value):
+        raise ValueError(f"{field_name} must be a bounded string identifier")
+    return value
+
+
+@dataclass(frozen=True)
+class HostedRoomInvocationMetadata:
+    """Bounded, inert identity context for a future Hosted Room invocation."""
+
+    room_id: str
+    source_message_id: int
+    actor_participant_id: str
+    actor_source: str
+    actor_ref: str
+    requester_authority: str
+    requester_participant_id: str | None
+
+    def __post_init__(self) -> None:
+        room_id = _require_hosted_room_identifier(self.room_id, "room_id")
+        actor_participant_id = _require_hosted_room_identifier(
+            self.actor_participant_id, "actor_participant_id"
+        )
+        if isinstance(self.source_message_id, bool) or not isinstance(
+            self.source_message_id, int
+        ):
+            raise ValueError("source_message_id must be a positive integer")
+        if self.source_message_id <= 0:
+            raise ValueError("source_message_id must be a positive integer")
+
+        actor_source = str(self.actor_source or "").strip()
+        actor_ref = str(self.actor_ref or "").strip()
+        if actor_source != RESIDENT_SOURCE:
+            raise ValueError("actor_source must be resident")
+        if actor_ref != GUARDIAN_REF:
+            raise ValueError("actor_ref must be guardian")
+
+        requester_authority = str(self.requester_authority or "").strip()
+        if requester_authority not in {"owner", "guest"}:
+            raise ValueError("requester_authority must be owner or guest")
+
+        requester_participant_id = self.requester_participant_id
+        if requester_authority == "owner":
+            if requester_participant_id is not None:
+                raise ValueError(
+                    "owner metadata must not include requester_participant_id"
+                )
+        else:
+            requester_participant_id = _require_hosted_room_identifier(
+                requester_participant_id, "requester_participant_id"
+            )
+
+        object.__setattr__(self, "room_id", room_id)
+        object.__setattr__(self, "actor_participant_id", actor_participant_id)
+        object.__setattr__(self, "actor_source", actor_source)
+        object.__setattr__(self, "actor_ref", actor_ref)
+        object.__setattr__(self, "requester_authority", requester_authority)
+        object.__setattr__(
+            self, "requester_participant_id", requester_participant_id
+        )
+
+    @classmethod
+    def from_dict(
+        cls, payload: dict[str, Any]
+    ) -> HostedRoomInvocationMetadata:
+        if not isinstance(payload, dict):
+            raise ValueError("hosted_room_invocation must be an object")
+        unknown = set(payload) - _HOSTED_ROOM_INVOCATION_FIELDS
+        if unknown:
+            raise ValueError("hosted_room_invocation contains unknown fields")
+        missing = _HOSTED_ROOM_INVOCATION_FIELDS - set(payload)
+        if missing:
+            raise ValueError("hosted_room_invocation is incomplete")
+        return cls(
+            room_id=payload["room_id"],
+            source_message_id=payload["source_message_id"],
+            actor_participant_id=payload["actor_participant_id"],
+            actor_source=payload["actor_source"],
+            actor_ref=payload["actor_ref"],
+            requester_authority=payload["requester_authority"],
+            requester_participant_id=payload["requester_participant_id"],
+        )
+
+
+def _coerce_hosted_room_invocation_metadata(
+    raw: Any,
+) -> HostedRoomInvocationMetadata | None:
+    if raw is None:
+        return None
+    try:
+        return HostedRoomInvocationMetadata.from_dict(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _coerce_coding_permission_policy(
@@ -682,6 +795,7 @@ class ChatCompletionTask(BaseTask):
     profession: str | None = None
     guardian_name: str | None = None
     attempt_id: str = ""
+    hosted_room_invocation: HostedRoomInvocationMetadata | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -741,6 +855,9 @@ class ChatCompletionTask(BaseTask):
             profession=_coerce_optional_text(payload.get("profession")),
             guardian_name=_coerce_optional_text(payload.get("guardian_name")),
             attempt_id=_coerce_optional_text(payload.get("attempt_id")) or "",
+            hosted_room_invocation=_coerce_hosted_room_invocation_metadata(
+                payload.get("hosted_room_invocation")
+            ),
             **base,
         )
 

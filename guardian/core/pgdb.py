@@ -22,6 +22,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import psycopg
 from psycopg import errors as pg_errors
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from sqlalchemy import create_engine, inspect
@@ -35,7 +36,7 @@ from guardian.db.models import (
     PersonalFactRevision,
 )
 
-from .chat_db import ChatDB
+from .chat_db import ChatDB, validate_message_provenance
 from .default_project import (
     canonicalize_default_project,
     resolve_project_id_or_default,
@@ -1448,8 +1449,15 @@ class PgDB(ChatDB):
         content: str,
         created_at: str | None = None,
         user_id: str | None = None,
+        *,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
     ) -> int:
         """Insert a message row and return its id."""
+        validate_message_provenance(
+            hosted_room_participant_id,
+            sender_display_name_snapshot,
+        )
         now = datetime.now(timezone.utc)
         thread = self.get_chat_thread(thread_id)
         resolved_user_id = (
@@ -1463,8 +1471,12 @@ class PgDB(ChatDB):
                 if created_at is not None:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, user_id, role, content, created_at)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO chat_messages (
+                            thread_id, user_id, role, content, created_at,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1473,16 +1485,29 @@ class PgDB(ChatDB):
                             role,
                             content,
                             created_at,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot,
                         ),
                     )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO chat_messages (thread_id, user_id, role, content)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO chat_messages (
+                            thread_id, user_id, role, content,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
-                        (thread_id, resolved_user_id, role, content),
+                        (
+                            thread_id,
+                            resolved_user_id,
+                            role,
+                            content,
+                            hosted_room_participant_id,
+                            sender_display_name_snapshot,
+                        ),
                     )
                 row = cur.fetchone()
                 message_id = int(row["id"]) if row else None
@@ -3018,12 +3043,24 @@ class PgDB(ChatDB):
         )
         max_row = cur.fetchone() or {}
         max_value = int(max_row.get("max_id") or 0)
-        if max_value > 0:
+        if max_value <= 0:
+            return
+
+        sequence_identifier = sql.Identifier(*sequence_name.split("."))
+        cur.execute(
+            sql.SQL("SELECT last_value, is_called FROM {}")
+            .format(sequence_identifier)
+        )
+        sequence_row = cur.fetchone() or {}
+        sequence_value = int(sequence_row.get("last_value") or 0)
+        sequence_called = bool(sequence_row.get("is_called"))
+
+        if sequence_value < max_value or (
+            sequence_value == max_value and not sequence_called
+        ):
             cur.execute(
                 "SELECT setval(%s, %s, true)", (sequence_name, max_value)
             )
-        else:
-            cur.execute("SELECT setval(%s, %s, false)", (sequence_name, 1))
 
     def restore_account_export_projects(
         self,

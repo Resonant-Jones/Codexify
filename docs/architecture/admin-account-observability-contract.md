@@ -1,11 +1,11 @@
 # Admin Account Observability Contract
 
 > Classification: architecture contract
-> Status: proposed (docs-only)
+> Status: accepted; implementation in progress
 > Privacy sensitivity: high
-> Implementation status: not implemented; this contract defines the normative boundary for future implementation slices.
-> Release claim: this contract does not widen the supported beta release promise.
-> Last updated: 2026-07-21
+> Implementation status: Slices 1–3 are implemented as an internal Guardian capability; Slices 4–7 remain unimplemented.
+> Release claim: this branch-local capability does not widen the supported beta release promise.
+> Last updated: 2026-07-27
 
 ## Purpose
 
@@ -50,6 +50,15 @@ This contract explicitly does **not** cover:
 - A `POST /auth/register` route exists but is gated behind private-preview checks.
 - The dashboard snapshot (`GET /api/dashboard/snapshot`) requires dual authority: service API key plus authenticated human Guardian session.
 - Admin routes use `X-Admin-Token` header-based authorization.
+
+### Implemented internal capability (Slices 1–3)
+
+- Migration `b2c3d4e5f6a7` and `guardian.db.models` define canonical invite, guest-lineage, account-metadata, and content-free presence-session persistence.
+- `guardian.account_observability.invites` and `guardian.routes.account_observability` own invite creation, resolution, and first-touch attribution; `guardian.routes.auth` preserves that lineage during registration.
+- `POST /api/account-observability/heartbeat` delegates to `guardian.account_observability.presence.record_heartbeat`. Authenticated identity comes from the signed Guardian session seam. Guest identity comes from the server-issued `codexify_guest_attribution` cookie and is accepted only when the corresponding canonical guest row exists and is not deleted.
+- Presence is approximate within the five-minute active window. The client calls the route only while foregrounded; the server does not infer browser visibility. Repeated heartbeats coalesce into one open subject lease, and thirty-minute idle expiry remains authoritative.
+- `POST /api/operator/account-observability/retention/cleanup` invokes `guardian.account_observability.retention.run_cleanup`. It supports dry-run receipts, expires idle sessions at 30 minutes, deletes presence rows older than 30 days in bounded batches, and soft-deletes unconverted/unreferenced guest lineage older than 90 days.
+- Guest rows referenced by converted-account metadata are explicitly deferred so canonical first-touch attribution survives. Invite definitions are never deleted by cleanup.
 
 ### What is not yet true
 
@@ -238,7 +247,7 @@ These values are canonical runtime defaults registered in `guardian/account_obse
 
 The canonical operation is `POST /api/account-observability/heartbeat` with an empty
 JSON object. The route resolves an authenticated account from existing Guardian
-session/API-key context or a guest from the server-issued `codexify_guest_id`
+session/API-key context or a guest from the server-issued `codexify_guest_attribution`
 cookie. It returns only active state, bounded lease timing, and server UTC time.
 It never accepts account IDs, guest IDs, timestamps, durations, routes, content,
 referrers, user agents, location, or device dimensions. Cleanup is available to
@@ -515,16 +524,16 @@ Every section must show its `as_of`, coverage, and degraded state.
 
 ## Implementation Sequencing
 
-The following slices are ordered and must be implemented as separate atomic tasks:
+The following slices remain ordered and separately governed; Slices 1–3 are implemented internally in this branch and Slices 4–7 remain deferred:
 
-### Slice 1: Canonical tokens, persistence entities, migration, and focused model tests
+### Slice 1 (implemented): Canonical tokens, persistence entities, migration, and focused model tests
 
 - Register canonical token domains for metric names, attribution methods, invite statuses, freshness states, and presence states.
 - Create persistence entities (presence session, invite link, registration attribution, hourly aggregates).
 - Create Alembic migration.
 - Write focused model tests.
 
-### Slice 2: Invite creation/resolution and first-party attribution lineage
+### Slice 2 (implemented): Invite creation/resolution and first-party attribution lineage
 
 - Implement invite-link creation (operator-only).
 - Implement invite-token resolution endpoint.
@@ -575,14 +584,9 @@ Each slice requires its own atomic Task Spec and commit.
 
 ## Non-Goals
 
-- No database models in this task.
-- No Alembic migration in this task.
-- No account-registration implementation.
-- No guest-session implementation.
-- No heartbeat endpoint.
+- No public-account-registration expansion beyond the existing bounded route.
 - No GeoIP dependency.
 - No IP processing code.
-- No invite-link route.
 - No analytics aggregation worker.
 - No admin API route.
 - No dashboard snapshot modification.
@@ -590,7 +594,6 @@ Each slice requires its own atomic Task Spec and commit.
 - No Codexify.Space modification.
 - No Prometheus metrics.
 - No third-party analytics SDK.
-- No cookie implementation.
 - No privacy-policy copy.
 - No deployment changes.
 - No backfill.

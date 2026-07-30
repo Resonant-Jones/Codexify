@@ -15,6 +15,8 @@ WHOOSHD_BASE_URL="${WHOOSHD_BASE_URL:-http://127.0.0.1:8000}"
 BACKEND_URL="${CODEXIFY_BACKEND_URL:-http://127.0.0.1:8889}"
 WHOOSHD_LABEL="${WHOOSHD_LAUNCHD_LABEL:-system/com.resonant.whooshd}"
 EXPECTED_MODEL="gemma-4-12b-it-qat-4bit"
+WHOOSHD_READINESS_TIMEOUT_SECONDS="${WHOOSHD_READINESS_TIMEOUT_SECONDS:-120}"
+CODEXIFY_READINESS_TIMEOUT_SECONDS="${CODEXIFY_READINESS_TIMEOUT_SECONDS:-120}"
 
 cd "$ROOT_DIR"
 
@@ -36,17 +38,29 @@ if ! curl -fsS --max-time 3 "$WHOOSHD_BASE_URL/health" >/dev/null 2>&1; then
   done
 fi
 
-python3 - "$WHOOSHD_BASE_URL" "$EXPECTED_MODEL" <<'PY'
-import json, sys, urllib.request
+python3 - "$WHOOSHD_BASE_URL" "$EXPECTED_MODEL" "$WHOOSHD_READINESS_TIMEOUT_SECONDS" <<'PY'
+import json, sys, time, urllib.error, urllib.request
 
-base, expected = sys.argv[1:]
+base, expected, readiness_timeout = sys.argv[1:]
+deadline = time.monotonic() + float(readiness_timeout)
 def get(path):
     with urllib.request.urlopen(base + path, timeout=5) as response:
         return json.load(response)
 
-health = get('/health')
-if health.get('status') != 'ready' and health.get('ok') is not True:
-    raise SystemExit(f"Whoosh'd is not ready: {health!r}")
+last_error = None
+while time.monotonic() < deadline:
+    try:
+        health = get('/health')
+        if health.get('status') == 'ready' or health.get('ok') is True:
+            break
+        last_error = f"health payload was not ready: {health!r}"
+    except (OSError, ValueError, urllib.error.URLError) as exc:
+        last_error = repr(exc)
+    time.sleep(2)
+else:
+    raise SystemExit(
+        f"Whoosh'd did not become ready within {readiness_timeout}s; last error: {last_error}"
+    )
 models = get('/v1/models').get('data') or []
 ids = [str(item.get('id') or '').strip() for item in models]
 if ids != [expected]:
@@ -69,19 +83,23 @@ def complete(index):
     )
     with urllib.request.urlopen(request, timeout=90) as response:
         body = json.load(response)
-        return response.status, body
+        choices = body.get('choices') or []
+        content = (
+            choices[0].get('message', {}).get('content')
+            if choices and isinstance(choices[0], dict)
+            else None
+        )
+        return response.status, content
 
 with ThreadPoolExecutor(max_workers=2) as pool:
-    responses = list(pool.map(complete, (1, 2)))
-for index, (status, body) in enumerate(responses, start=1):
-    if status != 200:
-        raise SystemExit(f"Whoosh'd concurrent LOAD-{index} returned HTTP {status}: {body!r}")
-    choices = body.get('choices') or []
-    content = choices[0].get('message', {}).get('content') if choices else None
-    if str(content or '').strip() != f'LOAD-{index}':
-        raise SystemExit(
-            f"Whoosh'd concurrent LOAD-{index} body mismatch; got {content!r}: {body!r}"
-        )
+    results = list(pool.map(complete, (1, 2)))
+expected_results = [(200, 'LOAD-1'), (200, 'LOAD-2')]
+normalized_results = [
+    (status, content.strip() if isinstance(content, str) else content)
+    for status, content in results
+]
+if normalized_results != expected_results:
+    raise SystemExit(f"Whoosh'd concurrent x2 gate failed: {normalized_results!r}")
 print("Whoosh'd concurrent x2 gate passed")
 PY
 
@@ -92,18 +110,34 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-codexify_tester}" \
   -f docker-compose.whooshd-deepseek.yml \
   up -d frontend backend db redis worker-chat worker-document-embed migrator
 
-python3 - "$BACKEND_URL" <<'PY'
-import json, sys, urllib.request
+python3 - "$BACKEND_URL" "$CODEXIFY_READINESS_TIMEOUT_SECONDS" <<'PY'
+import json, sys, time, urllib.error, urllib.request
 
-base = sys.argv[1]
-for path in ('/api/health/chat', '/api/health/llm'):
-    with urllib.request.urlopen(base + path, timeout=15) as response:
-        payload = json.load(response)
-    if response.status != 200:
-        raise SystemExit(f'{path} returned HTTP {response.status}: {payload!r}')
-    expected_status = 'healthy' if path.endswith('/chat') else 'ok'
-    if payload.get('status') != expected_status:
-        raise SystemExit(f'{path} is not ready: {payload!r}')
+base, readiness_timeout = sys.argv[1:]
+deadline = time.monotonic() + float(readiness_timeout)
+last_error = None
+while time.monotonic() < deadline:
+    try:
+        health_payloads = {}
+        for path in ('/api/health/chat', '/api/health/llm'):
+            with urllib.request.urlopen(base + path, timeout=15) as response:
+                payload = json.load(response)
+            expected_status = 'healthy' if path.endswith('/chat') else 'ok'
+            if response.status != 200 or payload.get('status') != expected_status:
+                raise RuntimeError(
+                    f'{path} is not ready: HTTP {response.status}: {payload!r}'
+                )
+            health_payloads[path] = payload
+        break
+    except (OSError, RuntimeError, ValueError, urllib.error.URLError) as exc:
+        last_error = repr(exc)
+        time.sleep(2)
+else:
+    raise SystemExit(
+        f'Codexify did not become ready within {readiness_timeout}s; last error: {last_error}'
+    )
+
+for path, payload in health_payloads.items():
     print(path, json.dumps(payload, sort_keys=True))
 
 with urllib.request.urlopen(base + '/api/llm/catalog', timeout=15) as response:

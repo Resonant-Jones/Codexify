@@ -16,6 +16,14 @@ The goal is not to hide complexity. The goal is to make the complexity legible, 
 
 The future of AI work is not just better models. It is better boundaries.
 
+## UI Personalization
+
+<p align="center">
+  <img src="docs/assets/codexify-ui-personalization.gif" alt="Animated slideshow of Codexify UI personalization settings and workspace views" width="960" />
+</p>
+
+This short loop shows the same workspace across several appearance configurations, followed by thread, dashboard, Persona Studio, and document views.
+
 ## Highlights
 
 - **Local-first runtime** with Docker Compose as the reference path.

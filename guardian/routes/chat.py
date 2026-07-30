@@ -17,7 +17,6 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 from urllib.parse import quote, unquote
@@ -58,9 +57,13 @@ from guardian.core.candidate_trace_store import (
 from guardian.core.chat_attachments import extract_attachments_and_text
 from guardian.core.request_correlation import normalize_request_id
 from guardian.core.chat_completion_service import (
+    CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+    CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
+    ChatCompletionEnqueueError,
     DEBUG_LATEST_COMPLETION_TASK_ID_METADATA_KEY,
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
+    enqueue_chat_completion,
     _merge_thread_metadata_patch,
     resolve_thread_completion_settings,
     split_history_and_latest_turn,
@@ -91,28 +94,19 @@ from guardian.fact_candidate_pipeline import (
 from guardian.protocol_tokens import (
     AcceptanceStatus,
     ChatEventType,
-    ErrorCode,
-    TaskEventType,
     TraceSnapshotAbsenceReason,
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
-    QueueEnqueueError,
     RedisOperationTimeout,
     enqueue,
     enqueue_chat_embed,
     run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
-    TurnLockEnvelope,
     acquire_turn_lock,
-    build_turn_lock_envelope,
-    clear_turn_lock,
-    get_turn_lock,
     release_turn_lock,
-    turn_lock_is_stale,
 )
-from guardian.routes.health import _classify_chat_worker_heartbeat
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 from guardian.utils.log_safety import install_safe_logging
@@ -121,24 +115,6 @@ install_safe_logging()
 logger = logging.getLogger(__name__)
 COMPLETION_SERVICE_UNAVAILABLE_MESSAGE = (
     "Completion service unavailable — check Docker/Redis."
-)
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED = AcceptanceStatus.ACCEPTED.value
-COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED = (
-    AcceptanceStatus.ACCEPTED_DEGRADED.value
-)
-COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED = (
-    "task_created_event_publish_failed"
-)
-COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID = (
-    "task_created_event_missing_event_id"
-)
-TASK_EVENT_TYPE_TASK_CREATED = TaskEventType.TASK_CREATED.value
-CHAT_COMPLETE_ENQUEUE_ERROR_CODE = ErrorCode.CHAT_COMPLETE_ENQUEUE_FAILED.value
-CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE = (
-    ErrorCode.CHAT_COMPLETE_TASK_CREATED_EVENT_FAILED.value
-)
-CHAT_WORKER_HEARTBEAT_KEY = os.getenv(
-    "CHAT_WORKER_HEARTBEAT_KEY", "codexify:worker:chat:heartbeat"
 )
 
 
@@ -244,101 +220,6 @@ def _require_existing_thread_account_scope(
         thread_id,
         request_user_scope,
         thread=thread_record,
-    )
-
-
-def _best_effort_release_turn_lock(
-    thread_id: int,
-    owner: str | TurnLockEnvelope,
-    *,
-    log_message: str,
-) -> None:
-    try:
-        run_with_redis_timeout(lambda: release_turn_lock(thread_id, owner))
-    except TypeError:
-        raise
-    except (RedisOperationTimeout, Exception):
-        logger.debug(log_message, exc_info=True)
-
-
-def _task_terminal_event(task_id: str) -> dict[str, Any]:
-    """Return terminal-state evidence for a task event stream."""
-
-    return task_events.describe_terminal_state(task_id)
-
-
-def _chat_worker_heartbeat_age_seconds() -> float | None:
-    evidence = _chat_worker_heartbeat_evidence()
-    age_seconds = evidence.get("age_seconds")
-    return float(age_seconds) if isinstance(age_seconds, (int, float)) else None
-
-
-def _chat_worker_heartbeat_evidence() -> dict[str, Any]:
-    """Inspect the chat worker heartbeat key and classify freshness."""
-
-    evidence: dict[str, Any] = {
-        "key": CHAT_WORKER_HEARTBEAT_KEY,
-        "state": "unknown",
-        "age_seconds": None,
-        "detected": False,
-        "reason": "unknown",
-        "error": None,
-    }
-    try:
-        from guardian.queue.redis_queue import get_redis_client
-
-        client = run_with_redis_timeout(get_redis_client)
-        raw_heartbeat = run_with_redis_timeout(
-            lambda: client.get(CHAT_WORKER_HEARTBEAT_KEY)
-        )
-        if not raw_heartbeat:
-            evidence["state"] = "missing"
-            evidence["reason"] = "heartbeat_missing"
-            return evidence
-
-        evidence["detected"] = True
-        heartbeat_payload: dict[str, Any] = {}
-        try:
-            if isinstance(raw_heartbeat, (bytes, bytearray)):
-                heartbeat_payload = json.loads(raw_heartbeat.decode("utf-8"))
-            else:
-                heartbeat_payload = json.loads(str(raw_heartbeat))
-        except Exception:
-            evidence["reason"] = "heartbeat_parse_failed"
-            return evidence
-
-        ts = heartbeat_payload.get("ts")
-        if not isinstance(ts, (int, float)):
-            evidence["reason"] = "heartbeat_timestamp_missing"
-            return evidence
-
-        age_seconds = max(0.0, round(time.time() - float(ts), 3))
-        evidence["age_seconds"] = age_seconds
-        evidence["state"] = _classify_chat_worker_heartbeat(True, age_seconds)
-        evidence["reason"] = "ok"
-        return evidence
-    except (RedisOperationTimeout, Exception) as exc:
-        evidence["reason"] = "redis_unavailable"
-        evidence["error"] = f"{type(exc).__name__}: {exc}"
-        return evidence
-
-
-def _turn_lock_payload(
-    lock: TurnLockEnvelope | None,
-    *,
-    thread_id: int,
-    owner: str,
-    turn_id: str,
-) -> dict[str, Any]:
-    if isinstance(lock, TurnLockEnvelope):
-        return asdict(lock)
-    return asdict(
-        build_turn_lock_envelope(
-            thread_id,
-            owner,
-            turn_id=turn_id,
-            source="api:chat.complete",
-        )
     )
 
 
@@ -512,201 +393,6 @@ def _request_id_from_request(request: Request | None) -> str | None:
         return None
     normalized, valid = normalize_request_id(request_id)
     return normalized if valid else None
-
-
-def _publish_completion_start_event(
-    *,
-    task: ChatCompletionTask,
-    thread_id: int,
-    turn_id: str,
-) -> dict[str, Any]:
-    """Publish the lifecycle-start breadcrumb and normalize failure details."""
-
-    payload = {
-        "type": task.type,
-        "thread_id": thread_id,
-        "origin": task.origin,
-        "turn_id": turn_id,
-        "latest_turn_message_id": getattr(task, "latest_turn_message_id", None),
-    }
-    try:
-        publish_result = task_events.publish_with_visibility(
-            task.task_id,
-            TASK_EVENT_TYPE_TASK_CREATED,
-            payload,
-        )
-    except Exception as exc:
-        visibility_scope = task_events.classify_event_visibility(
-            TASK_EVENT_TYPE_TASK_CREATED
-        )
-        return {
-            "ok": False,
-            "task_id": task.task_id,
-            "event_type": TASK_EVENT_TYPE_TASK_CREATED,
-            "visibility_scope": visibility_scope,
-            "terminal_visibility": visibility_scope == "terminal",
-            "execution_continued": True,
-            "event_id": None,
-            "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
-            "failure_class": exc.__class__.__name__,
-            "error": str(exc),
-            "exception": exc,
-        }
-
-    if isinstance(publish_result, dict):
-        if not publish_result.get("ok"):
-            raise task_events.TaskEventPublishError.from_publish_result(
-                publish_result
-            ) from (
-                publish_result.get("exception")
-                if isinstance(publish_result.get("exception"), BaseException)
-                else None
-            )
-        return publish_result
-
-    visibility_scope = task_events.classify_event_visibility(
-        TASK_EVENT_TYPE_TASK_CREATED
-    )
-    return {
-        "ok": False,
-        "task_id": task.task_id,
-        "event_type": TASK_EVENT_TYPE_TASK_CREATED,
-        "visibility_scope": visibility_scope,
-        "terminal_visibility": visibility_scope == "terminal",
-        "execution_continued": True,
-        "event_id": None,
-        "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
-        "failure_class": "InvalidPublishResult",
-        "error": (
-            "unexpected result type: " f"{type(publish_result).__name__}"
-        ),
-        "exception": TypeError(
-            f"unexpected result type: {type(publish_result).__name__}"
-        ),
-    }
-    raise task_events.TaskEventPublishError.from_publish_result(failure) from (
-        failure["exception"]
-        if isinstance(failure.get("exception"), BaseException)
-        else None
-    )
-
-
-def _completion_acceptance_outcome(
-    publish_result: dict[str, Any],
-) -> tuple[str, list[str]]:
-    """Translate start-event visibility into a narrow acceptance status."""
-
-    if not publish_result.get("ok"):
-        return (
-            COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED,
-            [COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_PUBLISH_FAILED],
-        )
-
-    event_id = str(publish_result.get("event_id") or "").strip()
-    if not event_id:
-        return (
-            COMPLETION_ACCEPTANCE_STATUS_ACCEPTED_DEGRADED,
-            [COMPLETION_ACCEPTANCE_WARNING_TASK_CREATED_MISSING_EVENT_ID],
-        )
-
-    return COMPLETION_ACCEPTANCE_STATUS_ACCEPTED, []
-
-
-def _recover_orphaned_turn_lock(thread_id: int) -> bool:
-    stale_lock = _run_completion_redis_op(
-        lambda: get_turn_lock(thread_id),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock probe unavailable: %s",
-    )
-    if stale_lock is None or not turn_lock_is_stale(stale_lock):
-        return False
-
-    terminal_evidence = _task_terminal_event(stale_lock.owner_task_id)
-    terminal_state = str(
-        terminal_evidence.get("state")
-        if isinstance(terminal_evidence, dict)
-        else "unknown"
-    )
-    heartbeat_evidence = _chat_worker_heartbeat_evidence()
-    heartbeat_state = str(
-        heartbeat_evidence.get("state")
-        if isinstance(heartbeat_evidence, dict)
-        else "unknown"
-    )
-
-    # Recovery rule:
-    # - terminal task evidence is enough to clear the stale lock.
-    # - otherwise, the task stream must be nonterminal and the worker heartbeat
-    #   must be stale/dead/missing. We do not recover when either evidence
-    #   source is unknown, and we never recover on lease age alone.
-    recoverable = False
-    recovery_reason = "unrecoverable_state"
-    if terminal_state == "terminal":
-        recoverable = True
-        recovery_reason = "terminal_task_event"
-    elif terminal_state == "nonterminal" and heartbeat_state in {
-        "stale",
-        "dead",
-        "missing",
-    }:
-        recoverable = True
-        recovery_reason = f"nonterminal_task_and_{heartbeat_state}_heartbeat"
-
-    if not recoverable:
-        logger.warning(
-            "[chat.complete] stale turn lock recovery denied thread_id=%s owner_task_id=%s terminal_state=%s terminal_reason=%s worker_state=%s worker_reason=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            terminal_state,
-            terminal_evidence.get("reason")
-            if isinstance(terminal_evidence, dict)
-            else "unknown",
-            heartbeat_state,
-            heartbeat_evidence.get("reason")
-            if isinstance(heartbeat_evidence, dict)
-            else "unknown",
-        )
-        return False
-
-    cleared = _run_completion_redis_op(
-        lambda: clear_turn_lock(thread_id, expected=stale_lock),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock clear unavailable: %s",
-    )
-    if cleared and hasattr(chatlog_db, "write_audit_log"):
-        chatlog_db.write_audit_log(
-            "recover_orphaned_turn_lock",
-            "chat_thread",
-            str(thread_id),
-            user_id="system",
-        )
-        try:
-            event_bus.emit_event(
-                ChatEventType.ORPHANED_TURN_RECOVERED.value,
-                {
-                    "thread_id": thread_id,
-                    "owner_task_id": stale_lock.owner_task_id,
-                    "turn_id": stale_lock.turn_id,
-                    "recovery_reason": recovery_reason,
-                    "terminal_state": terminal_state,
-                    "worker_state": heartbeat_state,
-                    "lifecycle_state": "orphaned",
-                },
-            )
-        except Exception:
-            logger.exception(
-                "[chat.complete] orphan recovery event publish failed thread_id=%s",
-                thread_id,
-            )
-        logger.info(
-            "[chat.complete] stale turn lock recovered thread_id=%s owner_task_id=%s recovery_reason=%s terminal_state=%s worker_state=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            recovery_reason,
-            terminal_state,
-            heartbeat_state,
-        )
-    return cleared
 
 
 # =========================
@@ -3312,101 +2998,73 @@ async def chat_complete(
         ),
     )
     task.turn_id = turn_id
-    task_identity = _normalize_task_identity(getattr(task, "task_id", None))
-    if task_identity is None:
-        logger.error(
-            "[chat.complete] invalid task identity thread_id=%s turn_id=%s task_type=%s",
-            thread_id,
-            turn_id,
-            getattr(task, "type", "unknown"),
-        )
-        raise _completion_service_unavailable("task_identity_invalid")
-    task.task_id = task_identity
     task.request_id = root_request_id
-    task.turn_lock_owner = task_identity
-
-    locked = _run_completion_redis_op(
-        lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] turn lock unavailable: %s",
-    )
-    if not locked:
-        if _recover_orphaned_turn_lock(thread_id):
-            locked = _run_completion_redis_op(
-                lambda: acquire_turn_lock(thread_id, task.turn_lock_owner),
-                reason="turn_lock_unavailable",
-                log_message="[chat.complete] turn lock unavailable after recovery: %s",
-            )
-        if not locked:
-            raise HTTPException(status_code=429, detail="turn_in_flight")
-
-    task.turn_lock = _turn_lock_payload(
-        locked if isinstance(locked, TurnLockEnvelope) else None,
-        thread_id=thread_id,
-        owner=task.turn_lock_owner,
-        turn_id=turn_id,
-    )
-
-    queue_name = "codexify:queue:chat"
-
     try:
-        run_with_redis_timeout(lambda: enqueue(task, queue_name))
-    except QueueEnqueueError as exc:
-        _best_effort_release_turn_lock(
-            thread_id,
-            task.turn_lock_owner,
-            log_message="[chat.complete] failed to release lock after enqueue error",
+        enqueue_result = enqueue_chat_completion(
+            task,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            request_id=root_request_id,
         )
-        logger.error(
-            "[chat.complete] enqueue failed",
-            extra={
-                "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED",
-                "request_id": root_request_id,
-                "thread_id": thread_id,
-                "depth_mode": internal_depth_mode,
-                "turn_id": turn_id,
-                "queue_name": exc.queue_name,
-                "exception_class": type(exc).__name__,
-                "cause_class": type(exc.__cause__).__name__
-                if exc.__cause__
-                else None,
-            },
-            exc_info=exc,
-        )
-        detail = _completion_service_unavailable("queue_unavailable").detail
-        if isinstance(detail, dict):
-            detail = {**detail, "error_code": "CHAT_COMPLETE_ENQUEUE_FAILED"}
-        raise HTTPException(status_code=503, detail=detail)
-    except (RedisOperationTimeout, Exception) as exc:
-        _best_effort_release_turn_lock(
-            thread_id,
-            task.turn_lock_owner,
-            log_message="[chat.complete] failed to release lock after enqueue error",
-        )
-        logger.warning(
-            "[chat.complete] queue unavailable error_code=%s: %s",
-            CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
-            exc,
-        )
-        raise _completion_service_unavailable("queue_unavailable")
+    except ChatCompletionEnqueueError as exc:
+        if exc.reason == "turn_in_flight":
+            raise HTTPException(status_code=429, detail="turn_in_flight")
+        if exc.reason == "task_identity_invalid":
+            logger.error(
+                "[chat.complete] invalid task identity thread_id=%s turn_id=%s task_type=%s",
+                thread_id,
+                turn_id,
+                getattr(task, "type", "unknown"),
+            )
+            raise _completion_service_unavailable("task_identity_invalid")
+        if exc.reason == "turn_lock_unavailable":
+            logger.warning("[chat.complete] turn lock unavailable: %s", exc)
+            raise _completion_service_unavailable("turn_lock_unavailable")
+        if exc.reason == "queue_unavailable":
+            if exc.error_code == CHAT_COMPLETE_ENQUEUE_ERROR_CODE:
+                logger.error(
+                    "[chat.complete] enqueue failed",
+                    extra={
+                        "error_code": CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+                        "request_id": root_request_id,
+                        "thread_id": thread_id,
+                        "depth_mode": internal_depth_mode,
+                        "turn_id": turn_id,
+                        "queue_name": exc.queue_name
+                        or "codexify:queue:chat",
+                        "exception_class": "QueueEnqueueError",
+                        "cause_class": exc.cause_class,
+                    },
+                    exc_info=exc,
+                )
+                detail = _completion_service_unavailable(
+                    "queue_unavailable"
+                ).detail
+                if isinstance(detail, dict):
+                    detail = {
+                        **detail,
+                        "error_code": CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+                    }
+                raise HTTPException(status_code=503, detail=detail)
+            logger.warning(
+                "[chat.complete] queue unavailable error_code=%s: %s",
+                CHAT_COMPLETE_ENQUEUE_ERROR_CODE,
+                exc,
+            )
+            raise _completion_service_unavailable("queue_unavailable")
+        raise _completion_service_unavailable(exc.reason)
+
+    task = enqueue_result.task
+    task_identity = enqueue_result.task_id
+    acceptance_status = enqueue_result.acceptance_status
+    acceptance_warnings = list(enqueue_result.acceptance_warnings)
+    task_created_event = enqueue_result.task_created_event
 
     # Track latest task for debug endpoint
     _thread_latest_task[thread_id] = task_identity
     _persist_thread_latest_task_id(thread_id, task_identity)
 
-    task_created_publish_error: task_events.TaskEventPublishError | None = None
-    try:
-        task_created_publish_result = _publish_completion_start_event(
-            task=task,
-            thread_id=thread_id,
-            turn_id=turn_id,
-        )
-    except task_events.TaskEventPublishError as exc:
-        task_created_publish_error = exc
-        task_created_publish_result = exc.to_publish_result()
-        cause_class = exc.cause_class
-        if cause_class is None and isinstance(exc.__cause__, BaseException):
-            cause_class = exc.__cause__.__class__.__name__
+    if task_created_event.raised_publish_error:
         logger.error(
             (
                 "[chat.complete] error_code=%s task_event_error_code=%s "
@@ -3415,23 +3073,19 @@ async def chat_complete(
                 "cause_class=%s"
             ),
             CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
-            exc.error_code,
+            task_created_event.error_code or "TASK_EVENT_PUBLISH_FAILED",
             _request_id_from_request(request),
             thread_id,
             task_identity,
             turn_id,
             internal_depth_mode,
-            exc.event_type,
-            cause_class,
+            task_created_event.event_type,
+            task_created_event.cause_class,
         )
-    acceptance_status, acceptance_warnings = _completion_acceptance_outcome(
-        task_created_publish_result
-    )
-
-    if task_created_publish_error is None:
+    else:
         log_level = (
             logging.INFO
-            if acceptance_status == COMPLETION_ACCEPTANCE_STATUS_ACCEPTED
+            if acceptance_status == AcceptanceStatus.ACCEPTED.value
             else logging.WARNING
         )
         logger.log(
@@ -3448,9 +3102,9 @@ async def chat_complete(
             thread_id,
             acceptance_status,
             acceptance_warnings,
-            task_created_publish_result.get("visibility_scope"),
-            task_created_publish_result.get("event_id"),
-            task_created_publish_result.get("failure_class"),
+            task_created_event.visibility_scope,
+            task_created_event.event_id,
+            task_created_event.failure_class,
         )
 
     messages_url = f"/api/chat/{thread_id}/messages"

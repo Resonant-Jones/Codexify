@@ -6,6 +6,29 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def validate_message_provenance(
+    hosted_room_participant_id: str | None,
+    sender_display_name_snapshot: str | None,
+) -> None:
+    """Validate the optional paired provenance carried by a chat message."""
+    if (hosted_room_participant_id is None) != (
+        sender_display_name_snapshot is None
+    ):
+        raise ValueError(
+            "hosted_room_participant_id and sender_display_name_snapshot "
+            "must be provided together"
+        )
+
+    if hosted_room_participant_id is not None and (
+        not hosted_room_participant_id.strip()
+        or not sender_display_name_snapshot.strip()
+    ):
+        raise ValueError(
+            "hosted_room_participant_id and sender_display_name_snapshot "
+            "must be nonblank"
+        )
+
+
 ## ChatDB Abstract Base Class
 class ChatDB(ABC):
     """Common interface that both SQLite and Postgres adapters must implement."""
@@ -234,6 +257,9 @@ class ChatDB(ABC):
         content: str,
         created_at: str | None = None,
         user_id: str | None = None,
+        *,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
     ) -> int:
         """Create a new message in a thread.
 

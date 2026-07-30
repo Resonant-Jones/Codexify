@@ -51,6 +51,10 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.db import GuardianDB
+from guardian.core.hosted_room_completion_context import (
+    ValidatedHostedRoomCompletionContext,
+    validate_hosted_room_completion_context,
+)
 from guardian.core.llm_catalog import (
     first_enabled_provider,
     first_model_for_provider,
@@ -1553,6 +1557,13 @@ def _run_chat_completion_task_compat(
     persist_assistant_message: bool = True,
     state_callback: Any = None,
 ) -> dict[str, Any]:
+    hosted_room_context: ValidatedHostedRoomCompletionContext | None = None
+    if getattr(task, "hosted_room_invocation", None) is not None:
+        hosted_room_context = validate_hosted_room_completion_context(
+            dependencies.chatlog_db,
+            task,
+        )
+
     build_result = asyncio.run(_build_messages_for_llm_compat(task, user_id=user_id))
     (
         messages_for_llm,
@@ -2063,12 +2074,31 @@ def _run_chat_completion_task_compat(
     if not persist_assistant_message:
         return result
 
-    try:
-        message_id = dependencies.chatlog_db.create_message(
-            task.thread_id,
-            "assistant",
-            assistant_text,
+    if hosted_room_context is not None:
+        hosted_room_context = validate_hosted_room_completion_context(
+            dependencies.chatlog_db,
+            task,
         )
+
+    try:
+        if hosted_room_context is None:
+            message_id = dependencies.chatlog_db.create_message(
+                task.thread_id,
+                "assistant",
+                assistant_text,
+            )
+        else:
+            message_id = dependencies.chatlog_db.create_message(
+                task.thread_id,
+                "assistant",
+                assistant_text,
+                hosted_room_participant_id=(
+                    hosted_room_context.actor_participant_id
+                ),
+                sender_display_name_snapshot=(
+                    hosted_room_context.sender_display_name_snapshot
+                ),
+            )
     except Exception as exc:
         persistence_meta = {
             "error": "assistant_message_persist_failed",
@@ -2762,6 +2792,7 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
             "commandRunId",
             "command_status",
             "command_error",
+            "failure_code",
         ):
             value = error_metadata.get(key)
             if value is not None:

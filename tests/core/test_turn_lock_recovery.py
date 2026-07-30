@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from guardian.queue import task_events
 from guardian.protocol_tokens import ChatEventType
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
+from guardian.core import chat_completion_service
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_api_key, get_test_auth_headers
 
@@ -246,22 +247,22 @@ def test_complete_recovers_orphaned_turn_lock(
             source=kwargs.get("source"),
         )
 
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", _acquire)
-    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_task_terminal_event",
         lambda *_: _terminal_evidence("terminal"),
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
     )
     cleared: list[tuple[int, str]] = []
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "clear_turn_lock",
         lambda thread_id, expected=None: cleared.append(
             (thread_id, getattr(expected, "owner_task_id", ""))
@@ -269,7 +270,7 @@ def test_complete_recovers_orphaned_turn_lock(
         or True,
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
@@ -324,22 +325,22 @@ def test_complete_recovers_orphaned_turn_lock_when_worker_not_fresh(
             source=kwargs.get("source"),
         )
 
-    monkeypatch.setattr(chat_routes, "acquire_turn_lock", _acquire)
-    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
+    monkeypatch.setattr(chat_completion_service, "acquire_turn_lock", _acquire)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_task_terminal_event",
         lambda *_: _terminal_evidence("nonterminal"),
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence(worker_state),
     )
     cleared: list[tuple[int, str]] = []
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "clear_turn_lock",
         lambda thread_id, expected=None: cleared.append(
             (thread_id, getattr(expected, "owner_task_id", ""))
@@ -347,7 +348,7 @@ def test_complete_recovers_orphaned_turn_lock_when_worker_not_fresh(
         or True,
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "enqueue",
         lambda task, queue_name: captured.update(
             {"task": task, "queue_name": queue_name}
@@ -369,24 +370,24 @@ def test_complete_denies_recovery_when_worker_fresh(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
-    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_task_terminal_event",
         lambda *_: _terminal_evidence("nonterminal"),
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
     )
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
     orphan_events: list[dict[str, object]] = []
     monkeypatch.setattr(
         chat_routes.event_bus,
@@ -409,24 +410,24 @@ def test_complete_denies_recovery_on_unknown_terminal_state(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
-    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: True)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: True)
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_task_terminal_event",
         lambda *_: _terminal_evidence("unknown", reason="event_probe_failed"),
     )
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "_chat_worker_heartbeat_evidence",
         lambda: _heartbeat_evidence("stale", age_seconds=27.0),
     )
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
 
     response = test_client.post("/chat/1/complete", json={})
 
@@ -440,14 +441,14 @@ def test_complete_keeps_active_turn_lock_in_place(
     test_client, mock_db, monkeypatch
 ):
     monkeypatch.setattr(
-        chat_routes,
+        chat_completion_service,
         "acquire_turn_lock",
         lambda *_a, **_k: None,
     )
-    monkeypatch.setattr(chat_routes, "get_turn_lock", lambda *_: _stale_lock())
-    monkeypatch.setattr(chat_routes, "turn_lock_is_stale", lambda *_: False)
+    monkeypatch.setattr(chat_completion_service, "get_turn_lock", lambda *_: _stale_lock())
+    monkeypatch.setattr(chat_completion_service, "turn_lock_is_stale", lambda *_: False)
     clear_spy = MagicMock(return_value=False)
-    monkeypatch.setattr(chat_routes, "clear_turn_lock", clear_spy)
+    monkeypatch.setattr(chat_completion_service, "clear_turn_lock", clear_spy)
     orphan_events: list[dict[str, object]] = []
     monkeypatch.setattr(
         chat_routes.event_bus,

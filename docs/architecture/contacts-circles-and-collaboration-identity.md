@@ -24,7 +24,7 @@ The social vessel is a user-owned Contact, a reusable Circle of Contacts, or a b
 - UI implementation: A presentational Private Contact List module shell exists; no runtime Contact data source exists.
 - ADR: Required before runtime adoption.
 
-This contract requires a new ADR before adding storage, routes, sync behavior, hosted rooms, remote identity, public discovery, cross-node trust, or production collaboration Spaces.
+This contract requires governing ADRs before adding storage, routes, sync behavior, remote identity, public discovery, cross-node trust, or production collaboration Spaces. Future Node-Hosted Rooms are governed by the proposed, docs-only [ADR-053: Node-Hosted Room Access Boundary](./adr/053-node-hosted-room-access-boundary.md); ADR-053 does not implement them.
 
 ## Initial Contact UI surface posture
 
@@ -351,6 +351,34 @@ Space rules:
 - Presence in a Space must be scoped to that Space or an active collaboration context.
 - A Space is not a hosted room by definition; hosted-room support is a separate future decision.
 
+## 9A. Hosted Rooms (proposed boundary)
+
+Node-Hosted Rooms are a proposed private collaboration boundary governed by [ADR-053: Node-Hosted Room Access Boundary](./adr/053-node-hosted-room-access-boundary.md). They are not currently implemented and do not widen the supported beta release promise.
+
+The concepts remain distinct:
+
+| Concept | Bounded meaning |
+|---|---|
+| **Contact** | The owner's private relationship record and invitation intent. It does not authenticate the guest or grant room access. |
+| **Invite** | A lifecycle-governed transition and delivery record for one intended scope. A Hosted Room invitation is bound to one room and preserves intended-recipient versus verified-identity uncertainty. |
+| **Participant** | A room-scoped human or agent identity record with an explicit role and bounded capabilities. It is not the Contact, Invite, account, or display label. |
+| **Hosted Room** | A durable private collaboration and authority boundary owned by one account on one hosting node. |
+| **Thread** | The canonical persisted transcript backing exactly one Hosted Room. The room does not create a parallel transcript store. |
+| **Share Link** | Existing read-only authority for retrieving explicitly shared thread or document content. It does not permit posting or agent invocation. |
+| **Future Space** | A separately governed, broader collaboration context that may contain multiple artifacts, tools, conversations, or channels. A Hosted Room is not a Space and does not introduce Space semantics. |
+
+Hosted Room rules:
+
+- One Hosted Room maps to exactly one canonical chat thread.
+- A Contact can seed invitation intent, prefill a display name, and help the owner track who was invited, but it does not authenticate the guest.
+- Selecting a Contact does not automatically grant access, create an account, expose presence, or prove that the invitation opener is the selected Contact.
+- A future Hosted Room invitation is a write-capable, room-scoped authority that may permit bounded message posting and enabled-agent invocation. It is distinct from an existing read-only Share Link.
+- Network reachability, including manual Tailscale access, does not grant room or account authority.
+- Room presence is bounded to the Hosted Room and its operational lifecycle. Invitation state, Contact state, and roster state do not establish ambient presence.
+- Cross-node rooms, federation, public discovery, ambient presence, future Spaces, and nested channels remain deferred.
+
+The proposed room boundary reuses canonical chat persistence and the existing queue-backed completion pipeline. It does not authorize Hosted Room models, migrations, routes, invitation exchange, room-scoped sessions, participant persistence, Contacts persistence, RoomShell, room-management UI, or release-qualified support.
+
 ## 10. Boundary and authority model
 
 The future model must preserve the following distinctions:
@@ -439,6 +467,7 @@ The following ADRs are required before runtime work:
 - [Contact and Circle storage model ADR](./adr/043-contact-and-circle-storage-model.md).
 - [Invite and trust lifecycle ADR](./adr/044-invite-lifecycle-and-storage-model.md).
 - [Space participant resolution ADR](./adr/045-space-participant-resolution-model.md).
+- [Node-Hosted Room access boundary ADR](./adr/053-node-hosted-room-access-boundary.md).
 - Discovery and directory policy ADR.
 - Contact export/restore privacy ADR.
 - Presence scope and ambient visibility ADR.
@@ -450,7 +479,7 @@ Those ADRs must also resolve schema versioning, device sync, identity binding, k
 - No runtime implementation.
 - No UI implementation.
 - No schema or migrations.
-- No hosted rooms.
+- No Hosted Room implementation.
 - No public directory.
 - No global identity provider.
 - No automatic address book import.

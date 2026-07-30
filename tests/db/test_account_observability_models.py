@@ -91,7 +91,7 @@ def _invite(
     operator_id: str, invite_id: str = "invite-1"
 ) -> AccountObservabilityInviteLink:
     return AccountObservabilityInviteLink(
-        id=invite_id,
+        invite_id=invite_id,
         token_hash=f"hash-{invite_id}",
         name="Test invite",
         created_by_user_id=operator_id,
@@ -162,7 +162,7 @@ def test_presence_requires_exactly_one_subject(
     db_session.add(_user("account-1"))
     db_session.add(
         AccountObservabilityPresenceSession(
-            id=f"invalid-{user_id or 'neither'}",
+            presence_session_id=f"invalid-{user_id or 'neither'}",
             user_id=user_id,
             guest_id=guest_id,
             started_at=started,
@@ -183,14 +183,14 @@ def test_valid_account_and_guest_presence_rows_succeed(
     db_session.flush()
     db_session.add(
         AccountObservabilityGuestIdentity(
-            id="guest-1", first_invite_id="invite-1"
+            guest_id="guest-1", first_invite_id="invite-1"
         )
     )
     db_session.flush()
     db_session.add_all(
         [
             AccountObservabilityPresenceSession(
-                id="account-presence-1",
+                presence_session_id="account-presence-1",
                 user_id="account-1",
                 started_at=started,
                 last_seen_at=last_seen,
@@ -198,7 +198,7 @@ def test_valid_account_and_guest_presence_rows_succeed(
                 region_code="US-NY",
             ),
             AccountObservabilityPresenceSession(
-                id="guest-presence-1",
+                presence_session_id="guest-presence-1",
                 guest_id="guest-1",
                 invite_id="invite-1",
                 started_at=started,
@@ -210,7 +210,8 @@ def test_valid_account_and_guest_presence_rows_succeed(
     assert (
         db_session.scalar(
             select(AccountObservabilityPresenceSession).where(
-                AccountObservabilityPresenceSession.id == "account-presence-1"
+                AccountObservabilityPresenceSession.presence_session_id
+                == "account-presence-1"
             )
         )
         is not None
@@ -229,7 +230,7 @@ def test_invalid_presence_timestamp_ordering_is_rejected(
 ) -> None:
     started, last_seen = _timestamp_pair()
     values = {
-        "id": f"invalid-{field}",
+        "presence_session_id": f"invalid-{field}",
         "user_id": "account-1",
         "started_at": started,
         "last_seen_at": last_seen,
@@ -246,7 +247,7 @@ def test_region_requires_country(db_session: Session) -> None:
     db_session.add(_user("account-1"))
     db_session.add(
         AccountObservabilityPresenceSession(
-            id="invalid-region",
+            presence_session_id="invalid-region",
             user_id="account-1",
             started_at=started,
             last_seen_at=last_seen,
@@ -294,7 +295,7 @@ def test_account_deletion_removes_metadata_and_account_presence(
     )
     db_session.add(
         AccountObservabilityPresenceSession(
-            id="account-presence-1",
+            presence_session_id="account-presence-1",
             user_id="account-1",
             started_at=started,
             last_seen_at=last_seen,
@@ -315,7 +316,7 @@ def test_account_deletion_removes_metadata_and_account_presence(
     )
 
 
-def test_invite_creator_deletion_preserves_attribution_history(
+def test_invite_creator_deletion_is_restricted_to_preserve_attribution_history(
     db_session: Session,
 ) -> None:
     started, last_seen = _timestamp_pair()
@@ -335,7 +336,7 @@ def test_invite_creator_deletion_preserves_attribution_history(
     )
     db_session.add(
         AccountObservabilityPresenceSession(
-            id="attributed-presence-1",
+            presence_session_id="attributed-presence-1",
             user_id="account-1",
             invite_id="invite-1",
             started_at=started,
@@ -345,11 +346,13 @@ def test_invite_creator_deletion_preserves_attribution_history(
     db_session.commit()
 
     db_session.delete(operator)
-    db_session.commit()
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
 
     invite = db_session.get(AccountObservabilityInviteLink, "invite-1")
     assert invite is not None
-    assert invite.created_by_user_id is None
+    assert invite.created_by_user_id == "operator"
     assert (
         db_session.get(AccountObservabilityAccountMetadata, "account-1")
         is not None
@@ -367,7 +370,7 @@ def test_guest_deletion_removes_guest_presence_without_deleting_invite(
 ) -> None:
     started, last_seen = _timestamp_pair()
     guest = AccountObservabilityGuestIdentity(
-        id="guest-1", first_invite_id="invite-1"
+        guest_id="guest-1", first_invite_id="invite-1"
     )
     db_session.add_all([_user("operator"), _user("account-1")])
     db_session.flush()
@@ -387,7 +390,7 @@ def test_guest_deletion_removes_guest_presence_without_deleting_invite(
     )
     db_session.add(
         AccountObservabilityPresenceSession(
-            id="guest-presence-1",
+            presence_session_id="guest-presence-1",
             guest_id="guest-1",
             invite_id="invite-1",
             started_at=started,

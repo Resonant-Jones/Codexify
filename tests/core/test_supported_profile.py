@@ -49,6 +49,24 @@ def test_tester_profile_chat_enabled() -> None:
     assert manifest.route_status("api_chat") == "enabled"
 
 
+def test_tester_profile_hosted_room_routes_enabled() -> None:
+    manifest = load_supported_profile("v1-friends-family-web")
+
+    assert manifest.route_status("hosted_rooms") == "enabled"
+    assert manifest.route_status("hosted_room_guest") == "enabled"
+
+
+def test_hosted_room_routes_remain_quarantined_outside_tester_profile() -> None:
+    profiles_dir = Path("config/supported_profiles")
+
+    for profile_path in profiles_dir.glob("*.yaml"):
+        manifest = load_supported_profile(profile_path.stem)
+        if manifest.name == "v1-friends-family-web":
+            continue
+        assert manifest.route_status("hosted_rooms") == "quarantined"
+        assert manifest.route_status("hosted_room_guest") == "quarantined"
+
+
 def test_tester_profile_unknown_route_defaults_quarantined() -> None:
     manifest = load_supported_profile("v1-friends-family-web")
 

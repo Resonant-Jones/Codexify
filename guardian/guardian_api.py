@@ -536,6 +536,7 @@ from guardian.routes import (
 from guardian.routes import heartbeat as heartbeat_routes
 from guardian.routes import memory, migration
 from guardian.routes import neo as neo_routes
+from guardian.routes import hosted_room_guest, hosted_rooms
 from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
 from guardian.routes import ui_session
@@ -1372,6 +1373,18 @@ _include_router(
     flag_name="CODEXIFY_ENABLE_WORKTREE_ROUTES",
     include_fn=lambda: app.include_router(worktrees_router),
     default_enabled=False,
+)
+_include_router(
+    label="hosted_rooms",
+    flag_name="CODEXIFY_ENABLE_HOSTED_ROOMS_ROUTES",
+    include_fn=lambda: app.include_router(hosted_rooms.router),
+    default_enabled=True,
+)
+_include_router(
+    label="hosted_room_guest",
+    flag_name="CODEXIFY_ENABLE_HOSTED_ROOM_GUEST_ROUTES",
+    include_fn=lambda: app.include_router(hosted_room_guest.router),
+    default_enabled=True,
 )
 
 logger.info(

@@ -49,6 +49,8 @@ route_posture:
     - embeddings
     - obsidian
     - auth
+    - hosted_rooms
+    - hosted_room_guest
   internal_only:
     - coding_work_orders
     - command_bus

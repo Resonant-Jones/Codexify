@@ -927,11 +927,11 @@ class TestChatCompletePost:
 
         captured: dict[str, object] = {}
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda task, queue_name: captured.update(
                 {"task": task, "queue_name": queue_name}
             ),
@@ -972,11 +972,11 @@ class TestChatCompletePost:
             }
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda task, queue_name: captured.update(
                 {"task": task, "queue_name": queue_name}
             ),
@@ -1019,9 +1019,9 @@ class TestChatCompletePost:
             "guardian.routes.chat.ChatCompletionTask", _broken_task
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", acquire_spy
+            "guardian.core.chat_completion_service.acquire_turn_lock", acquire_spy
         )
-        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue_spy)
 
         response = test_client.post("/chat/1/complete", json={})
 
@@ -1046,25 +1046,25 @@ class TestChatCompletePost:
             acquire_calls["count"] += 1
             return None if acquire_calls["count"] == 1 else True
 
-        monkeypatch.setattr("guardian.routes.chat.acquire_turn_lock", _acquire)
+        monkeypatch.setattr("guardian.core.chat_completion_service.acquire_turn_lock", _acquire)
         monkeypatch.setattr(
-            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+            "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._task_terminal_event",
+            "guardian.core.chat_completion_service._task_terminal_event",
             lambda *_: _terminal_evidence("terminal"),
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
             lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
         )
         clear_spy = MagicMock(return_value=True)
-        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda task, queue_name: captured.update(
                 {"task": task, "queue_name": queue_name}
             ),
@@ -1088,27 +1088,27 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *_a, **_k: None,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+            "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._task_terminal_event",
+            "guardian.core.chat_completion_service._task_terminal_event",
             lambda *_: _terminal_evidence("nonterminal"),
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
             lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
         )
         clear_spy = MagicMock(return_value=False)
-        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         enqueue_spy = MagicMock()
-        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue_spy)
 
         response = test_client.post("/chat/1/complete", json={})
 
@@ -1126,29 +1126,29 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *_a, **_k: None,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.get_turn_lock", lambda *_: _stale_lock()
+            "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._task_terminal_event",
+            "guardian.core.chat_completion_service._task_terminal_event",
             lambda *_: _terminal_evidence(
                 "unknown", reason="event_probe_failed"
             ),
         )
         monkeypatch.setattr(
-            "guardian.routes.chat._chat_worker_heartbeat_evidence",
+            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
             lambda: _heartbeat_evidence("stale", age_seconds=27.0),
         )
         clear_spy = MagicMock(return_value=False)
-        monkeypatch.setattr("guardian.routes.chat.clear_turn_lock", clear_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         enqueue_spy = MagicMock()
-        monkeypatch.setattr("guardian.routes.chat.enqueue", enqueue_spy)
+        monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue_spy)
 
         response = test_client.post("/chat/1/complete", json={})
 
@@ -1166,10 +1166,10 @@ class TestChatCompletePost:
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1199,10 +1199,10 @@ class TestChatCompletePost:
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1229,10 +1229,10 @@ class TestChatCompletePost:
             {"role": "user", "content": "Hello"}
         ]
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1263,10 +1263,10 @@ class TestChatCompletePost:
             lambda *_a, **_k: False,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1297,10 +1297,10 @@ class TestChatCompletePost:
             lambda *_a, **_k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1331,10 +1331,10 @@ class TestChatCompletePost:
             "guardian.routes.chat.logger.exception", exception_spy
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock", lambda *a, **k: True
+            "guardian.core.chat_completion_service.acquire_turn_lock", lambda *a, **k: True
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue", lambda *a, **k: None
+            "guardian.core.chat_completion_service.enqueue", lambda *a, **k: None
         )
 
         response = test_client.post(
@@ -1363,11 +1363,11 @@ class TestChatCompletePost:
 
         captured: dict[str, object] = {}
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda task, queue_name: captured.update(
                 {"task": task, "queue_name": queue_name}
             ),
@@ -1405,11 +1405,11 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda *a, **k: None,
         )
 
@@ -1425,15 +1425,15 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.release_turn_lock",
+            "guardian.core.chat_completion_service.release_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("queue down")),
         )
 
@@ -1454,7 +1454,7 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("redis down")),
         )
 
@@ -1475,11 +1475,11 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda *a, **k: None,
         )
 
@@ -1499,11 +1499,11 @@ class TestChatCompletePost:
         ]
 
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda *a, **k: None,
         )
         monkeypatch.setattr(
@@ -1882,11 +1882,11 @@ class TestApiChatAlias:
             "guardian.routes.chat.llm_settings.GROQ_API_KEY", None
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.acquire_turn_lock",
+            "guardian.core.chat_completion_service.acquire_turn_lock",
             lambda *a, **k: True,
         )
         monkeypatch.setattr(
-            "guardian.routes.chat.enqueue",
+            "guardian.core.chat_completion_service.enqueue",
             lambda *a, **k: None,
         )
         resp = test_client.post("/api/chat/1/complete", json={})

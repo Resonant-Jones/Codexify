@@ -111,6 +111,31 @@ inline literals.
   semantics, and bounded tool-loop state is considered part of the runtime
   protocol surface.
 
+## Hosted Room Invocation Context Tokens
+
+The bounded optional `ChatCompletionTask.hosted_room_invocation` context uses
+these canonical version-one values:
+
+- `actor_source`: `resident`
+- `actor_ref`: `guardian`
+- `requester_authority`: `owner` or `guest`
+
+These values describe a future caller's validated context; they are not an
+invocation permission and are not consumed by the current worker. `luna` is not
+the resident actor token. `local_persona` is not accepted by this task context,
+and display names are never actor references. Provider, model, prompt, Persona,
+credential, session, and arbitrary metadata are outside this token contract.
+
+The task field also carries bounded identity values for `room_id`,
+`source_message_id`, `actor_participant_id`, and (for guests)
+`requester_participant_id`. These remain identity fields rather than protocol
+tokens and must not be conflated with request, task, message, or lock identity.
+
+No Hosted Room invocation route or worker behavior is added by the metadata
+contract. Future implementation work must preserve the canonical token source,
+validate authority at the route/service boundary, and avoid inventing parallel
+completion acceptance semantics.
+
 ## Future local runtime-family tokens
 
 - Candidate future token domain: `local_runtime_family`.

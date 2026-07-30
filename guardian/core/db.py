@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, func, inspect, or_, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from guardian.core.chat_db import validate_message_provenance
 from guardian.core.default_project import resolve_project_id_or_default
 
 # Import ORM models
@@ -559,8 +560,14 @@ class _PostgresGuardianDB:
         event_at: Optional[datetime] = None,
         extra_meta: Optional[dict] = None,
         user_id: str | None = None,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
     ) -> int:
         """Create a new message in a thread."""
+        validate_message_provenance(
+            hosted_room_participant_id,
+            sender_display_name_snapshot,
+        )
         now = datetime.now(timezone.utc)
         with self.get_session() as session:
             thread = session.query(ChatThread).filter_by(id=thread_id).first()
@@ -580,6 +587,8 @@ class _PostgresGuardianDB:
                 kind=kind,
                 event_at=event_at or datetime.now(timezone.utc),
                 extra_meta=extra_meta or {},
+                hosted_room_participant_id=hosted_room_participant_id,
+                sender_display_name_snapshot=sender_display_name_snapshot,
             )
             session.add(message)
             if thread is not None:
