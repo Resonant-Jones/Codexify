@@ -67,6 +67,18 @@ have its own provenance, consent, compatibility, and recovery contract.
 These observations are pre-read evidence for shaping Task 01. Task 01 remains
 responsible for producing the complete, reviewable inventory proof.
 
+### Proven architecture evaluation
+
+- Stage 3 produced
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
+- Its ADR-readiness result is `PROOF_REQUIRED`.
+- No technology or repository winner was selected.
+- The future topology ADR remains blocked pending common comparative evidence.
+- `docs/architecture/browser-host-comparative-proof-harness-spec.md` defines
+  the normative, technology-neutral comparison method. It is documentation,
+  not a harness implementation or live Browser Host proof.
+
 ### Documented contract
 
 - Guardian retains policy, context, account, and task authority.
@@ -113,6 +125,12 @@ second.
 - The Codexify repository is authoritative for Guardian policy, frontend
   integration, browser-context contracts, identity boundaries, and shared
   architecture documentation.
+- The current extension remains the Tier 0 continuity control.
+- The incumbent OS-webview/Tauri family must be tested rather than assumed
+  suitable, and at least one materially different host family must be tested
+  under the same proof method.
+- The Stage 3 topology evaluation returned `PROOF_REQUIRED`.
+- No Browser Host technology or repository topology has been selected.
 - Campaigns are prerequisite-ordered arcs. Each Task is atomic, independently
   validated, and independently committed.
 
@@ -221,16 +239,27 @@ finally release hardening.
   renderer processes, or prompt-based authority.
 - Stage kind: `documentation`.
 
-### 03. Repository-topology and Browser Host ADR
+### 03. Repository-topology and Browser Host evidence gate
 
-- Goal: decide whether the Browser Host remains in Codexify or moves to a
-  dedicated repository and define protocol/versioning ownership.
+- Status: architecture evaluation completed in
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
+- Result: `PROOF_REQUIRED`; no technology or repository winner was selected.
+- Proof methodology:
+  `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
+- Goal: produce decision-grade comparative evidence, then author the future
+  Browser Host topology and release-ownership ADR.
 - Prerequisite: Tasks 01 and 02.
-- Expected evidence: accepted ADR covering build, release, signing, storage,
-  security ownership, compatibility, and rolling upgrade implications.
+- Required pre-ADR evidence: the shared technology-neutral
+  fixture/stub/receipt scaffold, an incumbent OS-webview/Tauri candidate proof
+  packet, at least one materially different host-family proof packet, and a
+  common comparative summary.
+- Expected decision artifact after proof: an accepted ADR covering build,
+  release, signing, storage, security ownership, compatibility, and rolling
+  upgrade implications.
 - Explicit exclusions: no repository creation, code movement, or host choice by
   implication.
-- Stage kind: `documentation`.
+- Stage kind: `proof` followed by `documentation`.
 
 ### 04. Atlas continuity and Chrome-extension stabilization
 
@@ -326,6 +355,12 @@ A dedicated Browser Host repository may be created only after an accepted ADR
 proves independent build, release, signing, storage, compatibility, recovery,
 and security ownership.
 
+Status: closed. The Stage 3 evaluation returned `PROOF_REQUIRED`. Comparative
+proof packets governed by
+`docs/architecture/browser-host-comparative-proof-harness-spec.md` are required
+before the ADR may be authored. Gate C remains closed until that evidence exists
+and a later accepted ADR resolves repository ownership.
+
 ### Gate D: Product proof
 
 Tabs, profiles, downloads, history, session persistence, or browser actions may
@@ -378,9 +413,17 @@ The Campaign exits only when:
 - Task 02 documents the browser authority and context boundary in
   `docs/architecture/browser-authority-and-context-boundary-contract.md`;
   implementation and live proof remain deferred.
-- Task 03 is next and must evaluate Browser Host topology and the repository
-  boundary without selecting a technology or repository split by implication.
-  No Browser Host technology or repository split has been selected.
+- Task 03 evaluation produced
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`
+  and returned `PROOF_REQUIRED`.
+- The common comparison method is
+  `docs/architecture/browser-host-comparative-proof-harness-spec.md`. No
+  Browser Host technology or repository split has been selected.
+- The next prerequisite is the shared technology-neutral fixture server,
+  deterministic Guardian contract stub, and proof-receipt scaffold only. The
+  incumbent Tauri family and at least one materially different family must then
+  produce comparable proof packets before ADR authoring.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
@@ -388,7 +431,8 @@ The Campaign exits only when:
 
 ## ADR impact
 
-- Classification: future ADR evaluation required.
+- Classification: aligned with existing ADRs; future ADR remains
+  evidence-blocked.
 - ADR created or modified here: none.
 - Existing governing contract: ADR-051 continues to govern the current private
   Chrome side-panel client.
@@ -405,6 +449,7 @@ The Campaign exits only when:
 - `docs/architecture/adr/adr-index.md`
 - `docs/architecture/adr/051-chrome-side-panel-dual-auth-client-contract.md`
 - `docs/architecture/browser-authority-and-context-boundary-contract.md`
+- `docs/architecture/browser-host-comparative-proof-harness-spec.md`
 - `docs/architecture/agent-protocol-operations.md`
 - `docs/architecture/system-overview.md`
 - `docs/architecture/modules-and-ownership.md`
@@ -416,6 +461,7 @@ The Campaign exits only when:
 - `docs/architecture/chrome-side-panel-client.md`
 - `docs/architecture/proofs/2026-06-23-trusted-remote-browser-codex-proof.md`
 - `docs/architecture/proofs/2026-07-30-codexify-browser-extension-repository-inventory.md`
+- `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
 - `frontend/chrome-extension/manifest.json`
 - `frontend/chrome-extension/service-worker.ts`
 - `frontend/chrome-extension/src/`
