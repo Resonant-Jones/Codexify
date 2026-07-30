@@ -29,8 +29,12 @@ This file is authoritative for:
 - Health checks now probe the configured provider endpoint; friends/family tester configuration is pinned to DeepSeek V4 Flash.
 - The ADR-052 `v1-whooshd-deepseek-web` private-preview profile, Compose overlay,
   single-origin port contract, and provider-specific proof helper are
-  statically test-proven on `main`; dual-provider runtime execution remains
-  next-proof-needed.
+  statically test-proven on `main`. The 2026-07-30 proof gate confirmed
+  loopback Whoosh'd inventory and the expected Gemma model, but the canonical
+  DeepSeek credential and authenticated session-token file were absent, so
+  Compose startup and both provider turns were not attempted. Dual-provider
+  runtime execution remains `next-proof-needed`; see
+  `proofs/2026-07-30-dual-provider-private-preview-proof.md`.
 - Added migration-safety, account-import, Hosted Room invocation, accent-preservation, and frontend test/proof coverage.
 - Added P2P video, email, Project Pulse, and related implementation-target documents; these remain planning or proof-only surfaces.
 
@@ -50,7 +54,9 @@ This file is authoritative for:
 - Do not assume the named private-preview lane is operational from its static
   profile/Compose proof. It still requires separate terminal, persisted-turn
   proof for Whoosh'd and DeepSeek V4 Flash; fallback cannot satisfy either
-  provider-specific proof.
+  provider-specific proof. The latest attempt stopped at the prerequisite gate
+  because the DeepSeek credential and authenticated session-token file were
+  missing.
 - Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, join links, participant removal, or release qualification.
 - Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract is end-to-end runtime or release proof by itself.
 - Do not treat the mobile projection-plane architecture note as current runtime behavior; `main` currently uses the single-surface mobile composer.
