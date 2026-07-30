@@ -6,7 +6,7 @@
 # is the only cloud provider admitted by the egress allowlist.
 #
 # Governing ADRs: ADR-005 (runtime mode and account boundary invariants),
-# ADR-040 (operator-controlled network profile posture).
+# ADR-052 (Whoosh'd Gemma and approved DeepSeek startup profile).
 
 name: v1-whooshd-deepseek-web
 version: 1
@@ -33,7 +33,6 @@ route_posture:
   enabled:
     - health
     - dashboard
-    - admin
     - chat
     - simple_chat
     - api_chat
@@ -78,6 +77,7 @@ route_posture:
     - agent_orchestration
     - agent_orchestration_chat
     - user_profile
+    - admin
 provider_contract:
   LLM_PROVIDER: local
   ALLOW_CLOUD_PROVIDERS: true

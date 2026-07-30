@@ -6,6 +6,6 @@ tunnel: <tunnel-uuid>
 credentials-file: /Users/you/.cloudflared/<tunnel-uuid>.json
 
 ingress:
-  - hostname: preview.example.com
-    service: http://127.0.0.1:8080
+  - hostname: preview.codexify.space
+    service: http://127.0.0.1:8081
   - service: http_status:404

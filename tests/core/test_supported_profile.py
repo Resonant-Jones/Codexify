@@ -108,6 +108,61 @@ def test_whooshd_deepseek_profile_pins_both_provider_lanes() -> None:
     }
 
 
+def test_whooshd_deepseek_profile_enables_bounded_preview_routes() -> None:
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    assert manifest.name == "v1-whooshd-deepseek-web"
+    assert manifest.version == 1
+    assert manifest.surface == "local-docker-compose-webui"
+    for route in {
+        "health",
+        "dashboard",
+        "chat",
+        "api_chat",
+        "threads",
+        "projects",
+        "api_projects",
+        "documents",
+        "media",
+        "auth",
+    }:
+        assert manifest.route_status(route) == "enabled"
+
+
+def test_whooshd_deepseek_profile_quarantines_high_blast_routes() -> None:
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    for route in {
+        "admin",
+        "federation",
+        "collaboration",
+        "connectors",
+        "flows",
+        "tools",
+        "api_tools",
+        "codex",
+        "cron",
+        "agent",
+        "agent_orchestration",
+        "agent_orchestration_chat",
+        "hosted_rooms",
+        "hosted_room_guest",
+        "user_profile",
+    }:
+        assert manifest.route_status(route) == "quarantined"
+
+
+def test_whooshd_deepseek_profile_has_no_route_overlap() -> None:
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    enabled = set(manifest.enabled_routes)
+    internal = set(manifest.internal_only_routes)
+    quarantined = set(manifest.quarantined_routes)
+    assert not enabled & internal
+    assert not enabled & quarantined
+    assert not internal & quarantined
+
+
 def test_tester_profile_high_blast_routes_quarantined() -> None:
     manifest = load_supported_profile("v1-friends-family-web")
 

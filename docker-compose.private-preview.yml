@@ -16,7 +16,18 @@ services:
   backend:
     ports: !reset []
     environment:
-      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
+      CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      LLM_PROVIDER: "local"
+      ALLOW_CLOUD_PROVIDERS: "true"
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      LOCAL_RUNTIME_PRESET: "whooshd-mlx"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env.private-preview}"
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
       GUARDIAN_EXPOSURE_MODE: "private_preview"
       GUARDIAN_AUTH_MODE: "remote"
       CODEXIFY_MULTI_USER_ENABLED: "true"
@@ -26,6 +37,20 @@ services:
       CODEXIFY_PREVIEW_ADMIN_EMAILS: "${CODEXIFY_PREVIEW_ADMIN_EMAILS:?set preview admin emails}"
       # Same-origin traffic has no browser CORS dependency.
       GUARDIAN_ALLOWED_ORIGINS: "${GUARDIAN_ALLOWED_ORIGINS:-}"
+
+  worker-chat:
+    environment:
+      LLM_PROVIDER: "local"
+      ALLOW_CLOUD_PROVIDERS: "true"
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
+      LOCAL_RUNTIME_PRESET: "whooshd-mlx"
+      LOCAL_PROVIDER_VENDOR: "whooshd"
+      LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env.private-preview}"
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
 
   frontend:
     ports: !reset []
@@ -40,7 +65,7 @@ services:
   private-preview-origin:
     image: nginx:1.27-alpine
     ports:
-      - "127.0.0.1:${CODEXIFY_PREVIEW_PORT:-8080}:8080"
+      - "127.0.0.1:${CODEXIFY_PREVIEW_PORT:-8081}:8080"
     volumes:
       - ./docker/private-preview/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
