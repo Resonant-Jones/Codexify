@@ -4,7 +4,12 @@
 
 - **Classification:** comparative proof-harness specification.
 - **Status:** normative for future Codexify Browser Campaign comparative proof
-  tasks; not implemented.
+  tasks. The shared technology-neutral fixture/stub/receipt scaffold now exists
+  under `scripts/browser_host_harness/` with focused tests under
+  `tests/browser_host_harness/`. The scaffold does not implement a candidate
+  adapter; no candidate has produced a proof packet; no live Guardian
+  compatibility is established; all candidate enrollment and ADR evidence gates
+  remain unchanged.
 - **Technology posture:** technology-neutral.
 - **Repository posture:** repository-neutral.
 - **Release posture:** release-posture-neutral.
@@ -832,9 +837,13 @@ decision, and the ADR may still defer the Browser Host.
 
 The prerequisite order is:
 
-1. Comparative proof-harness specification.
-2. Technology-neutral fixture server and Guardian-stub scaffold.
+1. Comparative proof-harness specification. **Done.**
+2. Technology-neutral fixture server and Guardian-stub scaffold. **Done.**
+   Implemented at `scripts/browser_host_harness/` with focused tests at
+   `tests/browser_host_harness/`. Proof artifact:
+   `docs/architecture/proofs/2026-07-30-browser-host-shared-harness-scaffold-proof.md`.
 3. Machine-readable proof receipt and canonical test-status registry.
+   **Included in step 2 scaffold.**
 4. Incumbent OS-webview/Tauri candidate adapter.
 5. At least one materially different candidate adapter.
 6. Candidate proof runs.
@@ -843,17 +852,14 @@ The prerequisite order is:
 9. Selected one-tab product proof.
 10. Product implementation and release qualification.
 
-This task implements none of these stages beyond the specification itself.
-
 ## 24. Immediate next atomic task
 
-Implement only the shared technology-neutral fixture server, deterministic
-Guardian contract stub, and proof-receipt scaffold.
+Implement the incumbent OS-webview/Tauri candidate adapter and produce its
+candidate proof packet under the common harness at
+`scripts/browser_host_harness/`.
 
-That task must not implement a Browser Host candidate or add Tauri-, Electron-,
-CEF-, Chromium-, or other candidate-specific dependencies. It must inspect the
-repository and choose the smallest existing repository-native tooling lane
-capable of serving deterministic fixtures and writing structured receipts. It
+That task must not implement or select an alternative-family candidate, author
+an ADR, widen a release claim, or open Gate C. It
 must not choose the final harness language by implication.
 
 This is the only recommended immediate next task. It is not generated or

@@ -247,13 +247,25 @@ finally release hardening.
 - Result: `PROOF_REQUIRED`; no technology or repository winner was selected.
 - Proof methodology:
   `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
+- Shared technology-neutral scaffold: now exists at
+  `scripts/browser_host_harness/` with focused tests at
+  `tests/browser_host_harness/`. Scaffold proof artifact:
+  `docs/architecture/proofs/2026-07-30-browser-host-shared-harness-scaffold-proof.md`.
+  The scaffold provides the deterministic fixture server, Guardian contract
+  stub, canonical harness registries, and proof-receipt scaffold. It does not
+  implement a candidate adapter; the extension remains the Tier 0 control;
+  Gate C remains closed.
 - Goal: produce decision-grade comparative evidence, then author the future
   Browser Host topology and release-ownership ADR.
 - Prerequisite: Tasks 01 and 02.
 - Required pre-ADR evidence: the shared technology-neutral
-  fixture/stub/receipt scaffold, an incumbent OS-webview/Tauri candidate proof
-  packet, at least one materially different host-family proof packet, and a
-  common comparative summary.
+  fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
+  proof packet, at least one materially different host-family proof packet, and
+  a common comparative summary.
+- Next prerequisite: implement the incumbent OS-webview/Tauri candidate adapter
+  and produce its candidate proof packet under the common harness.
+  At least one materially different candidate remains mandatory before ADR
+  authoring.
 - Expected decision artifact after proof: an accepted ADR covering build,
   release, signing, storage, security ownership, compatibility, and rolling
   upgrade implications.
