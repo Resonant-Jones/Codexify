@@ -28,6 +28,7 @@ export default function LoginPage() {
   const canSubmit = username.trim().length > 0 && password.length > 0;
   const activeSession = auth.ready && auth.isAuthenticated;
   const showRegistration = import.meta.env.VITE_PRIVATE_PREVIEW !== "true";
+  const identityLabel = remoteAuthMode ? "Email address" : "Username";
 
   useEffect(() => {
     if (
@@ -87,7 +88,7 @@ export default function LoginPage() {
         ? "An active session was found on this device."
         : "Local workspace access is already configured on this device."
       : remoteAuthMode
-        ? "Sign in to enter your Codexify workspace. This browser will receive a private session token for the active session."
+        ? "Sign in with the approved email address for this Codexify workspace. This browser will receive a private session token for the active session."
         : "Sign in to enter your local workspace. Your session and workspace data remain on this device.";
 
   return (
@@ -147,14 +148,20 @@ export default function LoginPage() {
             <>
               <form className="login-threshold__form" onSubmit={handleSubmit}>
                 <div className="login-threshold__field">
-                  <label htmlFor="login-username">Username</label>
+                  <label htmlFor="login-username">{identityLabel}</label>
                   <input
-                    autoComplete="username"
+                    autoComplete={remoteAuthMode ? "email" : "username"}
                     id="login-username"
+                    inputMode={remoteAuthMode ? "email" : undefined}
                     onChange={(event) => setUsername(event.target.value)}
-                    placeholder="Enter your username"
+                    placeholder={
+                      remoteAuthMode
+                        ? "you@example.com"
+                        : "Enter your username"
+                    }
                     ref={usernameInputRef}
                     required
+                    type={remoteAuthMode ? "email" : "text"}
                     value={username}
                   />
                 </div>

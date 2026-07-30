@@ -32,7 +32,7 @@ const SESSION_TOKEN_STORAGE_KEY = "guardian.auth.token";
 const LOCAL_BODY_COPY =
   "Sign in to enter your local workspace. Your session and workspace data remain on this device.";
 const REMOTE_BODY_COPY =
-  "Sign in to enter your Codexify workspace. This browser will receive a private session token for the active session.";
+  "Sign in with the approved email address for this Codexify workspace. This browser will receive a private session token for the active session.";
 
 function normalizeHeaders(
   headers: RequestInit["headers"]
@@ -106,6 +106,11 @@ describe("trusted remote login page", () => {
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
     expect(screen.queryByText(/x-api-key/i)).toBeNull();
     expect(screen.queryByText(/guardian_api_key/i)).toBeNull();
+    expect(screen.getByLabelText("Email address")).toHaveAttribute(
+      "type",
+      "email"
+    );
+    expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
   });
 
   it("renders the local-workspace presentation", () => {
@@ -123,7 +128,7 @@ describe("trusted remote login page", () => {
     ).toBeInTheDocument();
   });
 
-  it("submits a trimmed username and an unmodified password", async () => {
+  it("submits a trimmed email address and an unmodified password", async () => {
     const user = userEvent.setup();
     const postSpy = vi.spyOn(api, "post").mockResolvedValue({
       data: {
@@ -135,7 +140,10 @@ describe("trusted remote login page", () => {
 
     render(<LoginPage />);
 
-    await user.type(screen.getByLabelText("Username"), "  trusted-user  ");
+    await user.type(
+      screen.getByLabelText("Email address"),
+      "  trusted@example.com  "
+    );
     await user.type(
       screen.getByLabelText("Password"),
       "  session-secret  "
@@ -146,7 +154,7 @@ describe("trusted remote login page", () => {
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith("/auth/login", {
-        username: "trusted-user",
+        username: "trusted@example.com",
         password: "  session-secret  ",
       });
     });
@@ -164,7 +172,10 @@ describe("trusted remote login page", () => {
 
     render(<LoginPage />);
 
-    await user.type(screen.getByLabelText("Username"), "trusted-user");
+    await user.type(
+      screen.getByLabelText("Email address"),
+      "trusted@example.com"
+    );
     await user.type(screen.getByLabelText("Password"), "session-secret");
     await user.click(
       screen.getByRole("button", { name: "ENTER WORKSPACE" })
@@ -194,7 +205,10 @@ describe("trusted remote login page", () => {
 
     render(<LoginPage />);
 
-    await user.type(screen.getByLabelText("Username"), "trusted-user");
+    await user.type(
+      screen.getByLabelText("Email address"),
+      "trusted@example.com"
+    );
     await user.type(screen.getByLabelText("Password"), "bad-password");
     await user.click(
       screen.getByRole("button", { name: "ENTER WORKSPACE" })
@@ -214,7 +228,7 @@ describe("trusted remote login page", () => {
 
     render(<LoginPage />);
 
-    expect(screen.queryByLabelText("Username")).toBeNull();
+    expect(screen.queryByLabelText("Email address")).toBeNull();
     expect(screen.queryByText("New to Codexify?")).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Your workspace is ready" })
@@ -261,7 +275,7 @@ describe("trusted remote login page", () => {
     expect(
       screen.getByRole("heading", { name: "Welcome back to Codexify" })
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Username")).toHaveFocus();
+    expect(screen.getByLabelText("Email address")).toHaveFocus();
   });
 
   it("keeps key-backed local access compatible without a misleading user switch", () => {
