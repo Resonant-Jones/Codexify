@@ -323,26 +323,130 @@ describe("ChatBubble", () => {
     expect(container.querySelector(".codexifyCodeBlock")).not.toBeInTheDocument();
   });
 
-  it("left-aligns user message text and keeps it padded within the bubble", () => {
-    const centeredText = `Centered user message ${"x".repeat(1300)}`;
+  it("keeps short phone-shell user messages content-fit inside a bounded bubble", () => {
     const { container } = render(
       <ChatBubble
         isGuardian={false}
+        isPhoneShell
         message={{
-          id: "msg-center-user",
+          id: "msg-short-user",
           authorId: "me",
           authorName: "You",
-          content: centeredText,
+          content: "Hello",
           createdAt: Date.now(),
         }}
       />
     );
 
-    const content = container.querySelector(
-      '[data-testid="guardian-user-message-content"]'
+    const bubble = screen.getByTestId("chat-user-message-bubble");
+    const content = container.querySelector(".whitespace-pre-wrap");
+
+    expect(bubble).toHaveClass(
+      "w-fit",
+      "max-w-full",
+      "min-w-0",
+      "box-border",
+      "overflow-hidden",
+      "px-3",
+      "py-2"
     );
-    expect(content).toHaveClass("text-left", "px-4", "py-3");
+    expect(bubble).toHaveClass("max-w-[calc(100%-var(--shell-gap,10px))]");
+    expect(content).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "text-left",
+      "whitespace-pre-wrap",
+      "break-words"
+    );
+    const contentClasses = content?.className.split(/\s+/) ?? [];
+    expect(contentClasses).not.toContain("w-full");
+    expect(contentClasses.some((className) => /^p[xy]-/.test(className))).toBe(false);
     expect(content).not.toHaveClass("text-center");
+  });
+
+  it("keeps uninterrupted phone-shell user content wrapped and bounded", () => {
+    const longToken = "x".repeat(1300);
+    const { container } = render(
+      <ChatBubble
+        isGuardian={false}
+        isPhoneShell
+        message={{
+          id: "msg-long-user",
+          authorId: "me",
+          authorName: "You",
+          content: longToken,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const bubble = screen.getByTestId("chat-user-message-bubble");
+    const content = screen.getByTestId("guardian-user-message-content");
+
+    expect(bubble).toHaveClass(
+      "w-fit",
+      "max-w-full",
+      "min-w-0",
+      "box-border",
+      "overflow-hidden",
+      "max-w-[calc(100%-var(--shell-gap,10px))]"
+    );
+    expect(content).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "text-left",
+      "whitespace-pre-wrap",
+      "break-words"
+    );
+    expect(content).toHaveStyle({
+      overflowWrap: "anywhere",
+      wordBreak: "break-word",
+    });
+  });
+
+  it("keeps a trailing emoji inside the user bubble seam", () => {
+    render(
+      <ChatBubble
+        isGuardian={false}
+        isPhoneShell
+        message={{
+          id: "msg-emoji-user",
+          authorId: "me",
+          authorName: "You",
+          content: "Message ending safely 🎉",
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const bubble = screen.getByTestId("chat-user-message-bubble");
+    expect(bubble).toContainElement(screen.getByText("Message ending safely 🎉"));
+    expect(bubble.querySelector('[style*="position"]')).toBeNull();
+  });
+
+  it("preserves oversized user message expansion and bounded content", () => {
+    const longContent = `Pasted content ${"x".repeat(1300)}`;
+    render(
+      <ChatBubble
+        isGuardian={false}
+        message={{
+          id: "msg-oversized-user",
+          authorId: "me",
+          authorName: "You",
+          content: longContent,
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    const content = screen.getByTestId("guardian-user-message-content");
+    const expandButton = screen.getByRole("button", { name: "See more" });
+    expect(content).toHaveStyle({ maxHeight: "224px", overflowY: "hidden" });
+
+    fireEvent.click(expandButton);
+
+    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    expect(content).toHaveStyle({ maxHeight: "360px", overflowY: "auto" });
   });
 
   it("renders document tiles inline without exposing the full document body", () => {
