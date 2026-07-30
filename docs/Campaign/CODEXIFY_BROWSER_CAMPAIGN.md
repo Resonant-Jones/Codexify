@@ -191,6 +191,11 @@ finally release hardening.
 
 ### 01. Extension and repository inventory
 
+- Status: passed. The accepted inventory proof is
+  `docs/architecture/proofs/2026-07-30-codexify-browser-extension-repository-inventory.md`
+  at commit `acff4ef26ca7a8ff56babceb275c8ecf51d3e8b1`.
+- Proven source boundary: `frontend/chrome-extension/` is canonical source and
+  `frontend/dist/chrome-extension` is generated output.
 - Goal: prove the existing extension's source, manifest, worker/bridge,
   AppShell/browser integration points, tests, build command, generated output,
   packaging path, ignore behavior, and smallest stable source boundary.
@@ -203,6 +208,10 @@ finally release hardening.
 
 ### 02. Browser authority and context-boundary contract
 
+- Status: documented at
+  `docs/architecture/browser-authority-and-context-boundary-contract.md`.
+  This is documentation-layer contract evidence; implementation and live
+  browser proof remain unproven.
 - Goal: define the user, renderer, Browser Host, Guardian, origin, capture,
   storage, confirmation, and failure boundaries.
 - Prerequisite: Task 01 inventory proof.
@@ -298,10 +307,18 @@ finally release hardening.
 The extension source, manifest, generated output, build, packaging, and ignore
 relationship must be proven before any extension edit or relocation.
 
+Status: passed by the Stage 01 inventory proof at commit
+`acff4ef26ca7a8ff56babceb275c8ecf51d3e8b1`.
+
 ### Gate B: Browser authority
 
 Renderer, Browser Host, Guardian, user-confirmation, origin, and state-ownership
 boundaries must be documented before browser actions are added.
+
+Status: defined at the documentation layer by
+`docs/architecture/browser-authority-and-context-boundary-contract.md`.
+Implementation proof is still required before page capture or browser actions
+can become product claims.
 
 ### Gate C: Repository split
 
@@ -355,10 +372,15 @@ The Campaign exits only when:
 
 ## Documentation follow-through
 
-- Task 01 produces a later inventory proof document; this Campaign does not
-  substitute for it.
-- Task 02 documents the browser authority and context boundary.
-- Task 03 creates or updates the governing ADR only after inventory evidence.
+- Task 01 produced
+  `docs/architecture/proofs/2026-07-30-codexify-browser-extension-repository-inventory.md`
+  at commit `acff4ef26ca7a8ff56babceb275c8ecf51d3e8b1`.
+- Task 02 documents the browser authority and context boundary in
+  `docs/architecture/browser-authority-and-context-boundary-contract.md`;
+  implementation and live proof remain deferred.
+- Task 03 is next and must evaluate Browser Host topology and the repository
+  boundary without selecting a technology or repository split by implication.
+  No Browser Host technology or repository split has been selected.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
@@ -382,6 +404,7 @@ The Campaign exits only when:
 - `docs/architecture/README.md`
 - `docs/architecture/adr/adr-index.md`
 - `docs/architecture/adr/051-chrome-side-panel-dual-auth-client-contract.md`
+- `docs/architecture/browser-authority-and-context-boundary-contract.md`
 - `docs/architecture/agent-protocol-operations.md`
 - `docs/architecture/system-overview.md`
 - `docs/architecture/modules-and-ownership.md`
@@ -392,6 +415,7 @@ The Campaign exits only when:
 - `docs/architecture/web-agent-spec.md`
 - `docs/architecture/chrome-side-panel-client.md`
 - `docs/architecture/proofs/2026-06-23-trusted-remote-browser-codex-proof.md`
+- `docs/architecture/proofs/2026-07-30-codexify-browser-extension-repository-inventory.md`
 - `frontend/chrome-extension/manifest.json`
 - `frontend/chrome-extension/service-worker.ts`
 - `frontend/chrome-extension/src/`
