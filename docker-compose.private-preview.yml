@@ -25,7 +25,7 @@ services:
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env.private-preview}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
       GUARDIAN_EXPOSURE_MODE: "private_preview"
@@ -40,6 +40,7 @@ services:
 
   worker-chat:
     environment:
+      CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
@@ -48,7 +49,7 @@ services:
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_CHAT_MODEL: "gemma-4-12b-it-qat-4bit"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env.private-preview}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
 

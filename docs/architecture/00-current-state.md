@@ -27,6 +27,10 @@ This file is authoritative for:
 - Finalized the mobile composer as one visible surface with shared draft/send state and mobile model actions; the earlier projection implementation is not the current shipped UI behavior.
 - Removed queue timing and detail diagnostics from user-facing chat cards while retaining lifecycle status labels; queue semantics were not changed.
 - Health checks now probe the configured provider endpoint; friends/family tester configuration is pinned to DeepSeek V4 Flash.
+- The ADR-052 `v1-whooshd-deepseek-web` private-preview profile, Compose overlay,
+  single-origin port contract, and provider-specific proof helper are
+  statically test-proven on `main`; dual-provider runtime execution remains
+  next-proof-needed.
 - Added migration-safety, account-import, Hosted Room invocation, accent-preservation, and frontend test/proof coverage.
 - Added P2P video, email, Project Pulse, and related implementation-target documents; these remain planning or proof-only surfaces.
 
@@ -43,6 +47,10 @@ This file is authoritative for:
 ## Not yet true / do not assume
 
 - Do not assume cloud-provider beta support, packaged-desktop replacement of Compose, or a current local runtime without live endpoint and model-inventory proof.
+- Do not assume the named private-preview lane is operational from its static
+  profile/Compose proof. It still requires separate terminal, persisted-turn
+  proof for Whoosh'd and DeepSeek V4 Flash; fallback cannot satisfy either
+  provider-specific proof.
 - Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, join links, participant removal, or release qualification.
 - Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract is end-to-end runtime or release proof by itself.
 - Do not treat the mobile projection-plane architecture note as current runtime behavior; `main` currently uses the single-surface mobile composer.

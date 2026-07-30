@@ -110,7 +110,7 @@ def test_private_preview_tracked_files_contain_no_secret_literals() -> None:
     compose_text = COMPOSE_FILES[1].read_text(encoding="utf-8")
     template_text = TEMPLATE.read_text(encoding="utf-8")
 
-    assert "DEEPSEEK_API_KEY: \"${DEEPSEEK_API_KEY:?" in compose_text
+    assert "DEEPSEEK_API_KEY: \"${DEEPSEEK_API_KEY:-}\"" in compose_text
     assert "GUARDIAN_SESSION_SECRET: \"${GUARDIAN_SESSION_SECRET:?" in compose_text
     assert "GUARDIAN_JWT_SECRET: \"${GUARDIAN_JWT_SECRET:?" in compose_text
     assert "DEEPSEEK_API_KEY=<set-in-untracked-private-preview-env>" in template_text
@@ -130,4 +130,3 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert "proxy_pass http://backend:8888;" in nginx
     assert "service: http://127.0.0.1:8081" in cloudflared
     assert "host.docker.internal:8000" not in nginx
-

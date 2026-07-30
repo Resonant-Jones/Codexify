@@ -2,6 +2,12 @@ from pathlib import Path
 
 import yaml
 
+from guardian.core.config import Settings
+from guardian.core.provider_registry import (
+    default_model_for_provider,
+    provider_authorized,
+    provider_availability,
+)
 from guardian.core.supported_profile import load_supported_profile
 
 
@@ -161,6 +167,51 @@ def test_whooshd_deepseek_profile_has_no_route_overlap() -> None:
     assert not enabled & internal
     assert not enabled & quarantined
     assert not internal & quarantined
+
+
+def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web"
+    )
+    settings = Settings(
+        _env_file=None,
+        LLM_PROVIDER="local",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
+        LOCAL_API_KEY="local",
+        LOCAL_PROVIDER_VENDOR="whooshd",
+        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        DEEPSEEK_API_KEY="inert-deepseek-test-key",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        OPENAI_API_KEY=None,
+        GROQ_API_KEY=None,
+        MINIMAX_API_KEY=None,
+        ALIBABA_API_KEY=None,
+        ANTHROPIC_API_KEY=None,
+        GEMINI_API_KEY=None,
+    )
+
+    assert provider_authorized("local", settings) is True
+    assert provider_authorized("deepseek", settings) is True
+    assert provider_availability("deepseek", settings) == (True, None)
+    assert (
+        default_model_for_provider("deepseek", settings)
+        == "deepseek-v4-flash"
+    )
+    for provider in {
+        "openai",
+        "groq",
+        "minimax",
+        "alibaba",
+        "anthropic",
+        "gemini",
+    }:
+        assert provider_authorized(provider, settings) is False
+        assert provider_availability(provider, settings)[0] is False
 
 
 def test_tester_profile_high_blast_routes_quarantined() -> None:

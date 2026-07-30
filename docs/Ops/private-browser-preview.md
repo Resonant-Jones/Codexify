@@ -1,75 +1,193 @@
-# Private browser preview behind Cloudflare Tunnel
+# Dual-provider private browser preview
 
-This is an opt-in preview lane, not a new supported public product surface.
-It exposes one loopback origin only: the frontend at `/`, the API at `/api`,
-WebSocket RPC at `/ws`, and the backend health probe at `/health`. The base
-Compose file is unchanged.
+This is an opt-in friends-and-family demonstration lane, not a new supported
+public product surface. Its supported profile is
+`v1-whooshd-deepseek-web`: local Whoosh'd remains the default provider and
+DeepSeek V4 Flash is the only admitted cloud lane. The global beta posture
+remains local-first and local-only.
 
-## Trust boundaries
+## Provider and network posture
 
-- Browser and Cloudflare edge are untrusted clients; the tunnel is transport,
-  not authorization.
-- `private-preview-origin` is the only host-published service (`127.0.0.1:8080`
-  by default). Backend, Vite, Postgres, Neo4j, and TTS are Compose-network-only.
-- Backend enforces a signed session, an email allowlist, and the role derived
-  from the server environment. The UI never receives an API key.
+- Whoosh'd serves `gemma-4-12b-it-qat-4bit` from a loopback-bound host process.
+  Docker reaches it at `http://host.docker.internal:8000/v1`; Compose, Nginx,
+  and Cloudflare do not publish port 8000.
+- Guardian reaches DeepSeek outbound at `https://api.deepseek.com`. The
+  provider policy token and entire egress allowlist are exactly `deepseek`.
+  Never use wildcard egress.
+- The sole host-published application origin is
+  `http://127.0.0.1:8081`. It serves the frontend at `/`, Guardian at `/api`,
+  task and domain events through the same origin, and health at `/health` and
+  `/health/*`.
+- The future approved hostname is `preview.codexify.space`. Cloudflare Tunnel
+  terminates only at `127.0.0.1:8081`; it never connects directly to Whoosh'd
+  or DeepSeek.
+- Guardian remote/session authentication remains authoritative behind
+  Cloudflare Access. The browser receives neither a Guardian API key nor a
+  DeepSeek credential.
 
-## Start
+The UI persists provider and model choice in the thread configuration through
+`PATCH /api/chat/threads/{thread_id}/config` using `providerId` and `modelId`.
+The proof helper also supplies the provider and model explicitly on each
+completion. Existing cloud-to-local rescue behavior is unchanged, but a
+rescued turn fails provider-specific proof.
 
-1. Copy `.env.private-preview.example` to `.env.private-preview` and fill in
-   fresh secrets plus the approved/admin email lists. Keep it untracked.
-2. Pre-provision each email account from the backend container; the command
-   reads the password interactively and refuses addresses outside the server
-   allowlist. Preview mode deliberately returns `404` from `/auth/register`.
+## Configure
 
-   ```bash
-   docker compose --env-file .env.private-preview -f docker-compose.yml -f docker-compose.private-preview.yml exec backend python -m guardian.cli.private_preview_provision --email guest@example.com
-   ```
-3. Start the origin:
+Copy the committed template and fill only the untracked copy:
 
-   ```bash
-   docker compose --env-file .env.private-preview -f docker-compose.yml -f docker-compose.private-preview.yml up -d
-   ```
+```bash
+cp .env.private-preview.example .env.private-preview
+chmod 600 .env.private-preview
+```
 
-4. Validate it:
+Generate fresh Guardian session, JWT, and internal service-key values. Add the
+approved/admin email lists and the DeepSeek API credential. Keep:
 
-   ```bash
-   CODEXIFY_PREVIEW_PORT=8080 ./scripts/private_preview_validate.sh
-   ```
+```text
+CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web
+ALLOW_CLOUD_PROVIDERS=true
+CODEXIFY_LOCAL_ONLY_MODE=false
+CODEXIFY_EGRESS_ALLOWLIST=deepseek
+```
 
-5. In Cloudflare Zero Trust, create a self-hosted private web application for
-   the chosen hostname. Add an explicit Allow policy for the same email set as
-   `CODEXIFY_PREVIEW_APPROVED_EMAILS`; do not use an `Everyone`, `Bypass`, or
-   unconstrained one-time-PIN policy. Copy
-   `config/cloudflared/private-preview.yml.example` to an ignored local path,
-   set the generated tunnel UUID/credential path and hostname, then run the
-   named tunnel on the operator host:
+These values belong only to this named preview lane. Do not copy them into
+`v1-local-core-web-mcp`.
 
-   ```bash
-   cloudflared tunnel --config ~/.cloudflared/codexify-private-preview.yml run codexify-private-preview
-   ```
+Provision each allowlisted account. The password is read interactively:
 
-Do not use `cloudflared tunnel --url ...` for this lane: it creates a Quick
-Tunnel rather than the named, Access-protected preview contract.
+```bash
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  exec backend python -m guardian.cli.private_preview_provision \
+  --email guest@example.com
+```
 
-## Authorization contract
+## Render, start, and inspect
 
-- `CODEXIFY_PREVIEW_ADMIN_EMAILS` maps those exact normalized email identities
-  to `admin` on every request.
-- Every other authenticated address in `CODEXIFY_PREVIEW_APPROVED_EMAILS` is
-  `guest`; all other users receive `401`.
-- Admin routes require the server-resolved admin role; `X-Admin-Token` and
-  local debug bypasses are not accepted in preview mode.
-- Multi-user ownership scope is enabled, so projects and chat threads are
-  queried and mutated only for the authenticated email account.
+Render the secret-bearing resolved configuration only outside the repository:
 
-## Validation checklist
+```bash
+umask 077
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  config --format json > /tmp/codexify-private-preview.compose.json
+```
 
-- `GET /health` succeeds through the origin.
-- No `8888`, `5173`, database, or TTS ports appear in the preview Compose
-  publication list.
-- An allowlisted guest can log in but receives `403` on an admin endpoint.
-- A guest cannot list, read, mutate, or append to another account's project or
-  thread (expect `403` or `404`, depending on the route).
-- Browser requests stay relative (`/api/...`, `/ws/...`); no API key appears in
-  the delivered JavaScript or browser request headers.
+Start:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  up -d --build
+```
+
+Inspect services and ports:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml ps
+
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E 'codexify|private-preview'
+```
+
+The only application publication may be
+`127.0.0.1:8081->8080/tcp`. Guardian 8888, Vite 5173, Whoosh'd 8000, Redis,
+Postgres, Neo4j, migrators, and workers must not have host bindings.
+
+## Validation levels
+
+Static configuration proof:
+
+```bash
+PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 \
+  bash scripts/private_preview_validate.sh static
+```
+
+Unauthenticated origin, health, chat, and catalog reachability:
+
+```bash
+PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 \
+  bash scripts/private_preview_validate.sh reachability
+```
+
+Authenticated provider execution requires an existing Guardian session token.
+Log in normally, save only the returned token to a mode-600 file outside the
+repository, then run:
+
+```bash
+PRIVATE_PREVIEW_BASE_URL=http://127.0.0.1:8081 \
+PRIVATE_PREVIEW_SESSION_TOKEN_FILE=/secure/path/guardian-session-token \
+  bash scripts/private_preview_validate.sh providers
+```
+
+The provider proof creates separate local and DeepSeek threads, persists one
+user turn in each, waits for canonical terminal task events, reads the durable
+transcript, requires exactly one assistant message per thread, and compares
+attempted/final provider and model evidence. It never prints the token or
+credential-bearing response fields.
+
+## Independent failure diagnosis
+
+Whoosh'd:
+
+```bash
+curl --fail --silent http://127.0.0.1:8000/v1/models
+curl --fail --silent http://127.0.0.1:8081/api/health/llm
+```
+
+Confirm the exact Gemma model is inventoried and that the catalog local entry
+reports vendor `whooshd`, runtime preset `whooshd-mlx`, and availability.
+
+DeepSeek:
+
+```bash
+curl --fail --silent \
+  http://127.0.0.1:8081/api/llm/catalog?include=all
+```
+
+Confirm DeepSeek alone is authorized among cloud providers, its credential is
+recognized, `deepseek-v4-flash` is present, and egress is not denied. Do not
+print `.env.private-preview` or resolved container environments.
+
+Queue/worker:
+
+```bash
+curl --fail --silent http://127.0.0.1:8081/health/chat
+```
+
+Redis must be healthy and the chat-worker heartbeat fresh. HTTP 200 or enqueue
+acceptance does not establish completion.
+
+Recent logs, without environment inspection:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml \
+  logs --tail=250 private-preview-origin backend worker-chat
+```
+
+## Stop and backup boundary
+
+Stop without deleting volumes:
+
+```bash
+docker compose --env-file .env.private-preview \
+  -f docker-compose.yml -f docker-compose.private-preview.yml stop
+```
+
+Never use `down -v`. Before preview use with durable data, establish a separate
+tested Postgres/media backup and restoration procedure; this task does not
+implement or prove one.
+
+## Truth boundaries
+
+- Catalog presence proves neither authorization nor execution.
+- A successful Whoosh'd turn does not prove DeepSeek; a successful DeepSeek
+  turn does not prove Whoosh'd.
+- Route acceptance and task-event publication do not prove terminal completion
+  or persistence.
+- Fallback completion is not proof for the requested provider.
+- Static tests and Compose rendering do not prove a running preview.
+- This runbook does not prove Cloudflare Tunnel, Access, DNS, public-host
+  behavior, guest isolation, rate limiting, backup restoration, reboot
+  recovery, or general cloud-provider beta support.

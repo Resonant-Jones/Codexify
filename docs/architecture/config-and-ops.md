@@ -153,6 +153,43 @@ execution, Guardian provenance, or release support.
 | How should routing validation be done? | Supported profile + provider registry behavior + live completion evidence | Do not infer routing correctness from shell UI presence alone. |
 | What is the best current evidence for RAG trace behavior? | `GET /debug/rag-trace/{thread_id}/latest` plus task events/logs | Dev-only and non-durable; useful for live debugging, not durable release proof by itself. |
 
+### Named dual-provider private-preview posture
+
+`v1-whooshd-deepseek-web` is the ADR-052-governed private-preview profile. It
+does not replace `v1-local-core-web-mcp` or widen the supported beta promise.
+Its provider contract keeps `LLM_PROVIDER=local`, selects the `whooshd-mlx`
+runtime preset and `gemma-4-12b-it-qat-4bit`, permits cloud execution only with
+`ALLOW_CLOUD_PROVIDERS=true` and `CODEXIFY_LOCAL_ONLY_MODE=false`, and restricts
+`CODEXIFY_EGRESS_ALLOWLIST` to the canonical provider-policy token `deepseek`.
+DeepSeek uses `deepseek-v4-flash`; no unrelated cloud provider is admitted.
+
+The private-preview overlay exposes one loopback Nginx origin at
+`127.0.0.1:8081`. Whoosh'd remains a loopback host process reached from Docker
+through `host.docker.internal:8000/v1`. DeepSeek is outbound-only from Guardian.
+Neither model provider receives a browser-facing, Compose-published, Nginx, or
+Cloudflare route, and browser bundles receive no model or Guardian credential.
+
+Operators must read these truth surfaces separately:
+
+1. The supported profile proves the named route and provider-policy contract.
+2. The registry proves provider authorization rules.
+3. `/api/llm/catalog?include=all` proves policy-shaped inventory and current
+   credential/availability interpretation.
+4. `/api/health/llm` proves only the active default provider health.
+5. `/health/chat` proves Redis, queue, and worker-heartbeat posture.
+6. Completion acceptance proves enqueue only.
+7. A canonical terminal task event proves the attempt reached a terminal
+   runtime state.
+8. Persisted transcript readback proves durable assistant output.
+
+Provider-specific signoff requires two separate threads: one explicit local
+Whoosh'd/Gemma turn and one explicit DeepSeek V4 Flash turn. Each must persist
+exactly one assistant response whose task evidence identifies the expected
+attempted and final provider/model. Automatic rescue or any other fallback
+fails the requested provider's proof even when a response persists. Use
+`scripts/private_preview_validate.sh providers` and the focused helper it
+invokes; static or reachability modes are deliberately weaker proof classes.
+
 ### Beta readiness operator verification workflow
 
 1. Confirm the intended beta contract before trusting runtime signals.
