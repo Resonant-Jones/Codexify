@@ -2242,11 +2242,7 @@ export default function GuardianChatWithSidebar({
                   }}
                   bare
                   compactMobileHeader={frameFirstMobile}
-                  mobileComposerProjectionEnabled={frameFirstMobile}
-                  mobileComposerProjectionSuspended={
-                    frameFirstMobile &&
-                    (isMobileOverlayActive || mobileToolsMenuOpen)
-                  }
+                  compactMobile={frameFirstMobile}
                 />
               </div>
             </div>

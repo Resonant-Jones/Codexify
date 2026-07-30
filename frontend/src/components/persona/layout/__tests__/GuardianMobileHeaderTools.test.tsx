@@ -431,15 +431,14 @@ describe("Guardian mobile header tools", () => {
       );
     });
 
-    it("suspends mobile composer projection while Guardian tools are open", async () => {
+    it("keeps compact mobile layout while Guardian tools are open", async () => {
       const user = userEvent.setup();
       renderGuardianFrameFirst();
 
       await user.click(screen.getByTestId("guardian-mobile-tools-trigger"));
 
       expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
-        mobileComposerProjectionEnabled: true,
-        mobileComposerProjectionSuspended: true,
+        compactMobile: true,
       });
     });
   });
@@ -462,8 +461,7 @@ describe("Guardian mobile header tools", () => {
         })
       ).toBeInTheDocument();
       expect(guardianPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
-        mobileComposerProjectionEnabled: true,
-        mobileComposerProjectionSuspended: true,
+        compactMobile: true,
       });
     });
   });

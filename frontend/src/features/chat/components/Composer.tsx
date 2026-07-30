@@ -13,7 +13,6 @@ import { ImageGenModal } from "@/components/modals/ImageGenModal";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
-import { MobileComposerProjection } from "@/features/chat/components/MobileComposerProjection";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
@@ -208,9 +207,7 @@ export function Composer({
   projectName,
   projectOptions = [],
   onProjectChange,
-  mobileProjectionEnabled = false,
-  projectionSuspended = false,
-  onMobileProjectionChange,
+  compactMobile = false,
   mobileModelId,
   mobileModelLabel,
   mobileModelOptions = [],
@@ -265,9 +262,7 @@ export function Composer({
   currentRequestState?: unknown;
   providerRuntimeState?: unknown;
   onCatalogRefresh?: () => void;
-  mobileProjectionEnabled?: boolean;
-  projectionSuspended?: boolean;
-  onMobileProjectionChange?: (projected: boolean) => void;
+  compactMobile?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -276,8 +271,6 @@ export function Composer({
   >(null);
   const [activeCommandOptionIndex, setActiveCommandOptionIndex] = useState(0);
   const [commandAnnouncement, setCommandAnnouncement] = useState("");
-  const isMobileComposerProjected =
-    mobileProjectionEnabled && isComposerFocused && !projectionSuspended;
   const syncDebounceMs = Math.max(
     0,
     draftSyncDebounceMs ?? DEFAULT_DRAFT_SYNC_DEBOUNCE_MS
@@ -315,17 +308,6 @@ export function Composer({
   const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
 
-  useEffect(() => {
-    onMobileProjectionChange?.(isMobileComposerProjected);
-  }, [isMobileComposerProjected, onMobileProjectionChange]);
-
-  useEffect(() => {
-    if (!mobileProjectionEnabled || !projectionSuspended) return;
-    if (ref.current === document.activeElement) {
-      ref.current.blur();
-    }
-    setIsComposerFocused(false);
-  }, [mobileProjectionEnabled, projectionSuspended]);
   const sendBlockedByTurnLock = turnLocked && hasDraftContent && !transportBusy;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const showToast = (message: string) => {
@@ -350,17 +332,10 @@ export function Composer({
     if (!ref.current) return;
     autosizeComposerTextarea(
       ref.current,
-      mobileProjectionEnabled ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS,
-      mobileProjectionEnabled ? MAX_COMPOSER_ROWS_MOBILE : MAX_COMPOSER_ROWS
+      compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS,
+      compactMobile ? MAX_COMPOSER_ROWS_MOBILE : MAX_COMPOSER_ROWS
     );
-  }, [mobileProjectionEnabled, value]);
-
-  // Re-focus the textarea when projection activates (it moves to a portal)
-  useEffect(() => {
-    if (isMobileComposerProjected && ref.current) {
-      ref.current.focus({ preventScroll: true });
-    }
-  }, [isMobileComposerProjected]);
+  }, [compactMobile, value]);
 
   const commitDraftNow = (nextValue = valueRef.current) => {
     if (!onDraftValueChange) return;
@@ -794,9 +769,8 @@ export function Composer({
     [inlineCommandOptionSets, value]
   );
   const commandPaletteOpen =
-    mobileProjectionEnabled &&
+    compactMobile &&
     isComposerFocused &&
-    !projectionSuspended &&
     dismissedCommandDraft !== value &&
     inlineCommandResult.state !== "unknown" &&
     inlineCommandResult.state !== "executed";
@@ -900,7 +874,7 @@ export function Composer({
     <Textarea
       data-testid="composer-textarea"
       ref={ref}
-      rows={mobileProjectionEnabled ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS}
+      rows={compactMobile ? MIN_COMPOSER_ROWS_MOBILE : MIN_COMPOSER_ROWS}
       value={value}
       onChange={(event) => {
         updateDraftValue(event.target.value);
@@ -927,7 +901,7 @@ export function Composer({
         color: "var(--text)",
         overflow: "hidden",
         padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
-        ...(mobileProjectionEnabled
+        ...(compactMobile
           ? { fontSize: "var(--guardian-composer-mobile-input-size)" }
           : {}),
       }}
@@ -959,7 +933,7 @@ export function Composer({
       onVoiceTurn={onVoiceTurn}
       voiceTurnDisabled={voiceTurnDisabled}
       voiceTurnLabel={voiceTurnLabel}
-      showModelMenu={mobileProjectionEnabled}
+      showModelMenu={compactMobile}
       modelId={mobileModelId}
       modelLabel={mobileModelLabel}
       modelOptions={mobileModelOptions}
@@ -1001,24 +975,21 @@ export function Composer({
 
   return (
     <>
-      {/* Status announcement — rendered outside inert/portal regions for accessibility */}
+      {/* Status announcement */}
       <div className="sr-only" aria-live="polite" role="status">
         {commandAnnouncement}
       </div>
 
-      {/* Base composer surface — always in DOM for layout, inert when projected */}
+      {/* Composer surface */}
       <div
         data-composer-root
-        data-composer-surface="base"
-        data-mobile-projected={isMobileComposerProjected ? "true" : "false"}
-        data-mobile-compact={mobileProjectionEnabled ? "true" : "false"}
+        data-mobile-compact={compactMobile ? "true" : "false"}
         className={cn(
           "flex w-full flex-col",
-          mobileProjectionEnabled
+          compactMobile
             ? "flex-none py-[var(--guardian-composer-compact-gap)]"
             : "flex-1 py-[var(--composer-pad-y,12px)]"
         )}
-        {...(isMobileComposerProjected ? { inert: true as any, "aria-hidden": true as any } : {})}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
@@ -1026,12 +997,12 @@ export function Composer({
           data-testid="composer-content-plane"
           className={cn(
             "flex min-h-0 flex-1 flex-col justify-end px-[var(--composer-pad-x,12px)]",
-            mobileProjectionEnabled
+            compactMobile
               ? "gap-[var(--guardian-composer-compact-gap)]"
               : "gap-2"
           )}
         >
-          {commandPaletteOpen && !isMobileComposerProjected ? (
+          {commandPaletteOpen ? (
             <div
               data-testid="composer-command-palette"
               data-command-mode={commandPaletteMode}
@@ -1113,9 +1084,9 @@ export function Composer({
               </div>
             </div>
           ) : null}
-          {!mobileProjectionEnabled ? renderComposerTextarea() : null}
+          {!compactMobile ? renderComposerTextarea() : null}
 
-          {!mobileProjectionEnabled &&
+          {!compactMobile &&
           !value.trim() &&
           !draftAttachments.length ? (
             <div
@@ -1174,7 +1145,7 @@ export function Composer({
             }}
           />
 
-          {mobileProjectionEnabled ? (
+          {compactMobile ? (
             <div
               data-testid="composer-control-row"
               className={cn(
@@ -1188,26 +1159,7 @@ export function Composer({
               >
                 {renderComposerActionMenu()}
               </div>
-              {/* In projected mode, render a layout placeholder instead of the textarea */}
-              {isMobileComposerProjected ? (
-                <div
-                  className="min-w-0 flex-1"
-                  style={{
-                    minHeight: "2.5rem",
-                    color: "var(--muted)",
-                    fontSize: "var(--guardian-composer-mobile-input-size, 16px)",
-                    lineHeight: "1.5",
-                    padding: `${COMPOSER_TEXTAREA_PAD_Y} ${COMPOSER_TEXTAREA_PAD_X}`,
-                  }}
-                  aria-hidden
-                >
-                  <span className="block truncate">
-                    {value.trim() || "Write a message…"}
-                  </span>
-                </div>
-              ) : (
-                renderComposerTextarea()
-              )}
+              {renderComposerTextarea()}
               <div
                 data-testid="composer-send-slot"
                 className={cn(
@@ -1313,131 +1265,6 @@ export function Composer({
           ) : null}
         </div>
       </div>
-
-      {/* Projection surface — portal'd to document.body when active */}
-      {isMobileComposerProjected && (
-        <MobileComposerProjection visible>
-          <div className="flex flex-col gap-[var(--guardian-composer-compact-gap)]">
-            {/* Command palette is rendered inside the portal when projected */}
-            {commandPaletteOpen ? (
-              <div
-                data-testid="composer-command-palette"
-                data-command-mode={commandPaletteMode}
-                className="min-w-0 overflow-hidden rounded-[var(--radius-micro)] border bg-[var(--panel-bg)]"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                <div
-                  className="border-b px-[var(--card-pad)] py-[var(--guardian-composer-compact-gap)] text-xs font-medium"
-                  style={{
-                    borderColor: "var(--panel-border)",
-                    color: "var(--muted)",
-                  }}
-                >
-                  {commandPaletteMode === "command"
-                    ? "Composer commands"
-                    : `/${inlineCommandResult.command?.name} values`}
-                </div>
-                <div
-                  id="composer-inline-command-listbox"
-                  role="listbox"
-                  aria-label={
-                    commandPaletteMode === "command"
-                      ? "Composer commands"
-                      : `${inlineCommandResult.command?.label} values`
-                  }
-                  className="overflow-y-auto p-[var(--guardian-composer-compact-gap)]"
-                  style={{
-                    maxHeight:
-                      "var(--guardian-composer-command-palette-max-height)",
-                  }}
-                >
-                  {commandSuggestions.map((suggestion, index) => {
-                    const isCommand = "name" in suggestion;
-                    const disabled = !isCommand && suggestion.disabled;
-                    const optionId = `composer-inline-option-${index}`;
-                    return (
-                      <button
-                        key={
-                          isCommand
-                            ? suggestion.name
-                            : `${inlineCommandResult.command?.name}-${suggestion.value}`
-                        }
-                        id={optionId}
-                        type="button"
-                        role="option"
-                        aria-selected={index === activeCommandOptionIndex}
-                        aria-disabled={disabled || undefined}
-                        disabled={disabled}
-                        className="flex w-full min-w-0 items-start gap-[var(--guardian-composer-compact-gap)] rounded-[var(--radius-micro)] px-[var(--card-pad)] py-[var(--guardian-composer-compact-gap)] text-left disabled:opacity-50"
-                        style={{
-                          color: "var(--text)",
-                          background:
-                            index === activeCommandOptionIndex
-                              ? "var(--chip-bg)"
-                              : "transparent",
-                        }}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onMouseEnter={() => setActiveCommandOptionIndex(index)}
-                        onClick={() => activateCommandSuggestion(index)}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
-                            {isCommand
-                              ? `/${suggestion.name}`
-                              : suggestion.label}
-                          </span>
-                          {suggestion.description ? (
-                            <span
-                              className="block truncate text-xs"
-                              style={{ color: "var(--muted)" }}
-                            >
-                              {suggestion.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-            <div
-              data-testid="composer-control-row"
-              className={cn(
-                CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-                "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)]"
-              )}
-              style={{
-                background: "color-mix(in oklab, var(--panel-bg) 95%, black)",
-                borderRadius: "24px",
-                border: "1px solid var(--panel-border)",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-                backdropFilter: "blur(18px)",
-                padding: "0 calc(var(--guardian-composer-compact-gap, 6px) * 1)",
-                WebkitBackdropFilter: "blur(18px)",
-              }}
-            >
-              <div
-                data-testid="composer-controls-strip"
-                className="flex shrink-0 items-center"
-              >
-                {renderComposerActionMenu()}
-              </div>
-              {renderComposerTextarea()}
-              <div
-                data-testid="composer-send-slot"
-                className={cn(
-                  "flex shrink-0 items-center justify-center justify-self-end",
-                  "mr-[var(--composer-text-pad-x,14px)]",
-                  CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
-                )}
-              >
-                {renderSendButton()}
-              </div>
-            </div>
-          </div>
-        </MobileComposerProjection>
-      )}
 
       <ImageGenModal
         open={showImgGen}

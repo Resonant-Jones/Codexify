@@ -101,9 +101,8 @@ flowchart TD
     Y --> ZE["Transcript durable record layer<br/>internal scroll owner"]
     Y --> ZF["Compact mobile composer pill<br/>attachment/add · authored text · voice · send"]
     ZE --> ZG["Focused composition mode"]
-    ZG --> ZH["Projected composer<br/>foreground over lower transcript"]
     ZG --> ZI["Keyboard below settled visible aperture"]
-    ZH --> ZJ["Command-only slash draft"]
+    ZE --> ZJ["Command-only slash draft"]
     ZJ --> ZK["Deterministic frontend registry/parser"]
     ZK --> ZL["Command or value suggestions"]
     ZL --> ZM["Existing configuration callback<br/>draft removed without transcript persistence"]
@@ -220,8 +219,8 @@ flowchart TD
 
     B["Focused composition mode"] --> B1["Stable frame"]
     B --> B2["Stable compact header"]
-    B --> B3["Transcript record beneath"]
-    B --> B4["Projected composer"]
+    B --> B3["Transcript record layer"]
+    B --> B4["Composer at lower frame edge"]
     B --> B5["Keyboard below settled visible aperture"]
 
     C["Successful authored-message submit"] --> C1["User message enters durable record"]
@@ -345,76 +344,53 @@ Explicit exclusions:
 - Direct code-component mapping.
 - Legacy or quarantined docs.
 
-## 10. Mobile Messaging Plane Projection Contract
+## 10. Mobile Composer Single-Surface Contract
 
 ### Purpose
 
-This section defines the UI architecture contract for the mobile composer projection plane. It governs how the keyboard-time composer relates to the canonical base composer slot. This is UI architecture only and makes no backend/runtime support claim.
+This section defines the UI architecture contract for the mobile composer. It governs the single canonical composer surface that remains nested at the bottom of the Guardian frame at all times, including while the software keyboard is open. This is UI architecture only and makes no backend/runtime support claim.
 
 ### Contract statements
 
-1. **Canonical composer belongs to the base Guardian frame layer.**
-   - The canonical `Composer` component is always nested at the bottom of the Guardian frame in normal document flow.
+1. **Guardian owns one canonical composer surface.**
+   - The `Composer` component is always nested at the bottom of the Guardian frame in normal document flow.
    - Its DOM container (`composer-shell-positioner`) must never switch to `absolute` or `fixed` positioning.
-   - The base slot retains its layout height so the frame does not collapse or jump when projection activates.
+   - Software-keyboard appearance must not create a second rendered composer.
+   - There is exactly one `data-composer-root` in the DOM before focus, after focus, and while the keyboard is open.
+   - No portal, projection plane, or mirrored composer surface exists.
 
-2. **The keyboard-time composer is a temporary presentation projection.**
-   - When the software keyboard opens on a phone layout, a separate visual projection surface is rendered via a portal to `document.body` (outside any transformed or clipped FrameCard ancestor).
-   - The projection surface is anchored directly above the software keyboard using the visual viewport coordinate system (`visualViewport.height`, `keyboardInset` from `useViewportInsets`).
-   - The projection dismisses after successful authored-message persistence. Failed submission preserves the projection.
+2. **One logical composer state.**
+   - There is exactly one draft value, attachment collection, send path, command state, and upload lifecycle.
+   - No replacement mirror, clone, portal, or synchronized secondary composer exists.
+   - Focusing the textarea must not mount a second composer.
+   - Opening or closing the software keyboard must not duplicate the composer.
 
-3. **One logical composer state owns both presentations.**
-   - There is exactly one logical draft, attachment collection, send state, upload state, and submission path.
-   - Both the base slot and the projection surface share the same React state, callbacks, and event handlers.
-   - Only one textarea is interactive and present in the accessibility tab order at a time.
-   - The inactive surface is marked with `inert` and `aria-hidden`.
-   - Distinct `data-composer-surface="base"` and `data-composer-surface="projection"` markers identify each surface.
-
-4. **The visual viewport is the projection coordinate frame.**
-   - The projected surface is positioned using `position: fixed` with `bottom` equal to the keyboard inset from `useViewportInsets`.
-   - The page or frame must not be zoomed, scaled, translated, or scrolled to follow the keyboard.
+3. **Keyboard accommodation through ordinary viewport-safe layout.**
+   - Mobile keyboard accommodation is handled through ordinary viewport-safe layout and input sizing.
+   - The page or frame must not be zoomed, scaled, translated, or programmatically scrolled to chase the keyboard.
    - No `user-scalable=no`, `maximum-scale=1`, or any global rule disables user-controlled page zoom.
    - The active phone textarea must have a computed font size of at least `16px` to prevent iOS focus zoom.
+   - No `window.scrollTo` call, root transform, frame transform, or viewport zoom lock is introduced.
 
-5. **Projection lifecycle.**
-   - Focusing the phone textarea while a software keyboard is present activates the projection.
-   - Blurring the textarea or keyboard dismissal deactivates the projection.
-   - Successful user-message persistence clears the draft, blurs the active textarea, dismisses the projection, and returns presentation to the bottom composer.
-   - Failed submission preserves the draft, focus availability, and projected state.
-   - Overlay suspension (`projectionSuspended`) also preserves the draft.
+4. **Compact mobile presentation.**
+   - The compact phone row consists of: `+` actions trigger, textarea, and send button.
+   - One-row minimum height and bounded multiline growth are preserved.
+   - The inline provider/model summary chip is absent from the mobile composer row.
+   - The reclaimed horizontal space from removing the inline model chip is preserved.
 
-6. **Mobile model selection lives in the `+` actions surface.**
-   - The provider/model summary chip is removed from the mobile composer control row.
+5. **Mobile model selection lives in the `+` actions surface.**
    - Model selection is exposed through the `+` composer-actions popup (`ComposerActionMenu`).
    - Selecting a model calls the existing `onModelChange` path; it does not send, clear, or fork the draft.
    - The `+` popup remains a DropdownMenu; no full-screen model picker is introduced.
 
-### Mermaid diagram
-
-```mermaid
-flowchart TD
-    subgraph "Guardian Base Frame"
-        A["Transcript / ChatView"]
-        B["Bottom Composer Slot (canonical)<br/>data-composer-surface='base'<br/>normal flow, inert when projected"]
-    end
-
-    subgraph "Visual Viewport Projection Layer"
-        C["Projected Composer Surface<br/>data-composer-surface='projection'<br/>portal to document.body<br/>position: fixed, above keyboard"]
-    end
-
-    D["Software Keyboard"]
-
-    E["One shared Composer Controller/State<br/>- draft value<br/>- attachments<br/>- send/submission state<br/>- callbacks"]
-
-    E -->|"controls"| B
-    E -->|"controls when projected"| C
-    C -->|"anchored above"| D
-    B -.->|"inert when C active"| C
-```
+6. **Submission behavior.**
+   - Successful send clears the draft according to the existing lifecycle.
+   - Failed send preserves the draft.
+   - Turn locking, slash commands, attachments, voice actions, RAG controls, and upload gating are preserved.
 
 ### Relationship to existing diagrams
 
-This projection contract refines the "Focused composition mode" interaction mode described in Section 6 (Diagram 2: Structural Layout Model). The projected composer replaces the earlier "composer-shell-positioner switches to absolute" implementation while preserving all existing interaction semantics (transcript scroll ownership, turn locking, draft sync, command palette, attachment flow).
+This single-surface contract replaces the prior "Mobile Messaging Plane Projection Contract" described in earlier versions of this document. The "Focused composition mode" interaction mode from Section 6 (Diagram 2: Structural Layout Model) no longer creates a second composer surface; one composer remains visible at all times.
 
 ### Non-claims
 

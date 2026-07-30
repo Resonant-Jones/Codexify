@@ -36,7 +36,7 @@ function renderComposer(
   const props: React.ComponentProps<typeof Composer> = {
     onSend: vi.fn(),
     draftValue: "",
-    mobileProjectionEnabled: true,
+    compactMobile: true,
     activeProviderId: "local",
     providerOptions,
     onProviderChange: vi.fn(),
@@ -62,8 +62,6 @@ function renderComposer(
 
 function focusAndType(value: string) {
   act(() => screen.getByTestId("composer-textarea").focus());
-  // After focus, projection may activate and move the textarea.
-  // Re-query to get the active (projected) textarea.
   const activeTextarea = screen.getByTestId("composer-textarea");
   fireEvent.change(activeTextarea, { target: { value } });
   return activeTextarea;
@@ -112,7 +110,7 @@ describe("Guardian mobile composer inline commands", () => {
   });
 
   it("preserves the existing visible selector row on desktop", () => {
-    renderComposer({ mobileProjectionEnabled: false });
+    renderComposer({ compactMobile: false });
 
     expect(
       screen.getByTestId("composer-textarea").closest("[data-composer-root]")
@@ -271,28 +269,19 @@ describe("Guardian mobile composer inline commands", () => {
     expect(textarea).toHaveValue("/model qwen");
   });
 
-  it("keeps projection active during commands and closes the palette when suspended", async () => {
-    const onProjectionChange = vi.fn();
-    const view = renderComposer({ onMobileProjectionChange: onProjectionChange });
+  it("shows command palette on mobile and closes with Escape without losing draft", () => {
+    renderComposer();
     const textarea = focusAndType("/");
 
-    await waitFor(() =>
-      expect(onProjectionChange).toHaveBeenLastCalledWith(true)
-    );
     expect(screen.getByTestId("composer-command-palette")).toBeInTheDocument();
 
-    view.rerender(
-      <Composer
-        {...view.props}
-        projectionSuspended
-      />
-    );
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(screen.queryByTestId("composer-command-palette")).toBeNull();
+    expect(textarea).toHaveValue("/");
+    expect(textarea).toHaveFocus();
 
-    await waitFor(() => {
-      expect(screen.queryByTestId("composer-command-palette")).toBeNull();
-      expect(textarea).not.toHaveFocus();
-      expect(textarea).toHaveValue("/");
-      expect(onProjectionChange).toHaveBeenLastCalledWith(false);
-    });
+    // Exactly one composer surface
+    const roots = document.querySelectorAll("[data-composer-root]");
+    expect(roots.length).toBe(1);
   });
 });
