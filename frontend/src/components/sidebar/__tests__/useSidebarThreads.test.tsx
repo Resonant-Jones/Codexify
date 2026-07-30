@@ -201,6 +201,43 @@ describe("useSidebarThreads delete flow", () => {
   });
 });
 
+describe("useSidebarThreads persistence boundaries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("preserves Guardian's legacy project key by default", () => {
+    const { result } = renderHook(() =>
+      useSidebarThreads({ initialThreads: [], projectId: "7" })
+    );
+
+    expect(result.current.currentProjectId).toBe("7");
+    expect(window.localStorage.getItem("cfy.lastProjectId")).toBe("7");
+  });
+
+  it("does not read or write Guardian project storage for controlled Documents scope", () => {
+    window.localStorage.setItem("cfy.lastProjectId", "7");
+    const onProjectChange = vi.fn();
+    const { result } = renderHook(() =>
+      useSidebarThreads({
+        initialThreads: [],
+        projectId: "12",
+        onProjectChange,
+        persistence: { projectStorageKey: null },
+      })
+    );
+
+    expect(result.current.currentProjectId).toBe("12");
+    act(() => result.current.setScope("15"));
+
+    expect(onProjectChange).toHaveBeenCalledWith("15");
+    expect(window.localStorage.getItem("cfy.lastProjectId")).toBe("7");
+    expect(window.localStorage.getItem("cfy.generalProjectId")).toBeNull();
+    expect(window.localStorage.getItem("cfy.defaultProjectId")).toBeNull();
+  });
+});
+
 describe("useSidebarThreads provenance filters", () => {
   beforeEach(() => {
     vi.clearAllMocks();

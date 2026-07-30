@@ -70,7 +70,16 @@ import {
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { DocumentLike } from "@/types/documents";
+import {
+  getDocumentScopeQuery,
+  getDocumentUploadScope,
+  seedDocumentsScope,
+  selectDocumentsProject,
+  selectDocumentsThread,
+  type DocumentsScope,
+  type GuardianSidebarSnapshot,
+} from "@/components/documents/documentScopeProjection";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
@@ -1361,9 +1370,35 @@ export default function AppShell({
       return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
     });
   const hasFetchedGeneralProjectRef = React.useRef(false);
-  const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
-  const [documentScope, setDocumentScope] = useState<DocumentScope>(
-    () => (readRouteThreadId() != null ? "thread" : "project")
+  const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
+    useState<GuardianSidebarSnapshot | null>(null);
+  const [documentsScope, setDocumentsScope] = useState<DocumentsScope>(() =>
+    selectDocumentsProject(null)
+  );
+  const documentsEntrySeededRef = useRef(false);
+  const guardianProjectFallbackId = useMemo<number | null>(
+    () => (generalProjectIdSource === "storage" ? null : generalProjectId),
+    [generalProjectId, generalProjectIdSource]
+  );
+  const seedDocumentsScopeFromGuardian = useCallback(() => {
+    setDocumentsScope(
+      seedDocumentsScope(guardianSidebarSnapshot, guardianProjectFallbackId)
+    );
+  }, [guardianProjectFallbackId, guardianSidebarSnapshot]);
+  const handleGuardianSidebarSnapshot = useCallback(
+    (snapshot: GuardianSidebarSnapshot) => {
+      setGuardianSidebarSnapshot(snapshot);
+    },
+    []
+  );
+  const documentsSidebarThreads = guardianSidebarSnapshot?.threads ?? [];
+  const documentsSidebarThreadsForRender = useMemo<Thread[]>(
+    () => documentsSidebarThreads.map((thread) => ({ ...thread, messages: [] })),
+    [documentsSidebarThreads]
+  );
+  const documentsSidebarPersistence = useMemo(
+    () => ({ tabStorageKey: "cfy.documents.sidebarTab", projectStorageKey: null }),
+    []
   );
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1388,8 +1423,14 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
-  }, [activeRouteThreadId]);
+    if (view !== "documents") {
+      documentsEntrySeededRef.current = false;
+      return;
+    }
+    if (documentsEntrySeededRef.current) return;
+    seedDocumentsScopeFromGuardian();
+    documentsEntrySeededRef.current = true;
+  }, [seedDocumentsScopeFromGuardian, view]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (view !== "guardian") return;
@@ -1398,6 +1439,14 @@ export default function AppShell({
   }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
+      if (
+        nextView === "documents" &&
+        view !== "documents" &&
+        !documentsEntrySeededRef.current
+      ) {
+        seedDocumentsScopeFromGuardian();
+        documentsEntrySeededRef.current = true;
+      }
       setView(nextView);
       if (typeof window === "undefined") return;
 
@@ -1407,7 +1456,7 @@ export default function AppShell({
       }
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
-    [activeRouteThreadId]
+    [activeRouteThreadId, seedDocumentsScopeFromGuardian, view]
   );
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1438,19 +1487,21 @@ export default function AppShell({
   }, []);
   const handleDocumentsSidebarProjectChange = useCallback(
     (projectId: string | null) => {
-      const normalizedProjectId =
-        projectId == null ? null : Number.parseInt(String(projectId), 10);
-      setGeneralProjectIdSource("user");
-      setGeneralProjectId(
-        normalizedProjectId != null && Number.isFinite(normalizedProjectId)
-          ? normalizedProjectId
-          : null
-      );
-      setDocumentScope(
-        projectId == null && activeRouteThreadId != null ? "thread" : "project"
+      setDocumentsScope(selectDocumentsProject(projectId));
+    },
+    []
+  );
+  const handleDocumentsSidebarThreadSelect = useCallback(
+    (threadId: string) => {
+      setDocumentsScope((currentScope) =>
+        selectDocumentsThread(
+          threadId,
+          documentsSidebarThreads,
+          currentScope.projectId
+        )
       );
     },
-    [activeRouteThreadId]
+    [documentsSidebarThreads]
   );
   const handleGuardianProjectChange = useCallback(
     (projectId: string | null) => {
@@ -1551,56 +1602,6 @@ export default function AppShell({
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!activeRouteThreadId) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!checkAuthGate(auth, "thread project load")) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    (async () => {
-      try {
-        const response = await api.get("/chat/threads");
-        const payload = response?.data ?? response;
-        const threads = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.threads)
-          ? payload.threads
-          : [];
-        const hit = threads.find(
-          (thread: any) => Number(thread?.id) === activeRouteThreadId
-        );
-        const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
-        const parsed = projectRaw == null ? NaN : Number(projectRaw);
-        if (cancelled) return;
-        setActiveThreadProjectId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
-      } catch (err) {
-        if (cancelled) return;
-        setActiveThreadProjectId(null);
-        console.warn("[documents] failed to resolve thread project", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeRouteThreadId, auth, startupLocked]);
-  const effectiveDocumentsProjectId = useMemo<number | null>(
-    () => activeThreadProjectId ?? (generalProjectIdSource === "storage" ? null : generalProjectId),
-    [activeThreadProjectId, generalProjectId, generalProjectIdSource]
-  );
-  useEffect(() => {
-    let cancelled = false;
-    if (startupLocked) {
       return () => {
         cancelled = true;
       };
@@ -1612,10 +1613,7 @@ export default function AppShell({
     }
     (async () => {
       try {
-        const params: Record<string, number> = { limit: 100 };
-        if (effectiveDocumentsProjectId != null) {
-          params.project_id = effectiveDocumentsProjectId;
-        }
+        const params = getDocumentScopeQuery(documentsScope);
         const res = await api.get("/media/documents", { params });
         const docs = unwrapDocumentArray(res?.data);
         if (cancelled) return;
@@ -1632,7 +1630,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, effectiveDocumentsProjectId, startupLocked]);
+  }, [auth, documentsScope, startupLocked]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1676,19 +1674,17 @@ export default function AppShell({
       mock: false,
     }));
   }, [codexEntries]);
-  const scopedProjectDocuments = useMemo<DocItem[]>(() => {
-    if (documentScope !== "thread" || activeRouteThreadId == null) {
-      return documents;
-    }
-    return documents.filter((doc) => {
-      const threadRaw = (doc as any).threadId ?? (doc as any).thread_id;
-      const threadValue = Number(threadRaw);
-      return Number.isFinite(threadValue) && threadValue === activeRouteThreadId;
-    });
-  }, [activeRouteThreadId, documents, documentScope]);
+  const scopedDocuments = useMemo<DocItem[]>(() => documents, [documents]);
   const allDocuments = useMemo<DocItem[]>(
-    () => dedupeDocItems([...codexDocs, ...scopedProjectDocuments]),
-    [codexDocs, scopedProjectDocuments]
+    () =>
+      documentsScope.kind === "thread"
+        ? scopedDocuments
+        : dedupeDocItems([...codexDocs, ...scopedDocuments]),
+    [codexDocs, documentsScope.kind, scopedDocuments]
+  );
+  const documentsUploadScope = useMemo(
+    () => getDocumentUploadScope(documentsScope),
+    [documentsScope]
   );
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
@@ -2238,8 +2234,8 @@ export default function AppShell({
       }>).detail;
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
-        setGeneralProjectIdSource("user");
-        setGeneralProjectId(projectId);
+        setDocumentsScope(selectDocumentsProject(projectId));
+        documentsEntrySeededRef.current = true;
       }
       navigateToView("documents");
     };
@@ -2582,6 +2578,8 @@ export default function AppShell({
   const showWorkspaceDrawer =
     workspaceShellEnabled &&
     (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
+  const workspaceProjectId =
+    view === "documents" ? documentsScope.projectId : guardianProjectFallbackId;
   const workspaceDrawerMotionState = isPhoneShell
     ? getMobileWorkspaceMotionState(
         isPhoneShell,
@@ -2697,7 +2695,7 @@ export default function AppShell({
             }}
             onActiveTabChange={handleWorkspaceDrawerTabChange}
             onLayoutModeChange={setWorkspaceLayoutMode}
-            projectId={effectiveDocumentsProjectId}
+            projectId={workspaceProjectId}
           />
         </div>
       </div>
@@ -2727,7 +2725,7 @@ export default function AppShell({
           }}
           onActiveTabChange={handleWorkspaceDrawerTabChange}
           onLayoutModeChange={setWorkspaceLayoutMode}
-          projectId={effectiveDocumentsProjectId}
+          projectId={workspaceProjectId}
         />
       </div>
     )
@@ -3440,20 +3438,21 @@ export default function AppShell({
                           }}
                         >
                         <SidebarRoot
-                            threads={[]}
+                            threads={documentsSidebarThreadsForRender}
                             activeId={
-                              activeRouteThreadId == null
-                                ? null
-                                : String(activeRouteThreadId)
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
                             }
-                            onSelect={(id) => navigateToThread(id)}
+                            onSelect={handleDocumentsSidebarThreadSelect}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              effectiveDocumentsProjectId == null
+                              documentsScope.projectId == null
                                 ? null
-                                : String(effectiveDocumentsProjectId)
+                                : String(documentsScope.projectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
                           />
                         </FrameCard>
                       </div>
@@ -3482,8 +3481,8 @@ export default function AppShell({
                         extColors={extColors}
                         onOpenInThread={openDocInThread}
                         onDeleteDocument={deleteDocument}
-                        projectId={effectiveDocumentsProjectId}
-                        threadId={activeRouteThreadId}
+                        projectId={documentsUploadScope.projectId}
+                        threadId={documentsUploadScope.threadId}
                       />
                     </FrameCard>
                   </div>
@@ -3524,20 +3523,24 @@ export default function AppShell({
                           }}
                         >
                         <SidebarRoot
-                            threads={[]}
+                            threads={documentsSidebarThreadsForRender}
                             activeId={
-                              activeRouteThreadId == null
-                                ? null
-                                : String(activeRouteThreadId)
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
                             }
-                            onSelect={(id) => navigateToThread(id)}
+                            onSelect={(id) => {
+                              handleDocumentsSidebarThreadSelect(id);
+                              closeDocumentsSidebarOverlay();
+                            }}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              effectiveDocumentsProjectId == null
+                              documentsScope.projectId == null
                                 ? null
-                                : String(effectiveDocumentsProjectId)
+                                : String(documentsScope.projectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
                           />
                         </FrameCard>
                       </div>
@@ -3671,6 +3674,7 @@ export default function AppShell({
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                         onProjectChange={handleGuardianProjectChange}
+                        onSidebarSnapshot={handleGuardianSidebarSnapshot}
                         activeApplicationView={view}
                         applicationDestinations={
                           GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS

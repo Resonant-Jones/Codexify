@@ -505,6 +505,43 @@ describe("GuardianChatWithSidebar stability contract", () => {
     ).toBe(false);
   });
 
+  it("emits a lightweight sidebar snapshot without Guardian message bodies", async () => {
+    setupThreadApi({
+      all: {
+        0: { threads: [t(11, "Thread 11", 7)], has_more: false },
+      },
+    });
+    const onSidebarSnapshot = vi.fn();
+
+    render(
+      <GuardianChatWithSidebar
+        guardianName="Guardian"
+        userName="User"
+        onSidebarSnapshot={onSidebarSnapshot}
+      />
+    );
+
+    await screen.findByTestId("thread-11");
+    await waitFor(() => {
+      expect(onSidebarSnapshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          activeThreadId: null,
+          threads: [expect.objectContaining({ id: "11", projectId: "7" })],
+        })
+      );
+    });
+
+    const loadedSnapshot = onSidebarSnapshot.mock.calls.at(-1)?.[0];
+    expect(loadedSnapshot.threads[0]).not.toHaveProperty("messages");
+
+    await userEvent.click(screen.getByTestId("thread-11"));
+    await waitFor(() => {
+      expect(onSidebarSnapshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({ activeThreadId: 11, activeThreadProjectId: 7 })
+      );
+    });
+  });
+
   it("stays mounted when provider state transitions to an error", () => {
     const { rerender } = render(
       <GuardianChatWithSidebar guardianName="Guardian" userName="User" />

@@ -21,6 +21,12 @@ type UseSidebarThreadsOptions = {
   projectId?: string | null;
   onProjectChange?: (id: string | null) => void;
   projects?: Project[];
+  persistence?: SidebarPersistenceConfig;
+};
+
+export type SidebarPersistenceConfig = {
+  /** Guardian keeps the legacy key; isolated surfaces can opt out with null. */
+  projectStorageKey?: string | null;
 };
 
 type UseSidebarThreadsResult = {
@@ -126,7 +132,12 @@ export function useSidebarThreads({
   projectId,
   onProjectChange,
   projects = [],
+  persistence,
 }: UseSidebarThreadsOptions): UseSidebarThreadsResult {
+  const projectStorageKey =
+    persistence && "projectStorageKey" in persistence
+      ? persistence.projectStorageKey ?? null
+      : LOCAL_SCOPE_KEY;
   const [threadList, setThreadList] = useState<Thread[]>(() => (initialThreads || []).map(sanitizeThread));
   const previewRef = useRef<Map<string, string>>(new Map());
   const stableTitleRef = useRef<Map<string, string>>(new Map());
@@ -138,7 +149,8 @@ export function useSidebarThreads({
   const [localProjectId, setLocalProjectId] = useState<string | null>(() => {
     if (projectId !== undefined && projectId !== null) return projectId;
     if (typeof window === "undefined") return null;
-    const stored = window.localStorage.getItem(LOCAL_SCOPE_KEY);
+    if (!projectStorageKey) return null;
+    const stored = window.localStorage.getItem(projectStorageKey);
     if (stored === "null") return null;
     return stored || null;
   });
@@ -188,10 +200,11 @@ export function useSidebarThreads({
   useEffect(() => {
     if (projectId === undefined) return;
     setLocalProjectId((prev) => (prev === projectId ? prev : projectId ?? null));
+    if (!projectStorageKey) return;
     try {
-      window.localStorage.setItem(LOCAL_SCOPE_KEY, projectId ?? "null");
+      window.localStorage.setItem(projectStorageKey, projectId ?? "null");
     } catch {}
-  }, [projectId]);
+  }, [projectId, projectStorageKey]);
 
   const handleDeleteThread = useCallback(
     (threadId: string) => {
@@ -213,11 +226,13 @@ export function useSidebarThreads({
       } else {
         setLocalProjectId((prev) => (prev === id ? prev : id));
       }
-      try {
-        window.localStorage.setItem(LOCAL_SCOPE_KEY, id ?? "null");
-      } catch {}
+      if (projectStorageKey) {
+        try {
+          window.localStorage.setItem(projectStorageKey, id ?? "null");
+        } catch {}
+      }
     },
-    [onProjectChange]
+    [onProjectChange, projectStorageKey]
   );
 
   // SSE / cross-view updates
