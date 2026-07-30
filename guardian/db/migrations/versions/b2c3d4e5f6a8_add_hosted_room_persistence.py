@@ -23,14 +23,29 @@ PARTICIPANT_ROLES = ("agent", "member", "owner")
 PARTICIPANT_STATES = ("active", "removed")
 
 
+def _has_table(table_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return table_name in inspector.get_table_names()
+
+
+def _has_index(table_name: str, index_name: str) -> bool:
+    if not _has_table(table_name):
+        return False
+    inspector = sa.inspect(op.get_bind())
+    return index_name in {
+        index["name"] for index in inspector.get_indexes(table_name)
+    }
+
+
 def _domain_check(column: str, values: tuple[str, ...]) -> str:
     quoted_values = ",".join(repr(value) for value in values)
     return f"{column} IN ({quoted_values})"
 
 
 def upgrade() -> None:
-    op.create_table(
-        "hosted_rooms",
+    if not _has_table("hosted_rooms"):
+        op.create_table(
+            "hosted_rooms",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("owner_account_id", sa.String(length=255), nullable=False),
         sa.Column("backing_thread_id", sa.Integer(), nullable=False),
@@ -98,14 +113,16 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("slug", name="uq_hosted_rooms_slug"),
     )
-    op.create_index(
-        "ix_hosted_rooms_owner_account_id",
-        "hosted_rooms",
-        ["owner_account_id"],
-    )
+    if not _has_index("hosted_rooms", "ix_hosted_rooms_owner_account_id"):
+        op.create_index(
+            "ix_hosted_rooms_owner_account_id",
+            "hosted_rooms",
+            ["owner_account_id"],
+        )
 
-    op.create_table(
-        "hosted_room_invites",
+    if not _has_table("hosted_room_invites"):
+        op.create_table(
+            "hosted_room_invites",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("room_id", sa.String(length=36), nullable=False),
         sa.Column(
@@ -174,14 +191,16 @@ def upgrade() -> None:
             name="uq_hosted_room_invites_token_hash",
         ),
     )
-    op.create_index(
-        "ix_hosted_room_invites_room_id",
-        "hosted_room_invites",
-        ["room_id"],
-    )
+    if not _has_index("hosted_room_invites", "ix_hosted_room_invites_room_id"):
+        op.create_index(
+            "ix_hosted_room_invites_room_id",
+            "hosted_room_invites",
+            ["room_id"],
+        )
 
-    op.create_table(
-        "hosted_room_participants",
+    if not _has_table("hosted_room_participants"):
+        op.create_table(
+            "hosted_room_participants",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("room_id", sa.String(length=36), nullable=False),
         sa.Column("invitation_id", sa.String(length=36)),
@@ -261,37 +280,54 @@ def upgrade() -> None:
             name="uq_hosted_room_participants_invitation_id",
         ),
     )
-    op.create_index(
-        "ix_hosted_room_participants_room_id",
-        "hosted_room_participants",
-        ["room_id"],
-    )
-    op.create_index(
-        "ix_hosted_room_participants_room_state",
-        "hosted_room_participants",
-        ["room_id", "state"],
-    )
+    if not _has_index(
+        "hosted_room_participants", "ix_hosted_room_participants_room_id"
+    ):
+        op.create_index(
+            "ix_hosted_room_participants_room_id",
+            "hosted_room_participants",
+            ["room_id"],
+        )
+    if not _has_index(
+        "hosted_room_participants", "ix_hosted_room_participants_room_state"
+    ):
+        op.create_index(
+            "ix_hosted_room_participants_room_state",
+            "hosted_room_participants",
+            ["room_id", "state"],
+        )
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_hosted_room_participants_room_state",
-        table_name="hosted_room_participants",
-    )
-    op.drop_index(
-        "ix_hosted_room_participants_room_id",
-        table_name="hosted_room_participants",
-    )
-    op.drop_table("hosted_room_participants")
+    if _has_index(
+        "hosted_room_participants", "ix_hosted_room_participants_room_state"
+    ):
+        op.drop_index(
+            "ix_hosted_room_participants_room_state",
+            table_name="hosted_room_participants",
+        )
+    if _has_index(
+        "hosted_room_participants", "ix_hosted_room_participants_room_id"
+    ):
+        op.drop_index(
+            "ix_hosted_room_participants_room_id",
+            table_name="hosted_room_participants",
+        )
+    if _has_table("hosted_room_participants"):
+        op.drop_table("hosted_room_participants")
 
-    op.drop_index(
-        "ix_hosted_room_invites_room_id",
-        table_name="hosted_room_invites",
-    )
-    op.drop_table("hosted_room_invites")
+    if _has_index("hosted_room_invites", "ix_hosted_room_invites_room_id"):
+        op.drop_index(
+            "ix_hosted_room_invites_room_id",
+            table_name="hosted_room_invites",
+        )
+    if _has_table("hosted_room_invites"):
+        op.drop_table("hosted_room_invites")
 
-    op.drop_index(
-        "ix_hosted_rooms_owner_account_id",
-        table_name="hosted_rooms",
-    )
-    op.drop_table("hosted_rooms")
+    if _has_index("hosted_rooms", "ix_hosted_rooms_owner_account_id"):
+        op.drop_index(
+            "ix_hosted_rooms_owner_account_id",
+            table_name="hosted_rooms",
+        )
+    if _has_table("hosted_rooms"):
+        op.drop_table("hosted_rooms")

@@ -35,7 +35,5 @@ export function useProviderState() {
     };
   }, []);
 
-  console.log("[provider-state:query]", { status: isLoading ? "loading" : data ? "success" : error ? "error" : "idle", data, error });
-
   return { data, error, isLoading };
 }

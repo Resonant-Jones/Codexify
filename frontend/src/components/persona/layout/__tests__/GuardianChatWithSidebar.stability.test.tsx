@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-import GuardianChatWithSidebar from "../GuardianChatWithSidebar";
+import GuardianChatWithSidebar, {
+  __resetThreadRefreshGuardForTests,
+} from "../GuardianChatWithSidebar";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 
 const guardianPropsSpy = vi.hoisted(() => vi.fn());
@@ -424,6 +426,7 @@ function setupThreadApi(
 describe("GuardianChatWithSidebar stability contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetThreadRefreshGuardForTests();
     sessionSpineInstances.length = 0;
     sessionHooksState.railSlice = { tabs: [], activeTabId: null };
     sessionHooksState.activeTab = null;
@@ -512,6 +515,37 @@ describe("GuardianChatWithSidebar stability contract", () => {
     rerender(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
 
     expect(screen.getByTestId("guardian-chat-mock")).toBeInTheDocument();
+  });
+
+  it("backs off repeated failed thread refresh events", async () => {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === "/chat/threads") {
+        return Promise.reject(new Error("threads unavailable"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<GuardianChatWithSidebar guardianName="Guardian" userName="User" />);
+
+    await waitFor(() => {
+      expect(
+        mockApi.get.mock.calls.filter(([url]) => url === "/chat/threads")
+      ).toHaveLength(1);
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("cfy:threads:refresh", { detail: { kind: "refresh" } })
+      );
+      window.dispatchEvent(
+        new CustomEvent("cfy:threads:refresh", { detail: { kind: "refresh" } })
+      );
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      mockApi.get.mock.calls.filter(([url]) => url === "/chat/threads")
+    ).toHaveLength(1);
   });
 
   it("lets the desktop Guardian frame stretch to the workspace pane", () => {

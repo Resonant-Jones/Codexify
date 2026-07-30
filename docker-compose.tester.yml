@@ -33,6 +33,11 @@ services:
   backend:
     ports: !override
       - "127.0.0.1:8889:8888"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
       GUARDIAN_AUTH_MODE: "${GUARDIAN_AUTH_MODE:-remote}"

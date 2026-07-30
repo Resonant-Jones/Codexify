@@ -25,7 +25,6 @@ import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import WorkspacePane from "@/features/workspace/WorkspacePane";
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
-import { useProviderState } from "@/features/chat/hooks/useProviderState";
 import useImprintZero from "@/imprint/useImprintZero";
 import ImprintZeroToast from "@/imprint/ImprintZeroToast";
 import PromptCostIndicator from "@/features/chat/components/PromptCostIndicator";
@@ -145,6 +144,39 @@ const sameThreadSnapshot = (a: Thread, b: Thread): boolean => {
     && (a.modelOverride ?? null) === (b.modelOverride ?? null)
     && sameThreadConfig(a.threadConfig, b.threadConfig);
 };
+
+const THREAD_REFRESH_RETRY_BASE_MS = 1_000;
+const THREAD_REFRESH_RETRY_MAX_MS = 30_000;
+type ThreadRefreshGuard = {
+  inFlight: boolean;
+  retryAfter: number;
+  failureCount: number;
+};
+
+const threadRefreshGuardFallback: ThreadRefreshGuard = {
+  inFlight: false,
+  retryAfter: 0,
+  failureCount: 0,
+};
+
+function getThreadRefreshGuard(): ThreadRefreshGuard {
+  if (typeof window === "undefined") return threadRefreshGuardFallback;
+  const globalWindow = window as Window & {
+    __codexifyThreadRefreshGuard?: ThreadRefreshGuard;
+  };
+  return (globalWindow.__codexifyThreadRefreshGuard ??= {
+    inFlight: false,
+    retryAfter: 0,
+    failureCount: 0,
+  });
+}
+
+export function __resetThreadRefreshGuardForTests(): void {
+  const threadRefreshGuard = getThreadRefreshGuard();
+  threadRefreshGuard.inFlight = false;
+  threadRefreshGuard.retryAfter = 0;
+  threadRefreshGuard.failureCount = 0;
+}
 
 function normalizeThreadConfig(raw: unknown): ThreadConfig | null {
   if (typeof raw === "string") {
@@ -347,7 +379,13 @@ export default function GuardianChatWithSidebar({
   const [sessionSpine, setSessionSpine] = React.useState<SessionSpine | null>(null);
   const [sessionReady, setSessionReady] = React.useState(false);
   const sessionHydratedRef = React.useRef(false);
-  const paginationRef = React.useRef({ offset: 0, hasMore: true, loading: false });
+  const paginationRef = React.useRef({
+    offset: 0,
+    hasMore: true,
+    loading: false,
+    refreshRetryAfter: 0,
+    refreshFailureCount: 0,
+  });
   const threadsRef = React.useRef<Thread[]>([]);
   const mobileSidebarTriggerRef = React.useRef<HTMLElement | null>(null);
   const mobileSidebarDrawerRef = React.useRef<HTMLElement | null>(null);
@@ -358,7 +396,6 @@ export default function GuardianChatWithSidebar({
   const [mobileToolsMenuOpen, setMobileToolsMenuOpen] = React.useState(false);
   const { subscribe } = useLiveEvents({ passive: true });
   const { wallpaperUrl } = useWallpaperUrl();
-  const { data: providerStateData } = useProviderState();
   const {
     ready: routeCapabilitiesReady,
     states: routeCapabilityStates,
@@ -885,13 +922,27 @@ export default function GuardianChatWithSidebar({
 
   // ----- Thread loader (hoisted early to avoid TDZ) -----
   const loadThreads = React.useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
+    const threadRefreshGuard = getThreadRefreshGuard();
     if (!checkAuthGate(auth, "threads load")) {
       return;
     }
-    if (!reset && (paginationRef.current.loading || !paginationRef.current.hasMore)) {
+    if (threadRefreshGuard.inFlight) {
+      return;
+    }
+    if (reset && Date.now() < threadRefreshGuard.retryAfter) {
+      return;
+    }
+    if (paginationRef.current.loading) {
+      return;
+    }
+    if (!reset && !paginationRef.current.hasMore) {
+      return;
+    }
+    if (reset && Date.now() < paginationRef.current.refreshRetryAfter) {
       return;
     }
     const offset = reset ? 0 : paginationRef.current.offset;
+    threadRefreshGuard.inFlight = true;
     paginationRef.current.loading = true;
     setThreadsLoadingMore(true);
     try {
@@ -940,11 +991,31 @@ export default function GuardianChatWithSidebar({
       const hasMore = rawCount > 0 && backendHasMore;
       paginationRef.current.offset = computedNextOffset;
       paginationRef.current.hasMore = hasMore;
+      paginationRef.current.refreshFailureCount = 0;
+      paginationRef.current.refreshRetryAfter = 0;
+      threadRefreshGuard.failureCount = 0;
+      threadRefreshGuard.retryAfter = 0;
       setThreadsHasMore(hasMore);
     } catch (err) {
       console.warn("[guardian] failed to load threads", err);
+      if (reset) {
+        const failureCount = paginationRef.current.refreshFailureCount + 1;
+        paginationRef.current.refreshFailureCount = failureCount;
+        const retryDelay = Math.min(
+          THREAD_REFRESH_RETRY_MAX_MS,
+          THREAD_REFRESH_RETRY_BASE_MS * 2 ** (failureCount - 1),
+        );
+        paginationRef.current.refreshRetryAfter = Date.now() + retryDelay;
+        threadRefreshGuard.failureCount += 1;
+        const sharedRetryDelay = Math.min(
+          THREAD_REFRESH_RETRY_MAX_MS,
+          THREAD_REFRESH_RETRY_BASE_MS * 2 ** (threadRefreshGuard.failureCount - 1),
+        );
+        threadRefreshGuard.retryAfter = Date.now() + sharedRetryDelay;
+      }
       // Preserve last-known list when refresh fails; avoid transient UI data loss.
     } finally {
+      threadRefreshGuard.inFlight = false;
       paginationRef.current.loading = false;
       setThreadsLoadingMore(false);
       setThreadsLoaded(true);
@@ -1063,10 +1134,14 @@ export default function GuardianChatWithSidebar({
       window.removeEventListener("cfy:chat:new-draft", onDraftThreadRequested as EventListener);
   }, [handleNewChat]);
 
-  // Initial load only
+  // Load once per project scope. Keep `loadThreads` out of the dependency list
+  // because its identity changes when unrelated thread state changes.
   React.useEffect(() => {
     void loadThreads({ reset: true });
-  }, [loadThreads]);
+    // The project scope is the intentional trigger; `loadThreads` is recreated
+    // by unrelated callback dependencies during normal state updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectFilter]);
 
   const handleBranchThread = React.useCallback(
     async (threadId: number, options?: { title?: string }) => {
@@ -1613,22 +1688,8 @@ export default function GuardianChatWithSidebar({
   );
 
   const providerStateToken = useMemo(() => {
-    if (
-      providerStateData &&
-      typeof providerStateData === "object" &&
-      !Array.isArray(providerStateData)
-    ) {
-      const rawState = (providerStateData as {
-        state?: unknown;
-        status?: unknown;
-      }).state ?? (providerStateData as { status?: unknown }).status;
-      if (typeof rawState === "string" && rawState.trim()) {
-        return rawState.trim();
-      }
-    }
-
     return providerRuntimeState ?? "offline";
-  }, [providerRuntimeState, providerStateData]);
+  }, [providerRuntimeState]);
 
   const requestState: ChatRequestState =
     providerStateToken === "model_warming" ? "awaiting_model" : "queued";
