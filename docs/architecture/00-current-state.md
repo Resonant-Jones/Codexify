@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-07-29
+2026-07-30
 
 ## Interpretation rule
 
@@ -18,13 +18,14 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `5115863d2`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work adds Hosted Room and account-import seams, repairs mobile and health surfaces, and strengthens proof boundaries; it does not establish a broader release surface.
+`main` is in local-first beta hardening at `7dceb0140`. The supported path remains the local Docker Compose stack with local-only provider posture. Recent merged work refines mobile chat presentation and health surfaces while adding Hosted Room and account-import seams; it does not establish a broader release surface.
 
 ## What changed recently
 
 - Added Hosted Room persistence, owner lifecycle, invitation and guest-session exchange, human transcript read/write, participant provenance, and explicit asynchronous Guardian invocation on `main`.
 - Added zero-write OpenAI account-import retry handling and repaired tester staging continuity; partial-write jobs remain non-retryable.
-- Repaired mobile Guardian navigation/composer behavior and chat-message identity sequence handling.
+- Finalized the mobile composer as one visible surface with shared draft/send state and mobile model actions; the earlier projection implementation is not the current shipped UI behavior.
+- Removed queue timing and detail diagnostics from user-facing chat cards while retaining lifecycle status labels; queue semantics were not changed.
 - Health checks now probe the configured provider endpoint; friends/family tester configuration is pinned to DeepSeek V4 Flash.
 - Added migration-safety, account-import, Hosted Room invocation, accent-preservation, and frontend test/proof coverage.
 - Added P2P video, email, Project Pulse, and related implementation-target documents; these remain planning or proof-only surfaces.
@@ -44,6 +45,7 @@ This file is authoritative for:
 - Do not assume cloud-provider beta support, packaged-desktop replacement of Compose, or a current local runtime without live endpoint and model-inventory proof.
 - Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, join links, participant removal, or release qualification.
 - Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract is end-to-end runtime or release proof by itself.
+- Do not treat the mobile projection-plane architecture note as current runtime behavior; `main` currently uses the single-surface mobile composer.
 - Do not assume Guardian delegation/Codex Runner bridge documents establish a supported end-to-end delegation path.
 - Do not assume email, federation, graph writes, Continuity/Project Pulse, thread lenses, or P2P video are shipped beta behavior.
 - Do not assume failed account-import jobs retry automatically, repair partial writes, deduplicate payloads, or reconstruct missing historical staging.
