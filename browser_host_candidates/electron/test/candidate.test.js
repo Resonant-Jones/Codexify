@@ -118,3 +118,14 @@ test("permission, popup, download, and document lifecycle controls are declared"
   assert.match(main, /ticket/);
   assert.match(main, /expiresAt/);
 });
+
+test("proof driver keeps trusted-shell navigation argument order", () => {
+  const proof = fs.readFileSync(path.join(root, "proof", "run-proof.js"), "utf8");
+  assert.match(proof, /navigate\(trusted, remote, [a-zA-Z]+Url\)/);
+  assert.doesNotMatch(proof, /navigate\(trusted, [a-zA-Z]+Url, remote\)/);
+});
+
+test("trusted preview is keyboard focusable", () => {
+  const html = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8");
+  assert.match(html, /id="preview" tabindex="0"/);
+});

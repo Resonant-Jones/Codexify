@@ -141,6 +141,35 @@ def _directory_inventory(path: Path) -> dict[str, Any]:
     }
 
 
+def _source_manifest(path: Path) -> dict[str, Any]:
+    excluded_dirs = {
+        "node_modules",
+        "package-output",
+        "proof-output",
+        "runtime",
+        "electron-user-data",
+    }
+    files: list[dict[str, Any]] = []
+    for item in sorted(path.rglob("*")):
+        if not item.is_file() or any(part in excluded_dirs for part in item.relative_to(path).parts):
+            continue
+        files.append({
+            "relativePath": str(item.relative_to(path)),
+            "sizeBytes": item.stat().st_size,
+            "sha256": _sha256_file(item),
+        })
+    tree_sha256 = hashlib.sha256(
+        json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "root": "browser_host_candidates/electron",
+        "excludedDirectories": sorted(excluded_dirs),
+        "fileCount": len(files),
+        "treeSha256": tree_sha256,
+        "files": files,
+    }
+
+
 def _case(status: str, evidence: str, summary: str, **details: Any) -> dict[str, Any]:
     value = {"status": status, "evidence": evidence, "summary": summary}
     value.update(details)
@@ -225,6 +254,29 @@ def _apply_build_cases(
 
 def _copy_json(source: Path, target: Path) -> None:
     target.write_text(json.dumps(json.loads(source.read_text(encoding="utf-8")), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _git_snapshot(repo: Path) -> dict[str, str]:
+    def output(args: list[str]) -> str:
+        try:
+            result = subprocess.run(
+                args,
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            return result.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return "unavailable"
+
+    return {
+        "repositoryRoot": str(repo),
+        "commit": output(["git", "rev-parse", "HEAD"]),
+        "branch": output(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+        "status": output(["git", "status", "--short", "--branch", "--untracked-files=all"]),
+    }
 
 
 def _write_research(output_dir: Path, versions: dict[str, Any]) -> None:
@@ -324,6 +376,7 @@ def _write_markdown(receipt: dict[str, Any], output_dir: Path, *, versions: dict
         "## Source, dependencies, and official research",
         "",
         f"- Source root: `{_candidate_root()}`; package root: `{_candidate_root()}`.",
+        f"- Frozen source snapshot: `source-manifest.json` with tree hash `{receipt.get('sourceSnapshot', {}).get('treeSha256', 'unknown')}`; unchanged during proof: `{receipt.get('sourceSnapshot', {}).get('unchangedDuringProof', False)}`.",
         f"- Electron `{versions.get('electron', ELECTRON_VERSION)}`; Chromium `{versions.get('chromium', 'unknown')}`; bundled Node `{versions.get('node', 'unknown')}`; V8 `{versions.get('v8', 'unknown')}`.",
         f"- Playwright `{PLAYWRIGHT_VERSION}` (official Electron support is experimental); packager `{PACKAGER_VERSION}`.",
         "- Official-source research is recorded in `official-source-research.json`; framework capability is not Codexify proof.",
@@ -448,6 +501,11 @@ def run_candidate(output_dir: Path) -> Path:
     versions: dict[str, Any] = {}
     invariant_violations: list[dict[str, Any]] = []
     started_at = _now()
+    source_snapshot_before = {
+        "git": _git_snapshot(_repo_root()),
+        "manifest": _source_manifest(root),
+    }
+    source_snapshot_after: dict[str, Any] = {}
     runtime_started = False
     harness_started = False
     credential_removed = False
@@ -596,6 +654,16 @@ def run_candidate(output_dir: Path) -> Path:
             "packageLockSha256": _sha256_file(root / "package-lock.json") if (root / "package-lock.json").exists() else None,
         }
         (output_dir / "artifact-hashes.json").write_text(json.dumps(artifact_hashes, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        source_snapshot_after = {
+            "git": _git_snapshot(_repo_root()),
+            "manifest": _source_manifest(root),
+        }
+        source_snapshot = {
+            "beforeProof": source_snapshot_before,
+            "afterProof": source_snapshot_after,
+            "unchangedDuringProof": source_snapshot_before["manifest"]["treeSha256"] == source_snapshot_after["manifest"]["treeSha256"],
+        }
+        (output_dir / "source-manifest.json").write_text(json.dumps(source_snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (output_dir / "resource-measurements.json").write_text(json.dumps({"trials": resource, "build": build_result, "package": package_result}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (output_dir / "environment.json").write_text(json.dumps({
             "candidateRuntimeAttempt": proof_result,
@@ -640,6 +708,9 @@ def run_candidate(output_dir: Path) -> Path:
             "packageCommand": "npm run package",
             "productionBoundaryDiffEmpty": repository_diff["returnCode"] == 0 and not repository_diff["stdoutPresent"],
             "proofSourceCommit": proof_source_commit,
+            "sourceManifestPath": "source-manifest.json",
+            "sourceTreeHash": source_snapshot.get("beforeProof", {}).get("manifest", {}).get("treeSha256"),
+            "sourceTreeUnchangedDuringProof": source_snapshot.get("unchangedDuringProof"),
             "repositoryPosture": "inside Codexify pending future ADR",
             "releasePosture": "unsupported proof-only",
             "signingNeeded": "unknown pending future release decision",
@@ -691,6 +762,20 @@ def run_candidate(output_dir: Path) -> Path:
         cases["cleanup_worktree_scope"] = _case(CaseStatus.PASSED.value, "proven-repository", "Production and root dependency boundary checks were recorded.")
         cases["cleanup_generated_residue"] = _case(CaseStatus.PASSED.value, "proven-repository", "Generated candidate output is task-owned and ignored.")
 
+    if not source_snapshot_after:
+        source_snapshot_after = {
+            "git": _git_snapshot(_repo_root()),
+            "manifest": _source_manifest(root),
+        }
+    source_snapshot = {
+        "beforeProof": source_snapshot_before,
+        "afterProof": source_snapshot_after,
+        "unchangedDuringProof": source_snapshot_before["manifest"]["treeSha256"] == source_snapshot_after["manifest"]["treeSha256"],
+    }
+    (output_dir / "source-manifest.json").write_text(json.dumps(source_snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if not source_snapshot["unchangedDuringProof"]:
+        failures.append("candidate source changed during proof")
+
     cleanup_status = CleanupStatus.PASSED.value if credential_removed and process_stopped and user_data_removed else CleanupStatus.FAILED.value
     (output_dir / "cleanup-receipt.json").write_text(json.dumps({
         "cleanupStatus": cleanup_status,
@@ -704,7 +789,7 @@ def run_candidate(output_dir: Path) -> Path:
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     candidate_status = (
         CandidateStatus.INVARIANT_VIOLATION.value if invariant_violations else
-        CandidateStatus.PROOF_COMPLETE.value if runtime_started and cleanup_status == CleanupStatus.PASSED.value else
+        CandidateStatus.PROOF_COMPLETE.value if runtime_started and cleanup_status == CleanupStatus.PASSED.value and not failures and all(value.get("evidence") != "unknown" for value in cases.values()) else
         CandidateStatus.ENVIRONMENT_BLOCKED.value if not runtime_started else
         CandidateStatus.PROOF_INCOMPLETE.value
     )
@@ -757,6 +842,11 @@ def run_candidate(output_dir: Path) -> Path:
             "Gate C remains closed",
         ],
         "artifactHashes": json.loads((output_dir / "artifact-hashes.json").read_text(encoding="utf-8")) if (output_dir / "artifact-hashes.json").exists() else {},
+        "sourceSnapshot": {
+            "manifestPath": "source-manifest.json",
+            "treeSha256": source_snapshot["beforeProof"]["manifest"]["treeSha256"],
+            "unchangedDuringProof": source_snapshot["unchangedDuringProof"],
+        },
         "build": build_result,
         "package": package_result,
         "launch": {
