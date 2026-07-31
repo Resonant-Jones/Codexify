@@ -478,7 +478,7 @@ def inspect_candidate(output_dir: Path) -> Path:
         "artifactHashes": {},
     }
     path = output_dir / "candidate-inspection.json"
-    write_json_receipt(receipt, path)
+    write_json_receipt(receipt, path, overwrite=True)
     write_markdown_summary(receipt, output_dir / "candidate-inspection.md")
     return path
 
@@ -862,6 +862,6 @@ def run_candidate(output_dir: Path) -> Path:
         failures.extend(errors)
         receipt["candidateStatus"] = CandidateStatus.PROOF_INCOMPLETE.value
     path = output_dir / "candidate-proof.json"
-    write_json_receipt(receipt, path)
+    write_json_receipt(receipt, path, overwrite=True)
     _write_markdown(receipt, output_dir, versions=versions, package=package_result, live=live)
     return path
