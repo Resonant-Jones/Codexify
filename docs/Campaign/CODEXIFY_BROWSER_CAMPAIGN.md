@@ -69,12 +69,13 @@ responsible for producing the complete, reviewable inventory proof.
 
 ### Proven architecture evaluation
 
-- Stage 3 produced
+- Stage 3 historically produced
   `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
   at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
-- Its ADR-readiness result is `PROOF_REQUIRED`.
-- No technology or repository winner was selected.
-- The future topology ADR remains blocked pending common comparative evidence.
+- Its then-current ADR-readiness result was `PROOF_REQUIRED`.
+- No technology or repository topology was selected.
+- The completed comparative evidence below supersedes that pending-evidence
+  state for ADR authoring; the future ADR is not yet accepted.
 - `docs/architecture/browser-host-comparative-proof-harness-spec.md` defines
   the normative, technology-neutral comparison method.
 
@@ -96,18 +97,18 @@ responsible for producing the complete, reviewable inventory proof.
   the commit containing the packet and is reported by Git history and task
   closeout.
 - The result does not select Tauri, widen release truth, prove production
-  Guardian compatibility, or open Gate C. A materially different family is
-  recorded below; the comparative summary remains required.
+  Guardian compatibility, or open Gate C. The comparative update below records
+  the final cross-family evidence.
 
-### Materially different-family proof evidence
+### Materially different-family proof evidence (historical intermediate state)
 
 - Candidate source: `browser_host_candidates/electron/`.
 - Candidate family: `bundled_chromium_electron`.
 - Candidate adapter: `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
 - Terminal packet:
   `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
-- Proof source commit: `59617cf32f40928db969f4455459923f9558e268`.
-- Terminal status: `environment_blocked`. The candidate-local build,
+- Intermediate proof source commit: `59617cf32f40928db969f4455459923f9558e268`.
+- Intermediate packet status: `environment_blocked`. The candidate-local build,
   dependency verification, unsigned arm64 package attempt, receipt assembly,
   and cleanup completed; Playwright Electron could not establish a meaningful
   Electron runtime on the proof host. No alternate automation framework was
@@ -116,10 +117,33 @@ responsible for producing the complete, reviewable inventory proof.
 - Electron `43.2.0` bundles Chromium `150.0.7871.129`, Node `24.18.0`, and V8
   `15.0.1240245-electron.0`; Playwright `1.62.1` remains an experimental,
   proof-only driver.
-- The second-family prerequisite has reached terminal evidence, but this does
-  not select Electron, widen release truth, prove production Guardian
-  compatibility, or open Gate C. The comparative summary and ADR-readiness
-  reassessment remain required.
+- This intermediate packet is superseded by the final packet and is not part
+  of the comparative totals below.
+
+### Comparative terminal evidence update — 2026-07-31
+
+- Incumbent OS-webview candidate: implementation commit
+  `59617cf32f40928db969f4455459923f9558e268`, packet
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`, run
+  `tauri-proof-79fdb67b`, status `proof_complete`.
+- Final bundled-Chromium candidate: commits `37db52dd1`, `3777171c4`, and
+  `3854cfd32`, packet
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`,
+  run `harness-0288e8f5`, status `proof_complete`.
+- The incumbent totals are 34 `passed`, 42 `inconclusive`, 13 `blocked`, and
+  0 `failed`; the final bundled-Chromium totals are 85 `passed`, 4
+  `inconclusive`, 0 `blocked`, and 0 `failed`.
+- Both packets contain the same 89 terminal mandatory cases and no invariant
+  violations. The earlier Electron `environment_blocked` packet associated
+  with `05f5952bc` is superseded and excluded from these totals.
+- Comparative summary:
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`.
+- ADR-readiness classification: `ADR_READY`. This permits authoring the
+  future ADR but does not select a technology or repository topology.
+- Gate C remains closed. The single next atomic task is to author
+  `Codexify Browser Host Topology and Release Ownership`, with no
+  implementation, repository creation, source movement, package change, or
+  current-state update.
 
 ### Documented contract
 
@@ -170,8 +194,12 @@ second.
 - The current extension remains the Tier 0 continuity control.
 - The incumbent OS-webview/Tauri family and a materially different
   bundled Chromium/Electron family have terminal packets under the same proof
-  method; their comparative summary is still required.
-- The Stage 3 topology evaluation returned `PROOF_REQUIRED`.
+  method; their comparative summary is recorded at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`
+  with an `ADR_READY` reassessment.
+- The Stage 3 topology evaluation returned `PROOF_REQUIRED` before the
+  comparative terminal-packet reassessment; the current readiness
+  classification is `ADR_READY` for authoring the future ADR.
 - No Browser Host technology or repository topology has been selected.
 - Campaigns are prerequisite-ordered arcs. Each Task is atomic, independently
   validated, and independently committed.
@@ -289,7 +317,8 @@ finally release hardening.
 - Status: architecture evaluation completed in
   `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
   at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
-- Result: `PROOF_REQUIRED`; no technology or repository winner was selected.
+- Historical Stage 3 result: `PROOF_REQUIRED`; no technology or repository
+  topology was selected by that evaluation.
 - Proof methodology:
   `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
 - Shared technology-neutral scaffold: now exists at
@@ -309,21 +338,21 @@ finally release hardening.
   `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`, and its
   terminal packet is
   `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
-  The packet is `environment_blocked` with no invariant violation; Playwright
-  could not establish a meaningful runtime, so live cases remain
-  `inconclusive`.
+-  The final packet is `proof_complete` with 85 passed, 4 inconclusive, 0
+  blocked, and 0 failed cases, with no invariant violation. An earlier
+  `environment_blocked` packet is superseded.
 - Control and gate posture: the extension remains the Tier 0 control; no
-  technology winner is selected; Gate C remains closed.
-- Goal: produce decision-grade comparative evidence, then author the future
-  Browser Host topology and release-ownership ADR.
+- technology or repository topology is selected; Gate C remains closed.
+- Goal: use the completed comparative evidence to author the future Browser
+  Host topology and release-ownership ADR.
 - Prerequisite: Tasks 01 and 02.
 - Required pre-ADR evidence: the shared technology-neutral
   fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
   proof packet, at least one materially different host-family proof packet, and
   a common comparative summary.
-- Next prerequisite: produce the technology-neutral comparative summary and
-  ADR-readiness reassessment from the two terminal packets. No winner is
-  selected and Gate C remains closed.
+- Next prerequisite: author the future Browser Host topology and
+  release-ownership ADR from the completed comparative summary. No technology
+  or repository topology is selected and Gate C remains closed.
 - Expected decision artifact after proof: an accepted ADR covering build,
   release, signing, storage, security ownership, compatibility, and rolling
   upgrade implications.
@@ -425,12 +454,12 @@ A dedicated Browser Host repository may be created only after an accepted ADR
 proves independent build, release, signing, storage, compatibility, recovery,
 and security ownership.
 
-Status: closed. The Stage 3 evaluation returned `PROOF_REQUIRED`. Terminal
-comparative packets governed by
+Status: closed. The Stage 3 evaluation historically returned
+`PROOF_REQUIRED`; the terminal comparative packets governed by
 `docs/architecture/browser-host-comparative-proof-harness-spec.md` now exist for
 the incumbent Tauri family and materially different bundled Chromium/Electron
-family, but the comparative summary, ADR-readiness reassessment, and later
-accepted ADR resolving repository ownership do not exist.
+family. The comparative summary records `ADR_READY` for authoring the future
+ADR, but no ADR has been accepted and repository ownership remains unresolved.
 
 ### Gate D: Product proof
 
@@ -499,9 +528,10 @@ The Campaign exits only when:
   Tauri is unchanged, and live production Guardian compatibility is not
   proven.
 - A materially different bundled Chromium/Electron candidate now has a
-  terminal `environment_blocked` packet under the same harness. The next
-  prerequisite is the comparative summary and ADR-readiness reassessment;
-  ADR authoring and Gate C remain blocked.
+  terminal `proof_complete` packet under the same harness. The comparative
+  summary records `ADR_READY`; the single next prerequisite is authoring the
+  future Browser Host topology and release-ownership ADR, while Gate C remains
+  closed.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
@@ -509,8 +539,8 @@ The Campaign exits only when:
 
 ## ADR impact
 
-- Classification: aligned with existing ADRs; future ADR remains
-  evidence-blocked.
+- Classification: aligned with existing ADRs; comparative evidence is
+  `ADR_READY` for authoring the future ADR.
 - ADR created or modified here: none.
 - Existing governing contract: ADR-051 continues to govern the current private
   Chrome side-panel client.
