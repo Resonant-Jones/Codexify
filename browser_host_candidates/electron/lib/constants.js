@@ -6,7 +6,9 @@ const PACKAGER_VERSION = "20.0.4";
 const HARNESS_VERSION = "0.1.0";
 const FIXTURE_VERSION = "1.0.0";
 const GUARDIAN_STUB_VERSION = "0.1.0";
-const MAX_CAPTURE_BYTES = 64 * 1024;
+// The candidate keeps a stricter per-capture bound than the Guardian stub's
+// maximum so the shared oversized fixture exercises the truncation path.
+const MAX_CAPTURE_BYTES = 16 * 1024;
 const PREVIEW_BYTES = 2400;
 const EXTRACTOR_VERSION = "electron-dom-walker-v1";
 const MAX_STRING_LENGTH = 2048;

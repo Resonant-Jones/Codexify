@@ -791,7 +791,7 @@ def run_candidate(output_dir: Path) -> Path:
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     candidate_status = (
         CandidateStatus.INVARIANT_VIOLATION.value if invariant_violations else
-        CandidateStatus.PROOF_COMPLETE.value if runtime_started and cleanup_status == CleanupStatus.PASSED.value and not failures and all(value.get("evidence") != "unknown" for value in cases.values()) else
+        CandidateStatus.PROOF_COMPLETE.value if runtime_started and cleanup_status == CleanupStatus.PASSED.value and not failures and all(value.get("status") != CaseStatus.FAILED.value and value.get("evidence") != "unknown" for value in cases.values()) else
         CandidateStatus.ENVIRONMENT_BLOCKED.value if not runtime_started else
         CandidateStatus.PROOF_INCOMPLETE.value
     )

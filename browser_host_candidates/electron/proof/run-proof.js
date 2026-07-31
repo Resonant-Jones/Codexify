@@ -286,8 +286,8 @@ async function main() {
     const targetOriginB = `${runtime.originBUrl}/basic-visible`;
     await navigate(trusted, remote, targetOriginB);
     const staleState = await trustedState(trusted);
-    record("failure_permission_revoked", "passed", "live-runtime-proven", "Navigation invalidated the pending capture before attachment.");
-    if (staleState.preview !== null) throw new Error("stale_origin_capture_remained");
+    const stalePreviewCleared = staleState.preview === null && staleState.pendingCapture === null;
+    record("failure_permission_revoked", stalePreviewCleared ? "passed" : "failed", "live-runtime-proven", "Navigation invalidated the pending capture before attachment.", { observed: { previewPresent: staleState.preview !== null, pendingCapturePresent: staleState.pendingCapture !== null, generation: staleState.documentGeneration, url: staleState.url } });
 
     await navigate(trusted, remote, popupUrl);
     const windowCount = appInstance.windows().length;
