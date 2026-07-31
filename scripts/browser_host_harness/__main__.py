@@ -91,13 +91,18 @@ def _main() -> int:
 
 
 def _candidate_adapter(candidate: str):
-    if candidate != "tauri-incumbent":
-        raise ValueError(
-            f"unknown candidate '{candidate}'; enrolled candidates: tauri-incumbent"
-        )
-    from .adapters import tauri_incumbent
+    if candidate == "tauri-incumbent":
+        from .adapters import tauri_incumbent
 
-    return tauri_incumbent
+        return tauri_incumbent
+    if candidate == "electron-bundled-chromium":
+        from .adapters import electron_bundled_chromium
+
+        return electron_bundled_chromium
+    if candidate not in {"tauri-incumbent", "electron-bundled-chromium"}:
+        raise ValueError(
+            f"unknown candidate '{candidate}'; enrolled candidates: tauri-incumbent, electron-bundled-chromium"
+        )
 
 
 def _cmd_inspect_candidate(candidate: str, output_dir: Path) -> int:

@@ -96,8 +96,30 @@ responsible for producing the complete, reviewable inventory proof.
   the commit containing the packet and is reported by Git history and task
   closeout.
 - The result does not select Tauri, widen release truth, prove production
-  Guardian compatibility, or open Gate C. At least one materially different
-  host-family packet remains required.
+  Guardian compatibility, or open Gate C. A materially different family is
+  recorded below; the comparative summary remains required.
+
+### Materially different-family proof evidence
+
+- Candidate source: `browser_host_candidates/electron/`.
+- Candidate family: `bundled_chromium_electron`.
+- Candidate adapter: `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
+- Terminal packet:
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+- Proof source commit: `59617cf32f40928db969f4455459923f9558e268`.
+- Terminal status: `environment_blocked`. The candidate-local build,
+  dependency verification, unsigned arm64 package attempt, receipt assembly,
+  and cleanup completed; Playwright Electron could not establish a meaningful
+  Electron runtime on the proof host. No alternate automation framework was
+  substituted, no invariant violation was recorded, and live interaction
+  cases remain terminally `inconclusive`.
+- Electron `43.2.0` bundles Chromium `150.0.7871.129`, Node `24.18.0`, and V8
+  `15.0.1240245-electron.0`; Playwright `1.62.1` remains an experimental,
+  proof-only driver.
+- The second-family prerequisite has reached terminal evidence, but this does
+  not select Electron, widen release truth, prove production Guardian
+  compatibility, or open Gate C. The comparative summary and ADR-readiness
+  reassessment remain required.
 
 ### Documented contract
 
@@ -146,9 +168,9 @@ second.
   integration, browser-context contracts, identity boundaries, and shared
   architecture documentation.
 - The current extension remains the Tier 0 continuity control.
-- The incumbent OS-webview/Tauri family must be tested rather than assumed
-  suitable, and at least one materially different host family must be tested
-  under the same proof method.
+- The incumbent OS-webview/Tauri family and a materially different
+  bundled Chromium/Electron family have terminal packets under the same proof
+  method; their comparative summary is still required.
 - The Stage 3 topology evaluation returned `PROOF_REQUIRED`.
 - No Browser Host technology or repository topology has been selected.
 - Campaigns are prerequisite-ordered arcs. Each Task is atomic, independently
@@ -215,10 +237,13 @@ finally release hardening.
 
 ## Explicit non-goals
 
-- No browser, extension, page-capture, or Browser Host implementation.
+- No production browser, extension, page-capture, or Browser Host
+  implementation; the separately recorded Electron candidate is proof-only.
 - No extension repair, relocation, rename, or packaging change.
 - No Electron, Tauri, CEF, Chromium fork, or other technology selection.
-- No dependency, package, build, Tauri, backend, frontend, or runtime change.
+- No production dependency, package, build, Tauri, backend, frontend, or
+  runtime change; the separate candidate-local Electron proof project is not a
+  product release surface.
 - No dedicated repository.
 - No Atlas, bookmark, cookie, history, or session import.
 - No autonomous browsing or new browser command tokens.
@@ -279,6 +304,14 @@ finally release hardening.
   Candidate status is `proof_complete` for terminal evidence coverage, with no
   invariant violation. Interaction-dependent cases that lacked an approved
   macOS Tauri driver remain `blocked` or `inconclusive`.
+- Materially different candidate: the proof-only bundled Chromium/Electron
+  source exists at `browser_host_candidates/electron/`; its adapter is
+  `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`, and its
+  terminal packet is
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+  The packet is `environment_blocked` with no invariant violation; Playwright
+  could not establish a meaningful runtime, so live cases remain
+  `inconclusive`.
 - Control and gate posture: the extension remains the Tier 0 control; no
   technology winner is selected; Gate C remains closed.
 - Goal: produce decision-grade comparative evidence, then author the future
@@ -288,9 +321,9 @@ finally release hardening.
   fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
   proof packet, at least one materially different host-family proof packet, and
   a common comparative summary.
-- Next prerequisite: implement one materially different candidate family under
-  the same harness. A comparative summary and ADR remain blocked until that
-  family also reaches a terminal packet.
+- Next prerequisite: produce the technology-neutral comparative summary and
+  ADR-readiness reassessment from the two terminal packets. No winner is
+  selected and Gate C remains closed.
 - Expected decision artifact after proof: an accepted ADR covering build,
   release, signing, storage, security ownership, compatibility, and rolling
   upgrade implications.
@@ -392,11 +425,12 @@ A dedicated Browser Host repository may be created only after an accepted ADR
 proves independent build, release, signing, storage, compatibility, recovery,
 and security ownership.
 
-Status: closed. The Stage 3 evaluation returned `PROOF_REQUIRED`. Comparative
-proof packets governed by
-`docs/architecture/browser-host-comparative-proof-harness-spec.md` are required
-before the ADR may be authored. Gate C remains closed until that evidence exists
-and a later accepted ADR resolves repository ownership.
+Status: closed. The Stage 3 evaluation returned `PROOF_REQUIRED`. Terminal
+comparative packets governed by
+`docs/architecture/browser-host-comparative-proof-harness-spec.md` now exist for
+the incumbent Tauri family and materially different bundled Chromium/Electron
+family, but the comparative summary, ADR-readiness reassessment, and later
+accepted ADR resolving repository ownership do not exist.
 
 ### Gate D: Product proof
 
@@ -464,8 +498,10 @@ The Campaign exits only when:
   This is incumbent-family evidence only: Tauri is not selected, production
   Tauri is unchanged, and live production Guardian compatibility is not
   proven.
-- The next prerequisite is one materially different candidate family under the
-  same harness. Comparative summary, ADR authoring, and Gate C remain blocked.
+- A materially different bundled Chromium/Electron candidate now has a
+  terminal `environment_blocked` packet under the same harness. The next
+  prerequisite is the comparative summary and ADR-readiness reassessment;
+  ADR authoring and Gate C remain blocked.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately

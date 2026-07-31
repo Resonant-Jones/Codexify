@@ -9,8 +9,11 @@
   `tests/browser_host_harness/`. The incumbent proof-only Tauri candidate and
   adapter now exist, with a terminal packet under
   `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
-  No live production Guardian compatibility is established; a materially
-  different candidate, comparative summary, and ADR remain outstanding.
+  The materially different bundled Chromium/Electron candidate now has a
+  terminal `environment_blocked` packet under
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+  No live production Guardian compatibility is established; the comparative
+  summary and ADR-readiness reassessment remain outstanding.
 - **Technology posture:** technology-neutral.
 - **Repository posture:** repository-neutral.
 - **Release posture:** release-posture-neutral.
@@ -38,6 +41,27 @@ topology, qualify a release, or replace live proof. Separately authorized tasks
 implemented the shared scaffold and incumbent proof candidate. Normative
 terms such as **must**, **must not**, **required**, **should**, and **may**
 constrain future proof work; they do not claim current implementation.
+
+### Latest terminal candidate packet
+
+- Candidate: `codexify-electron-bundled-chromium-v1`
+  (`bundled_chromium_electron`), source path
+  `browser_host_candidates/electron/`.
+- Adapter: `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
+- Packet: `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+- Proof source commit: `59617cf32f40928db969f4455459923f9558e268`.
+- Exact versions: Electron `43.2.0`, bundled Chromium `150.0.7871.129`,
+  bundled Node `24.18.0`, V8 `15.0.1240245-electron.0`, Playwright `1.62.1`,
+  and `@electron/packager` `20.0.4`.
+- Terminal status: `environment_blocked`. The candidate-local build, tests,
+  package attempt, dependency tree, and cleanup completed; Playwright's
+  Electron launch could not establish a meaningful runtime in the host, so
+  live interaction cases remain terminally `inconclusive`.
+- Playwright Electron automation remains an experimental, proof-only driver;
+  no alternate automation framework was substituted.
+- Both the incumbent family and a materially different family now have
+  terminal packets. No winner is selected; the comparative summary remains the
+  next prerequisite, and the ADR gate remains closed.
 
 ## 2. Scope
 
@@ -851,9 +875,13 @@ The prerequisite order is:
    `browser_host_candidates/tauri/`. Adapter:
    `scripts/browser_host_harness/adapters/tauri_incumbent.py`. Terminal packet:
    `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
-5. At least one materially different candidate adapter.
-6. Candidate proof runs. **Incumbent-family run done; materially different
-   family still required.**
+5. At least one materially different candidate adapter. **Done for the
+   proof-only bundled Chromium/Electron family.** Candidate source:
+   `browser_host_candidates/electron/`. Adapter:
+   `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
+6. Candidate proof runs. **Done for the incumbent-family and materially
+   different-family packets.** The Electron packet is terminal
+   `environment_blocked`; it does not claim live runtime behavior.
 7. Comparative summary.
 8. Browser Host topology and release-ownership ADR.
 9. Selected one-tab product proof.
@@ -861,9 +889,9 @@ The prerequisite order is:
 
 ## 24. Immediate next atomic task
 
-Implement one materially different Browser Host candidate family under the
-same fixed harness, fixtures, status vocabulary, and invariant-violation
-posture.
+Produce the technology-neutral comparative summary from the two terminal
+candidate packets under the same fixed harness, fixtures, status vocabulary,
+and invariant-violation posture.
 
 The incumbent proof-only Tauri candidate reached `proof_complete` for evidence
 coverage in run `tauri-proof-79fdb67b`: all 89 mandatory cases are terminal
@@ -887,9 +915,8 @@ executed here.
 
 This specification does not authorize:
 
-- a Browser Host, fixture server, Guardian stub, candidate adapter, or proof-run
-  implementation;
-- a Tauri, Electron, CEF, Chromium, or other host proof;
+- a future Browser Host implementation or host-family proof beyond the
+  separately recorded Tauri and Electron proof-only packets;
 - extension changes;
 - page capture or browser-action implementation;
 - manifest or native-command changes;
@@ -919,7 +946,8 @@ The specification stage is complete when:
 - the Chrome extension control baseline is correctly limited;
 - repository and maintenance evidence hooks are defined;
 - the ADR evidence minimum is explicit;
-- the sole next task is the shared neutral scaffold; and
+- the shared neutral scaffold and both required terminal candidate packets
+  exist, leaving the comparative summary as the next task; and
 - no technology, repository, or release decision is made.
 
 ## 27. Current truth
@@ -943,6 +971,17 @@ The specification stage is complete when:
   cleanup.
 - The incumbent packet is terminal evidence for one family only. It is not
   proof of live production Guardian compatibility.
+- A separate proof-only bundled Chromium/Electron candidate and adapter now
+  exist under `browser_host_candidates/electron/` and
+  `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
+- Its terminal packet is
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`;
+  the packet status is `environment_blocked` because Playwright Electron could
+  not establish a meaningful runtime on the proof host. Its live cases remain
+  terminally `inconclusive`, and no alternate automation framework was used.
+- Both the incumbent OS-webview/Tauri family and a materially different
+  bundled Chromium/Electron family now have terminal evidence packets. The
+  comparative summary and ADR-readiness reassessment remain outstanding.
 - Stage 3 returned `PROOF_REQUIRED`.
 - Gate C remains closed.
 
@@ -955,8 +994,10 @@ release truth.
   scaffold and incumbent packet provide their bounded evidence.
 - The incumbent packet does not prove the cases recorded as `blocked` or
   `inconclusive`.
-- No materially different candidate family has completed the common proof.
-- No one-tab Browser Host behavior is `live-runtime-proven`.
+- The materially different Electron candidate has a terminal packet, but its
+  environment block means no one-tab Browser Host behavior is
+  `live-runtime-proven` for that candidate.
+- No comparative summary or ADR-readiness reassessment exists yet.
 - No technology winner is selected.
 - No repository winner is selected.
 - No release posture is selected or qualified.
