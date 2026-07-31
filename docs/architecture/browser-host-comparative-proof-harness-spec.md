@@ -18,8 +18,9 @@
 - **Technology posture:** technology-neutral.
 - **Repository posture:** repository-neutral.
 - **Release posture:** release-posture-neutral.
-- **Architecture lane:** aligned with existing ADRs and contracts; no ADR is
-  created or modified.
+- **Architecture lane:** aligned with existing ADRs and contracts; ADR-054
+  governs the accepted future topology while this specification remains the
+  proof methodology.
 
 This specification defines one common examination for concrete Browser Host
 candidates. Candidate-specific implementation details may differ, but they
@@ -34,12 +35,14 @@ The Stage 3
 [Browser Host topology and repository-boundary evaluation](./proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md)
 at commit `1cbf68113b9113faa907c22d868248609f49f9a5` historically returned
 `PROOF_REQUIRED`. It selected no technology, repository topology, or release
-posture. The terminal comparative packets and summary below close the evidence
-gap for ADR authoring while leaving the architecture decision and Gate C open.
+posture. The terminal comparative packets and summary closed the evidence gap;
+ADR-054 now records the accepted architecture direction while implementation
+and release gates remain open.
 
-This specification does not itself select a Browser Host, select a repository
-topology, qualify a release, or replace live proof. Separately authorized tasks
-implemented the shared scaffold and incumbent proof candidate. Normative
+This specification does not itself select a Browser Host, qualify a release,
+or replace live proof. ADR-054 separately records the accepted future
+topology. Separately authorized tasks implemented the shared scaffold and
+candidate proof surfaces. Normative
 terms such as **must**, **must not**, **required**, **should**, and **may**
 constrain future proof work; they do not claim current implementation.
 
@@ -75,10 +78,14 @@ constrain future proof work; they do not claim current implementation.
   violations.
 - Comparative summary:
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`.
-- ADR-readiness: `ADR_READY`; this permits authoring the future ADR but does
-  not select a technology or open Gate C.
-- Single next task: author `Codexify Browser Host Topology and Release
-  Ownership`, with no implementation, repository creation, or source move.
+- ADR-readiness: `ADR_READY`; ADR-054 now records the accepted architecture
+  decision, while this specification remains non-runtime proof methodology.
+- Accepted decision: Electron/bundled Chromium, family
+  `bundled_chromium_electron`, with an isolated monorepo-first package;
+  production Tauri remains the trusted shell and the extension remains Tier 0.
+- Gate C: passed for architecture and ownership direction by ADR-054
+  acceptance; implementation, repository extraction, and release gates remain
+  closed.
 
 ### Decision recommendation status — 2026-07-31
 
@@ -88,9 +95,11 @@ constrain future proof work; they do not claim current implementation.
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
 - The recommendation selects Electron/bundled Chromium and monorepo-first
   isolated implementation for ADR consideration.
-- The recommendation is not an accepted ADR; candidate proof packets and
-  normative harness requirements remain unchanged.
-- Gate C remains closed.
+- ADR-054 is accepted at
+  `docs/architecture/adr/054-browser-host-topology-and-release-ownership.md`.
+- Candidate proof packets and normative harness requirements remain unchanged.
+- Gate C is passed for architecture and ownership direction; the next
+  implementation gate remains closed.
 
 ## 2. Scope
 
@@ -120,7 +129,7 @@ The following are out of scope:
 - signing, notarization, or a production updater;
 - public release;
 - repository creation, movement, or split;
-- the future topology ADR or its decision;
+- implementation or release qualification after the accepted topology ADR;
 - production Guardian data, real user credentials, or provider invocation; and
 - public-internet dependence.
 
@@ -778,15 +787,16 @@ finishes or reaches a terminal blocked state. It must:
 - report observed operator burden;
 - report unmet repository-split prerequisites;
 - include no hidden ranking; and
-- leave the architecture decision to the future ADR.
+- leave architecture acceptance to ADR-054 rather than to the harness or
+  summary.
 
 No weighted score may be produced. No technology winner may be declared. No
 repository winner may be declared. No composite score or ranked shortlist may
 be implied through ordering, color, prose, or omitted evidence.
 
 The summary may state which candidates completed the proof, violated
-invariants, were blocked, or left insufficient evidence. The future ADR—not the
-harness or summary—owns the architecture decision.
+invariants, were blocked, or left insufficient evidence. ADR-054—not the
+harness or summary—owns the accepted architecture decision.
 
 ## 19. Control baseline
 
@@ -828,10 +838,9 @@ Every candidate packet must report:
 - whether the candidate builds and tests without unversioned
   repository-relative imports.
 
-The harness must not create a repository or move candidate code. The future ADR
-uses this evidence to compare extending the existing desktop app, creating a
-separate monorepo app/package, using a dedicated repository, or continuing only
-the extension posture.
+The harness must not create a repository or move candidate code. ADR-054 uses
+this evidence to govern the accepted monorepo-first package posture and the
+prerequisites for any later repository extraction.
 
 ## 21. Maintenance and security ownership evidence
 
@@ -855,7 +864,8 @@ maintainable, signed, recoverable, or promptly updated.
 
 ## 22. ADR evidence minimum
 
-The Browser Host topology and release-ownership ADR may be authored only after:
+The Browser Host topology and release-ownership ADR was authored and accepted
+only after:
 
 - the incumbent OS-webview/Tauri family is enrolled and reaches a terminal
   candidate proof status;
@@ -874,7 +884,7 @@ The Browser Host topology and release-ownership ADR may be authored only after:
 - the extension control baseline is recorded; and
 - remaining unknowns are bounded enough for honest ADR reasoning.
 
-The ADR gate remains closed when:
+The implementation and release gates remain closed when:
 
 - only framework documentation exists;
 - only one host family was tested;
@@ -885,8 +895,9 @@ The ADR gate remains closed when:
 - packaging or maintenance ownership is absent; or
 - results contain unexplained missing cases.
 
-Meeting this evidence minimum allows ADR authoring. It does not predetermine the
-decision, and the ADR may still defer the Browser Host.
+This evidence minimum was satisfied for ADR-054. It permits architecture
+acceptance, but it does not authorize implementation, repository extraction,
+or release qualification.
 
 ## 23. Future implementation sequence
 
@@ -914,20 +925,19 @@ The prerequisite order is:
 7. Comparative summary. **Done.**
    `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`
    classifies ADR readiness as `ADR_READY`.
-8. Browser Host topology and release-ownership ADR. **Next atomic task; not
-   yet authored or accepted.**
+8. Browser Host topology and release-ownership ADR. **Accepted as ADR-054.**
+   The decision selects `bundled_chromium_electron` and a monorepo-first
+   isolated package posture; implementation and release qualification remain
+   separate gates.
 9. Selected one-tab product proof.
 10. Product implementation and release qualification.
 
 ## 24. Immediate next atomic task
 
-Author the future ADR titled `Codexify Browser Host Topology and Release
-Ownership`, using the comparative summary and both terminal packets as
-evidence. This task must not implement a host, create or split a repository,
-move source, change packages, update current-state truth, or commit to a
-technology. It is the only next task; its acceptance boundary is the reviewed
-ADR artifact and its explicit disposition of the repository-split
-prerequisites.
+Establish the production Browser Host package boundary and versioned
+Guardian/Browser Context contracts without implementing the full browser
+product. This is the sole next implementation task; the next implementation
+gate remains closed until that bounded scaffold is authorized and verified.
 
 ## 25. Non-goals
 
@@ -1003,10 +1013,15 @@ The specification stage is complete when:
   comparative summary is recorded at
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`
   and classifies ADR readiness as `ADR_READY`.
+- ADR-054 at
+  `docs/architecture/adr/054-browser-host-topology-and-release-ownership.md`
+  accepts `bundled_chromium_electron` for a monorepo-first isolated Browser
+  Host package, retains Tauri as the trusted shell and the extension as Tier 0,
+  and preserves Guardian authority. The candidate packets remain proof-only.
 - Stage 3 historically returned `PROOF_REQUIRED` before the comparative
-  terminal-packet reassessment; current ADR readiness is `ADR_READY` for
-  authoring the future ADR.
-- Gate C remains closed.
+  terminal-packet reassessment; ADR-054 now records the accepted decision.
+- Gate C is passed for architecture and ownership direction by ADR-054
+  acceptance; the next implementation and release gates remain closed.
 
 `docs/architecture/00-current-state.md` remains authoritative for supported
 release truth.
@@ -1020,34 +1035,33 @@ release truth.
 - The materially different Electron candidate has a terminal `proof_complete`
   packet, but its four inconclusive cases remain explicit and no production
   Browser Host behavior is release-qualified.
-- The comparative summary classifies the evidence as `ADR_READY` for authoring
-  the future ADR; the ADR has not been authored or accepted.
-- No technology or repository topology is selected.
-- No release posture is selected or qualified.
+- The comparative summary remains evidence and `ADR_READY`; ADR-054 records
+  the accepted future architecture but does not implement or release it.
+- `bundled_chromium_electron` and the monorepo-first isolated package are
+  selected architecture, not supported runtime.
+- The immediate release posture is `development/internal unsigned proof`; no
+  release qualification exists.
 - No signed package, updater, rollback path, or independent release lane is
   proven.
-- ADR authoring is ready under section 22; no Browser Host ADR has been
-  accepted.
+- ADR-054 is accepted, but no production Browser Host exists.
 - No production Guardian compatibility is proven by the future deterministic
   stub.
 - No current beta or runtime claim is widened.
 
 ## 29. ADR impact
 
-- **Classification:** aligned with existing ADRs; no new ADR is created or
-  modified.
+- **Classification:** aligned with existing ADRs; ADR-054 is accepted.
 - **Governing ADRs:** ADR-051, ADR-021, ADR-039, ADR-040, ADR-003, ADR-004, and
   ADR-005.
 - **Governing contracts:** Browser Authority and Context Boundary Contract,
   Runtime Protocol Token Contract, Chat Runtime Contract, Agent Tool Loop
   Contract, Account Export + Restore Contract, and Self-Extending Agent Plugin
   System.
-- **Future ADR:** `Codexify Browser Host Topology and Release Ownership`.
+- **Accepted ADR:** `Codexify Browser Host Topology and Release Ownership`.
 
-The evidence minimum in section 22 is satisfied for ADR authoring by the
-comparative summary, while the ADR itself remains uncreated and Gate C remains
-closed. This specification establishes a proof method, not architecture
-acceptance.
+The comparative evidence and recommendation supplied the decision input for
+ADR-054. This specification remains a proof method, not implementation or
+release acceptance.
 
 ## 30. Documentation follow-through
 
@@ -1057,8 +1071,8 @@ This specification must be routed from:
 - `docs/architecture/kb-validity-matrix.md` as
   `supplementary_verify_against_code`; and
 - `docs/Campaign/CODEXIFY_BROWSER_CAMPAIGN.md` as the Stage 3 comparative
-  evidence follow-through, `ADR_READY` reassessment, and prerequisite to the
-  future ADR.
+  evidence follow-through, ADR-054 decision routing, and implementation-gate
+  follow-through.
 
 It must not enter the runtime or UI diagram source sets.
 

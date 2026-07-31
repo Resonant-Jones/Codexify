@@ -74,8 +74,9 @@ responsible for producing the complete, reviewable inventory proof.
   at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
 - Its then-current ADR-readiness result was `PROOF_REQUIRED`.
 - No technology or repository topology was selected.
-- The completed comparative evidence below supersedes that pending-evidence
-  state for ADR authoring; the future ADR is not yet accepted.
+- The completed comparative evidence and subsequent ADR-054 supersede that
+  pending-evidence state; the earlier evaluation itself did not accept a
+  topology decision.
 - `docs/architecture/browser-host-comparative-proof-harness-spec.md` defines
   the normative, technology-neutral comparison method.
 
@@ -138,12 +139,13 @@ responsible for producing the complete, reviewable inventory proof.
   with `05f5952bc` is superseded and excluded from these totals.
 - Comparative summary:
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`.
-- ADR-readiness classification: `ADR_READY`. This permits authoring the
-  future ADR but does not select a technology or repository topology.
-- Gate C remains closed. The single next atomic task is to author
-  `Codexify Browser Host Topology and Release Ownership`, with no
-  implementation, repository creation, source movement, package change, or
-  current-state update.
+- ADR-readiness classification: `ADR_READY`; ADR-054 now accepts the future
+  architecture decision.
+- Accepted decision: Electron/bundled Chromium, family
+  `bundled_chromium_electron`, with an isolated monorepo-first package;
+  production Tauri remains the trusted shell and the extension remains Tier 0.
+- Gate C is passed for architecture and ownership direction by ADR-054
+  acceptance. Repository extraction and implementation gates remain closed.
 
 ### Decision recommendation update — 2026-07-31
 
@@ -151,11 +153,10 @@ responsible for producing the complete, reviewable inventory proof.
   `ADR_READY` but intentionally contained no singular recommendation.
 - The decision-recommendation artifact is
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
-- The prescribed technology family for future ADR consideration is
-  `bundled_chromium_electron` through Electron.
-- The prescribed topology is an isolated Browser Host application/package in
-  the Codexify monorepo first; dedicated-repository extraction is deferred
-  until independent ownership prerequisites are proven.
+- ADR-054 accepts the `bundled_chromium_electron` family through Electron.
+- ADR-054 accepts an isolated Browser Host application/package in the
+  Codexify monorepo first; dedicated-repository extraction is deferred until
+  independent ownership prerequisites are proven.
 - Production Tauri remains the trusted Codexify desktop shell and launcher;
   arbitrary remote content must not enter its privileged command boundary.
 - The Chrome extension remains the optional Tier 0 continuity bridge, not the
@@ -166,9 +167,13 @@ responsible for producing the complete, reviewable inventory proof.
   orchestration.
 - The immediate release posture remains `development/internal unsigned proof`.
 - Candidate packets and the comparative summary remain immutable evidence.
-- The recommendation is not an accepted ADR, and Gate C remains closed.
-- The sole next task is to author and adopt the future Browser Host topology
-  and release-ownership ADR using this recommendation as its singular input.
+- The recommendation has been adopted by ADR-054; the ADR is accepted future
+  architecture, not current supported runtime.
+- Gate C is passed for architecture and ownership direction; the next
+  implementation gate remains closed.
+- The sole next task is to establish the production Browser Host package
+  boundary and versioned Guardian/Browser Context contracts without
+  implementing the full browser product.
 
 ### Documented contract
 
@@ -194,8 +199,8 @@ second.
 ### Unproven
 
 - No Codexify Browser Host exists.
-- No Electron, Tauri, Chromium Embedded Framework, Chromium fork, or other host
-  technology has been selected.
+- ADR-054 selects Electron/bundled Chromium as future Browser Host
+  architecture; no production Browser Host implementation exists.
 - No dedicated Browser repository has been approved.
 - No cross-repository browser protocol, signing boundary, updater, compatibility
   contract, or release process exists.
@@ -221,11 +226,12 @@ second.
   bundled Chromium/Electron family have terminal packets under the same proof
   method; their comparative summary is recorded at
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`
-  with an `ADR_READY` reassessment.
+  with an `ADR_READY` reassessment; ADR-054 accepts the future topology.
 - The Stage 3 topology evaluation returned `PROOF_REQUIRED` before the
-  comparative terminal-packet reassessment; the current readiness
-  classification is `ADR_READY` for authoring the future ADR.
-- No Browser Host technology or repository topology has been selected.
+  comparative terminal-packet reassessment; ADR-054 now records the accepted
+  architecture and ownership direction.
+- The accepted future topology is Electron/bundled Chromium in an isolated
+  monorepo-first package; this is not current runtime or release truth.
 - Campaigns are prerequisite-ordered arcs. Each Task is atomic, independently
   validated, and independently committed.
 
@@ -366,27 +372,28 @@ finally release hardening.
 -  The final packet is `proof_complete` with 85 passed, 4 inconclusive, 0
   blocked, and 0 failed cases, with no invariant violation. An earlier
   `environment_blocked` packet is superseded.
-- Control and gate posture: the extension remains the Tier 0 control; no
-- technology or repository topology is selected; Gate C remains closed.
-- Goal: carry the singular Browser Host decision recommendation into the
-  future topology and release-ownership ADR without treating it as accepted
-  architecture.
+- Control and gate posture: ADR-054 accepts Electron/bundled Chromium and the
+  monorepo-first isolated package posture; the extension remains the Tier 0
+  control, Tauri remains the trusted shell, and Gate C is passed for
+  architecture and ownership direction.
+- Goal: implement only the accepted package-boundary and versioned-contract
+  scaffold before any full Browser Host product behavior.
 - Prerequisite: Tasks 01 and 02.
 - Required pre-ADR evidence: the shared technology-neutral
   fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
   proof packet, at least one materially different host-family proof packet, and
   a common comparative summary.
-- Decision recommendation: the pre-ADR artifact at
+- Decision recommendation: the adopted artifact at
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`
-  recommends Electron/bundled Chromium and monorepo-first isolated
-  implementation, while retaining Tauri as the trusted shell and the
-  extension as Tier 0.
-- Next prerequisite: author and adopt the future Browser Host topology and
-  release-ownership ADR using that recommendation as its singular input. The
-  recommendation is not accepted architecture; Gate C remains closed.
-- Expected decision artifact after proof: an accepted ADR covering build,
+- records the singular decision adopted by ADR-054: Electron/bundled Chromium
+  and monorepo-first isolated implementation, while retaining Tauri as the
+  trusted shell and the extension as Tier 0.
+- Next prerequisite: establish the production Browser Host package boundary
+  and versioned Guardian/Browser Context contracts without implementing the
+  full browser product. The next implementation gate remains closed.
+- Expected decision artifact after proof: ADR-054, now accepted, with build,
   release, signing, storage, security ownership, compatibility, and rolling
-  upgrade implications.
+  upgrade implications recorded.
 - Explicit exclusions: no repository creation, code movement, or host choice by
   implication.
 - Stage kind: `proof` followed by `documentation`.
@@ -485,12 +492,11 @@ A dedicated Browser Host repository may be created only after an accepted ADR
 proves independent build, release, signing, storage, compatibility, recovery,
 and security ownership.
 
-Status: closed. The Stage 3 evaluation historically returned
-`PROOF_REQUIRED`; the terminal comparative packets governed by
-`docs/architecture/browser-host-comparative-proof-harness-spec.md` now exist for
-the incumbent Tauri family and materially different bundled Chromium/Electron
-family. The comparative summary records `ADR_READY` for authoring the future
-ADR, but no ADR has been accepted and repository ownership remains unresolved.
+Status: passed for architecture and ownership direction by accepted ADR-054.
+The decision selects Electron/bundled Chromium and a monorepo-first isolated
+Browser Host package, retains Tauri as the trusted shell and the extension as
+Tier 0, and keeps Guardian as authority. Repository extraction remains closed
+until the independent-release prerequisites in ADR-054 are proven.
 
 ### Gate D: Product proof
 
@@ -554,7 +560,8 @@ The Campaign exits only when:
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
   It recommends Electron/bundled Chromium, monorepo-first isolated
   implementation, retained Tauri and extension roles, Guardian authority, and
-  development/internal unsigned proof. It is not an accepted ADR.
+  development/internal unsigned proof. ADR-054 now adopts it; the artifact
+  remains a decision input rather than runtime proof.
 - The common comparison method is
   `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
 - The shared scaffold prerequisite is commit
@@ -570,8 +577,9 @@ The Campaign exits only when:
   summary records `ADR_READY`, and the decision recommendation is now recorded
   at
   `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
-  The single next prerequisite is authoring and adopting the future Browser
-  Host topology and release-ownership ADR, while Gate C remains closed.
+  ADR-054 now adopts the topology and ownership decision. The single next
+  prerequisite is the production package-boundary and versioned-contract
+  scaffold, while the next implementation gate remains closed.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
@@ -579,14 +587,14 @@ The Campaign exits only when:
 
 ## ADR impact
 
-- Classification: aligned with existing ADRs; comparative evidence is
-  `ADR_READY` for authoring the future ADR.
-- ADR created or modified here: none.
-- The decision-recommendation artifact is a singular pre-ADR input; it does
-  not accept the technology, repository topology, or release posture.
+- Classification: aligned with existing ADRs; ADR-054 is accepted.
+- ADR created by the adoption task:
+  `docs/architecture/adr/054-browser-host-topology-and-release-ownership.md`.
+- The decision-recommendation artifact is the singular evidence-backed input
+  adopted by ADR-054; it remains separate from runtime proof.
 - Existing governing contract: ADR-051 continues to govern the current private
   Chrome side-panel client.
-- Future ADR subject: Browser Host authority, repository topology, renderer
+- Accepted ADR subject: Browser Host authority, repository topology, renderer
   isolation, storage ownership, protocol versioning, release/signing ownership,
   and compatibility.
 - Reason: these boundaries would be dangerous to reinterpret after
