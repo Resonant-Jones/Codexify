@@ -171,9 +171,8 @@ responsible for producing the complete, reviewable inventory proof.
   architecture, not current supported runtime.
 - Gate C is passed for architecture and ownership direction; the next
   implementation gate remains closed.
-- The sole next task is to establish the production Browser Host package
-  boundary and versioned Guardian/Browser Context contracts without
-  implementing the full browser product.
+- The package-boundary and versioned Guardian/Browser Context contract
+  prerequisite is now the completed implementation slice recorded below.
 
 ### Documented contract
 
@@ -185,6 +184,14 @@ responsible for producing the complete, reviewable inventory proof.
 - Browser capture availability and ordinary chat availability are separate
   states; capture failure must not silently disable or impersonate chat.
 - Remote content is untrusted evidence, not an instruction or permission source.
+- The production package boundary is `browser_host/`; the language-neutral
+  contract package is `browser_host/contracts/`.
+- Contract package versions are `@codexify/browser-host` `0.1.0`,
+  `@codexify/browser-host-contracts` `0.1.0`, protocol `1.0.0`, Browser Context
+  Envelope `1.0.0`, and attachment `1.0.0`.
+- JavaScript and Python consume the same manifest, schemas, canonical tokens,
+  and synthetic fixture index; no Electron dependency or live Guardian
+  integration exists.
 
 ### Working theory
 
@@ -376,8 +383,9 @@ finally release hardening.
   monorepo-first isolated package posture; the extension remains the Tier 0
   control, Tauri remains the trusted shell, and Gate C is passed for
   architecture and ownership direction.
-- Goal: implement only the accepted package-boundary and versioned-contract
-  scaffold before any full Browser Host product behavior.
+- Goal: establish the accepted package-boundary and versioned-contract
+  scaffold before any full Browser Host product behavior. This prerequisite is
+  complete; product proof remains closed.
 - Prerequisite: Tasks 01 and 02.
 - Required pre-ADR evidence: the shared technology-neutral
   fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
@@ -388,9 +396,9 @@ finally release hardening.
 - records the singular decision adopted by ADR-054: Electron/bundled Chromium
   and monorepo-first isolated implementation, while retaining Tauri as the
   trusted shell and the extension as Tier 0.
-- Next prerequisite: establish the production Browser Host package boundary
-  and versioned Guardian/Browser Context contracts without implementing the
-  full browser product. The next implementation gate remains closed.
+- Completed prerequisite: `browser_host/`, `browser_host/contracts/`, the
+  normative contract, and JavaScript/Python fixture-parity tests exist without
+  runtime Browser Host behavior. The next implementation gate remains closed.
 - Expected decision artifact after proof: ADR-054, now accepted, with build,
   release, signing, storage, security ownership, compatibility, and rolling
   upgrade implications recorded.
@@ -584,6 +592,26 @@ The Campaign exits only when:
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
   authorized release-truth task after qualifying proof.
+
+## Current task completion
+
+- ADR-054 commit: `d8649a382711f64d5dcb1c5b22468a272c0b36ed`.
+- Production source root: `browser_host/`.
+- Versioned contract package: `browser_host/contracts/`.
+- Package status: private `0.1.0` scaffold; contract package status: private
+  `0.1.0` source-of-truth package.
+- Protocol, envelope, and attachment versions: `1.0.0`.
+- JavaScript conformance: passed; Python conformance: passed.
+- No Electron dependency, live Guardian integration, runtime Browser Host,
+  product proof, or release claim was added.
+- Gate C remains passed for architecture and ownership direction. Gate D
+  remains closed.
+
+### Next atomic task
+
+Implement the production one-tab Browser Host trusted-shell and remote-renderer
+skeleton against the deterministic Guardian stub, using the versioned contract
+package and without live production Guardian credentials.
 
 ## ADR impact
 
