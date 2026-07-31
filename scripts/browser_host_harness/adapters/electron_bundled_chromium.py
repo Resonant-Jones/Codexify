@@ -253,7 +253,9 @@ def _apply_build_cases(
 
 
 def _copy_json(source: Path, target: Path) -> None:
-    target.write_text(json.dumps(json.loads(source.read_text(encoding="utf-8")), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Preserve source bytes so the packet copy has the same digest recorded in
+    # artifact-hashes.json; semantic reserialization changes the hash.
+    shutil.copyfile(source, target)
 
 
 def _git_snapshot(repo: Path) -> dict[str, str]:
@@ -680,7 +682,7 @@ def run_candidate(output_dir: Path) -> Path:
         }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (output_dir / "trace-omission.json").write_text(json.dumps({
             "traceCollected": False,
-            "reason": "Playwright could not establish an Electron application runtime in this host; no trace exists to sanitize.",
+            "reason": "Trace collection was not enabled; live evidence and sanitized event summaries are retained separately.",
             "candidateRuntimeAttempt": "candidate-runtime-attempt.json",
         }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (output_dir / "accessibility-results.json").write_text(json.dumps({"source": "live Playwright trusted-shell inspection", "cases": {k: v for k, v in cases.items() if k.startswith("accessibility_")}}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
