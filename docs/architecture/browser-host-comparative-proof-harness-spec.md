@@ -80,6 +80,18 @@ constrain future proof work; they do not claim current implementation.
 - Single next task: author `Codexify Browser Host Topology and Release
   Ownership`, with no implementation, repository creation, or source move.
 
+### Decision recommendation status — 2026-07-31
+
+- Comparative evidence remains `ADR_READY`; the comparative summary
+  intentionally remained non-decisional.
+- The decision recommendation now exists at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
+- The recommendation selects Electron/bundled Chromium and monorepo-first
+  isolated implementation for ADR consideration.
+- The recommendation is not an accepted ADR; candidate proof packets and
+  normative harness requirements remain unchanged.
+- Gate C remains closed.
+
 ## 2. Scope
 
 The proof target is a Tier 1 one-tab Browser Workspace development proof:
