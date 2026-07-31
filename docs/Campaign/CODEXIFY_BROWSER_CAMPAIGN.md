@@ -76,8 +76,28 @@ responsible for producing the complete, reviewable inventory proof.
 - No technology or repository winner was selected.
 - The future topology ADR remains blocked pending common comparative evidence.
 - `docs/architecture/browser-host-comparative-proof-harness-spec.md` defines
-  the normative, technology-neutral comparison method. It is documentation,
-  not a harness implementation or live Browser Host proof.
+  the normative, technology-neutral comparison method.
+
+### Incumbent-family proof evidence
+
+- Shared scaffold prerequisite commit:
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`.
+- Incumbent proof-only source:
+  `browser_host_candidates/tauri/`.
+- Harness adapter:
+  `scripts/browser_host_harness/adapters/tauri_incumbent.py`.
+- Terminal packet:
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+- Terminal run `tauri-proof-79fdb67b` is `proof_complete` for evidence
+  coverage: 89 mandatory cases are terminal (34 `passed`, 42 `inconclusive`,
+  13 `blocked`), with no failed case and no invariant violation.
+- The proof source baseline is
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`; the atomic integration commit is
+  the commit containing the packet and is reported by Git history and task
+  closeout.
+- The result does not select Tauri, widen release truth, prove production
+  Guardian compatibility, or open Gate C. At least one materially different
+  host-family packet remains required.
 
 ### Documented contract
 
@@ -252,9 +272,15 @@ finally release hardening.
   `tests/browser_host_harness/`. Scaffold proof artifact:
   `docs/architecture/proofs/2026-07-30-browser-host-shared-harness-scaffold-proof.md`.
   The scaffold provides the deterministic fixture server, Guardian contract
-  stub, canonical harness registries, and proof-receipt scaffold. It does not
-  implement a candidate adapter; the extension remains the Tier 0 control;
-  Gate C remains closed.
+  stub, canonical harness registries, and proof-receipt contracts.
+- Incumbent candidate: the proof-only Tauri source exists at
+  `browser_host_candidates/tauri/`; its terminal packet is
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+  Candidate status is `proof_complete` for terminal evidence coverage, with no
+  invariant violation. Interaction-dependent cases that lacked an approved
+  macOS Tauri driver remain `blocked` or `inconclusive`.
+- Control and gate posture: the extension remains the Tier 0 control; no
+  technology winner is selected; Gate C remains closed.
 - Goal: produce decision-grade comparative evidence, then author the future
   Browser Host topology and release-ownership ADR.
 - Prerequisite: Tasks 01 and 02.
@@ -262,10 +288,9 @@ finally release hardening.
   fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
   proof packet, at least one materially different host-family proof packet, and
   a common comparative summary.
-- Next prerequisite: implement the incumbent OS-webview/Tauri candidate adapter
-  and produce its candidate proof packet under the common harness.
-  At least one materially different candidate remains mandatory before ADR
-  authoring.
+- Next prerequisite: implement one materially different candidate family under
+  the same harness. A comparative summary and ADR remain blocked until that
+  family also reaches a terminal packet.
 - Expected decision artifact after proof: an accepted ADR covering build,
   release, signing, storage, security ownership, compatibility, and rolling
   upgrade implications.
@@ -430,12 +455,17 @@ The Campaign exits only when:
   at commit `1cbf68113b9113faa907c22d868248609f49f9a5`
   and returned `PROOF_REQUIRED`.
 - The common comparison method is
-  `docs/architecture/browser-host-comparative-proof-harness-spec.md`. No
-  Browser Host technology or repository split has been selected.
-- The next prerequisite is the shared technology-neutral fixture server,
-  deterministic Guardian contract stub, and proof-receipt scaffold only. The
-  incumbent Tauri family and at least one materially different family must then
-  produce comparable proof packets before ADR authoring.
+  `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
+- The shared scaffold prerequisite is commit
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`.
+- The incumbent Tauri-family source and terminal packet now exist at
+  `browser_host_candidates/tauri/` and
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+  This is incumbent-family evidence only: Tauri is not selected, production
+  Tauri is unchanged, and live production Guardian compatibility is not
+  proven.
+- The next prerequisite is one materially different candidate family under the
+  same harness. Comparative summary, ADR authoring, and Gate C remain blocked.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately

@@ -3,6 +3,8 @@
 Commands:
   self-test          Run the scaffold self-test.
   serve              Start the three servers for development.
+  inspect-candidate  Inspect an enrolled candidate without launching it.
+  run-candidate      Execute an enrolled candidate proof run.
   validate-receipt   Validate a proof receipt JSON file.
 """
 
@@ -56,6 +58,22 @@ def _main() -> int:
     vr = sub.add_parser("validate-receipt", help="Validate a proof receipt")
     vr.add_argument("path", type=Path, help="Path to receipt JSON file")
 
+    # inspect-candidate
+    inspect = sub.add_parser(
+        "inspect-candidate",
+        help="Inspect an enrolled Browser Host candidate",
+    )
+    inspect.add_argument("--candidate", required=True)
+    inspect.add_argument("--output-dir", required=True, type=Path)
+
+    # run-candidate
+    run = sub.add_parser(
+        "run-candidate",
+        help="Run an enrolled Browser Host candidate proof",
+    )
+    run.add_argument("--candidate", required=True)
+    run.add_argument("--output-dir", required=True, type=Path)
+
     args = parser.parse_args()
 
     if args.command == "self-test":
@@ -64,8 +82,42 @@ def _main() -> int:
         return _cmd_serve(args.runtime_dir)
     elif args.command == "validate-receipt":
         return _cmd_validate_receipt(args.path)
+    elif args.command == "inspect-candidate":
+        return _cmd_inspect_candidate(args.candidate, args.output_dir)
+    elif args.command == "run-candidate":
+        return _cmd_run_candidate(args.candidate, args.output_dir)
     else:
         return 1
+
+
+def _candidate_adapter(candidate: str):
+    if candidate != "tauri-incumbent":
+        raise ValueError(
+            f"unknown candidate '{candidate}'; enrolled candidates: tauri-incumbent"
+        )
+    from .adapters import tauri_incumbent
+
+    return tauri_incumbent
+
+
+def _cmd_inspect_candidate(candidate: str, output_dir: Path) -> int:
+    try:
+        path = _candidate_adapter(candidate).inspect_candidate(output_dir)
+    except Exception as exc:
+        print(f"candidate inspection failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Candidate inspection receipt: {path}")
+    return 0
+
+
+def _cmd_run_candidate(candidate: str, output_dir: Path) -> int:
+    try:
+        path = _candidate_adapter(candidate).run_candidate(output_dir)
+    except Exception as exc:
+        print(f"candidate proof failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Candidate proof receipt: {path}")
+    return 0
 
 
 def _cmd_self_test(output_dir: Path) -> int:

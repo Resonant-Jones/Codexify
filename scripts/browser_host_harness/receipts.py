@@ -147,6 +147,27 @@ def validate_receipt(receipt: dict) -> list[str]:
                 "candidateStatus 'proof_complete' but invariantViolations is non-empty"
             )
 
+    # Enrolled candidate runs must cover the fixed comparative catalog.
+    if (
+        kind == ReceiptKind.CANDIDATE_PROOF.value
+        and receipt.get("proofMode") == "candidate_run"
+    ):
+        from .candidate_cases import MANDATORY_CANDIDATE_CASE_IDS
+
+        received_case_ids = frozenset(cases)
+        missing_cases = sorted(MANDATORY_CANDIDATE_CASE_IDS - received_case_ids)
+        if missing_cases:
+            errors.append(f"candidate run omits mandatory cases: {missing_cases}")
+        for case_id in sorted(MANDATORY_CANDIDATE_CASE_IDS & received_case_ids):
+            case_data = cases[case_id]
+            status = (
+                case_data.get("status", "")
+                if isinstance(case_data, dict)
+                else case_data
+            )
+            if status == CaseStatus.NOT_RUN.value:
+                errors.append(f"mandatory case '{case_id}' is 'not_run'")
+
     # Consistency: invariant_violation requires violations
     if candidate_status == CandidateStatus.INVARIANT_VIOLATION.value:
         if not receipt.get("invariantViolations"):

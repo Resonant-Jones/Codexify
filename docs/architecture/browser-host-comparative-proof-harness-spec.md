@@ -6,10 +6,11 @@
 - **Status:** normative for future Codexify Browser Campaign comparative proof
   tasks. The shared technology-neutral fixture/stub/receipt scaffold now exists
   under `scripts/browser_host_harness/` with focused tests under
-  `tests/browser_host_harness/`. The scaffold does not implement a candidate
-  adapter; no candidate has produced a proof packet; no live Guardian
-  compatibility is established; all candidate enrollment and ADR evidence gates
-  remain unchanged.
+  `tests/browser_host_harness/`. The incumbent proof-only Tauri candidate and
+  adapter now exist, with a terminal packet under
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+  No live production Guardian compatibility is established; a materially
+  different candidate, comparative summary, and ADR remain outstanding.
 - **Technology posture:** technology-neutral.
 - **Repository posture:** repository-neutral.
 - **Release posture:** release-posture-neutral.
@@ -32,8 +33,9 @@ at commit `1cbf68113b9113faa907c22d868248609f49f9a5` returned
 posture. This document defines the comparative proof method required to close
 that evidence gap.
 
-This specification does not implement a harness, select a Browser Host, select
-a repository topology, qualify a release, or replace live proof. Normative
+This specification does not itself select a Browser Host, select a repository
+topology, qualify a release, or replace live proof. Separately authorized tasks
+implemented the shared scaffold and incumbent proof candidate. Normative
 terms such as **must**, **must not**, **required**, **should**, and **may**
 constrain future proof work; they do not claim current implementation.
 
@@ -844,9 +846,14 @@ The prerequisite order is:
    `docs/architecture/proofs/2026-07-30-browser-host-shared-harness-scaffold-proof.md`.
 3. Machine-readable proof receipt and canonical test-status registry.
    **Included in step 2 scaffold.**
-4. Incumbent OS-webview/Tauri candidate adapter.
+4. Incumbent OS-webview/Tauri candidate adapter. **Done for the proof-only
+   incumbent family.** Candidate source:
+   `browser_host_candidates/tauri/`. Adapter:
+   `scripts/browser_host_harness/adapters/tauri_incumbent.py`. Terminal packet:
+   `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
 5. At least one materially different candidate adapter.
-6. Candidate proof runs.
+6. Candidate proof runs. **Incumbent-family run done; materially different
+   family still required.**
 7. Comparative summary.
 8. Browser Host topology and release-ownership ADR.
 9. Selected one-tab product proof.
@@ -854,13 +861,24 @@ The prerequisite order is:
 
 ## 24. Immediate next atomic task
 
-Implement the incumbent OS-webview/Tauri candidate adapter and produce its
-candidate proof packet under the common harness at
-`scripts/browser_host_harness/`.
+Implement one materially different Browser Host candidate family under the
+same fixed harness, fixtures, status vocabulary, and invariant-violation
+posture.
 
-That task must not implement or select an alternative-family candidate, author
-an ADR, widen a release claim, or open Gate C. It
-must not choose the final harness language by implication.
+The incumbent proof-only Tauri candidate reached `proof_complete` for evidence
+coverage in run `tauri-proof-79fdb67b`: all 89 mandatory cases are terminal
+(34 `passed`, 42 `inconclusive`, 13 `blocked`), with no failed case and no
+invariant violation. `proof_complete` does not mean the candidate passed every
+case or received architecture approval. Live macOS renderer interaction,
+credential isolation, native-authority isolation, capture, and related
+interaction assertions remain inconclusive or blocked where the harness had no
+approved Tauri interaction driver.
+
+The proof source baseline is
+`eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`; the atomic integration commit is
+the commit containing the terminal packet and is reported by Git history and
+the task closeout. The packet records artifact hashes and the exact run ID,
+because a commit cannot embed its own final hash without changing that hash.
 
 This is the only recommended immediate next task. It is not generated or
 executed here.
@@ -916,7 +934,15 @@ The specification stage is complete when:
 - Guardian remains authentication, policy, persistence, task, and provider
   execution authority.
 - The Browser Authority and Context Boundary Contract is documented, but page
-  capture is not implemented.
+  capture is not a production or release-qualified capability.
+- A separate proof-only Tauri 2.8.5 candidate now exists under
+  `browser_host_candidates/tauri/`; production `src-tauri/` is unchanged.
+- The incumbent packet records system WebKit version `21624`, an offline locked
+  build, an unsigned `.app` proof bundle, a bounded process launch, resource
+  observations, accessibility inspection, repository-boundary evidence, and
+  cleanup.
+- The incumbent packet is terminal evidence for one family only. It is not
+  proof of live production Guardian compatibility.
 - Stage 3 returned `PROOF_REQUIRED`.
 - Gate C remains closed.
 
@@ -925,10 +951,11 @@ release truth.
 
 ## 28. Explicit non-claims
 
-- This specification is not a harness implementation.
-- No deterministic fixture corpus, Guardian stub, receipt writer, or adapter
-  exists because of this document.
-- No candidate has passed or failed the common proof.
+- The specification itself is not runtime proof; the separately authorized
+  scaffold and incumbent packet provide their bounded evidence.
+- The incumbent packet does not prove the cases recorded as `blocked` or
+  `inconclusive`.
+- No materially different candidate family has completed the common proof.
 - No one-tab Browser Host behavior is `live-runtime-proven`.
 - No technology winner is selected.
 - No repository winner is selected.
