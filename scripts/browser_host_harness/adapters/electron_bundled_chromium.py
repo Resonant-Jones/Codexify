@@ -438,6 +438,7 @@ def _write_markdown(receipt: dict[str, Any], output_dir: Path, *, versions: dict
 
 
 def inspect_candidate(output_dir: Path) -> Path:
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     root = _candidate_root()
     manifest = json.loads((root / "candidate-manifest.json").read_text(encoding="utf-8"))
@@ -484,6 +485,7 @@ def inspect_candidate(output_dir: Path) -> Path:
 
 
 def run_candidate(output_dir: Path) -> Path:
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     root = _candidate_root()
     runtime_dir = Path(tempfile.mkdtemp(prefix="codexify-electron-runtime-"))
