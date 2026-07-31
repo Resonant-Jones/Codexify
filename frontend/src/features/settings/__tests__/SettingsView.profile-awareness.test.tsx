@@ -164,8 +164,8 @@ function renderSettingsView(overrides: Partial<ComponentProps<typeof SettingsVie
     setDashboardThreadRows: vi.fn(),
     surfaceDepth: 50,
     setSurfaceDepth: vi.fn(),
-    surfaceWarmth: 0,
-    setSurfaceWarmth: vi.fn(),
+    lightPaperTone: 0,
+    setLightPaperTone: vi.fn(),
     ...overrides,
   };
 

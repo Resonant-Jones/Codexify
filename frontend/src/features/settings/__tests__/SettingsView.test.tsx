@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -95,11 +95,11 @@ function createSettingsViewProps() {
     setRole: vi.fn(),
     setSystemPrompt: vi.fn(),
     setSurfaceDepth: vi.fn(),
-    setSurfaceWarmth: vi.fn(),
+    setLightPaperTone: vi.fn(),
     setUserName: vi.fn(),
     setWallpaper: vi.fn(),
     surfaceDepth: 50,
-    surfaceWarmth: 0,
+    lightPaperTone: 0,
     systemPrompt: "Local preview prompt",
     userName: "Ari",
     wallpaper: null,
@@ -292,7 +292,7 @@ describe("SettingsView", () => {
     );
   });
 
-  test("exposes the Material Controls section with both surface sliders", () => {
+  test("exposes the Material Controls section with depth and paper tone sliders", () => {
     const props = createSettingsViewProps();
     render(<SettingsView {...props} />);
 
@@ -303,13 +303,13 @@ describe("SettingsView", () => {
     ).toBeInTheDocument();
 
     const depthSlider = screen.getByTestId("surface-depth-slider");
-    const warmthSlider = screen.getByTestId("surface-warmth-slider");
+    const paperToneSlider = screen.getByTestId("light-paper-tone-slider");
     expect(depthSlider).toBeInTheDocument();
     expect(depthSlider).toHaveAttribute("type", "range");
     expect(depthSlider.style.accentColor).toBe("var(--accent)");
-    expect(warmthSlider).toBeInTheDocument();
-    expect(warmthSlider).toHaveAttribute("type", "range");
-    expect(warmthSlider.style.accentColor).toBe("var(--accent)");
+    expect(paperToneSlider).toBeInTheDocument();
+    expect(paperToneSlider).toHaveAttribute("type", "range");
+    expect(paperToneSlider.style.accentColor).toBe("var(--accent)");
   });
 
   test("exposes the responsive Appearance grid and preserves full-width wide panels", async () => {
@@ -477,7 +477,7 @@ describe("SettingsView", () => {
 
     const sliderTestIds = [
       "surface-depth-slider",
-      "surface-warmth-slider",
+      "light-paper-tone-slider",
       "dashboard-thread-rows-slider",
       "depth-slider",
       "fade-slider",
@@ -519,11 +519,93 @@ describe("SettingsView", () => {
     expect(screen.getByText("Material Controls")).toBeInTheDocument();
     expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
     expect(screen.getByText("Surface Depth")).toBeInTheDocument();
-    expect(screen.getByText("Surface Warmth")).toBeInTheDocument();
+    expect(screen.getByText("Paper tone")).toBeInTheDocument();
     expect(screen.getByText(/Recent thread rows/)).toBeInTheDocument();
 
     // Dashboard Layout slider uses canonical accent
     const rowsSlider = screen.getByTestId("dashboard-thread-rows-slider");
     expect(rowsSlider.style.accentColor).toBe("var(--accent)");
+  });
+
+  describe("Paper tone slider", () => {
+    test("renders with semantic label and helper text", () => {
+      const props = createSettingsViewProps();
+      render(<SettingsView {...props} />);
+
+      expect(screen.getByText("Paper tone")).toBeInTheDocument();
+      expect(
+        screen.getByText(/Neutral white through cream, parchment, and pale legal-pad yellow/)
+      ).toBeInTheDocument();
+    });
+
+    test("shows Neutral descriptor at tone 0", () => {
+      const props = createSettingsViewProps();
+      render(<SettingsView {...props} />);
+
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      expect(slider).toHaveAttribute("value", "0");
+      expect(screen.getByText("Neutral")).toBeInTheDocument();
+    });
+
+    test("is enabled when resolved theme is light", () => {
+      const props = { ...createSettingsViewProps(), resolved: "light" as const };
+      render(<SettingsView {...props} />);
+
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      expect(slider).not.toBeDisabled();
+    });
+
+    test("is disabled with Light mode only when resolved theme is dark", () => {
+      const props = {
+        ...createSettingsViewProps(),
+        resolved: "dark" as const,
+        mode: "dark" as ThemeMode,
+      };
+      render(<SettingsView {...props} />);
+
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      expect(slider).toBeDisabled();
+      expect(screen.getByText(/Light mode only/)).toBeInTheDocument();
+    });
+
+    test("uses aria-labelledby and exposes accessible label", () => {
+      const props = createSettingsViewProps();
+      render(<SettingsView {...props} />);
+
+      const label = screen.getByText("Paper tone");
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      expect(label).toHaveAttribute("id", "light-paper-tone-label");
+      expect(slider).toHaveAttribute("aria-labelledby", "light-paper-tone-label");
+    });
+
+    test("calls setLightPaperTone when slider changes", () => {
+      const setLightPaperTone = vi.fn();
+      const props = { ...createSettingsViewProps(), setLightPaperTone };
+      render(<SettingsView {...props} />);
+
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      fireEvent.change(slider, { target: { value: "50" } });
+      expect(setLightPaperTone).toHaveBeenCalledWith(50);
+    });
+
+    test("range is 0-100 with step 1", () => {
+      const props = createSettingsViewProps();
+      render(<SettingsView {...props} />);
+
+      const slider = screen.getByTestId("light-paper-tone-slider");
+      expect(slider).toHaveAttribute("min", "0");
+      expect(slider).toHaveAttribute("max", "100");
+      expect(slider).toHaveAttribute("step", "1");
+    });
+
+    test("does not render legacy Surface Warmth label", () => {
+      const props = createSettingsViewProps();
+      render(<SettingsView {...props} />);
+
+      expect(screen.queryByText("Surface Warmth")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("surface-warmth-slider")
+      ).not.toBeInTheDocument();
+    });
   });
 });
