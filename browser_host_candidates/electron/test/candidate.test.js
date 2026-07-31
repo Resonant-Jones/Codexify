@@ -129,3 +129,8 @@ test("trusted preview is keyboard focusable", () => {
   const html = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8");
   assert.match(html, /id="preview" tabindex="0"/);
 });
+
+test("trusted navigation preserves a focused user-entered URL", () => {
+  const app = fs.readFileSync(path.join(root, "ui", "app.js"), "utf8");
+  assert.match(app, /document\.activeElement !== address/);
+});

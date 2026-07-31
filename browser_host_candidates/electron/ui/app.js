@@ -15,7 +15,7 @@ function setStatus(message, state = "") {
 
 function renderState(state) {
   if (!state) return;
-  if (state.url) address.value = state.url;
+  if (state.url && document.activeElement !== address) address.value = state.url;
   const fields = [
     ["Phase", state.phase],
     ["Remote renderer", state.remoteReady ? "ready" : "not ready"],
