@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from scripts import daily_audit
+import daily_audit
 
 
 def main() -> int:
