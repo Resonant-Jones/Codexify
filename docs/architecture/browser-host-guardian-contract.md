@@ -240,18 +240,18 @@ acceptance, provider execution, and durable state. This package does not add a
 Guardian route, client, credential, database model, migration, or persistence
 behavior.
 
-The future Browser Host main process may construct authority-bearing metadata
-only within a reviewed trusted-shell boundary. The remote renderer and page
+The trusted Browser Host main process constructs authority-bearing metadata only
+within the reviewed trusted-shell boundary. The remote renderer and page
 remain untrusted. Page content is evidence, not instruction, policy, identity,
 permission, command, or memory authority.
 
 ## Trusted main-process ownership
 
-The future trusted main process owns capture correlation, source metadata,
-document-generation checks, sanitization declarations, content hashing, and
-bounded envelope construction. This task only defines those fields and tests;
-it does not create the process, window, renderer, IPC, navigation, or capture
-implementation.
+The trusted main process owns capture correlation, source metadata,
+document-generation checks, sanitization declarations, content hashing, bounded
+envelope construction, and the separate ephemeral attachment attempt. This
+slice implements those seams against deterministic loopback stubs; live
+production Guardian integration and durable persistence remain outside scope.
 
 ## Remote-renderer prohibitions
 
@@ -357,10 +357,11 @@ them.
 - Contract package: complete as v1 JSON source and Node adapter.
 - JavaScript conformance: complete for the shared fixtures.
 - Python conformance: complete for the shared fixtures.
-- Electron runtime: bounded one-tab skeleton implemented and live-test proven.
+- Electron runtime: bounded one-tab runtime plus capture preview implemented and live-test proven.
 - Deterministic Guardian negotiation: implemented for test-only loopback stub.
+- Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub.
 - Live production Guardian integration: not implemented or proven.
-- Capture/attachment transport: not implemented.
+- Durable browser persistence: not implemented; attachment receipts are explicitly `not_persisted`.
 - Browser persistence: not implemented.
 - Supported release: not qualified.
 
@@ -371,8 +372,8 @@ not widen current release truth. Current release truth remains
 
 ## Non-goals
 
-- No capture, attachment, runtime envelope construction, persistence, or live
-  production Guardian route.
+- No live production Guardian route, production credentials, durable
+  persistence, or supported release behavior.
 - No React, Vite, database client, or general runtime framework.
 - No live Guardian route, authentication, credential, provider invocation, or
   database persistence.
@@ -384,15 +385,15 @@ not widen current release truth. Current release truth remains
 
 ## ADR impact
 
-This contract is aligned with ADR-054 and implements only its first authorized
-bounded topology skeleton. It preserves ADR-051's current private Chrome
+This contract is aligned with ADR-054 and implements its first authorized
+bounded topology and capture-preview proof slices. It preserves ADR-051's current private Chrome
 side-panel boundary, ADR-021's web-agent boundary, ADR-039/040's access and
 network-topology constraints, ADR-003's identity distinctions, and ADR-004/005's
 control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Implement explicit selected-text and visible-page capture preview with separate
-ephemeral attachment against the deterministic Guardian stub, using the
-versioned Browser Context Envelope contracts and without live production
-Guardian credentials.
+Qualify a credential-free Guardian-owned integration contract for the v1
+ephemeral attachment path, preserving the trusted-main-process envelope owner,
+fail-closed ticket semantics, and `not_persisted` receipts before any live
+production route or durable persistence work.

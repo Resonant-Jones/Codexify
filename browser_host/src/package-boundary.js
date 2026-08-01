@@ -16,8 +16,8 @@ module.exports = Object.freeze({
   runtimeImplemented: true,
   rendererImplemented: true,
   navigationImplemented: true,
-  captureImplemented: false,
-  attachmentTransportImplemented: false,
+  captureImplemented: true,
+  attachmentTransportImplemented: true,
   persistenceImplemented: false,
   updaterImplemented: false,
   releaseImplemented: false

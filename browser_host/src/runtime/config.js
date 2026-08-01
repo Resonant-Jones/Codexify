@@ -62,7 +62,7 @@ function loadConfig(env = process.env, platform = process.platform, architecture
     guardianOrigin,
     fixtureOrigin,
     negotiationTimeoutMs: parseTimeout(env[NEGOTIATION_TIMEOUT_ENV]),
-    supportedFeatureTokens: Object.freeze([])
+    supportedFeatureTokens: Object.freeze(contractManifest.featureTokens.slice())
   });
 }
 

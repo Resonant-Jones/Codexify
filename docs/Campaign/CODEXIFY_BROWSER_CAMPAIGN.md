@@ -190,8 +190,8 @@ responsible for producing the complete, reviewable inventory proof.
   `@codexify/browser-host-contracts` `0.1.0`, protocol `1.0.0`, Browser Context
   Envelope `1.0.0`, and attachment `1.0.0`.
 - JavaScript and Python consume the same manifest, schemas, canonical tokens,
-  and synthetic fixture index; no Electron dependency or live Guardian
-  integration exists.
+  and synthetic fixture index; Electron exists only under the private
+  `browser_host/` proof package and live Guardian integration remains absent.
 
 ### Working theory
 
@@ -303,13 +303,14 @@ finally release hardening.
 
 ## Explicit non-goals
 
-- No production browser, extension, page-capture, or Browser Host
-  implementation; the separately recorded Electron candidate is proof-only.
+- No supported or release-qualified browser, extension, page-capture, or
+  Browser Host implementation; the bounded `browser_host/` runtime is internal
+  proof only and does not widen release truth.
 - No extension repair, relocation, rename, or packaging change.
 - No Electron, Tauri, CEF, Chromium fork, or other technology selection.
-- No production dependency, package, build, Tauri, backend, frontend, or
-  runtime change; the separate candidate-local Electron proof project is not a
-  product release surface.
+- No supported production dependency, build, Tauri, backend, frontend, or
+  release-surface change; the private `browser_host/` package remains an
+  internal proof surface.
 - No dedicated repository.
 - No Atlas, bookmark, cookie, history, or session import.
 - No autonomous browsing or new browser command tokens.
@@ -512,10 +513,11 @@ Tabs, profiles, downloads, history, session persistence, or browser actions may
 not become release claims until the selected Browser Host passes live proof for
 the claimed surface.
 
-Status: the 2026-07-31 packet proves only the bounded one-tab topology skeleton
-and its fail-closed negotiation/renderer-policy behavior. The supported one-tab
-integration gate remains closed; capture, attachment, persistence, live
-Guardian, packaging, signing, updater, and release behavior are unproven.
+Status: the 2026-08-01 packet proves only the bounded one-tab topology,
+capture-preview, and ephemeral-attachment behavior against deterministic
+loopback stubs. The supported integration gate remains closed; live Guardian,
+durable persistence, packaging, signing, updater, and release behavior remain
+unproven.
 
 ## Proof expectations
 
@@ -612,7 +614,7 @@ The Campaign exits only when:
   bounded one-tab runtime and sanitized proof packet, while live Guardian
   integration, product proof, and release qualification remain closed.
 - Gate C remains passed for architecture and ownership direction. Gate D is
-  proven only for the bounded topology skeleton; supported one-tab integration
+  proven only for bounded internal proof slices; supported one-tab integration
   and release behavior remain closed.
 
 ## Production one-tab skeleton — 2026-07-31
@@ -658,6 +660,39 @@ Implement explicit selected-text and visible-page capture preview with separate
 ephemeral attachment against the deterministic Guardian stub, using the
 versioned Browser Context Envelope contracts and without live production
 Guardian credentials.
+
+## Capture preview and ephemeral attachment — 2026-08-01
+
+- Baseline: `0973f8e56715d464b115d21911e4a5677e996fe3`.
+- Capture paths: trusted-shell selected-text and visible-page preview actions
+  call narrow IPC handlers; the remote renderer receives no new authority.
+- Main-process ownership: the trusted main process validates the remote result,
+  normalizes bounded UTF-8 text, computes hashes and document fingerprints,
+  constructs the versioned Browser Context Envelope, and keeps the ticket only
+  in bounded memory.
+- Sanitization: form controls, password/hidden values, browser storage,
+  scripts/styles, and iframe content are excluded. Page prompt-like text stays
+  evidence and is rendered as text; it cannot alter host policy or commands.
+- Attachment: a separate trusted-shell confirmation constructs the v1
+  attachment and sends it only to the deterministic loopback stub. Accepted
+  and rejected receipts are `not_persisted`; stale, cancelled, replayed, and
+  deterministic failure paths remain fail closed.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-capture-preview-attachment/`.
+- Validation: 17 unit/contract tests, 8 live Electron tests, proof generation,
+  proof validation, and the existing shared contract/Python checks pass.
+- DeepSeek orchestration: strict exact-model preflight passed, but the
+  read-only pre-edit worker timed out after 180 seconds without a result or
+  edits. Codex continued with direct implementation and independent proof;
+  no secrets were transmitted.
+- Explicit non-claims: no live Guardian route or credential, durable
+  persistence, packaging, signing, updater, rollback, or release behavior.
+
+### Next atomic task
+
+Qualify a credential-free Guardian-owned integration contract for the v1
+ephemeral attachment path before any live production route or durable
+persistence work.
 
 ## ADR impact
 

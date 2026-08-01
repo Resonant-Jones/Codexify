@@ -19,7 +19,7 @@ test("proof mode requires a bounded synthetic token and never changes the fixtur
   const config = loadConfig({ CODEXIFY_BROWSER_HOST_PROOF_MODE: "1", CODEXIFY_BROWSER_HOST_PROOF_TOKEN: token, CODEXIFY_BROWSER_HOST_GUARDIAN_ORIGIN: "http://127.0.0.1:43123", CODEXIFY_BROWSER_HOST_FIXTURE_ORIGIN: "http://127.0.0.1:43124" }, "darwin", "arm64");
   assert.equal(config.proofMode, true);
   assert.equal(config.proofToken, token);
-  assert.deepEqual(config.supportedFeatureTokens, []);
+  assert.deepEqual(config.supportedFeatureTokens, ["capture:selected", "capture:visible", "capture:attach"]);
   assert.equal(config.platform, "darwin");
   assert.equal(config.architecture, "arm64");
 });

@@ -11,8 +11,8 @@ test("runtime state is bounded, cloned, frozen, and explicitly redacted", () => 
   assert.equal(Object.isFrozen(first), true);
   assert.equal(Object.isFrozen(first.selectedVersions), true);
   assert.equal(first.topologySkeletonImplemented, true);
-  assert.equal(first.captureImplemented, false);
-  assert.equal(first.attachmentImplemented, false);
+  assert.equal(first.captureImplemented, true);
+  assert.equal(first.attachmentImplemented, true);
   assert.equal(first.persistenceImplemented, false);
   assert.equal("proofToken" in first, false);
   assert.equal("credentials" in first, false);

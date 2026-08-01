@@ -30,10 +30,10 @@ function buildHello(config, id = requestId()) {
   };
 }
 
-function postJson(origin, payload, token, timeoutMs) {
+function postJson(origin, path, payload, token, timeoutMs) {
   return new Promise((resolve, reject) => {
     if (!origin) return reject(new GuardianNegotiationError("guardian_rejected", "guardian_origin_missing"));
-    const url = new URL("/negotiate", origin);
+    const url = new URL(path, origin);
     const body = JSON.stringify(payload);
     const headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), Accept: "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -79,9 +79,25 @@ async function negotiate(config) {
   const helloValidation = contractPackage.validate("hello", hello);
   if (!helloValidation.valid) throw new GuardianNegotiationError("invalid_contract", "hello_invalid", { field: helloValidation.errors[0]?.field || "hello" });
   let response;
-  try { response = await postJson(config.guardianOrigin, hello, config.proofMode ? config.proofToken : null, config.negotiationTimeoutMs); }
+  try { response = await postJson(config.guardianOrigin, "/negotiate", hello, config.proofMode ? config.proofToken : null, config.negotiationTimeoutMs); }
   catch (error) { if (error instanceof GuardianNegotiationError) throw error; throw new GuardianNegotiationError("guardian_rejected", "guardian_unreachable"); }
   return { hello, response: assertNegotiation(hello, response, config) };
 }
 
-module.exports = Object.freeze({ GuardianNegotiationError, buildHello, negotiate, assertNegotiation });
+function assertReceipt(receipt, attachment) {
+  const validation = contractPackage.validate("receipt", receipt);
+  if (!validation.valid) throw new GuardianNegotiationError("invalid_contract", "guardian_receipt_invalid", { field: validation.errors[0]?.field || "receipt" });
+  if (receipt.requestId !== attachment.requestId || receipt.attemptNumber !== attachment.attemptNumber || receipt.contextId !== attachment.envelope.contextId) throw new GuardianNegotiationError("invalid_contract", "guardian_receipt_correlation_mismatch");
+  return receipt;
+}
+
+async function attachEnvelope(config, attachment) {
+  const validation = contractPackage.validate("attachment", attachment);
+  if (!validation.valid) throw new GuardianNegotiationError("invalid_contract", "attachment_invalid", { field: validation.errors[0]?.field || "attachment" });
+  let response;
+  try { response = await postJson(config.guardianOrigin, "/attach", attachment, config.proofMode ? config.proofToken : null, config.negotiationTimeoutMs); }
+  catch (error) { if (error instanceof GuardianNegotiationError) throw error; throw new GuardianNegotiationError("guardian_rejected", "guardian_unreachable"); }
+  return assertReceipt(response, attachment);
+}
+
+module.exports = Object.freeze({ GuardianNegotiationError, buildHello, negotiate, assertNegotiation, assertReceipt, attachEnvelope });

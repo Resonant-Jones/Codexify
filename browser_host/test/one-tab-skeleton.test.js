@@ -77,8 +77,8 @@ test("compatible negotiation creates exactly one isolated remote view after the 
     assert.equal(state.remoteViewCreated, true);
     assert.equal(state.remoteLoadedAfterNegotiation, true);
     assert.equal(state.enabledFeatures.length, 0);
-    assert.equal(state.captureImplemented, false);
-    assert.equal(state.attachmentImplemented, false);
+    assert.equal(state.captureImplemented, true);
+    assert.equal(state.attachmentImplemented, true);
     assert.equal(state.persistenceImplemented, false);
     assert.equal(guardian.requests.length, 1);
     assert.ok(fixture.requests.length >= 1);
@@ -88,7 +88,7 @@ test("compatible negotiation creates exactly one isolated remote view after the 
       require: typeof globalThis.require,
       process: typeof globalThis.process
     }));
-    assert.deepEqual(bridge.keys, ["getState", "onStateChanged", "reloadRemote"]);
+    assert.deepEqual(bridge.keys, ["attachCapture", "cancelCapture", "captureSelectedText", "captureVisiblePage", "getState", "onStateChanged", "reloadRemote"]);
     assert.equal(bridge.require, "undefined");
     assert.equal(bridge.process, "undefined");
     assert.deepEqual(await trusted.evaluate(async () => Object.keys(await window.codexifyBrowserHost.getState())), Object.keys(state));

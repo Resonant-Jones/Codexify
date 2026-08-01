@@ -3,10 +3,11 @@
 const path = require("node:path");
 const { app, BrowserWindow, WebContentsView, ipcMain, session } = require("electron");
 const { loadConfig, unconfiguredConfig, PROOF_TOKEN_ENV } = require("./runtime/config");
-const { negotiate, GuardianNegotiationError } = require("./runtime/guardian-client");
+const { negotiate, GuardianNegotiationError, attachEnvelope } = require("./runtime/guardian-client");
 const { createRuntimeState } = require("./runtime/runtime-state");
 const { createTrustedShell } = require("./runtime/trusted-shell");
 const { createRemoteTab } = require("./runtime/remote-tab");
+const { createCaptureController } = require("./runtime/capture");
 
 const ROOT = __dirname;
 const PRELOAD_PATH = path.join(ROOT, "preload", "trusted-shell-preload.js");
@@ -40,9 +41,21 @@ function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcM
   function sendState(snapshot = stateSnapshot()) { if (trustedShell && !trustedShell.window.isDestroyed()) trustedShell.window.webContents.send("browser-host:state-changed", snapshot); }
   function update(patch) { const snapshot = runtimeState.update(patch); sendState(snapshot); return snapshot; }
 
+  const captureController = createCaptureController({
+    getRemoteTab: () => remoteTab,
+    config: () => config,
+    isFeatureEnabled: (feature) => runtimeState.snapshot().enabledFeatures.includes(feature),
+    update,
+    attachEnvelope
+  });
+
   function registerIpc() {
     ipc.handle("browser-host:get-state", (event) => { isTrustedSender(event, trustedShell.window.webContents.id); return stateSnapshot(); });
     ipc.handle("browser-host:reload-remote", async (event) => { isTrustedSender(event, trustedShell.window.webContents.id); if (remoteTab) await remoteTab.reload(); return stateSnapshot(); });
+    ipc.handle("browser-host:capture-selected-text", async (event) => { isTrustedSender(event, trustedShell.window.webContents.id); return captureController.capture("selected_text"); });
+    ipc.handle("browser-host:capture-visible-page", async (event) => { isTrustedSender(event, trustedShell.window.webContents.id); return captureController.capture("visible_page_text"); });
+    ipc.handle("browser-host:attach-capture", async (event, ticketId) => { isTrustedSender(event, trustedShell.window.webContents.id); return captureController.attach(ticketId); });
+    ipc.handle("browser-host:cancel-capture", (event, ticketId) => { isTrustedSender(event, trustedShell.window.webContents.id); return captureController.cancel(ticketId); });
   }
 
   async function startNegotiation() {
@@ -70,9 +83,11 @@ function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcM
     cleanupPromise = (async () => {
       shutdownStarted = true;
       update({ runtimeStatus: "shutting_down" });
+      captureController.dispose();
       if (remoteTab) { await remoteTab.destroy(); remoteTab = null; }
       stateUnsubscribe?.();
       stateUnsubscribe = null;
+      for (const channel of ["browser-host:get-state", "browser-host:reload-remote", "browser-host:capture-selected-text", "browser-host:capture-visible-page", "browser-host:attach-capture", "browser-host:cancel-capture"]) ipc.removeHandler?.(channel);
       if (trustedShell) trustedShell.destroy();
       trustedShell = null;
       if (config.proofToken) config = Object.freeze({ ...config, proofToken: null });

@@ -5,4 +5,5 @@ package-output/
 proof-output/
 test-output/
 electron-user-data/
+capture-proof-output/
 *.tgz

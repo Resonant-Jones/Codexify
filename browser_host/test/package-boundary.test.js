@@ -22,13 +22,13 @@ test("production package identity and local contract ownership are explicit", ()
   assert.deepEqual(Object.keys(packageManifest.dependencies), ["@codexify/browser-host-contracts"]);
 });
 
-test("the bounded topology is implemented while product features remain closed", () => {
+test("the bounded runtime and capture transport are implemented while release features remain closed", () => {
   for (const key of ["runtimeImplemented", "rendererImplemented", "navigationImplemented"]) {
     assert.equal(boundary[key], true, key);
   }
-  for (const key of ["captureImplemented", "attachmentTransportImplemented", "persistenceImplemented", "updaterImplemented", "releaseImplemented"]) {
-    assert.equal(boundary[key], false, key);
-  }
+  assert.equal(boundary.captureImplemented, true);
+  assert.equal(boundary.attachmentTransportImplemented, true);
+  for (const key of ["persistenceImplemented", "updaterImplemented", "releaseImplemented"]) assert.equal(boundary[key], false, key);
   assert.equal(boundary.releasePosture, "development/internal unsigned proof");
   assert.equal(Object.isFrozen(boundary), true);
 });
