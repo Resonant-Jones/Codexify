@@ -3,4 +3,6 @@ node_modules/
 coverage/
 package-output/
 proof-output/
+test-output/
+electron-user-data/
 *.tgz

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none';">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codexify Browser Host</title>
+    <link rel="stylesheet" href="./shell.css">
+  </head>
+  <body>
+    <header class="shell-header">
+      <div><p class="eyebrow">Development/internal unsigned proof</p><h1>Codexify Browser Host</h1></div>
+      <button id="reload" type="button">Reload remote</button>
+    </header>
+    <section class="shell-state" aria-live="polite">
+      <span id="status">Starting trusted shell…</span>
+      <span id="origin">No remote origin</span>
+      <span id="versions">Contract negotiation pending</span>
+    </section>
+    <main id="remote-region" aria-label="Untrusted remote fixture"></main>
+    <script src="./shell.js"></script>
+  </body>
+</html>

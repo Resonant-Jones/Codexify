@@ -4,7 +4,8 @@
 
 - Classification: normative architecture contract; architecture-impacting.
 - Governing decision: [ADR-054](./adr/054-browser-host-topology-and-release-ownership.md).
-- Implementation status: package and conformance scaffold only.
+- Implementation status: bounded production one-tab topology skeleton with
+  deterministic stub proof; live Guardian integration remains unproven.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -12,9 +13,9 @@
 
 ## Purpose
 
-This contract establishes the first production-owned Browser Host seam without
-implementing a browser runtime. It defines how a future trusted Browser Host
-and Guardian can advertise compatibility, negotiate bounded versions, produce a
+This contract establishes the first production-owned Browser Host seam and its
+bounded one-tab topology skeleton. It defines how the trusted Browser Host and
+Guardian can advertise compatibility, negotiate bounded versions, produce a
 Browser Context Envelope, request ephemeral attachment, and return a content-
 free receipt. It preserves the distinction between browser evidence, Guardian
 authority, capture, attachment, and durable persistence.
@@ -27,13 +28,17 @@ is `browser_host/contracts/`. The package is intentionally separate from
 
 This task creates JSON schemas, canonical Browser Host tokens, synthetic
 fixtures, a Node built-in consumer adapter, a production package-boundary
-module, and JavaScript/Python conformance tests.
+module, a one-trusted-shell/one-remote-view runtime, deterministic loopback
+Guardian and fixture support, live Playwright Electron tests, and
+JavaScript/Python conformance tests.
 
-There is no live Guardian route in this task. There is no runtime Browser Host
-in this task. There is no production credential. There is no durable
-browser-state contract. There is no release claim. Schemas and tests establish
-a seam, not a supported feature. Electron is the accepted family under
-ADR-054, but Electron is not installed by this task.
+There is no live production Guardian route or production credential in this
+task. The deterministic stub exercises hello and negotiation; compatible
+negotiation gates remote loading, and the trusted/remote renderer boundary is
+live-test proven for this skeleton. There is no durable browser-state contract,
+capture, attachment, runtime envelope construction, or release claim. The
+bounded proof is not a supported feature. Electron is the accepted family
+under ADR-054.
 
 Candidate source and proof packets remain evidence only. They are not imported
 by the production package and are not promoted into production code.
@@ -42,9 +47,9 @@ by the production package and are not promoted into production code.
 
 | Surface | Owner | Current boundary |
 |---|---|---|
-| `browser_host/` | Codexify Browser Host package owner | Private `@codexify/browser-host` scaffold, version `0.1.0`; no runtime behavior. |
+| `browser_host/` | Codexify Browser Host package owner | Private `@codexify/browser-host` package, version `0.1.0`; bounded one-tab topology skeleton. |
 | `browser_host/contracts/` | Shared Browser Host/Guardian contract owner | Private `@codexify/browser-host-contracts` package, version `0.1.0`; JSON source of truth. |
-| Trusted Browser Host main process | Future Browser Host owner | Will construct authority-bearing envelope metadata; not implemented here. |
+| Trusted Browser Host main process | Browser Host owner | Owns the bounded shell/view topology, negotiation, navigation policy, and redacted state; envelope construction is not implemented here. |
 | Guardian | Guardian owner | Remains authentication, policy, persistence, task, provider-execution, and durable-state authority. |
 | Remote renderer/page | Untrusted content boundary | Evidence only; never receives Guardian credentials or native authority. |
 | Tauri | Existing trusted shell owner | Remains shell and launcher under ADR-054; unchanged by this task. |
@@ -352,19 +357,23 @@ them.
 - Contract package: complete as v1 JSON source and Node adapter.
 - JavaScript conformance: complete for the shared fixtures.
 - Python conformance: complete for the shared fixtures.
-- Electron runtime: not installed and not implemented.
-- Guardian integration: not implemented.
+- Electron runtime: bounded one-tab skeleton implemented and live-test proven.
+- Deterministic Guardian negotiation: implemented for test-only loopback stub.
+- Live production Guardian integration: not implemented or proven.
 - Capture/attachment transport: not implemented.
 - Browser persistence: not implemented.
 - Supported release: not qualified.
 
 Gate C remains passed for architecture and ownership direction. Gate D remains
-closed. Current release truth remains `docs/architecture/00-current-state.md`.
+closed for supported product/release behavior; the bounded topology proof does
+not widen current release truth. Current release truth remains
+`docs/architecture/00-current-state.md`.
 
 ## Non-goals
 
-- No Electron runtime, BrowserWindow, renderer, navigation, or browser action.
-- No Playwright, React, Vite, network client, database client, or framework.
+- No capture, attachment, runtime envelope construction, persistence, or live
+  production Guardian route.
+- No React, Vite, database client, or general runtime framework.
 - No live Guardian route, authentication, credential, provider invocation, or
   database persistence.
 - No captured content transport, durable browser state, browser profile,
@@ -376,13 +385,14 @@ closed. Current release truth remains `docs/architecture/00-current-state.md`.
 ## ADR impact
 
 This contract is aligned with ADR-054 and implements only its first authorized
-package/contract prerequisite. It preserves ADR-051's current private Chrome
+bounded topology skeleton. It preserves ADR-051's current private Chrome
 side-panel boundary, ADR-021's web-agent boundary, ADR-039/040's access and
 network-topology constraints, ADR-003's identity distinctions, and ADR-004/005's
 control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Implement the production one-tab Browser Host trusted-shell and remote-renderer
-skeleton against the deterministic Guardian stub, using the versioned contract
-package and without live production Guardian credentials.
+Implement explicit selected-text and visible-page capture preview with separate
+ephemeral attachment against the deterministic Guardian stub, using the
+versioned Browser Context Envelope contracts and without live production
+Guardian credentials.
