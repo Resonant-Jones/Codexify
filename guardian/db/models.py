@@ -66,8 +66,8 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_APPROVAL_SOURCES,
     GUARDIAN_DELEGATION_APPROVAL_STATES,
     GUARDIAN_DELEGATION_CONTEXT_SOURCE_TYPES,
-    GUARDIAN_DELEGATION_INTENT_STATUSES,
     GUARDIAN_DELEGATION_INTERACTION_MODES,
+    GUARDIAN_DELEGATION_INTENT_STATUSES,
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
     AccountImportStatus,
     DelegationJobStatus,
@@ -206,7 +206,9 @@ TTS_LOCAL_BACKEND_ID_CHECK = (
 TTS_VOICE_MODE_VALUES_SQL = "','".join(TTS_VOICE_MODES)
 TTS_VOICE_MODE_CHECK = f"voice_mode IN ('{TTS_VOICE_MODE_VALUES_SQL}')"
 TTS_OUTPUT_FORMAT_VALUES_SQL = "','".join(TTS_OUTPUT_FORMATS)
-TTS_OUTPUT_FORMAT_CHECK = f"output_format IN ('{TTS_OUTPUT_FORMAT_VALUES_SQL}')"
+TTS_OUTPUT_FORMAT_CHECK = (
+    f"output_format IN ('{TTS_OUTPUT_FORMAT_VALUES_SQL}')"
+)
 GUARDIAN_DELEGATION_ACCEPTANCE_STATUS_VALUES_SQL = "','".join(
     sorted(ACCEPTANCE_STATUSES)
 )
@@ -225,13 +227,15 @@ GUARDIAN_DELEGATION_APPROVAL_MODE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_APPROVAL_MODES)
 )
 GUARDIAN_DELEGATION_APPROVAL_MODE_CHECK = (
-    "approval_mode IN " f"('{GUARDIAN_DELEGATION_APPROVAL_MODE_VALUES_SQL}')"
+    "approval_mode IN "
+    f"('{GUARDIAN_DELEGATION_APPROVAL_MODE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_APPROVAL_STATE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_APPROVAL_STATES)
 )
 GUARDIAN_DELEGATION_APPROVAL_STATE_CHECK = (
-    "approval_state IN " f"('{GUARDIAN_DELEGATION_APPROVAL_STATE_VALUES_SQL}')"
+    "approval_state IN "
+    f"('{GUARDIAN_DELEGATION_APPROVAL_STATE_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_APPROVAL_SOURCE_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_APPROVAL_SOURCES)
@@ -244,7 +248,8 @@ GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_INTENT_STATUSES)
 )
 GUARDIAN_DELEGATION_INTENT_STATUS_CHECK = (
-    "intent_status IN " f"('{GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL}')"
+    "intent_status IN "
+    f"('{GUARDIAN_DELEGATION_INTENT_STATUS_VALUES_SQL}')"
 )
 GUARDIAN_DELEGATION_VISIBILITY_STATUS_VALUES_SQL = "','".join(
     sorted(GUARDIAN_DELEGATION_VISIBILITY_STATUSES)
@@ -2172,9 +2177,7 @@ class OpenAIAccountImportJob(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     queued_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    started_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True)
-    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -3608,7 +3611,9 @@ class GuardianDelegationIntent(Base):
     )
     approval_state: Mapped[str] = mapped_column(String(32), nullable=False)
     approval_source: Mapped[str] = mapped_column(String(32), nullable=False)
-    acceptance_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    acceptance_status: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
     intent_status: Mapped[str] = mapped_column(String(32), nullable=False)
     # Phase 2A links by AgentRun external run_id because agent_runs uses an
     # internal numeric PK; a DB-level FK to run_id is deferred until the
@@ -3617,9 +3622,7 @@ class GuardianDelegationIntent(Base):
     visibility_status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="not_posted"
     )
-    result_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, index=True
-    )
+    result_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     result_delivered_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
     )
@@ -5016,7 +5019,9 @@ class WorkOrderResultReceipt(Base):
     observed_command_id: Mapped[str] = mapped_column(
         String(512), nullable=False
     )
-    observed_run_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    observed_run_status: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
     observed_result_summary: Mapped[str] = mapped_column(Text, nullable=False)
     observed_error_text: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
