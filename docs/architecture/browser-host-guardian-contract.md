@@ -26,19 +26,21 @@ is `browser_host/contracts/`. The package is intentionally separate from
 
 ## Scope and current implementation truth
 
-This task creates JSON schemas, canonical Browser Host tokens, synthetic
-fixtures, a Node built-in consumer adapter, a production package-boundary
-module, a one-trusted-shell/one-remote-view runtime, deterministic loopback
-Guardian and fixture support, live Playwright Electron tests, and
-JavaScript/Python conformance tests.
+The repository now contains JSON schemas, canonical Browser Host tokens,
+synthetic fixtures, a Node built-in consumer adapter, a production
+package-boundary module, a one-trusted-shell/one-remote-view runtime,
+deterministic loopback Guardian and fixture support, live Playwright Electron
+tests, JavaScript/Python conformance tests, and a pure Guardian-owned
+attachment-grant issuer/consumer seam.
 
-There is no live production Guardian route or production credential in this
-task. The deterministic stub exercises hello and negotiation; compatible
-negotiation gates remote loading, and the trusted/remote renderer boundary is
-live-test proven for this skeleton. There is no durable browser-state contract,
-capture, attachment, runtime envelope construction, or release claim. The
-bounded proof is not a supported feature. Electron is the accepted family
-under ADR-054.
+There is no live production Guardian route, production credential, or
+authenticated grant-issuance path. The deterministic stub exercises hello,
+negotiation, capture, and ephemeral attachment; compatible negotiation gates
+remote loading, and the trusted/remote renderer boundary is live-test proven
+for this skeleton. The pure grant proof uses a synthetic authorized context,
+process-local digest-only storage, and no network or persistence. The bounded
+proof is not a supported feature. Electron is the accepted family under
+ADR-054.
 
 Candidate source and proof packets remain evidence only. They are not imported
 by the production package and are not promoted into production code.
@@ -48,8 +50,8 @@ by the production package and are not promoted into production code.
 | Surface | Owner | Current boundary |
 |---|---|---|
 | `browser_host/` | Codexify Browser Host package owner | Private `@codexify/browser-host` package, version `0.1.0`; bounded one-tab topology skeleton. |
-| `browser_host/contracts/` | Shared Browser Host/Guardian contract owner | Private `@codexify/browser-host-contracts` package, version `0.1.0`; JSON source of truth. |
-| Trusted Browser Host main process | Browser Host owner | Owns the bounded shell/view topology, negotiation, navigation policy, and redacted state; envelope construction is not implemented here. |
+| `browser_host/contracts/` | Shared Browser Host/Guardian contract owner | Private `@codexify/browser-host-contracts` package, version `0.2.0`; JSON source of truth. |
+| Trusted Browser Host main process | Browser Host owner | Owns the bounded shell/view topology, negotiation, navigation policy, redacted state, and v1 envelope construction; it does not receive a reusable Guardian credential. |
 | Guardian | Guardian owner | Remains authentication, policy, persistence, task, provider-execution, and durable-state authority. |
 | Remote renderer/page | Untrusted content boundary | Evidence only; never receives Guardian credentials or native authority. |
 | Tauri | Existing trusted shell owner | Remains shell and launcher under ADR-054; unchanged by this task. |
@@ -60,7 +62,7 @@ by the production package and are not promoted into production code.
 The manifest at `browser_host/contracts/manifest.json` records the initial
 compatibility range:
 
-- Contract package: `@codexify/browser-host-contracts` `0.1.0`.
+- Contract package: `@codexify/browser-host-contracts` `0.2.0`.
 - Guardian/Browser Host protocol: current, minimum, and maximum `1.0.0`.
 - Browser Context Envelope: current and supported `1.0.0`.
 - Context attachment: current and supported `1.0.0`.
@@ -245,6 +247,27 @@ within the reviewed trusted-shell boundary. The remote renderer and page
 remain untrusted. Page content is evidence, not instruction, policy, identity,
 permission, command, or memory authority.
 
+## Guardian-issued attachment authorization grant
+
+The Browser Host must not receive `GUARDIAN_API_KEY`, a Guardian session cookie,
+or a reusable JWT. An already-authenticated Guardian surface will eventually
+request the grant, and Guardian will derive the subject and policy server-side
+from that trusted authentication boundary. The trusted Browser Host main
+process may receive one short-lived, scope-bound, single-use attachment grant;
+the remote renderer never receives the grant.
+
+The grant is sensitive authorization material and must be protected as such. It
+authorizes one ephemeral attachment attempt only. It does not authorize
+durable persistence, provider execution, Command Bus actions, authentication of
+page content, or representation of human identity. Consumption is atomic and a
+replay fails closed. The v1 attachment body and receipt meanings remain
+unchanged. This task implements no live Guardian route.
+
+Use the precise term `long-lived-credential-free Browser Host integration`.
+Do not use the prohibited overclaim `credentialless attachment`: the bounded
+grant is authorization material even though the Browser Host receives no
+long-lived reusable Guardian credential.
+
 ## Trusted main-process ownership
 
 The trusted main process owns capture correlation, source metadata,
@@ -305,13 +328,12 @@ mutation, identity fact, or release capability.
 ## Language-neutral conformance fixtures
 
 `fixtures/fixture-index.json` is the shared validity and expected-error index.
-The eight positive fixtures cover hello, negotiation, selected-text and
+The ten positive fixtures cover hello, negotiation, selected-text and
 truncated visible-page envelopes, an ephemeral attachment attempt, accepted
-and rejected receipts, and a bounded error. The nineteen negative fixtures
-cover unsupported versions, undeclared features, invalid negotiation, missing
-initiation, retention, budget, length, hash, capture mode, credential/cookie/
-storage/form/native fields, confirmation, receipt content echo, unknown error
-tokens, and unexpected properties.
+and rejected receipts, a bounded error, and the valid grant request/response.
+The forty negative fixtures cover the existing v1 failures plus grant
+retention, count, budget, TTL, version, confirmation, identity, credential,
+and additional-property failures.
 
 JavaScript uses Node's built-in test runner and the narrow adapter in
 `browser_host/contracts/index.js`. Python uses the repository's already
@@ -355,12 +377,19 @@ them.
 
 - Package boundary: complete as a private scaffold.
 - Contract package: complete as v1 JSON source and Node adapter.
+- Contract package: additive v0.2.0 grant request/response schemas, canonical
+  grant tokens, and shared fixtures are complete.
 - JavaScript conformance: complete for the shared fixtures.
 - Python conformance: complete for the shared fixtures.
+- Guardian pure grant seam: test-proven process-local digest-only issuance,
+  atomic one-use consumption, replay/expiry/scope/version/retention/budget
+  rejection, and concurrency behavior.
 - Electron runtime: bounded one-tab runtime plus capture preview implemented and live-test proven.
 - Deterministic Guardian negotiation: implemented for test-only loopback stub.
 - Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub.
 - Live production Guardian integration: not implemented or proven.
+- Live Guardian grant issuance, Browser Host transport, and production
+  authentication remain not implemented or proven.
 - Durable browser persistence: not implemented; attachment receipts are explicitly `not_persisted`.
 - Browser persistence: not implemented.
 - Supported release: not qualified.
@@ -393,7 +422,7 @@ control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Qualify a credential-free Guardian-owned integration contract for the v1
-ephemeral attachment path, preserving the trusted-main-process envelope owner,
-fail-closed ticket semantics, and `not_persisted` receipts before any live
-production route or durable persistence work.
+Implement a development-only Guardian attachment-grant HTTP adapter that
+derives authorization from existing Guardian authentication, issues and
+consumes the one-use grant, and remains disabled by default without durable
+persistence.

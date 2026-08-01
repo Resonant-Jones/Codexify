@@ -26,6 +26,22 @@ const schemas = Object.fromEntries(
 );
 const fixtureIndex = readJson(manifest.fixtureIndexPath);
 const MAX_CAPTURE_BYTES = manifest.commonCaptureSizeBudgetBytes;
+const GRANT_REQUEST_KEYS = [
+  "schemaVersion", "protocolVersion", "attachmentVersion", "requestId",
+  "browserHostInstanceId", "requestedRetention", "requestedAttachmentCount",
+  "requestedMaxContentBytes", "requestedTtlSeconds", "userConfirmationMode",
+  "generatedAt"
+];
+const GRANT_RESPONSE_KEYS = [
+  "schemaVersion", "grantId", "authorizationScheme", "grantBearer",
+  "protocolVersion", "attachmentVersion", "browserHostInstanceId", "requestId",
+  "retentionClass", "maxContentBytes", "remainingUses", "issuedAt", "expiresAt"
+];
+const GRANT_TOKEN_DOMAINS = Object.freeze({
+  authorizationSchemes: tokens.authorizationSchemes,
+  grantLifecycle: tokens.grantLifecycle,
+  grantErrorCodes: tokens.errorCodes.filter((token) => token.startsWith("attachment_grant_"))
+});
 
 const ENVELOPE_KEYS = [
   "schemaVersion", "contextId", "captureRequestId", "sourceKind", "sourceUrl",
@@ -100,6 +116,10 @@ function checkId(value, field, errors) {
 
 function checkVersion(value, field, errors, expected = "1.0.0") {
   if (value !== expected) addError(errors, "invalid_contract", field, `${field} must be ${expected}`);
+}
+
+function checkGrantVersion(value, field, errors) {
+  if (value !== "1.0.0") addError(errors, "attachment_grant_version_mismatch", field, `${field} is not supported by the grant contract`);
 }
 
 function checkTimestamp(value, field, errors) {
@@ -284,6 +304,49 @@ function validateAttachment(value) {
   return errors;
 }
 
+function validateAttachmentGrantRequest(value) {
+  const errors = [];
+  if (!checkObject(value, errors, "attachmentGrantRequest")) return errors;
+  checkExactKeys(value, GRANT_REQUEST_KEYS, errors);
+  checkRequired(value, GRANT_REQUEST_KEYS, errors);
+  checkVersion(value.schemaVersion, "schemaVersion", errors);
+  checkGrantVersion(value.protocolVersion, "protocolVersion", errors);
+  checkGrantVersion(value.attachmentVersion, "attachmentVersion", errors);
+  checkId(value.requestId, "requestId", errors);
+  checkId(value.browserHostInstanceId, "browserHostInstanceId", errors);
+  if (value.requestedRetention !== manifest.attachmentGrant.retentionClass) addError(errors, "attachment_grant_retention_denied", "requestedRetention", "attachment grants are ephemeral only");
+  if (value.requestedAttachmentCount !== manifest.attachmentGrant.allowedUses) addError(errors, "attachment_grant_invalid", "requestedAttachmentCount", "one attachment grant request permits exactly one attachment");
+  if (!Number.isInteger(value.requestedMaxContentBytes) || value.requestedMaxContentBytes < 1 || value.requestedMaxContentBytes > MAX_CAPTURE_BYTES) addError(errors, "attachment_grant_budget_exceeded", "requestedMaxContentBytes", "requested budget exceeds the common capture budget");
+  if (!Number.isInteger(value.requestedTtlSeconds) || value.requestedTtlSeconds < manifest.attachmentGrant.minimumTtlSeconds || value.requestedTtlSeconds > manifest.attachmentGrant.maximumTtlSeconds) addError(errors, "attachment_grant_invalid", "requestedTtlSeconds", "requested TTL is outside the bounded grant window");
+  if (value.userConfirmationMode !== "explicit_each_attachment") addError(errors, "attachment_grant_confirmation_required", "userConfirmationMode", "each attachment requires explicit confirmation");
+  checkTimestamp(value.generatedAt, "generatedAt", errors);
+  return errors;
+}
+
+function validateAttachmentGrant(value) {
+  const errors = [];
+  if (!checkObject(value, errors, "attachmentGrant")) return errors;
+  checkExactKeys(value, GRANT_RESPONSE_KEYS, errors);
+  checkRequired(value, GRANT_RESPONSE_KEYS, errors);
+  checkVersion(value.schemaVersion, "schemaVersion", errors);
+  checkGrantVersion(value.protocolVersion, "protocolVersion", errors);
+  checkGrantVersion(value.attachmentVersion, "attachmentVersion", errors);
+  checkId(value.grantId, "grantId", errors);
+  checkEnum(value.authorizationScheme, "authorizationScheme", tokens.authorizationSchemes, errors, "attachment_grant_invalid");
+  if (typeof value.grantBearer !== "string" || !/^[A-Za-z0-9._~-]{43,128}$/.test(value.grantBearer)) addError(errors, "attachment_grant_invalid", "grantBearer", "grant bearer must be opaque bounded material");
+  checkId(value.browserHostInstanceId, "browserHostInstanceId", errors);
+  checkId(value.requestId, "requestId", errors);
+  if (value.retentionClass !== manifest.attachmentGrant.retentionClass) addError(errors, "attachment_grant_retention_denied", "retentionClass", "attachment grants are ephemeral only");
+  if (!Number.isInteger(value.maxContentBytes) || value.maxContentBytes < 1 || value.maxContentBytes > MAX_CAPTURE_BYTES) addError(errors, "attachment_grant_budget_exceeded", "maxContentBytes", "grant budget exceeds the common capture budget");
+  if (value.remainingUses !== manifest.attachmentGrant.allowedUses) addError(errors, "attachment_grant_invalid", "remainingUses", "attachment grants are single-use");
+  checkTimestamp(value.issuedAt, "issuedAt", errors);
+  checkTimestamp(value.expiresAt, "expiresAt", errors);
+  const issued = Date.parse(value.issuedAt);
+  const expires = Date.parse(value.expiresAt);
+  if (!Number.isNaN(issued) && !Number.isNaN(expires) && expires <= issued) addError(errors, "attachment_grant_invalid", "expiresAt", "grant expiry must be later than issue time");
+  return errors;
+}
+
 function validateReceipt(value) {
   const errors = [];
   const required = ["schemaVersion", "protocolVersion", "requestId", "attemptNumber", "contextId", "attachmentOutcome", "persistenceOutcome", "errorCode", "receivedAt", "guardianCorrelationId"];
@@ -333,6 +396,8 @@ const validators = Object.freeze({
   negotiation: validateNegotiation,
   envelope: validateEnvelope,
   attachment: validateAttachment,
+  attachmentGrantRequest: validateAttachmentGrantRequest,
+  attachmentGrant: validateAttachmentGrant,
   receipt: validateReceipt,
   error: validateError
 });
@@ -353,8 +418,26 @@ const contractMetadata = deepFreeze({
   maxCaptureBytes: MAX_CAPTURE_BYTES,
   hashAlgorithm: manifest.hashAlgorithm,
   releasePosture: manifest.releasePosture,
-  failClosed: manifest.protocol.failClosed
+  failClosed: manifest.protocol.failClosed,
+  grant: {
+    authorizationScheme: manifest.attachmentGrant.supportedAuthorizationSchemes[0],
+    defaultTtlSeconds: manifest.attachmentGrant.defaultTtlSeconds,
+    minimumTtlSeconds: manifest.attachmentGrant.minimumTtlSeconds,
+    maximumTtlSeconds: manifest.attachmentGrant.maximumTtlSeconds,
+    allowedUses: manifest.attachmentGrant.allowedUses,
+    retentionClass: manifest.attachmentGrant.retentionClass,
+    authorizationMaterial: manifest.attachmentGrant.authorizationMaterial,
+    reusableGuardianCredential: manifest.attachmentGrant.reusableGuardianCredential
+  }
 });
+
+function validateToken(domain, value) {
+  const allowed = GRANT_TOKEN_DOMAINS[domain];
+  if (!allowed) return { valid: false, errors: [{ code: "invalid_contract", field: "domain", message: `unknown token domain: ${domain}` }] };
+  return allowed.includes(value)
+    ? { valid: true, errors: [] }
+    : { valid: false, errors: [{ code: "invalid_contract", field: "value", message: `value is not canonical for ${domain}` }] };
+}
 
 module.exports = deepFreeze({
   manifest,
@@ -365,5 +448,7 @@ module.exports = deepFreeze({
   maxCaptureBytes: MAX_CAPTURE_BYTES,
   loadJson: readJson,
   validate,
+  validateToken,
+  grantTokenDomains: GRANT_TOKEN_DOMAINS,
   validators
 });

@@ -187,7 +187,7 @@ responsible for producing the complete, reviewable inventory proof.
 - The production package boundary is `browser_host/`; the language-neutral
   contract package is `browser_host/contracts/`.
 - Contract package versions are `@codexify/browser-host` `0.1.0`,
-  `@codexify/browser-host-contracts` `0.1.0`, protocol `1.0.0`, Browser Context
+  `@codexify/browser-host-contracts` `0.2.0`, protocol `1.0.0`, Browser Context
   Envelope `1.0.0`, and attachment `1.0.0`.
 - JavaScript and Python consume the same manifest, schemas, canonical tokens,
   and synthetic fixture index; Electron exists only under the private
@@ -606,7 +606,7 @@ The Campaign exits only when:
 - Production source root: `browser_host/`.
 - Versioned contract package: `browser_host/contracts/`.
 - Package status: private `0.1.0` scaffold; contract package status: private
-  `0.1.0` source-of-truth package.
+  `0.2.0` source-of-truth package.
 - Protocol, envelope, and attachment versions: `1.0.0`.
 - JavaScript conformance: passed; Python conformance: passed.
 - Electron `43.2.0` and Playwright `1.62.1` are exact-pinned development
@@ -630,7 +630,7 @@ The Campaign exits only when:
   token, validates the response, and creates/loads the remote view only after
   compatible negotiation. Incompatible, malformed, and unreachable cases
   leave the trusted shell alive with no remote request.
-- Contract versions: package `0.1.0`, contract package `0.1.0`, protocol,
+- Contract versions: package `0.1.0`, contract package `0.2.0`, protocol,
   envelope, and attachment `1.0.0`.
 - Proof packet:
   `docs/architecture/proofs/browser-host/2026-07-31-production-one-tab-skeleton/`.
@@ -690,9 +690,43 @@ Guardian credentials.
 
 ### Next atomic task
 
-Qualify a credential-free Guardian-owned integration contract for the v1
+Qualify a Guardian-issued one-use attachment grant contract for the v1
 ephemeral attachment path before any live production route or durable
 persistence work.
+
+## Guardian-issued one-use attachment grant contract — 2026-08-01
+
+- Prerequisite capture commit: `fc7574246eb05259652daeffc65c22bc0d53d896`.
+- Contract package: `@codexify/browser-host-contracts` `0.2.0`; Browser Host
+  package remains `0.1.0`; protocol, envelope, and attachment remain `1.0.0`.
+- Grant schemas:
+  `browser_host/contracts/schemas/browser-host-attachment-grant-request.v1.schema.json`
+  and
+  `browser_host/contracts/schemas/browser-host-attachment-grant.v1.schema.json`.
+- Pure Guardian modules:
+  `guardian/browser_host/contract_loader.py` and
+  `guardian/browser_host/attachment_grants.py`.
+- Authorization scheme: `browser_host_attachment_grant`.
+- TTL: bounded to 30–300 seconds, default 120 seconds; exactly one use;
+  `ephemeral` retention only.
+- Storage: process-local, digest-only SHA-256 bearer storage; no database,
+  Redis, file persistence, or reusable Guardian credential.
+- Concurrency: two same-bearer consumers yield exactly one authorized
+  decision and one replay denial.
+- Pure seam and sanitized proof are test-proven; Guardian routing,
+  authenticated issuance, Browser Host transport, and live integration remain
+  unproven.
+- No route, network, API key, session cookie, JWT, production credential,
+  current-state release change, or supported-release change was added.
+- Gate C remains passed for architecture and ownership direction. Gate D
+  remains closed for supported integration and release behavior.
+
+### Next atomic task
+
+Implement a development-only Guardian attachment-grant HTTP adapter that
+derives authorization from existing Guardian authentication, issues and
+consumes the one-use grant, and remains disabled by default without durable
+persistence.
 
 ## ADR impact
 

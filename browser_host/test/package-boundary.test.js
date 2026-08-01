@@ -15,7 +15,7 @@ test("production package identity and local contract ownership are explicit", ()
   assert.equal(boundary.packageName, "@codexify/browser-host");
   assert.equal(boundary.componentVersion, "0.1.0");
   assert.equal(boundary.contractPackageName, "@codexify/browser-host-contracts");
-  assert.equal(boundary.contractPackageVersion, "0.1.0");
+  assert.equal(boundary.contractPackageVersion, "0.2.0");
   assert.equal(packageManifest.private, true);
   assert.equal(contractPackage.private, true);
   assert.equal(packageManifest.dependencies["@codexify/browser-host-contracts"], "file:./contracts");

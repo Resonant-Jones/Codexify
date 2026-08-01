@@ -12,11 +12,17 @@ const readFixture = (entry) => contracts.loadJson(path.join("fixtures", entry.pa
 
 test("contract metadata, manifest paths, and exports are immutable", () => {
   assert.equal(contracts.contractMetadata.packageName, "@codexify/browser-host-contracts");
+  assert.equal(contracts.contractMetadata.packageVersion, "0.2.0");
   assert.equal(contracts.contractMetadata.protocolVersion, "1.0.0");
   assert.equal(contracts.contractMetadata.envelopeVersion, "1.0.0");
   assert.equal(contracts.contractMetadata.attachmentVersion, "1.0.0");
   assert.equal(contracts.maxCaptureBytes, 65536);
   assert.equal(contracts.contractMetadata.failClosed, true);
+  assert.equal(contracts.contractMetadata.grant.authorizationScheme, "browser_host_attachment_grant");
+  assert.equal(contracts.contractMetadata.grant.allowedUses, 1);
+  assert.equal(contracts.contractMetadata.grant.retentionClass, "ephemeral");
+  assert.equal(contracts.contractMetadata.grant.authorizationMaterial, true);
+  assert.equal(contracts.contractMetadata.grant.reusableGuardianCredential, false);
   for (const value of [contracts.manifest, contracts.tokens, contracts.schemas, contracts.fixtureIndex, contracts.contractMetadata]) {
     assert.equal(Object.isFrozen(value), true);
   }
@@ -33,13 +39,28 @@ test("contract metadata, manifest paths, and exports are immutable", () => {
 
 test("the shared fixture index is the sole validity and expected-error registry", () => {
   const entries = contracts.fixtureIndex.fixtures;
-  assert.equal(entries.length, 27);
-  assert.equal(entries.filter((entry) => entry.valid).length, 8);
-  assert.equal(entries.filter((entry) => !entry.valid).length, 19);
+  assert.equal(entries.length, 50);
+  assert.equal(entries.filter((entry) => entry.valid).length, 10);
+  assert.equal(entries.filter((entry) => !entry.valid).length, 40);
   assert.equal(new Set(entries.map((entry) => entry.id)).size, entries.length);
   for (const entry of entries) {
     assert.equal(typeof entry.expectedError, entry.valid ? "undefined" : "string", entry.id);
   }
+});
+
+test("grant schemas and token domains are additive, bounded, and canonical", () => {
+  const request = readFixture({path: "valid/attachment-grant-request-ephemeral.json"});
+  const response = readFixture({path: "valid/attachment-grant-response-one-use.json"});
+  assert.equal(contracts.validate("attachmentGrantRequest", request).valid, true);
+  assert.equal(contracts.validate("attachmentGrant", response).valid, true);
+  assert.deepEqual(contracts.grantTokenDomains.authorizationSchemes, ["browser_host_attachment_grant"]);
+  assert.deepEqual(contracts.grantTokenDomains.grantLifecycle, ["grant_issued", "grant_consumed", "grant_rejected", "grant_expired", "grant_replayed"]);
+  for (const token of ["attachment_grant_required", "attachment_grant_invalid", "attachment_grant_expired", "attachment_grant_consumed", "attachment_grant_scope_mismatch", "attachment_grant_version_mismatch", "attachment_grant_retention_denied", "attachment_grant_budget_exceeded", "attachment_grant_confirmation_required"]) {
+    assert.equal(contracts.validateToken("grantErrorCodes", token).valid, true, token);
+  }
+  assert.equal(Object.hasOwn(request, "subjectId"), false);
+  assert.equal(Object.hasOwn(response, "subjectId"), false);
+  assert.equal(Object.hasOwn(response, "apiKey"), false);
 });
 
 test("all positive fixtures satisfy the bounded contract", () => {

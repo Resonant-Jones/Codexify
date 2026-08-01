@@ -123,6 +123,74 @@ def _semantic_error_codes(kind: str, payload: dict) -> set[str]:
         if not isinstance(confirmation, dict) or confirmation.get("confirmed") is not True:
             codes.add("user_confirmation_required")
 
+    if kind == "attachmentGrantRequest":
+        forbidden = {
+            "apiKey": "credential_field_forbidden",
+            "cookie": "cookie_field_forbidden",
+            "cookies": "cookie_field_forbidden",
+            "jwt": "credential_field_forbidden",
+            "password": "form_value_field_forbidden",
+        }
+        for field, code in forbidden.items():
+            if field in payload:
+                codes.add(code)
+        allowed = {
+            "schemaVersion", "protocolVersion", "attachmentVersion", "requestId",
+            "browserHostInstanceId", "requestedRetention", "requestedAttachmentCount",
+            "requestedMaxContentBytes", "requestedTtlSeconds", "userConfirmationMode",
+            "generatedAt",
+        }
+        if any(key not in allowed for key in payload):
+            codes.add("unexpected_property")
+        if payload.get("protocolVersion") != "1.0.0" or payload.get("attachmentVersion") != "1.0.0":
+            codes.add("attachment_grant_version_mismatch")
+        if payload.get("requestedRetention") != "ephemeral":
+            codes.add("attachment_grant_retention_denied")
+        if payload.get("requestedAttachmentCount") != 1:
+            codes.add("attachment_grant_invalid")
+        if not isinstance(payload.get("requestedMaxContentBytes"), int) or not 1 <= payload.get("requestedMaxContentBytes", 0) <= MANIFEST["commonCaptureSizeBudgetBytes"]:
+            codes.add("attachment_grant_budget_exceeded")
+        if not isinstance(payload.get("requestedTtlSeconds"), int) or not 30 <= payload.get("requestedTtlSeconds", 0) <= 300:
+            codes.add("attachment_grant_invalid")
+        if payload.get("userConfirmationMode") != "explicit_each_attachment":
+            codes.add("attachment_grant_confirmation_required")
+
+    if kind == "attachmentGrant":
+        forbidden = {
+            "apiKey": "credential_field_forbidden",
+            "cookie": "cookie_field_forbidden",
+            "cookies": "cookie_field_forbidden",
+            "jwt": "credential_field_forbidden",
+            "password": "form_value_field_forbidden",
+        }
+        for field, code in forbidden.items():
+            if field in payload:
+                codes.add(code)
+        allowed = {
+            "schemaVersion", "grantId", "authorizationScheme", "grantBearer",
+            "protocolVersion", "attachmentVersion", "browserHostInstanceId", "requestId",
+            "retentionClass", "maxContentBytes", "remainingUses", "issuedAt", "expiresAt",
+        }
+        if any(key not in allowed for key in payload):
+            codes.add("unexpected_property")
+        if payload.get("protocolVersion") != "1.0.0" or payload.get("attachmentVersion") != "1.0.0":
+            codes.add("attachment_grant_version_mismatch")
+        if payload.get("authorizationScheme") not in TOKENS.get("authorizationSchemes", []):
+            codes.add("attachment_grant_invalid")
+        if payload.get("retentionClass") != "ephemeral":
+            codes.add("attachment_grant_retention_denied")
+        if not isinstance(payload.get("maxContentBytes"), int) or not 1 <= payload.get("maxContentBytes", 0) <= MANIFEST["commonCaptureSizeBudgetBytes"]:
+            codes.add("attachment_grant_budget_exceeded")
+        if payload.get("remainingUses") != 1:
+            codes.add("attachment_grant_invalid")
+        issued = payload.get("issuedAt")
+        expires = payload.get("expiresAt")
+        try:
+            if issued and expires and expires <= issued:
+                codes.add("attachment_grant_invalid")
+        except TypeError:
+            pass
+
     if kind == "receipt":
         if "content" in payload:
             codes.add("attachment_content_echo_forbidden")
@@ -154,7 +222,7 @@ def test_every_contract_json_file_parses_and_manifest_paths_exist() -> None:
 
 def test_manifest_versions_and_fixture_index_are_consistent() -> None:
     assert MANIFEST["contractPackageName"] == "@codexify/browser-host-contracts"
-    assert MANIFEST["contractPackageVersion"] == "0.1.0"
+    assert MANIFEST["contractPackageVersion"] == "0.2.0"
     assert MANIFEST["protocol"] == {
         "currentVersion": "1.0.0",
         "minimumCompatibleVersion": "1.0.0",
@@ -169,7 +237,19 @@ def test_manifest_versions_and_fixture_index_are_consistent() -> None:
     indexed_invalid = {entry["path"] for entry in FIXTURE_INDEX["fixtures"] if not entry["valid"]}
     assert {f"fixtures/{path}" for path in indexed_valid} == set(MANIFEST["positiveFixturePaths"])
     assert {f"fixtures/{path}" for path in indexed_invalid} == set(MANIFEST["negativeFixturePaths"])
-    assert len(FIXTURE_INDEX["fixtures"]) == 27
+    assert MANIFEST["attachmentGrant"] == {
+        "requestSchema": "schemas/browser-host-attachment-grant-request.v1.schema.json",
+        "responseSchema": "schemas/browser-host-attachment-grant.v1.schema.json",
+        "supportedAuthorizationSchemes": ["browser_host_attachment_grant"],
+        "defaultTtlSeconds": 120,
+        "minimumTtlSeconds": 30,
+        "maximumTtlSeconds": 300,
+        "allowedUses": 1,
+        "retentionClass": "ephemeral",
+        "authorizationMaterial": True,
+        "reusableGuardianCredential": False,
+    }
+    assert len(FIXTURE_INDEX["fixtures"]) == 50
 
 
 def test_token_domains_are_bounded_and_non_duplicate() -> None:
@@ -179,6 +259,25 @@ def test_token_domains_are_bounded_and_non_duplicate() -> None:
     assert set(TOKENS["captureModes"]) == {"selected_text", "visible_page_text"}
     assert TOKENS["retentionClasses"] == ["ephemeral"]
     assert TOKENS["persistenceOutcomes"] == ["not_persisted"]
+    assert TOKENS["authorizationSchemes"] == ["browser_host_attachment_grant"]
+    assert TOKENS["grantLifecycle"] == ["grant_issued", "grant_consumed", "grant_rejected", "grant_expired", "grant_replayed"]
+    assert {
+        "attachment_grant_required", "attachment_grant_invalid", "attachment_grant_expired",
+        "attachment_grant_consumed", "attachment_grant_scope_mismatch", "attachment_grant_version_mismatch",
+        "attachment_grant_retention_denied", "attachment_grant_budget_exceeded", "attachment_grant_confirmation_required",
+    }.issubset(TOKENS["errorCodes"])
+
+
+def test_grant_schemas_exclude_identity_and_reusable_credential_fields() -> None:
+    for kind in ("attachmentGrantRequest", "attachmentGrant"):
+        schema = _load(MANIFEST["schemaPaths"][kind])
+        properties = set(schema["properties"])
+        assert not properties.intersection({
+            "userId", "accountId", "email", "role", "subjectId", "apiKey",
+            "cookie", "cookies", "jwt", "password", "envelope", "attachment",
+            "pageUrl", "pageTitle", "localStorage", "sessionStorage", "nativeCommand",
+        })
+        assert schema["additionalProperties"] is False
 
 
 @pytest.mark.parametrize("entry", FIXTURE_INDEX["fixtures"], ids=lambda item: item["id"])
