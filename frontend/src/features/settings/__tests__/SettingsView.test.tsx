@@ -187,6 +187,40 @@ describe("SettingsView", () => {
     ).toBeInTheDocument();
   });
 
+  test("keeps navigation state edge-only while preserving tab interaction behavior", async () => {
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const dock = screen.getByRole("tablist", { name: "Settings tabs" });
+    const appearance = screen.getByRole("tab", { name: "Appearance" });
+    const imprint = screen.getByRole("tab", { name: "Imprint" });
+
+    expect(screen.getByTestId("settings-panel-shell")).toContainElement(dock);
+    expect(appearance).toHaveAttribute("data-state", "active");
+    expect(imprint).toHaveAttribute("data-state", "inactive");
+    expect(appearance.style.background).toBe("");
+    expect(appearance.className).not.toContain("bg-[var(--accent)]");
+
+    await user.click(imprint);
+    expect(imprint).toHaveAttribute("data-state", "active");
+    expect(appearance).toHaveAttribute("data-state", "inactive");
+    expect(screen.getByText("Imprint Workspace")).toBeInTheDocument();
+
+    await user.keyboard("{Home}");
+    expect(appearance).toHaveAttribute("data-state", "active");
+    expect(screen.getByTestId("settings-appearance-surface")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowRight}");
+    expect(imprint).toHaveAttribute("data-state", "active");
+
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Personal Facts" })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+  });
+
   test("keeps the import surface scoped to the Data tab and isolates the scroll body", async () => {
     const user = userEvent.setup();
     const props = createSettingsViewProps();

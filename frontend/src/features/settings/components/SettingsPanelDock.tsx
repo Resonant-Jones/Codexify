@@ -23,17 +23,26 @@ export default function SettingsPanelDock({
         "sticky z-30 flex w-full shrink-0 items-center justify-center",
         className
       )}
-      style={{
-        position: "sticky",
-        top: SETTINGS_DENSITY.edgeChrome,
-        paddingInline: SETTINGS_DENSITY.edgeChrome,
-      }}
+      style={
+        {
+          "--settings-nav-surface":
+            "color-mix(in srgb, var(--panel-bg) 94%, var(--text) 6%)",
+          "--pill-active-bg": "transparent",
+          "--pill-active-text": "var(--text)",
+          "--pill-active-border": "var(--accent)",
+          "--pill-active-shadow":
+            "0 0 calc(var(--radius-micro) * 0.75) color-mix(in srgb, var(--accent-weak) 72%, transparent)",
+          position: "sticky",
+          top: SETTINGS_DENSITY.edgeChrome,
+          paddingInline: SETTINGS_DENSITY.edgeChrome,
+        } as CSSProperties
+      }
     >
       <div
         className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
-            "--pill-active-text": "var(--text-on-accent)",
+            background: "var(--settings-nav-surface)",
             "--pill-gap": SETTINGS_DENSITY.dockGap,
             "--pill-font": SETTINGS_DENSITY.dockFontSize,
             "--settings-dock-gap": SETTINGS_DENSITY.dockGap,
