@@ -27,6 +27,7 @@ Source anchors:
 | `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
+| `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
 | `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
@@ -85,6 +86,23 @@ profile route-posture change requires restarting the tester `backend` service.
 It does not require a frontend restart. OpenAPI visibility proves router
 registration only; it does not qualify live Hosted Room invocation, worker
 execution, Guardian provenance, or release support.
+
+### Development-only Browser Host attachment adapter
+
+The optional Guardian adapter is mounted at `/dev/browser-host/v1` only when
+`GUARDIAN_DEV_MODE=true`,
+`GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED=true`, and
+`GUARDIAN_EXPOSURE_MODE=local_safe`. The default route table remains unchanged
+when any gate is false, and supported profiles quarantine the adapter.
+
+The grant-issuance path is authenticated through the existing Guardian
+dependency. The attachment path accepts only the short-lived one-use
+`BrowserHostAttachmentGrant` capability and the explicit browser-host instance
+header; it does not receive a reusable API key, session cookie, or JWT. The
+application owns one process-local store, clears it at shutdown, and loses all
+outstanding grants on restart or worker replacement. No database, Redis, queue,
+worker, provider, command-bus, or durable storage path is used. This is a
+development proof seam, not a supported beta or production Browser Host path.
 
 ## Provider Governance and Beta Operator Workflow
 

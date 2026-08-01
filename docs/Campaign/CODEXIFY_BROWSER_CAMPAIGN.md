@@ -721,12 +721,43 @@ persistence work.
 - Gate C remains passed for architecture and ownership direction. Gate D
   remains closed for supported integration and release behavior.
 
+## Development-only Guardian attachment-grant HTTP adapter — 2026-08-01
+
+- Prerequisite: `87fe3257c0d0c12ad00a749b631bfeb866ddaaaf`.
+- Feature flag: `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED`, default
+  `false`; mounting also requires `GUARDIAN_DEV_MODE=true` and
+  `GUARDIAN_EXPOSURE_MODE=local_safe`.
+- Route prefix: `/dev/browser-host/v1`; exact paths are
+  `POST /attachment-grants` and `POST /attachments`. The default route table,
+  supported profiles, and non-local exposure remain unchanged.
+- Store: one application-scoped process-local `AttachmentGrantStore`,
+  digest-only and ephemeral; shutdown clears it and restart invalidates all
+  outstanding grants.
+- Issuance: existing Guardian authentication/current-user dependency derives
+  the internal subject; the subject, API key, session cookie, and JWT are never
+  serialized to the grant response or sent to the Browser Host.
+- Attachment: the one-use `BrowserHostAttachmentGrant` and explicit instance
+  header are the complete authorization capability. Accepted requests return
+  `202` with an existing content-free receipt and `not_persisted`.
+- Rejection: replay and expiration return `409`; scope, version, retention,
+  confirmation, and budget mismatches return valid `403` receipts; malformed
+  bodies are rejected before the grant can be consumed. Concurrent attempts
+  produce exactly one success and one replay rejection.
+- Non-use: no database, Redis, filesystem persistence, provider, worker,
+  queue, command bus, storage writer, or production Browser Host runtime is
+  connected. Raw bearer, bearer digest, subject, and page content are absent
+  from logs, receipts, proof, and retained app state.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-guardian-attachment-http-adapter/`.
+- Gate C remains passed for architecture and ownership direction. Gate D
+  remains closed for supported integration and release qualification.
+- This is a development integration seam, not a supported release path.
+
 ### Next atomic task
 
-Implement a development-only Guardian attachment-grant HTTP adapter that
-derives authorization from existing Guardian authentication, issues and
-consumes the one-use grant, and remains disabled by default without durable
-persistence.
+Wire the production Browser Host main process to the development-only Guardian
+attachment-grant adapter behind explicit local operator configuration, using the
+one-use grant and no reusable Guardian credential.
 
 ## ADR impact
 

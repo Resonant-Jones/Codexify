@@ -1,8 +1,8 @@
 """Pure Guardian-owned Browser Host contract seams.
 
-This package intentionally exposes no route, transport, persistence, or
-authentication adapter.  It only loads the shared contract and manages
-process-local, one-use attachment grants for deterministic qualification.
+The contract and grant classes remain pure and process-local.  The separate
+development-only HTTP adapter lives in ``guardian.browser_host.http_adapter``
+and is mounted only by the explicitly gated Guardian route module.
 """
 
 from .attachment_grants import (

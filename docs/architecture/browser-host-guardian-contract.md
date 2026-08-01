@@ -34,7 +34,9 @@ tests, JavaScript/Python conformance tests, and a pure Guardian-owned
 attachment-grant issuer/consumer seam.
 
 There is no live production Guardian route, production credential, or
-authenticated grant-issuance path. The deterministic stub exercises hello,
+supported authenticated grant-issuance path. A development-only Guardian
+adapter is now available only behind explicit development, adapter, and
+local-safe exposure gates. The deterministic stub exercises hello,
 negotiation, capture, and ephemeral attachment; compatible negotiation gates
 remote loading, and the trusted/remote renderer boundary is live-test proven
 for this skeleton. The pure grant proof uses a synthetic authorized context,
@@ -261,7 +263,8 @@ authorizes one ephemeral attachment attempt only. It does not authorize
 durable persistence, provider execution, Command Bus actions, authentication of
 page content, or representation of human identity. Consumption is atomic and a
 replay fails closed. The v1 attachment body and receipt meanings remain
-unchanged. This task implements no live Guardian route.
+unchanged. The development adapter does not connect the production Browser
+Host runtime or create a supported Guardian route.
 
 Use the precise term `long-lived-credential-free Browser Host integration`.
 Do not use the prohibited overclaim `credentialless attachment`: the bounded
@@ -387,9 +390,12 @@ them.
 - Electron runtime: bounded one-tab runtime plus capture preview implemented and live-test proven.
 - Deterministic Guardian negotiation: implemented for test-only loopback stub.
 - Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub.
-- Live production Guardian integration: not implemented or proven.
-- Live Guardian grant issuance, Browser Host transport, and production
-  authentication remain not implemented or proven.
+- Development-only Guardian HTTP adapter: test-proven behind
+  `GUARDIAN_DEV_MODE=true`, `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED=true`,
+  and `GUARDIAN_EXPOSURE_MODE=local_safe`; it is absent from the default route
+  surface and owns one process-local application store.
+- Live production Guardian integration, supported grant issuance, Browser Host
+  transport, and production authentication remain not implemented or proven.
 - Durable browser persistence: not implemented; attachment receipts are explicitly `not_persisted`.
 - Browser persistence: not implemented.
 - Supported release: not qualified.
@@ -398,6 +404,34 @@ Gate C remains passed for architecture and ownership direction. Gate D remains
 closed for supported product/release behavior; the bounded topology proof does
 not widen current release truth. Current release truth remains
 `docs/architecture/00-current-state.md`.
+
+## Development-only Guardian HTTP adapter — 2026-08-01
+
+The Guardian adapter is mounted at `/dev/browser-host/v1` only when all three
+conditions hold: the existing `GUARDIAN_DEV_MODE` is true, the explicit
+`GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` setting is true, and exposure
+resolves to `local_safe`. It is not mounted by default, in a supported profile,
+or under non-local exposure.
+
+`POST /attachment-grants` uses the existing Guardian current-user/authentication
+dependency and returns the existing one-use grant response with `201` and
+`Cache-Control: no-store`. The subject remains internal. `POST /attachments`
+uses only the exact `BrowserHostAttachmentGrant` authorization scheme plus the
+browser-host instance header; it does not accept or forward an API key, session
+cookie, or JWT. Accepted requests return the existing content-free receipt with
+`202` and `persistenceOutcome: not_persisted`.
+
+The store is application-scoped, process-local, digest-only, and restart
+volatile. Shutdown clears the app-owned records. Replay and expiry return
+`409`; scope, version, retention, confirmation, and budget rejection return
+bounded `403` receipts; malformed bodies are rejected before grant consumption.
+The adapter does not call databases, Redis, queues, workers, providers,
+command-bus routes, or storage writers. Raw attachment content, bearer
+material, and internal subjects are excluded from logs, receipts, proof, and
+retained state. This remains a development seam, not production Browser Host
+integration or a supported release path.
+
+Proof: [Guardian attachment HTTP adapter proof](./proofs/browser-host/2026-08-01-guardian-attachment-http-adapter/).
 
 ## Non-goals
 
@@ -422,7 +456,6 @@ control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Implement a development-only Guardian attachment-grant HTTP adapter that
-derives authorization from existing Guardian authentication, issues and
-consumes the one-use grant, and remains disabled by default without durable
-persistence.
+Wire the production Browser Host main process to the development-only Guardian
+attachment-grant adapter behind explicit local operator configuration, using the
+one-use grant and no reusable Guardian credential.
