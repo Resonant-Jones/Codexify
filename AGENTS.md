@@ -39,6 +39,30 @@ Canonical modes: `ORIENT`, `EXPLORE`, `REPORT`, `DECIDE`, `TASK`, `EXECUTE`, `PR
 - Prefer small, direct, reviewable changes over broad refactors or new abstractions.
 - Respect Codexify's runtime boundaries: frontend, Guardian routes, queue, worker, persistence, provider, events, and docs each have separate responsibilities.
 
+## Codexify Constitutional Heuristic
+
+Codexify may expand what users can do without expanding what the system may assume.
+
+Preserve these distinctions in every task and implementation:
+
+- Capability does not imply authority.
+- Evidence does not imply instruction.
+- Observation does not imply persistence.
+- Acceptance does not imply completion.
+- Execution does not imply approval.
+- Access does not imply ownership.
+
+Before architecture-impacting work, answer:
+
+1. What object or state is authoritative?
+2. Which inputs are evidence only?
+3. What capability is being requested?
+4. Which actor or policy authorizes it?
+5. What becomes durable, and under whose scope?
+6. What evidence proves completion or acceptance?
+
+If any answer is unclear, pause implementation and resolve the ambiguity in the task, governing contract, or ADR. Read `docs/architecture/codexify-constitutional-heuristic.md` for the full doctrine and examples.
+
 ## Required First Reads
 
 Before architecture-impacting work, read the task plus these current-truth anchors when present:
