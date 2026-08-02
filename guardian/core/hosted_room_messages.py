@@ -266,34 +266,33 @@ def create_human_room_message(
 ) -> ChatMessage:
     """Persist one canonical human room message via raw INSERT.
 
-    Uses raw table insert with explicit ID to avoid SQLite autoincrement
-    issues with BigInteger PK columns.
+    PostgreSQL owns message IDs through the table sequence. SQLite needs an
+    explicit fallback because this model uses a BigInteger primary key, which
+    SQLite does not treat as an implicit autoincrement column.
     """
-    now = datetime.now(timezone.utc)
+    values = {
+        "thread_id": thread_id,
+        "user_id": user_id,
+        "role": "user",
+        "content": content,
+        "kind": "chat",
+        "hosted_room_participant_id": participant.id,
+        "sender_display_name_snapshot": participant.display_name,
+        "extra_meta": "{}",
+    }
+    if session.get_bind().dialect.name == "sqlite":
+        last = session.execute(
+            select(ChatMessage.id).order_by(ChatMessage.id.desc()).limit(1)
+        ).scalar()
+        values["id"] = (last or 0) + 1
 
-    # Resolve next ID manually
-    last = session.execute(
-        select(ChatMessage.id).order_by(ChatMessage.id.desc()).limit(1)
-    ).scalar()
-    next_id = (last or 0) + 1
-
-    session.execute(
-        ChatMessage.__table__.insert().values(
-            id=next_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            role="user",
-            content=content,
-            kind="chat",
-            hosted_room_participant_id=participant.id,
-            sender_display_name_snapshot=participant.display_name,
-            extra_meta="{}",
-        )
-    )
+    message_id = session.execute(
+        ChatMessage.__table__.insert().values(**values).returning(ChatMessage.id)
+    ).scalar_one()
     session.flush()
 
     # Return the ORM object for serialization
-    msg = session.get(ChatMessage, next_id)
+    msg = session.get(ChatMessage, message_id)
     if msg is None:
         raise RuntimeError("Failed to retrieve created message")
     return msg
