@@ -1,0 +1,76 @@
+name: Architecture Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/architecture/**'
+      - 'docs/Campaign/**'
+      - 'docs/tasks/**'
+      - 'tests/architecture/**'
+      - '.github/workflows/architecture-contracts.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/architecture/**'
+      - 'docs/Campaign/**'
+      - 'docs/tasks/**'
+      - 'tests/architecture/**'
+      - '.github/workflows/architecture-contracts.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: architecture-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  architecture-contracts:
+    name: Architecture Contracts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GUARDIAN_ALLOW_DUMMY_SETTINGS: '1'
+      GENAI_API_KEY: dummy
+      NOTION_API_KEY: dummy
+      ANTHROPIC_API_KEY: dummy
+      OPENAI_API_KEY: dummy
+      GEMINI_API_KEY: dummy
+      GOOGLE_API_KEY: dummy
+      GROQ_API_KEY: dummy
+      LLM_PROVIDER: groq
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tracked paths are valid
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/verification/deny_invalid_git_paths.sh
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements-ci.txt
+            requirements/base.in
+            requirements/dev.in
+            pyproject.toml
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r backend/requirements-ci.txt
+          python -m pip install -e .
+
+      - name: Run architecture contract tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pytest -q --disable-warnings tests/architecture
