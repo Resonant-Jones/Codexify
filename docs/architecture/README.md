@@ -38,6 +38,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 - [`browser-authority-and-context-boundary-contract.md`](./browser-authority-and-context-boundary-contract.md): normative, host-neutral authority, capture, provenance, attachment, retention, and browser-action boundary for future browser context intake; it is not implementation proof or part of the current runtime topology, and [`00-current-state.md`](./00-current-state.md) remains release truth.
 - [`canonical-live-proof-receipt-contract.md`](./canonical-live-proof-receipt-contract.md): subordinate contract for the bounded read-only supported-Compose live observation receipt; not manifest acceptance, trusted `latest`, or release approval.
 - [Axis Node](../axis-node/README.md): repo-native shared reasoning infrastructure for source authority, evidence-backed task generation, and human collaboration. It is docs/context infrastructure only; it does not implement a runtime agent or widen the supported beta surface. Route any future Axis harness work through [ADR-046](./adr/046-axis-node-portable-reasoning-interface-contract.md) and the relevant Guardian/Pi execution contracts.
+- [ADR-055: Orthogonal UI Material Personalization](./adr/055-orthogonal-ui-material-personalization.md): governing decision for additive UI material axes, cross-theme Surface Temperature, light-only Paper Tone, separate persistence responsibilities, and accessibility-bounded personalization. It records future material semantics and does not implement the restored Temperature control.
 
 ## Start Here
 
