@@ -74,6 +74,12 @@ npm run proof:live-electron -- --output-dir "$LIVE_ELECTRON_OUT"
 npm run proof:live-electron:validate -- --proof-dir "$LIVE_ELECTRON_OUT"
 npm run test:live-electron
 
+# macOS Electron trust-path qualification (macOS only)
+MACOS_ELECTRON_OUT="$(mktemp -d /tmp/codexify-browser-host-macos-electron.XXXXXX)"
+npm run proof:qualify:macos-electron -- --output-dir "$MACOS_ELECTRON_OUT"
+npm run proof:qualify:macos-electron:validate -- --proof-dir "$MACOS_ELECTRON_OUT"
+npm run test:macos-electron
+
 # Optional sanitized proof run
 PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-one-tab.XXXXXX)"
 npm run proof:one-tab -- --output-dir "$PROOF_OUT"
@@ -120,3 +126,30 @@ deterministic loopback negotiation only. They must not use `--no-sandbox`, enabl
 Node integration, disable context isolation, inject credentials, or introduce a
 fallback entrypoint. Full real-Guardian process qualification remains a later
 task even when this deterministic launch proof passes.
+
+## macOS Electron trust-path qualification
+
+The macOS-only qualification compares a signed Apple control application, the
+current locked Electron bundle, and a clean isolated locked install. Each
+Electron bundle is checked for architecture, code-signing verification,
+Gatekeeper assessment, quarantine presence, SHA-256, and a minimal local
+`BrowserWindow` using `nodeIntegration: false`, `contextIsolation: true`, and
+`sandbox: true`. The clean workspace contains only the Browser Host package
+manifests; Electron's package-provided install hook uses an isolated cache.
+
+The runner never changes Gatekeeper, SIP, quarantine, signing, trust services,
+or security databases. It does not use `sudo`, `--no-sandbox`, credentials, or a
+real Guardian session. A repository-local `node_modules` reinstall is attempted
+only if the Apple control passes, the clean locked install and minimal app pass,
+the pinned versions match, and the evidence isolates repository-local
+corruption. A `passed` qualification still requires the existing bounded
+production-entrypoint live proof; code-signing or `spctl` output alone cannot
+qualify the host.
+
+The committed qualification packet is
+`docs/architecture/proofs/browser-host/2026-08-02-macos-electron-host-qualification/`.
+The current result is `next-proof-needed` with primary classification
+`host_code_signing_subsystem_unavailable`: the Apple control app and both exact
+arm64 Electron distributions report the same Code Signing subsystem assessment
+error, and both minimal Electron launches abort before a window. No dependency
+repair or live production-entrypoint rerun was justified.

@@ -851,6 +851,31 @@ Qualify the complete development Browser Host session against the real Guardian 
   load, and clean live Electron qualification remain unproven. Gate D remains
   closed and full real-Guardian process qualification remains a later task.
 
+## macOS Electron trust-path qualification — 2026-08-02
+
+- Prerequisite commits: `de3924011` (live launch diagnostics) and
+  `529cc38b1` (refreshed live launch receipt). Both are ancestors of the
+  qualification run; no branch repair, merge, rebase, or push was performed.
+- The qualification matrix compared the first available signed Apple control
+  app (`Calculator.app`), the current locked Electron `43.2.0` bundle, and a
+  clean isolated `npm ci` download with the same `package-lock.json`. The clean
+  install used the package-provided Electron install hook and an isolated cache;
+  its arm64 bundle SHA-256 matched the current repository bundle.
+- Apple code-sign verification passed, but Apple `spctl` assessment returned
+  the Code Signing subsystem error. The current and clean Electron bundles
+  returned the same assessment error; both requested-sandbox minimal local
+  apps terminated with `SIGABRT` before creating a window. The exact primary
+  classification is `host_code_signing_subsystem_unavailable`.
+- Repository-local dependency repair was not attempted: the clean comparison
+  did not pass, so the repair gate was not satisfied. The existing bounded
+  production-entrypoint live proof was not rerun from this qualification lane.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-macos-electron-host-qualification/`.
+  Status is `next-proof-needed`; no host security policy, quarantine, signing,
+  trust service, security database, runtime, Guardian, lockfile, or release
+  configuration was changed. A full real-Guardian session remains unproven and
+  Gate D remains closed.
+
 ## ADR impact
 
 - Classification: aligned with existing ADRs; ADR-054 is accepted.

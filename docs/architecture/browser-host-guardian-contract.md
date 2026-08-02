@@ -6,8 +6,9 @@
 - Governing decision: [ADR-054](./adr/054-browser-host-topology-and-release-ownership.md).
 - Implementation status: bounded production one-tab topology skeleton with an
   explicitly gated Guardian development negotiation and attachment adapter;
-  production Guardian integration remains unproven, and the new combined live
-  Electron qualification is currently environment-blocked.
+  production Guardian integration remains unproven, and the macOS Electron
+  trust-path qualification is currently environment-blocked by the matching
+  Apple-control/current/clean Code Signing subsystem result.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -422,8 +423,13 @@ them.
   retry or deterministic fallback. The live Electron launch diagnostic remains
   `next-proof-needed` at the pinned Electron process boundary, recorded in
   `docs/architecture/proofs/browser-host/2026-08-02-live-electron-launch/` with
-  primary classification `host_security_assessment`; no live Electron pass is
-  claimed.
+  primary classification `host_security_assessment`; the follow-on macOS
+  trust-path packet at
+  `docs/architecture/proofs/browser-host/2026-08-02-macos-electron-host-qualification/`
+  compares an Apple control app with the current and clean locked Electron
+  distributions and classifies the matching result as
+  `host_code_signing_subsystem_unavailable`. Both minimal Electron launches
+  abort before a window; no dependency repair or live Electron pass is claimed.
 - Trusted-main-process envelope construction and ephemeral attachment:
   implemented and live-test proven by the prior deterministic-stub and
   attachment-adapter packets; the combined negotiation-plus-attachment flow
