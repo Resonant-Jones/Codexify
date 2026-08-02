@@ -5,21 +5,31 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
 from guardian.browser_host.http_adapter import (
     AUTHORIZATION_SCHEME,
     INSTANCE_HEADER,
+    apply_no_store,
     consume_attachment,
     error_response,
+    get_browser_host_negotiation_policy,
     get_attachment_grant_store,
     is_bounded_identifier,
     issue_attachment_grant,
     parse_attachment_grant_authorization,
 )
+from guardian.browser_host.negotiation import (
+    negotiate_browser_host_hello,
+    validate_browser_host_hello_request,
+)
 from guardian.core.dependencies import get_current_user
 
 
 router = APIRouter(prefix="/dev/browser-host/v1", tags=["Browser Host (development)"])
+negotiation_router = APIRouter(
+    prefix="/dev/browser-host/v1", tags=["Browser Host (development)"]
+)
 
 
 async def _json_body(request: Request) -> Any:
@@ -61,3 +71,33 @@ async def attach_browser_context(
 
     body = await _json_body(request)
     return consume_attachment(request, body, bearer, instance_id, store)
+
+
+@negotiation_router.post("/negotiate")
+async def negotiate_browser_host(
+    request: Request,
+    policy=Depends(get_browser_host_negotiation_policy),
+):
+    body = await _json_body(request)
+    if not validate_browser_host_hello_request(body):
+        return error_response(
+            422,
+            "invalid_contract",
+            request,
+            candidate_request_id=(
+                body.get("requestCorrelationId")
+                if isinstance(body, dict)
+                else None
+            ),
+        )
+    try:
+        decision = negotiate_browser_host_hello(body, policy)
+    except ValueError:
+        return error_response(
+            422,
+            "invalid_contract",
+            request,
+            candidate_request_id=body.get("requestCorrelationId"),
+        )
+    response = JSONResponse(status_code=200, content=decision.to_dict())
+    return apply_no_store(response)

@@ -788,6 +788,48 @@ Define and qualify the supported production Guardian authentication boundary for
 Browser Host attachment without importing development broker credentials,
 before any production route, durable persistence, packaging, or release work.
 
+## Guardian development negotiation adapter — 2026-08-02
+
+- Prerequisite: `8bb098b640a3dbb28da5c0ad498b4124db207964`; the prerequisite is
+  ancestral to the implementation branch.
+- Guardian now owns the credential-free development negotiation route at
+  `POST /dev/browser-host/v1/negotiate`. It is absent by default and mounts
+  only when `GUARDIAN_DEV_MODE=true`,
+  `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`, and
+  `GUARDIAN_EXPOSURE_MODE=local_safe`.
+- Negotiation and attachment gates are independent. The combined development
+  flow requires both explicit Guardian flags and one exact numeric-loopback
+  origin; neither flag changes a supported profile.
+- The Browser Host uses `guardian_dev_adapter` only when proof mode, the
+  explicit negotiation flag, numeric-loopback origin, bounded timeout, and
+  transport selection are valid. The deterministic transport remains an
+  explicitly selected isolated-test transport with no automatic retry or
+  fallback.
+- Negotiation sends the existing Hello v1 body without an API key, cookie, JWT,
+  attachment grant, user identity, or page content. Guardian returns only
+  compatibility metadata and no authority. Remote content is created or
+  loaded only after a compatible response; incompatible, malformed, disabled,
+  and transport-failure outcomes remain fail closed.
+- After compatible negotiation, the existing one-use Guardian attachment grant
+  path remains separate and returns the existing non-durable outcome. No
+  database, Redis, queue, worker, provider, command bus, migration, or release
+  configuration changed.
+- Python policy, route-gate, HTTP-adapter, launcher, and JavaScript client/config
+  checks pass. The requested live Electron integration attempt remains
+  environment-blocked: the pinned Electron binary aborts before the child
+  process can reach the handshake, and the unchanged Electron tests fail at
+  the same launch boundary. No live integration pass is claimed.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-browser-host-guardian-negotiation-integration/`.
+  It records the blocked live qualification, sanitized cleanup state, and the
+  unavailable exact-model delegation review rather than fabricating a pass.
+- Gate C remains passed. Gate D remains closed for supported integration and
+  release qualification. `docs/architecture/00-current-state.md` is unchanged.
+
+### Next atomic task
+
+Qualify the complete development Browser Host session against the real Guardian application process, using Guardian-owned negotiation and one-use attachment grants without the reduced test-support application or durable persistence.
+
 ## ADR impact
 
 - Classification: aligned with existing ADRs; ADR-054 is accepted.

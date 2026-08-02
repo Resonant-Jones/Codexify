@@ -28,6 +28,7 @@ Source anchors:
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
 | `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
+| `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED` | Default `false`; independent second gate for the credential-free development-only Browser Host negotiation adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
 | `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
@@ -131,9 +132,46 @@ bounded Browser Host instance as the one-use grant request scope so the later
 attachment envelope can satisfy the existing Guardian store without another
 metadata or credential channel.
 
-Negotiation remains pointed at the deterministic Guardian stub. The adapter is
-explicitly attachment-only, has no retry, redirect following, renewal, or
-fallback to the stub after a claim. Accepted receipts are `202` and
+### Development-only Guardian negotiation adapter
+
+Guardian mounts exactly `POST /dev/browser-host/v1/negotiate` only when
+`GUARDIAN_DEV_MODE=true`,
+`GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`, and
+`GUARDIAN_EXPOSURE_MODE=local_safe`. It is absent by default and requires no
+API key, cookie, JWT, attachment grant, user identity, page content, or
+persistence state. It returns only contract compatibility metadata with
+`Cache-Control: no-store` and `Pragma: no-cache`; negotiation grants no
+attachment, provider, command-bus, native, or durable authority.
+
+Negotiation and attachment route groups are independently mounted. When both
+Browser Host transports are enabled, their numeric-loopback origins must match.
+The Browser Host uses these explicit settings:
+
+| Variable | Browser Host behavior | Default / bound |
+|---|---|---|
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_DEV_ENABLED` | Selects the Guardian development negotiation transport. | `false`; also requires proof mode |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_ORIGIN` | Numeric loopback HTTP origin for `POST /dev/browser-host/v1/negotiate`. | Required when enabled; `http://127.0.0.1:<port>` only |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_TIMEOUT_MS` | Bounded negotiation timeout. | `3000`; integer `1000`–`30000` |
+| `CODEXIFY_BROWSER_HOST_NEGOTIATION_TRANSPORT` | Explicitly selects `guardian_dev_adapter` or `deterministic_stub`. | `deterministic_stub` unless Guardian mode is enabled; no fallback |
+
+The existing deterministic negotiation transport remains available only for
+isolated tests/proofs. Guardian mode sends one validated Hello v1 request,
+does not retry, does not fall back, and creates no remote view before a
+compatible response. The combined negotiation/attachment proof is generated
+with:
+
+```sh
+cd browser_host
+PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-negotiation.XXXXXX)"
+npm run proof:guardian-negotiation -- --output-dir "$PROOF_OUT"
+npm run proof:guardian-negotiation:validate -- --proof "$PROOF_OUT/proof.json"
+```
+
+The adapter remains development-only, local-only, and outside the supported
+beta release posture.
+
+Negotiation is explicitly selected; the attachment adapter has no retry,
+redirect following, renewal, or fallback to the stub after a claim. Accepted receipts are `202` and
 `not_persisted`; replay and expiry are bounded `409` outcomes, scope mismatch
 is `403`, a disabled route is `404`, and transport failure has no HTTP status.
 The live matrix and sanitized packet are generated with:

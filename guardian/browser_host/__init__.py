@@ -13,6 +13,14 @@ from .attachment_grants import (
     AttachmentGrantStore,
 )
 from .contract_loader import BrowserHostContractMetadata, ContractLoadError, load_contract_metadata
+from .negotiation import (
+    BrowserHostNegotiationDecision,
+    BrowserHostNegotiationPolicy,
+    build_default_negotiation_policy,
+    negotiate_browser_host_hello,
+    validate_browser_host_hello,
+    validate_browser_host_hello_request,
+)
 
 __all__ = [
     "AttachmentGrantAuthorizationContext",
@@ -23,4 +31,10 @@ __all__ = [
     "BrowserHostContractMetadata",
     "ContractLoadError",
     "load_contract_metadata",
+    "BrowserHostNegotiationDecision",
+    "BrowserHostNegotiationPolicy",
+    "build_default_negotiation_policy",
+    "negotiate_browser_host_hello",
+    "validate_browser_host_hello",
+    "validate_browser_host_hello_request",
 ]

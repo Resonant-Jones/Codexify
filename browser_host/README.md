@@ -8,12 +8,14 @@ It is deliberately separate from `browser_host_candidates/`, `src-tauri/`,
 ## Current status
 
 This package now contains the bounded production one-tab Browser Host runtime,
-capture-preview/ephemeral-attachment proof, and a development-only Guardian
-attachment-grant integration slice selected by ADR-054. It
+capture-preview/ephemeral-attachment proof, and development-only Guardian
+negotiation plus attachment integration slices selected by ADR-054. It
 creates one trusted Electron `BrowserWindow` and one untrusted remote
-`WebContentsView`; a deterministic loopback Guardian stub must complete
-compatible negotiation before the remote view is created or loaded. Candidate
-code remains evidence, not supported release source.
+`WebContentsView`; the explicitly selected Guardian development adapter must
+complete compatible negotiation before the remote view is created or loaded.
+The deterministic loopback transport remains available only when explicitly
+selected for isolated regression proof. Candidate code remains evidence, not
+supported release source.
 
 Guardian remains the authentication, policy, persistence, task, and
 provider-execution authority. Future remote content remains untrusted evidence;
@@ -21,12 +23,12 @@ it will not receive Guardian credentials or native authority. Capture,
 attachment, and durable persistence remain separate operations.
 
 The immediate release posture is `development/internal unsigned proof`.
-Live Playwright Electron proof covers negotiation ordering, renderer isolation,
-loopback navigation policy, permission/popup/download denial, renderer
-degradation, selected-text and visible-page preview, sanitization, ticket
-rejection, deterministic attachment failure, one-use grant issuance and
-consumption through the explicitly enabled local Guardian adapter, rejection
-and transport continuity, and cleanup. Product and release gates remain
+The bounded Guardian development flow explicitly selects the credential-free
+Guardian negotiation adapter before remote view creation, then uses the
+separate one-use attachment grant. Existing live packets cover the one-tab,
+capture, deterministic attachment, and prior attachment-adapter paths; the new
+combined negotiation-plus-attachment Electron attempt is currently blocked at
+the pinned Electron process-launch boundary. Product and release gates remain
 closed: production Guardian authentication, durable persistence, packaging,
 signing, updater, and release behavior are not implemented.
 
@@ -60,6 +62,11 @@ ATTACHMENT_PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-attachment
 npm run proof:guardian-attachment -- --output-dir "$ATTACHMENT_PROOF_OUT"
 npm run proof:guardian-attachment:validate -- --proof "$ATTACHMENT_PROOF_OUT/proof.json"
 
+# Development-only Guardian negotiation plus attachment proof
+NEGOTIATION_PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-negotiation.XXXXXX)"
+npm run proof:guardian-negotiation -- --output-dir "$NEGOTIATION_PROOF_OUT"
+npm run proof:guardian-negotiation:validate -- --proof "$NEGOTIATION_PROOF_OUT/proof.json"
+
 # Optional sanitized proof run
 PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-one-tab.XXXXXX)"
 npm run proof:one-tab -- --output-dir "$PROOF_OUT"
@@ -82,8 +89,11 @@ cd ..
 - No live production Guardian route, production credential, reusable Browser
   Host credential, durable persistence, or supported release path exists. The
   development adapter proof is local-only and explicitly gated.
-- Guardian negotiation remains deterministic-stub-backed; the development
-  adapter is used only for the explicit one-use attachment operation.
+- Guardian development negotiation is credential-free, local-only, and
+  explicitly selected through `guardian_dev_adapter`; it must succeed before
+  remote loading. Negotiation and attachment origins must match when both
+  adapters are enabled. The deterministic stub remains an explicitly selected
+  isolated test transport with no automatic fallback.
 - Captured content is held ephemerally in bounded in-memory ticket state and is
   never durably persisted.
 - No browser profile, cookies, history, bookmarks, downloads, or durable browser state is defined.

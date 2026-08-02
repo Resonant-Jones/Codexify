@@ -4,6 +4,10 @@ const path = require("node:path");
 const { app, BrowserWindow, WebContentsView, ipcMain, session } = require("electron");
 const { loadConfig, unconfiguredConfig, PROOF_TOKEN_ENV } = require("./runtime/config");
 const { negotiate, GuardianNegotiationError, attachEnvelope } = require("./runtime/guardian-client");
+const {
+  negotiate: negotiateWithGuardian,
+  GuardianNegotiationClientError
+} = require("./runtime/guardian-negotiation-client");
 const { createGuardianAttachmentClient } = require("./runtime/guardian-attachment-client");
 const { createRuntimeState } = require("./runtime/runtime-state");
 const { createTrustedShell } = require("./runtime/trusted-shell");
@@ -19,7 +23,11 @@ function isTrustedSender(event, trustedId) {
   const frameUrl = event.senderFrame?.url;
   if (typeof frameUrl !== "string" || !frameUrl.startsWith("file://")) throw new Error("trusted_frame_rejected");
 }
-function boundedErrorCode(error) { return error instanceof GuardianNegotiationError ? error.code : "invalid_contract"; }
+function boundedErrorCode(error) {
+  return error instanceof GuardianNegotiationError || error instanceof GuardianNegotiationClientError
+    ? error.code
+    : "invalid_contract";
+}
 
 function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcMain, session }, env = process.env) {
   const { app: electronApp, BrowserWindow: Window, WebContentsView: RemoteView, ipcMain: ipc, session: sessions } = electronApi;
@@ -82,20 +90,32 @@ function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcM
   async function startNegotiation() {
     if (negotiationStarted || shutdownStarted) return;
     negotiationStarted = true;
-    if (configurationError || !config.guardianOrigin || !config.fixtureOrigin) { update({ runtimeStatus: "degraded", guardianCompatibilityOutcome: "unavailable", errorCode: "guardian_rejected" }); return; }
+    const guardianMode = config.negotiationTransport === "guardian_dev_adapter";
+    const negotiationOrigin = guardianMode ? config.guardianNegotiationOrigin : config.guardianOrigin;
+    if (configurationError || !negotiationOrigin || !config.fixtureOrigin) { update({ runtimeStatus: "degraded", guardianCompatibilityOutcome: "unavailable", errorCode: "guardian_rejected" }); return; }
     update({ runtimeStatus: "negotiating" });
     try {
-      const result = await negotiate(config);
+      const result = guardianMode
+        ? await negotiateWithGuardian(config, { onHttpStatus: (status) => update({ guardianNegotiationHttpStatus: Number.isInteger(status) ? status : null }) })
+        : await negotiate(config);
+      if (result.response.compatibilityOutcome !== "compatible") {
+        const error = new (guardianMode ? GuardianNegotiationClientError : GuardianNegotiationError)(result.response.errorCode || "no_compatible_version", "guardian_incompatible");
+        throw error;
+      }
       update({ runtimeStatus: "negotiated", guardianCompatibilityOutcome: "compatible", negotiationRequestId: result.hello.requestCorrelationId, selectedVersions: { protocol: result.response.selectedProtocolVersion, envelope: result.response.selectedEnvelopeVersion, attachment: result.response.selectedAttachmentVersion }, enabledFeatures: result.response.enabledFeatures, disabledFeatures: result.response.disabledFeatures, errorCode: null });
       remoteTab = createRemoteTab({ WebContentsView: RemoteView, session: sessions, parentWindow: trustedShell.window, fixtureOrigin: config.fixtureOrigin, initialBounds: trustedShell.bounds(trustedShell.window), onState: (patch) => update(patch) });
       trustedShell.resize();
       await remoteTab.load();
+      update({ remoteLoadedAfterGuardianNegotiation: guardianMode });
     } catch (error) {
       if (remoteTab) {
         await remoteTab.destroy();
         remoteTab = null;
       }
-      update({ runtimeStatus: "degraded", guardianCompatibilityOutcome: error.code === "no_compatible_version" || error.code === "undeclared_feature" ? "incompatible" : "malformed", negotiationRequestId: null, errorCode: boundedErrorCode(error), remoteStatus: "not_created", remoteProcessState: "not_started", remoteViewCreated: false, remoteLoadedAfterNegotiation: false });
+      const compatibilityOutcome = ["unsupported_protocol_version", "unsupported_envelope_version", "unsupported_attachment_version", "no_compatible_version", "undeclared_feature"].includes(error.code)
+        ? "incompatible"
+        : error.code === "guardian_rejected" ? "unavailable" : "malformed";
+      update({ runtimeStatus: "degraded", guardianCompatibilityOutcome: compatibilityOutcome, negotiationRequestId: null, errorCode: boundedErrorCode(error), remoteStatus: "not_created", remoteProcessState: "not_started", remoteViewCreated: false, remoteLoadedAfterNegotiation: false });
     }
   }
 

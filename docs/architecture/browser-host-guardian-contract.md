@@ -4,9 +4,10 @@
 
 - Classification: normative architecture contract; architecture-impacting.
 - Governing decision: [ADR-054](./adr/054-browser-host-topology-and-release-ownership.md).
-- Implementation status: bounded production one-tab topology skeleton with
-  deterministic negotiation and a development-only Guardian attachment
-  adapter integration proof; production Guardian integration remains unproven.
+- Implementation status: bounded production one-tab topology skeleton with an
+  explicitly gated Guardian development negotiation and attachment adapter;
+  production Guardian integration remains unproven, and the new combined live
+  Electron qualification is currently environment-blocked.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -30,20 +31,21 @@ is `browser_host/contracts/`. The package is intentionally separate from
 The repository now contains JSON schemas, canonical Browser Host tokens,
 synthetic fixtures, a Node built-in consumer adapter, a production
 package-boundary module, a one-trusted-shell/one-remote-view runtime,
-deterministic loopback Guardian and fixture support, live Playwright Electron
-tests, JavaScript/Python conformance tests, and a pure Guardian-owned
+deterministic loopback Guardian and fixture support, existing Playwright
+Electron tests, JavaScript/Python conformance tests, and a pure Guardian-owned
 attachment-grant issuer/consumer seam.
 
 There is no live production Guardian route, production credential, or
-supported authenticated production grant-issuance path. A development-only
-Guardian adapter is available only behind explicit development, adapter, and
-local-safe exposure gates. The deterministic stub remains the negotiation
-authority and exercises hello, negotiation, and regression attachment behavior;
-the local adapter exercises only the separately confirmed one-use attachment.
-Compatible negotiation gates remote loading, and the trusted/remote renderer
-boundary is live-test proven for this skeleton. The pure grant proof and
-adapter integration use process-local, non-durable state. Neither proof is a
-supported feature. Electron is the accepted family under ADR-054.
+supported authenticated production grant-issuance path. Guardian's development
+negotiation route is available only behind Guardian development mode, its
+explicit feature flag, and `local_safe` exposure. The Browser Host selects
+`guardian_dev_adapter` explicitly, sends the existing Hello v1 without a
+credential, and creates or loads remote content only after compatible Guardian
+negotiation. The deterministic stub remains an explicitly selected isolated
+test transport with no fallback. The local attachment adapter still requires
+the separately confirmed one-use grant. The pure grant proof and adapter
+integration use process-local, non-durable state. Neither proof is a supported
+feature. Electron is the accepted family under ADR-054.
 
 Candidate source and proof packets remain evidence only. They are not imported
 by the production package and are not promoted into production code.
@@ -109,6 +111,26 @@ Compatibility is fail-closed:
 The v1 Guardian contract identity is
 `guardian-browser-host-contract` at version `1.0.0`. It is a contract identity,
 not a live route or an authentication credential.
+
+## Guardian development negotiation HTTP adapter
+
+Guardian owns the development-only `POST /dev/browser-host/v1/negotiate`
+adapter. It is mounted only when all three conditions hold:
+
+- `GUARDIAN_DEV_MODE=true`;
+- `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`; and
+- exposure resolves to `local_safe`.
+
+When disabled, the route is absent and returns ordinary `404` behavior. When
+enabled, it validates the Hello through the canonical contract package and
+returns only Negotiation v1 compatibility metadata with `Cache-Control:
+no-store` and `Pragma: no-cache`. It requires no API key, cookie, JWT,
+attachment grant, user identity, page content, or persistence state. It grants
+no attachment, native, provider, command-bus, or durable authority.
+
+Negotiation and attachment route groups are independently gated. Enabling both
+mounts one negotiation route plus the two existing attachment routes. The
+attachment route semantics and one-use grant remain unchanged.
 
 ## Compatibility and feature negotiation
 
@@ -241,8 +263,9 @@ completion, durable document, memory record, or permission grant.
 ## Guardian authority boundary
 
 Guardian remains the authority for authentication, policy, persistence, task
-acceptance, provider execution, and durable state. This package does not add a
-Guardian route, client, credential, database model, migration, or persistence
+acceptance, provider execution, and durable state. This slice adds only the
+explicitly gated development negotiation route and client; it adds no
+production credential path, database model, migration, or persistence
 behavior.
 
 The trusted Browser Host main process constructs authority-bearing metadata only
@@ -393,12 +416,21 @@ them.
   atomic one-use consumption, replay/expiry/scope/version/retention/budget
   rejection, and concurrency behavior.
 - Electron runtime: bounded one-tab runtime plus capture preview implemented and live-test proven.
-- Deterministic Guardian negotiation: implemented for test-only loopback stub.
-- Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub and the explicitly enabled development adapter.
-- Development-only Guardian HTTP adapter: test-proven behind
-  `GUARDIAN_DEV_MODE=true`, `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED=true`,
-  and `GUARDIAN_EXPOSURE_MODE=local_safe`; it is absent from the default route
-  surface and owns one process-local application store.
+- Guardian negotiation policy and credential-free development HTTP adapter:
+  implemented and unit/route test-proven behind the independent development,
+  flag, and `local_safe` gates; the Browser Host selects it explicitly with no
+  retry or deterministic fallback. The requested combined live Electron
+  qualification is environment-blocked before the application handshake.
+- Trusted-main-process envelope construction and ephemeral attachment:
+  implemented and live-test proven by the prior deterministic-stub and
+  attachment-adapter packets; the combined negotiation-plus-attachment flow
+  remains unqualified on the current Electron host.
+- Development-only Guardian HTTP adapters: attachment remains test-proven
+  behind its existing three gates; negotiation is test-proven behind
+  `GUARDIAN_DEV_MODE=true`,
+  `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`, and
+  `GUARDIAN_EXPOSURE_MODE=local_safe`. Both are absent from the default route
+  surface, independently mounted, and process-local.
 - Development Browser Host grant integration: live Electron matrix proven for
   accepted `202`, local replay rejection, wrong-instance `403`, expired `409`,
   disabled-route `404`, transport failure without retry or fallback, renderer
@@ -447,6 +479,8 @@ attachment transport. This remains a development seam, not production Browser
 Host integration or a supported release path.
 
 Proof: [Guardian attachment HTTP adapter proof](./proofs/browser-host/2026-08-01-guardian-attachment-http-adapter/).
+The [Guardian negotiation integration packet](./proofs/browser-host/2026-08-02-browser-host-guardian-negotiation-integration/)
+records the blocked combined live attempt and does not claim qualification.
 
 ## Non-goals
 

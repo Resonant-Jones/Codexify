@@ -19,6 +19,10 @@ test("runtime state is bounded, cloned, frozen, and explicitly redacted", () => 
   assert.equal(first.attachmentGrantAvailable, false);
   assert.equal(first.attachmentGrantConsumed, false);
   assert.equal(first.lastGuardianAttachmentHttpStatus, null);
+  assert.equal(first.negotiationTransport, "deterministic_stub");
+  assert.equal(first.guardianNegotiationAdapterEnabled, false);
+  assert.equal(first.negotiationCredentialPosture, "no_credential_required_local_development_negotiation");
+  assert.equal(first.guardianNegotiationHttpStatus, null);
   assert.equal("proofToken" in first, false);
   assert.equal("credentials" in first, false);
   assert.equal("pageBody" in first, false);
@@ -37,12 +41,18 @@ test("runtime state exposes only bounded Guardian adapter posture", () => {
     ...metadata(),
     guardianAttachmentAdapterEnabled: true,
     guardianAttachmentOrigin: "http://127.0.0.1:43125",
+    guardianNegotiationAdapterEnabled: true,
+    negotiationTransport: "guardian_dev_adapter",
+    guardianNegotiationOrigin: "http://127.0.0.1:43125",
     browserHostInstanceId: "browser-host-state-test",
     guardianAttachmentGrantAvailable: true
   });
   const snapshot = state.snapshot();
   assert.equal(snapshot.attachmentTransport, "guardian_dev_adapter");
+  assert.equal(snapshot.negotiationTransport, "guardian_dev_adapter");
   assert.equal(snapshot.guardianAttachmentAdapterEnabled, true);
+  assert.equal(snapshot.guardianNegotiationAdapterEnabled, true);
+  assert.equal(snapshot.guardianNegotiationOrigin, "http://127.0.0.1:43125");
   assert.equal(snapshot.guardianAttachmentOrigin, "http://127.0.0.1:43125");
   assert.equal(snapshot.browserHostInstanceId, "browser-host-state-test");
   assert.equal(snapshot.attachmentGrantAvailable, true);

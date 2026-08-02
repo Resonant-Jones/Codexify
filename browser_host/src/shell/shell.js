@@ -4,6 +4,7 @@ const api = window.codexifyBrowserHost;
 const status = document.querySelector("#status");
 const origin = document.querySelector("#origin");
 const versions = document.querySelector("#versions");
+const negotiationPosture = document.querySelector("#negotiation-posture");
 const captureStatus = document.querySelector("#capture-status");
 const capturePreview = document.querySelector("#capture-preview");
 const captureSelected = document.querySelector("#capture-selected");
@@ -21,12 +22,21 @@ function renderAttachmentPosture(state) {
   return "transport deterministic stub · Guardian development adapter disabled · reusable Guardian credential: no · accepted attachment: non-durable";
 }
 
+function renderNegotiationPosture(state) {
+  const selected = state.selectedVersions || {};
+  const selectedText = selected.protocol ? `selected ${selected.protocol}/${selected.envelope}/${selected.attachment}` : "no versions selected";
+  const transport = state.negotiationTransport || "deterministic_stub";
+  const remote = state.remoteLoadedAfterGuardianNegotiation ? "remote loaded after compatible Guardian negotiation" : `remote ${state.remoteStatus}`;
+  return `transport ${transport} · Guardian adapter ${state.guardianNegotiationAdapterEnabled ? "enabled" : "disabled"} · ${selectedText} · enabled features ${state.enabledFeatures.length} · disabled features ${state.disabledFeatures.length} · ${remote} · ${state.negotiationCredentialPosture === "no_credential_required_local_development_negotiation" ? "No credential required for local development negotiation" : "credential posture unavailable"}`;
+}
+
 function render(state) {
   if (!state) return;
   window.__captureTicketId = state.captureTicketId || "";
   status.textContent = `${state.runtimeStatus} · remote ${state.remoteStatus}`;
   origin.textContent = state.remoteOrigin || "No remote origin";
   versions.textContent = `protocol ${state.protocolVersion} · envelope ${state.envelopeVersion} · attachment ${state.attachmentVersion}`;
+  negotiationPosture.textContent = renderNegotiationPosture(state);
   captureStatus.textContent = `capture ${state.captureStatus} · mode ${state.captureMode || "none"}${state.captureErrorCode ? ` · ${state.captureErrorCode}` : ""}`;
   attachmentPosture.textContent = renderAttachmentPosture(state);
   capturePreview.textContent = state.capturePreviewContent || "No page content has crossed the capture boundary.";

@@ -289,6 +289,7 @@ async function runBroker({ issuanceOrigin, attachmentOrigin, stubOrigin, fixture
     "--grant-ttl-seconds", "120",
     "--max-attachment-bytes", "65536",
     "--timeout-ms", "1500",
+    "--negotiation-transport", "deterministic_stub",
     "--",
     execPath,
     integrationFile,

@@ -36,6 +36,10 @@ ATTACHMENT_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_ORIGIN"
 ATTACHMENT_GRANT_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_GRANT"
 INSTANCE_ID_ENV = "CODEXIFY_BROWSER_HOST_INSTANCE_ID"
 ATTACHMENT_TIMEOUT_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_TIMEOUT_MS"
+NEGOTIATION_ENABLED_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_DEV_ENABLED"
+NEGOTIATION_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_ORIGIN"
+NEGOTIATION_TIMEOUT_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_TIMEOUT_MS"
+NEGOTIATION_TRANSPORT_ENV = "CODEXIFY_BROWSER_HOST_NEGOTIATION_TRANSPORT"
 PROOF_MODE_ENV = "CODEXIFY_BROWSER_HOST_PROOF_MODE"
 PROOF_TOKEN_ENV = "CODEXIFY_BROWSER_HOST_PROOF_TOKEN"
 
@@ -86,6 +90,11 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--grant-ttl-seconds", type=int, default=120)
     parser.add_argument("--max-attachment-bytes", type=int, default=65536)
     parser.add_argument("--timeout-ms", type=int, default=3000)
+    parser.add_argument(
+        "--negotiation-transport",
+        choices=("guardian_dev_adapter", "deterministic_stub"),
+        default="guardian_dev_adapter",
+    )
     args = parser.parse_args(argv[:separator])
     command = argv[separator + 1 :]
     if not command:
@@ -158,6 +167,24 @@ def _request_grant(origin: str, api_key: str, request: dict[str, Any]) -> dict[s
     return value
 
 
+def _assert_route_available(origin: str, path: str, *, expected: tuple[int, ...]) -> None:
+    """Probe a development route without logging or retaining its response body."""
+
+    parsed = urlsplit(origin)
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+    try:
+        # GET is deliberately unsupported by the POST-only adapter.  A 405
+        # proves the route is mounted without creating a negotiation attempt,
+        # issuing a grant, or sending a protocol body.
+        connection.request("GET", path, headers={"Accept": "application/json"})
+        response = connection.getresponse()
+        response.read(4097)
+    finally:
+        connection.close()
+    if response.status not in expected:
+        raise ValueError("guardian_browser_host_route_unavailable")
+
+
 def _is_secret_environment_name(name: str) -> bool:
     return name not in _SAFE_NON_SECRET_NAMES and bool(_SECRET_NAME_PATTERN.search(name))
 
@@ -165,9 +192,11 @@ def _is_secret_environment_name(name: str) -> bool:
 def _child_environment(
     base: dict[str, str],
     grant: str,
+    negotiation_origin: str,
     attachment_origin: str,
     instance_id: str,
     timeout_ms: int,
+    negotiation_transport: str,
 ) -> dict[str, str]:
     child = {
         name: value
@@ -182,14 +211,25 @@ def _child_environment(
             ATTACHMENT_GRANT_ENV: grant,
             INSTANCE_ID_ENV: instance_id,
             ATTACHMENT_TIMEOUT_ENV: str(timeout_ms),
+            NEGOTIATION_TRANSPORT_ENV: negotiation_transport,
         }
     )
+    if negotiation_transport == "guardian_dev_adapter":
+        child.update(
+            {
+                NEGOTIATION_ENABLED_ENV: "1",
+                NEGOTIATION_ORIGIN_ENV: negotiation_origin,
+                NEGOTIATION_TIMEOUT_ENV: str(timeout_ms),
+            }
+        )
     return child
 
 
 def _validate_operator_args(args: argparse.Namespace) -> tuple[str, str, str]:
     guardian_origin = _bounded_loopback_origin(args.guardian_origin)
     attachment_origin = _bounded_loopback_origin(args.attachment_origin or guardian_origin)
+    if args.negotiation_transport == "guardian_dev_adapter" and attachment_origin != guardian_origin:
+        raise ValueError("guardian_origins_must_match")
     instance_id = args.browser_host_instance_id or f"browser-host-{uuid.uuid4().hex}"
     if not _bounded_instance_id(instance_id):
         raise ValueError("browser_host_instance_id_invalid")
@@ -213,7 +253,13 @@ def main(argv: list[str] | None = None) -> int:
         request = _grant_request(args, instance_id)
         response = _request_grant(guardian_origin, api_key, request)
         grant = response["grantBearer"]
-        child_env = _child_environment(dict(os.environ), grant, attachment_origin, instance_id, args.timeout_ms)
+        if args.negotiation_transport == "guardian_dev_adapter":
+            _assert_route_available(guardian_origin, "/dev/browser-host/v1/negotiate", expected=(405,))
+        _assert_route_available(attachment_origin, "/dev/browser-host/v1/attachments", expected=(405,))
+        child_env = _child_environment(
+            dict(os.environ), grant, guardian_origin, attachment_origin, instance_id,
+            args.timeout_ms, args.negotiation_transport
+        )
         print("attachment grant issuance succeeded", flush=True)
         print(f"browser host instance id: {instance_id}", flush=True)
         print("child command started", flush=True)

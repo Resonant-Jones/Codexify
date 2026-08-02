@@ -11,6 +11,10 @@ const PROOF_TOKEN_ENV = "CODEXIFY_BROWSER_HOST_PROOF_TOKEN";
 const GUARDIAN_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ORIGIN";
 const FIXTURE_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_FIXTURE_ORIGIN";
 const NEGOTIATION_TIMEOUT_ENV = "CODEXIFY_BROWSER_HOST_NEGOTIATION_TIMEOUT_MS";
+const GUARDIAN_NEGOTIATION_ENABLED_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_DEV_ENABLED";
+const GUARDIAN_NEGOTIATION_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_ORIGIN";
+const GUARDIAN_NEGOTIATION_TIMEOUT_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_TIMEOUT_MS";
+const NEGOTIATION_TRANSPORT_ENV = "CODEXIFY_BROWSER_HOST_NEGOTIATION_TRANSPORT";
 const GUARDIAN_ATTACHMENT_ENABLED_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_DEV_ENABLED";
 const GUARDIAN_ATTACHMENT_ORIGIN_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_ORIGIN";
 const GUARDIAN_ATTACHMENT_GRANT_ENV = "CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_GRANT";
@@ -36,6 +40,13 @@ function parseTimeout(value) {
   if (value === undefined || value === "") return 1500;
   const timeout = Number(value);
   if (!Number.isInteger(timeout) || timeout < 100 || timeout > 10000) throw new Error("negotiation_timeout_invalid");
+  return timeout;
+}
+
+function parseGuardianNegotiationTimeout(value) {
+  if (value === undefined || value === "") return 3000;
+  const timeout = Number(value);
+  if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 30000) throw new Error("guardian_negotiation_timeout_invalid");
   return timeout;
 }
 
@@ -101,8 +112,26 @@ function loadConfig(env = process.env, platform = process.platform, architecture
   const guardianAttachmentAdapterEnabled = ["1", "true", "yes", "on"].includes(
     String(env[GUARDIAN_ATTACHMENT_ENABLED_ENV] || "").trim().toLowerCase()
   );
+  const guardianNegotiationAdapterEnabled = ["1", "true", "yes", "on"].includes(
+    String(env[GUARDIAN_NEGOTIATION_ENABLED_ENV] || "").trim().toLowerCase()
+  );
   const guardianOrigin = env[GUARDIAN_ORIGIN_ENV] ? numericLoopbackOrigin(env[GUARDIAN_ORIGIN_ENV], "guardian_origin") : null;
   const fixtureOrigin = env[FIXTURE_ORIGIN_ENV] ? numericLoopbackOrigin(env[FIXTURE_ORIGIN_ENV], "fixture_origin") : null;
+  let guardianNegotiationOrigin = null;
+  let guardianNegotiationTimeoutMs = 3000;
+  const requestedTransport = String(env[NEGOTIATION_TRANSPORT_ENV] || "").trim();
+  let negotiationTransport = requestedTransport || (guardianNegotiationAdapterEnabled ? "guardian_dev_adapter" : "deterministic_stub");
+  if (!["deterministic_stub", "guardian_dev_adapter"].includes(negotiationTransport)) throw new Error("negotiation_transport_invalid");
+  if (guardianNegotiationAdapterEnabled) {
+    if (!proofMode) throw new Error("guardian_negotiation_dev_requires_proof_mode");
+    guardianNegotiationOrigin = numericLoopbackOrigin(env[GUARDIAN_NEGOTIATION_ORIGIN_ENV], "guardian_negotiation_origin");
+    guardianNegotiationTimeoutMs = parseGuardianNegotiationTimeout(env[GUARDIAN_NEGOTIATION_TIMEOUT_ENV]);
+    if (negotiationTransport !== "guardian_dev_adapter") throw new Error("guardian_negotiation_transport_invalid");
+  } else if (negotiationTransport === "guardian_dev_adapter") {
+    throw new Error("guardian_negotiation_requires_dev_flag");
+  } else if (env[GUARDIAN_NEGOTIATION_ORIGIN_ENV] || env[GUARDIAN_NEGOTIATION_TIMEOUT_ENV]) {
+    throw new Error("guardian_negotiation_requires_dev_flag");
+  }
   let guardianAttachmentOrigin = null;
   let browserHostInstanceId = null;
   let guardianAttachmentTimeoutMs = 3000;
@@ -116,6 +145,9 @@ function loadConfig(env = process.env, platform = process.platform, architecture
     if (!validGuardianAttachmentGrant(rawAttachmentGrant)) throw new Error("guardian_attachment_grant_invalid");
     grantHolder = createOneShotGrantHolder(rawAttachmentGrant);
   }
+  if (guardianNegotiationAdapterEnabled && guardianAttachmentAdapterEnabled && guardianNegotiationOrigin !== guardianAttachmentOrigin) {
+    throw new Error("guardian_origins_must_match");
+  }
   return freezeConfig({
     ...metadata(),
     platform: platform || os.platform(),
@@ -125,6 +157,10 @@ function loadConfig(env = process.env, platform = process.platform, architecture
     guardianOrigin,
     fixtureOrigin,
     negotiationTimeoutMs: parseTimeout(env[NEGOTIATION_TIMEOUT_ENV]),
+    negotiationTransport,
+    guardianNegotiationAdapterEnabled,
+    guardianNegotiationOrigin,
+    guardianNegotiationTimeoutMs,
     supportedFeatureTokens: Object.freeze(contractManifest.featureTokens.slice()),
     guardianAttachmentAdapterEnabled,
     guardianAttachmentOrigin,
@@ -144,6 +180,10 @@ function unconfiguredConfig(errorCode = "invalid_contract") {
     guardianOrigin: null,
     fixtureOrigin: null,
     negotiationTimeoutMs: 1500,
+    negotiationTransport: "deterministic_stub",
+    guardianNegotiationAdapterEnabled: false,
+    guardianNegotiationOrigin: null,
+    guardianNegotiationTimeoutMs: 3000,
     supportedFeatureTokens: Object.freeze([]),
     guardianAttachmentAdapterEnabled: false,
     guardianAttachmentOrigin: null,
@@ -160,6 +200,10 @@ module.exports = Object.freeze({
   GUARDIAN_ORIGIN_ENV,
   FIXTURE_ORIGIN_ENV,
   NEGOTIATION_TIMEOUT_ENV,
+  GUARDIAN_NEGOTIATION_ENABLED_ENV,
+  GUARDIAN_NEGOTIATION_ORIGIN_ENV,
+  GUARDIAN_NEGOTIATION_TIMEOUT_ENV,
+  NEGOTIATION_TRANSPORT_ENV,
   GUARDIAN_ATTACHMENT_ENABLED_ENV,
   GUARDIAN_ATTACHMENT_ORIGIN_ENV,
   GUARDIAN_ATTACHMENT_GRANT_ENV,
@@ -167,6 +211,7 @@ module.exports = Object.freeze({
   GUARDIAN_ATTACHMENT_TIMEOUT_ENV,
   numericLoopbackOrigin,
   parseGuardianAttachmentTimeout,
+  parseGuardianNegotiationTimeout,
   boundedInstanceId,
   validGuardianAttachmentGrant,
   validProofToken,

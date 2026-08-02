@@ -29,6 +29,10 @@ from guardian.browser_host.contract_loader import (
     BrowserHostContractMetadata,
     load_contract_metadata,
 )
+from guardian.browser_host.negotiation import (
+    BrowserHostNegotiationPolicy,
+    build_default_negotiation_policy,
+)
 from guardian.core.config import get_settings
 from guardian.core.dependencies import _exposure_mode
 
@@ -37,6 +41,9 @@ ROUTE_PREFIX = "/dev/browser-host/v1"
 STORE_STATE_KEY = "browser_host_attachment_grant_store"
 ADAPTER_STATE_KEY = "browser_host_attachment_adapter_enabled"
 FEATURE_FLAG = "GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED"
+NEGOTIATION_POLICY_STATE_KEY = "browser_host_negotiation_policy"
+NEGOTIATION_ADAPTER_STATE_KEY = "browser_host_negotiation_adapter_enabled"
+NEGOTIATION_FEATURE_FLAG = "GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED"
 AUTHORIZATION_SCHEME = "BrowserHostAttachmentGrant"
 INSTANCE_HEADER = "X-Codexify-Browser-Host-Instance-Id"
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
@@ -153,6 +160,55 @@ def browser_host_attachment_adapter_enabled(
         and bool(getattr(config, FEATURE_FLAG, False))
         and resolved_exposure == "local_safe"
     )
+
+
+def browser_host_negotiation_adapter_enabled(
+    settings: Any | None = None,
+    *,
+    exposure_mode: str | None = None,
+) -> bool:
+    """Return the independent fail-closed negotiation route gate."""
+
+    config = settings or get_settings()
+    resolved_exposure = (
+        exposure_mode if exposure_mode is not None else _exposure_mode()
+    )
+    return (
+        bool(getattr(config, "GUARDIAN_DEV_MODE", False))
+        and bool(getattr(config, NEGOTIATION_FEATURE_FLAG, False))
+        and resolved_exposure == "local_safe"
+    )
+
+
+def install_browser_host_negotiation_adapter(app: Any, router: Any) -> bool:
+    """Mount only the negotiation route and create no policy when disabled."""
+
+    if not browser_host_negotiation_adapter_enabled():
+        return False
+    if getattr(app.state, NEGOTIATION_ADAPTER_STATE_KEY, False) or hasattr(
+        app.state, NEGOTIATION_POLICY_STATE_KEY
+    ):
+        raise RuntimeError("browser_host_negotiation_adapter_already_installed")
+    setattr(app.state, NEGOTIATION_POLICY_STATE_KEY, build_default_negotiation_policy())
+    setattr(app.state, NEGOTIATION_ADAPTER_STATE_KEY, True)
+    app.include_router(router)
+    return True
+
+
+def get_browser_host_negotiation_policy(request: Request) -> BrowserHostNegotiationPolicy:
+    policy = getattr(request.app.state, NEGOTIATION_POLICY_STATE_KEY, None)
+    if not isinstance(policy, BrowserHostNegotiationPolicy):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return policy
+
+
+def shutdown_browser_host_negotiation_adapter(app: Any) -> bool:
+    """Release the process-local policy and route state during shutdown."""
+
+    enabled = bool(getattr(app.state, NEGOTIATION_ADAPTER_STATE_KEY, False))
+    setattr(app.state, NEGOTIATION_POLICY_STATE_KEY, None)
+    setattr(app.state, NEGOTIATION_ADAPTER_STATE_KEY, False)
+    return enabled
 
 
 def install_browser_host_attachment_adapter(app: Any, router: Any) -> bool:

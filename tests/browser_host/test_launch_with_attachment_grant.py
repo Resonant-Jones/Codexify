@@ -23,19 +23,35 @@ class _GrantHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        self.__class__.requests.append(
-            {
-                "path": self.path,
-                "apiKey": self.headers.get("X-API-Key"),
-                "body": json.loads(body),
-            }
-        )
-        response_body = json.dumps(self.__class__.payload or {"error": "failed"}).encode()
-        self.send_response(self.__class__.status)
+        if self.path == "/dev/browser-host/v1/attachment-grants":
+            self.__class__.requests.append(
+                {
+                    "path": self.path,
+                    "apiKey": self.headers.get("X-API-Key"),
+                    "body": json.loads(body),
+                }
+            )
+            status = self.__class__.status
+            payload = self.__class__.payload or {"error": "failed"}
+        elif self.path == "/dev/browser-host/v1/negotiate":
+            status = 422
+            payload = {"error": "synthetic-route-probe"}
+        else:
+            status = 401
+            payload = {"error": "synthetic-route-probe"}
+        response_body = json.dumps(payload).encode()
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
         self.wfile.write(response_body)
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(405 if self.path in {
+            "/dev/browser-host/v1/negotiate",
+            "/dev/browser-host/v1/attachments",
+        } else 404)
+        self.end_headers()
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
