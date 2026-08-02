@@ -258,31 +258,6 @@ resolved === "light"
 
 AppShell already defines colors. No component may override them.
 
-### Navigation Material and Selection Semantics
-
-Navigation material and selection accent are separate responsibilities. A navigation surface must remain optically offset from its host surface through token-derived material variation, and containment must not be communicated through accent color.
-
-Active navigation destinations should use an accent border, edge, or restrained glow unless a governing component contract requires fill. Compact direct-value selectors may use solid accent fill. Controls may share pill geometry while using different selected-state treatments when their interaction roles differ.
-
-Material contrast must remain theme-aware and token-derived. Do not introduce hardcoded theme colors to force contrast.
-
-### Orthogonal Material Personalization
-
-The governing decision is [ADR-055: Orthogonal UI Material Personalization](../architecture/adr/055-orthogonal-ui-material-personalization.md).
-
-- Material axes must have stable, non-overlapping responsibilities.
-- Surface Depth, Surface Temperature, and Paper Tone are distinct.
-- Paper Tone is light-mode-only.
-- Surface Temperature is cross-theme.
-- Accent Color does not replace material temperature.
-- New personalization controls must be additive unless an ADR explicitly
-  supersedes an existing axis.
-- Persistence keys must not be silently reused for different visual
-  semantics.
-- User-controlled material variation must remain token-driven and
-  accessibility-bounded.
-- Codexify's structural identity must survive wide palette variation.
-
 VII. GLASS GEOMETRY RULESET
 
 The glass system is the most fragile part of Codexify’s visual identity.

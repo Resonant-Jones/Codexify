@@ -171,22 +171,6 @@ Use this when deciding:
 * why it should not regress into a settings page
 * why module grammar needs a first-party exemplar
 
-### ADR-055: Orthogonal UI Material Personalization
-
-**Role:** decision authority for UI material axes, theme-independent
-personalization semantics, control single-responsibility, and user-configurable
-visual identity.
-
-Use this when deciding:
-
-* how Surface Depth, Surface Temperature, and Paper Tone remain distinct;
-* how light-only and cross-theme material semantics are represented;
-* how token-driven material variation preserves structural Codexify identity;
-* how future appearance persistence and migration must preserve axis meaning.
-
-This ADR governs future material-personalization semantics. It does not
-implement the restored Surface Temperature control or change runtime UI.
-
 ---
 
 ## How to Use This Directory

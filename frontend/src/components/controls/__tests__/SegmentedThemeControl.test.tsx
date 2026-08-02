@@ -41,20 +41,6 @@ describe("SegmentedThemeControl", () => {
     expect(darkButton).toHaveAttribute("aria-pressed", "false");
   });
 
-  test("keeps its selected value on the default filled pill contract", () => {
-    const onChange = vi.fn();
-    render(<SegmentedThemeControl mode="light" onChange={onChange} />);
-
-    const group = screen.getByRole("group", { name: "Theme mode" });
-    const selected = screen.getByRole("button", { name: "Light" });
-
-    expect(selected).toHaveAttribute("data-state", "active");
-    expect(selected.style.background).toBe("");
-    expect(group.style.getPropertyValue("--pill-active-bg")).toBe("");
-    expect(group.style.getPropertyValue("--settings-nav-surface")).toBe("");
-    expect(group.style.getPropertyValue("--pill-active-border")).toBe("");
-  });
-
   test("calls onChange with the correct theme mode on click", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

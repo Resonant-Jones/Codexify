@@ -49,9 +49,6 @@ htmlcov/
 guardian/guardian.db
 guardian/guardian.*.db
 
-# Optional VaultNode Soft Serve operator configuration contains admin keys.
-config/soft-serve.env
-
 # --- Node / frontend build artifacts ---
 node_modules/
 .pnpm-store/
