@@ -23,6 +23,20 @@ export default function SettingsPanelDock({
         "sticky z-30 flex w-full shrink-0 items-center justify-center",
         className
       )}
+      style={
+        {
+          "--settings-nav-surface":
+            "color-mix(in srgb, var(--panel-bg) 86%, var(--text) 14%)",
+          "--pill-active-bg": "transparent",
+          "--pill-active-text": "var(--text)",
+          "--pill-active-border": "var(--accent)",
+          "--pill-active-shadow":
+            "0 0 calc(var(--radius-micro) * 0.75) color-mix(in srgb, var(--accent-weak) 72%, transparent)",
+          position: "sticky",
+          top: SETTINGS_DENSITY.edgeChrome,
+          paddingInline: SETTINGS_DENSITY.edgeChrome,
+        } as CSSProperties
+      }
       style={{
         position: "sticky",
         top: SETTINGS_DENSITY.edgeChrome,
