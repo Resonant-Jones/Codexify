@@ -8,12 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-01
-
-The 2026-08-01 architecture README update adds the optional VaultNode Soft
-Serve operator-forge documentation; runtime diagram sections require no
-change because Soft Serve remains outside the supported Codexify Compose
-graph.
+Diagram Review Marker: 2026-05-11
 
 ## Scope
 

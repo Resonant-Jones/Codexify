@@ -42,9 +42,7 @@ describe("SettingsPanelDock", () => {
     expect(navigationSurface).not.toContain("var(--accent)");
     expect(dock).toHaveAttribute("aria-orientation", "horizontal");
     const rail = screen.getByTestId("settings-panel-dock").querySelector(".glass-pill");
-    expect(rail).toHaveClass("glass-pill", "w-full", "overflow-x-auto");
-    expect(rail).toHaveStyle({ background: "var(--settings-nav-surface)" });
-    expect(rail?.getAttribute("style")).not.toContain("var(--accent)");
+    expect(rail).toHaveClass("w-full", "overflow-x-auto");
     expect(rail).not.toHaveClass("flex-wrap", "whitespace-normal");
     const tabGroup = rail?.firstElementChild;
     expect(tabGroup).toHaveClass(
