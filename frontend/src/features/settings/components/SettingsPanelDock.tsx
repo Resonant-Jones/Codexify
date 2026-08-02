@@ -47,7 +47,7 @@ export default function SettingsPanelDock({
         className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
-            "--pill-active-text": "var(--text-on-accent)",
+            background: "var(--settings-nav-surface)",
             "--pill-gap": SETTINGS_DENSITY.dockGap,
             "--pill-font": SETTINGS_DENSITY.dockFontSize,
             "--settings-dock-gap": SETTINGS_DENSITY.dockGap,
