@@ -104,6 +104,47 @@ outstanding grants on restart or worker replacement. No database, Redis, queue,
 worker, provider, command-bus, or durable storage path is used. This is a
 development proof seam, not a supported beta or production Browser Host path.
 
+### Browser Host development attachment configuration
+
+The Browser Host client is opt-in and fail-closed. The adapter flag requires
+`CODEXIFY_BROWSER_HOST_PROOF_MODE=1`, a valid synthetic proof token, numeric
+`127.0.0.1` HTTP origins, a bounded instance ID, and a one-use grant. The raw
+grant is supplied only to the child launched by the development broker; the
+trusted main process removes it from `process.env` during configuration and
+keeps it in a one-shot closure. The trusted preload and both renderer surfaces
+receive posture only, never the grant.
+
+| Variable | Browser Host behavior | Default / bound |
+|---|---|---|
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_DEV_ENABLED` | Enables the development adapter transport in the trusted main process. | `false`; also requires proof mode |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_ORIGIN` | Numeric loopback HTTP origin for `POST /dev/browser-host/v1/attachments`. | Required when enabled; `http://127.0.0.1:<port>` only |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_GRANT` | One short-lived `BrowserHostAttachmentGrant` passed by the broker. | Required when enabled; consumed once and never rendered |
+| `CODEXIFY_BROWSER_HOST_INSTANCE_ID` | Binds the grant, request scope, and exact instance header. | Required when enabled; 1–256 bounded identifier characters |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_TIMEOUT_MS` | Timeout for the single adapter request. | `3000`; integer `1000`–`30000` |
+
+The development broker is `scripts/browser_host/launch_with_attachment_grant.py`.
+It reads `GUARDIAN_API_KEY` only in the parent, requests one grant from
+`POST /dev/browser-host/v1/attachment-grants`, launches a sanitized child, and
+does not forward child output. The child receives no reusable API key, session,
+JWT, provider, cookie, signing, or authorization credential. Issuance uses the
+bounded Browser Host instance as the one-use grant request scope so the later
+attachment envelope can satisfy the existing Guardian store without another
+metadata or credential channel.
+
+Negotiation remains pointed at the deterministic Guardian stub. The adapter is
+explicitly attachment-only, has no retry, redirect following, renewal, or
+fallback to the stub after a claim. Accepted receipts are `202` and
+`not_persisted`; replay and expiry are bounded `409` outcomes, scope mismatch
+is `403`, a disabled route is `404`, and transport failure has no HTTP status.
+The live matrix and sanitized packet are generated with:
+
+```sh
+cd browser_host
+PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-attachment.XXXXXX)"
+npm run proof:guardian-attachment -- --output-dir "$PROOF_OUT"
+npm run proof:guardian-attachment:validate -- --proof "$PROOF_OUT/proof.json"
+```
+
 ## Provider Governance and Beta Operator Workflow
 
 ### Governance model

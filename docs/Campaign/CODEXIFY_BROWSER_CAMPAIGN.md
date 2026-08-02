@@ -753,11 +753,40 @@ persistence work.
   remains closed for supported integration and release qualification.
 - This is a development integration seam, not a supported release path.
 
+## Browser Host Guardian attachment integration — 2026-08-01
+
+- Prerequisite: `191e04bd21e0b677e77442c0cf8b95014626a253`; ADR-054 and the
+  versioned contract package remain unchanged.
+- The trusted Electron main process now selects an explicit
+  `guardian_dev_adapter` transport only when proof mode, the adapter flag,
+  numeric loopback origin, bounded instance ID, timeout, and one-use grant are
+  valid. The deterministic stub remains the negotiation transport and its
+  attachment behavior is unchanged.
+- `scripts/browser_host/launch_with_attachment_grant.py` is a development-only
+  parent broker: it reads `GUARDIAN_API_KEY` only to request one grant, binds
+  the grant request scope to the Browser Host instance, sanitizes the child
+  environment, and never forwards child output or reusable credentials.
+- The main process removes the raw grant from `process.env`, keeps it in a
+  one-shot closure, claims it before the one adapter attempt, and exposes only
+  bounded posture in runtime state and the trusted shell. There is no retry,
+  redirect following, renewal, or deterministic-stub fallback after a claim.
+- Live Electron proof covers accepted `202`/`not_persisted`, local replay
+  rejection, wrong-instance `403`, expiry `409`, disabled-route `404`,
+  transport failure, selected and visible capture coverage, stale/cancelled
+  ticket behavior, renderer redaction, exclusion of sensitive/browser-storage
+  and iframe content, prompt-injection containment, and deterministic-stub
+  continuity.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-browser-host-guardian-attachment-integration/`.
+- Gate C remains passed. Gate D remains closed: this is local development
+  integration proof, not production authentication, durable persistence,
+  packaging, signing, updater, or release proof.
+
 ### Next atomic task
 
-Wire the production Browser Host main process to the development-only Guardian
-attachment-grant adapter behind explicit local operator configuration, using the
-one-use grant and no reusable Guardian credential.
+Define and qualify the supported production Guardian authentication boundary for
+Browser Host attachment without importing development broker credentials,
+before any production route, durable persistence, packaging, or release work.
 
 ## ADR impact
 

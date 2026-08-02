@@ -5,7 +5,8 @@
 - Classification: normative architecture contract; architecture-impacting.
 - Governing decision: [ADR-054](./adr/054-browser-host-topology-and-release-ownership.md).
 - Implementation status: bounded production one-tab topology skeleton with
-  deterministic stub proof; live Guardian integration remains unproven.
+  deterministic negotiation and a development-only Guardian attachment
+  adapter integration proof; production Guardian integration remains unproven.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -34,15 +35,15 @@ tests, JavaScript/Python conformance tests, and a pure Guardian-owned
 attachment-grant issuer/consumer seam.
 
 There is no live production Guardian route, production credential, or
-supported authenticated grant-issuance path. A development-only Guardian
-adapter is now available only behind explicit development, adapter, and
-local-safe exposure gates. The deterministic stub exercises hello,
-negotiation, capture, and ephemeral attachment; compatible negotiation gates
-remote loading, and the trusted/remote renderer boundary is live-test proven
-for this skeleton. The pure grant proof uses a synthetic authorized context,
-process-local digest-only storage, and no network or persistence. The bounded
-proof is not a supported feature. Electron is the accepted family under
-ADR-054.
+supported authenticated production grant-issuance path. A development-only
+Guardian adapter is available only behind explicit development, adapter, and
+local-safe exposure gates. The deterministic stub remains the negotiation
+authority and exercises hello, negotiation, and regression attachment behavior;
+the local adapter exercises only the separately confirmed one-use attachment.
+Compatible negotiation gates remote loading, and the trusted/remote renderer
+boundary is live-test proven for this skeleton. The pure grant proof and
+adapter integration use process-local, non-durable state. Neither proof is a
+supported feature. Electron is the accepted family under ADR-054.
 
 Candidate source and proof packets remain evidence only. They are not imported
 by the production package and are not promoted into production code.
@@ -263,8 +264,10 @@ authorizes one ephemeral attachment attempt only. It does not authorize
 durable persistence, provider execution, Command Bus actions, authentication of
 page content, or representation of human identity. Consumption is atomic and a
 replay fails closed. The v1 attachment body and receipt meanings remain
-unchanged. The development adapter does not connect the production Browser
-Host runtime or create a supported Guardian route.
+unchanged. The current development proof connects the Browser Host main
+process to the explicitly gated local adapter for attachment only; it does not
+connect production authentication, create a supported route, or widen release
+posture.
 
 Use the precise term `long-lived-credential-free Browser Host integration`.
 Do not use the prohibited overclaim `credentialless attachment`: the bounded
@@ -275,9 +278,11 @@ long-lived reusable Guardian credential.
 
 The trusted main process owns capture correlation, source metadata,
 document-generation checks, sanitization declarations, content hashing, bounded
-envelope construction, and the separate ephemeral attachment attempt. This
-slice implements those seams against deterministic loopback stubs; live
-production Guardian integration and durable persistence remain outside scope.
+envelope construction, and the separate ephemeral attachment attempt. In the
+development adapter flow, a parent broker requests the grant, removes reusable
+Guardian credentials from the child environment, and the main process claims
+the grant before one HTTP attempt. Production Guardian integration and durable
+persistence remain outside scope.
 
 ## Remote-renderer prohibitions
 
@@ -389,13 +394,20 @@ them.
   rejection, and concurrency behavior.
 - Electron runtime: bounded one-tab runtime plus capture preview implemented and live-test proven.
 - Deterministic Guardian negotiation: implemented for test-only loopback stub.
-- Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub.
+- Trusted-main-process envelope construction and ephemeral attachment: implemented and live-test proven against the deterministic stub and the explicitly enabled development adapter.
 - Development-only Guardian HTTP adapter: test-proven behind
   `GUARDIAN_DEV_MODE=true`, `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED=true`,
   and `GUARDIAN_EXPOSURE_MODE=local_safe`; it is absent from the default route
   surface and owns one process-local application store.
-- Live production Guardian integration, supported grant issuance, Browser Host
-  transport, and production authentication remain not implemented or proven.
+- Development Browser Host grant integration: live Electron matrix proven for
+  accepted `202`, local replay rejection, wrong-instance `403`, expired `409`,
+  disabled-route `404`, transport failure without retry or fallback, renderer
+  redaction, and deterministic-stub continuity. The broker holds the reusable
+  API key only in the parent and binds the one-use grant request to the bounded
+  Browser Host instance.
+- Live production Guardian integration, supported grant issuance, production
+  Browser Host authentication, and release transport remain not implemented
+  or proven.
 - Durable browser persistence: not implemented; attachment receipts are explicitly `not_persisted`.
 - Browser persistence: not implemented.
 - Supported release: not qualified.
@@ -428,8 +440,11 @@ bounded `403` receipts; malformed bodies are rejected before grant consumption.
 The adapter does not call databases, Redis, queues, workers, providers,
 command-bus routes, or storage writers. Raw attachment content, bearer
 material, and internal subjects are excluded from logs, receipts, proof, and
-retained state. This remains a development seam, not production Browser Host
-integration or a supported release path.
+retained state. The Browser Host integration removes the raw grant from
+`process.env` during main-process configuration, claims it before the single
+adapter request, and never retries or falls back to the deterministic
+attachment transport. This remains a development seam, not production Browser
+Host integration or a supported release path.
 
 Proof: [Guardian attachment HTTP adapter proof](./proofs/browser-host/2026-08-01-guardian-attachment-http-adapter/).
 
@@ -456,6 +471,6 @@ control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Wire the production Browser Host main process to the development-only Guardian
-attachment-grant adapter behind explicit local operator configuration, using the
-one-use grant and no reusable Guardian credential.
+Define and qualify the supported production Guardian authentication boundary for
+Browser Host attachment without importing development broker credentials,
+before any production route, durable persistence, packaging, or release work.

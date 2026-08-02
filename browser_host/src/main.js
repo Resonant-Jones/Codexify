@@ -4,10 +4,11 @@ const path = require("node:path");
 const { app, BrowserWindow, WebContentsView, ipcMain, session } = require("electron");
 const { loadConfig, unconfiguredConfig, PROOF_TOKEN_ENV } = require("./runtime/config");
 const { negotiate, GuardianNegotiationError, attachEnvelope } = require("./runtime/guardian-client");
+const { createGuardianAttachmentClient } = require("./runtime/guardian-attachment-client");
 const { createRuntimeState } = require("./runtime/runtime-state");
 const { createTrustedShell } = require("./runtime/trusted-shell");
 const { createRemoteTab } = require("./runtime/remote-tab");
-const { createCaptureController } = require("./runtime/capture");
+const { createCaptureController, clearPendingPreviewState } = require("./runtime/capture");
 
 const ROOT = __dirname;
 const PRELOAD_PATH = path.join(ROOT, "preload", "trusted-shell-preload.js");
@@ -41,12 +42,32 @@ function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcM
   function sendState(snapshot = stateSnapshot()) { if (trustedShell && !trustedShell.window.isDestroyed()) trustedShell.window.webContents.send("browser-host:state-changed", snapshot); }
   function update(patch) { const snapshot = runtimeState.update(patch); sendState(snapshot); return snapshot; }
 
+  const guardianAttachmentClient = config.guardianAttachmentAdapterEnabled
+    ? createGuardianAttachmentClient({
+      enabled: true,
+      origin: config.guardianAttachmentOrigin,
+      instanceId: config.browserHostInstanceId,
+      timeoutMs: config.guardianAttachmentTimeoutMs,
+      grantHolder: config.guardianAttachmentGrantHolder,
+      onGrantClaimed: () => update({
+        attachmentGrantAvailable: false,
+        attachmentGrantConsumed: true,
+        ...clearPendingPreviewState()
+      }),
+      onHttpStatus: (status) => update({ lastGuardianAttachmentHttpStatus: Number.isInteger(status) ? status : null })
+    })
+    : null;
+
+  const attachmentTransport = guardianAttachmentClient
+    ? (unusedConfig, attachment) => guardianAttachmentClient.attach(attachment)
+    : attachEnvelope;
+
   const captureController = createCaptureController({
     getRemoteTab: () => remoteTab,
     config: () => config,
     isFeatureEnabled: (feature) => runtimeState.snapshot().enabledFeatures.includes(feature),
     update,
-    attachEnvelope
+    attachEnvelope: attachmentTransport
   });
 
   function registerIpc() {
@@ -84,6 +105,7 @@ function createRuntime(electronApi = { app, BrowserWindow, WebContentsView, ipcM
       shutdownStarted = true;
       update({ runtimeStatus: "shutting_down" });
       captureController.dispose();
+      guardianAttachmentClient?.dispose();
       if (remoteTab) { await remoteTab.destroy(); remoteTab = null; }
       stateUnsubscribe?.();
       stateUnsubscribe = null;

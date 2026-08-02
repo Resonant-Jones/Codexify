@@ -155,6 +155,15 @@ function buildRejectedReceipt(envelope, errorCode) {
 function clearPreviewState() {
   return {
     captureMode: null,
+    ...clearPendingPreviewState(),
+    captureAttachmentOutcome: null,
+    capturePersistenceOutcome: null,
+    captureGuardianCorrelationId: null
+  };
+}
+
+function clearPendingPreviewState() {
+  return {
     captureTicketId: null,
     captureRequestId: null,
     captureContextId: null,
@@ -167,10 +176,7 @@ function clearPreviewState() {
     capturePreviewSourceTitle: "",
     capturePreviewDocumentGeneration: null,
     capturePreviewDocumentFingerprint: null,
-    capturePreviewSanitization: null,
-    captureAttachmentOutcome: null,
-    capturePersistenceOutcome: null,
-    captureGuardianCorrelationId: null
+    capturePreviewSanitization: null
   };
 }
 
@@ -225,7 +231,10 @@ function createCaptureController({ getRemoteTab, config, isFeatureEnabled = () =
       const raw = await remoteTab.capture(mode);
       const after = remoteTab.documentState();
       if (!after.ready || before.generation !== after.generation || raw.documentGeneration !== after.generation) throw new CaptureOperationError("capture_document_changed", "document_changed_during_capture");
-      const requestId = ids("request");
+      const runtimeConfig = typeof config === "function" ? config() : config;
+      const requestId = runtimeConfig?.guardianAttachmentAdapterEnabled && runtimeConfig.browserHostInstanceId
+        ? runtimeConfig.browserHostInstanceId
+        : ids("request");
       const envelope = buildEnvelope({ mode, requestId, raw, metadata: after, documentGeneration: after.generation });
       pending = Object.freeze({ ticketId: envelope.captureRequestId, envelope });
       return update(previewState(envelope));
@@ -300,5 +309,6 @@ module.exports = Object.freeze({
   buildAttachment,
   buildRejectedReceipt,
   createCaptureController,
-  clearPreviewState
+  clearPreviewState,
+  clearPendingPreviewState
 });

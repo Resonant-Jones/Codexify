@@ -20,4 +20,5 @@ body[data-error-code]:not([data-error-code=""]) #status { color: #f1a7a7; }
 .capture-actions button { border-color: #6484a5; background: #234263; }
 .capture-actions button:disabled { cursor: default; opacity: .5; }
 #capture-status { margin: 10px 0 6px; color: #bbcad9; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#attachment-posture { margin: 0 0 6px; color: #9fb3c8; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 #capture-preview { max-height: 100px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #35404e; border-radius: 4px; padding: 8px; background: #0d131a; color: #dbe7f3; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }

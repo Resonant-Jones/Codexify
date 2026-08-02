@@ -10,6 +10,16 @@ const captureSelected = document.querySelector("#capture-selected");
 const captureVisible = document.querySelector("#capture-visible");
 const attachCapture = document.querySelector("#attach-capture");
 const cancelCapture = document.querySelector("#cancel-capture");
+const attachmentPosture = document.querySelector("#attachment-posture");
+
+function renderAttachmentPosture(state) {
+  if (state.guardianAttachmentAdapterEnabled) {
+    const originText = state.guardianAttachmentOrigin || "loopback origin unavailable";
+    const grantText = state.attachmentGrantAvailable ? "one-use grant available" : "one-use grant unavailable";
+    return `transport Guardian development adapter · ${originText} · ${grantText} · reusable Guardian credential: no · accepted attachment: non-durable · new grant requires a new trusted operator launch after use`;
+  }
+  return "transport deterministic stub · Guardian development adapter disabled · reusable Guardian credential: no · accepted attachment: non-durable";
+}
 
 function render(state) {
   if (!state) return;
@@ -18,11 +28,12 @@ function render(state) {
   origin.textContent = state.remoteOrigin || "No remote origin";
   versions.textContent = `protocol ${state.protocolVersion} · envelope ${state.envelopeVersion} · attachment ${state.attachmentVersion}`;
   captureStatus.textContent = `capture ${state.captureStatus} · mode ${state.captureMode || "none"}${state.captureErrorCode ? ` · ${state.captureErrorCode}` : ""}`;
+  attachmentPosture.textContent = renderAttachmentPosture(state);
   capturePreview.textContent = state.capturePreviewContent || "No page content has crossed the capture boundary.";
   const previewReady = state.captureStatus === "preview_ready" && typeof state.captureTicketId === "string";
   captureSelected.disabled = state.remoteStatus !== "ready";
   captureVisible.disabled = captureSelected.disabled;
-  attachCapture.disabled = !previewReady;
+  attachCapture.disabled = !previewReady || (state.guardianAttachmentAdapterEnabled && !state.attachmentGrantAvailable);
   cancelCapture.disabled = !previewReady;
   document.body.dataset.runtimeStatus = state.runtimeStatus;
   document.body.dataset.errorCode = state.errorCode || "";

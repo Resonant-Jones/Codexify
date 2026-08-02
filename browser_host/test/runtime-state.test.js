@@ -14,6 +14,11 @@ test("runtime state is bounded, cloned, frozen, and explicitly redacted", () => 
   assert.equal(first.captureImplemented, true);
   assert.equal(first.attachmentImplemented, true);
   assert.equal(first.persistenceImplemented, false);
+  assert.equal(first.attachmentTransport, "deterministic_stub");
+  assert.equal(first.attachmentCredentialPosture, "no_reusable_guardian_credential");
+  assert.equal(first.attachmentGrantAvailable, false);
+  assert.equal(first.attachmentGrantConsumed, false);
+  assert.equal(first.lastGuardianAttachmentHttpStatus, null);
   assert.equal("proofToken" in first, false);
   assert.equal("credentials" in first, false);
   assert.equal("pageBody" in first, false);
@@ -25,4 +30,23 @@ test("runtime state is bounded, cloned, frozen, and explicitly redacted", () => 
   assert.equal(received.length, 1);
   assert.equal(received[0].runtimeStatus, "negotiating");
   assert.throws(() => state.update({ errorCode: "not-a-canonical-error" }), /state_error_code_invalid/);
+});
+
+test("runtime state exposes only bounded Guardian adapter posture", () => {
+  const state = createRuntimeState({
+    ...metadata(),
+    guardianAttachmentAdapterEnabled: true,
+    guardianAttachmentOrigin: "http://127.0.0.1:43125",
+    browserHostInstanceId: "browser-host-state-test",
+    guardianAttachmentGrantAvailable: true
+  });
+  const snapshot = state.snapshot();
+  assert.equal(snapshot.attachmentTransport, "guardian_dev_adapter");
+  assert.equal(snapshot.guardianAttachmentAdapterEnabled, true);
+  assert.equal(snapshot.guardianAttachmentOrigin, "http://127.0.0.1:43125");
+  assert.equal(snapshot.browserHostInstanceId, "browser-host-state-test");
+  assert.equal(snapshot.attachmentGrantAvailable, true);
+  assert.equal(snapshot.attachmentGrantConsumed, false);
+  assert.equal("grantBearer" in snapshot, false);
+  assert.equal("guardianApiKey" in snapshot, false);
 });
