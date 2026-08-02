@@ -830,6 +830,27 @@ before any production route, durable persistence, packaging, or release work.
 
 Qualify the complete development Browser Host session against the real Guardian application process, using Guardian-owned negotiation and one-use attachment grants without the reduced test-support application or durable persistence.
 
+## Live Electron launch diagnostic — 2026-08-02
+
+- Prerequisite commit: `3b1e736ee52ee22958e61e479f060382bf82ea96`.
+- The bounded diagnostic and proof runner use the production Browser Host
+  entrypoint through Playwright with deterministic loopback negotiation only.
+- Current result: `next-proof-needed`; primary classification:
+  `host_security_assessment`.
+- The installed Electron `43.2.0` binary matches the arm64 host, but direct
+  `--version` and production-entrypoint launch terminate with `SIGABRT` before
+  `app.whenReady()` or the trusted window. macOS `spctl` reports an internal
+  Code Signing subsystem error. An Aqua graphical session is present, so this
+  is not classified as a missing graphical session.
+- No repository runtime repair was justified. No insecure sandbox bypass,
+  context-isolation change, credential injection, quarantine removal, signing
+  change, or alternate entrypoint was used.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-live-electron-launch/`.
+  Trusted-shell readiness, compatible negotiation, post-negotiation remote
+  load, and clean live Electron qualification remain unproven. Gate D remains
+  closed and full real-Guardian process qualification remains a later task.
+
 ## ADR impact
 
 - Classification: aligned with existing ADRs; ADR-054 is accepted.

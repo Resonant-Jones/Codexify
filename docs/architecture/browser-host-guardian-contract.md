@@ -419,8 +419,11 @@ them.
 - Guardian negotiation policy and credential-free development HTTP adapter:
   implemented and unit/route test-proven behind the independent development,
   flag, and `local_safe` gates; the Browser Host selects it explicitly with no
-  retry or deterministic fallback. The requested combined live Electron
-  qualification is environment-blocked before the application handshake.
+  retry or deterministic fallback. The live Electron launch diagnostic remains
+  `next-proof-needed` at the pinned Electron process boundary, recorded in
+  `docs/architecture/proofs/browser-host/2026-08-02-live-electron-launch/` with
+  primary classification `host_security_assessment`; no live Electron pass is
+  claimed.
 - Trusted-main-process envelope construction and ephemeral attachment:
   implemented and live-test proven by the prior deterministic-stub and
   attachment-adapter packets; the combined negotiation-plus-attachment flow
@@ -448,6 +451,10 @@ Gate C remains passed for architecture and ownership direction. Gate D remains
 closed for supported product/release behavior; the bounded topology proof does
 not widen current release truth. Current release truth remains
 `docs/architecture/00-current-state.md`.
+
+The live launch diagnostic and proof runner do not qualify a complete real-
+Guardian session. Guardian authority, negotiation semantics, attachment grants,
+and wire contracts remain unchanged by this diagnostic slice.
 
 ## Development-only Guardian HTTP adapter — 2026-08-01
 

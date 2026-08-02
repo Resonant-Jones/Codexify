@@ -67,6 +67,13 @@ NEGOTIATION_PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-negotiati
 npm run proof:guardian-negotiation -- --output-dir "$NEGOTIATION_PROOF_OUT"
 npm run proof:guardian-negotiation:validate -- --proof "$NEGOTIATION_PROOF_OUT/proof.json"
 
+# Live Electron launch diagnostic and deterministic negotiation proof
+LIVE_ELECTRON_OUT="$(mktemp -d /tmp/codexify-browser-host-live-electron.XXXXXX)"
+npm run diagnose:live-electron
+npm run proof:live-electron -- --output-dir "$LIVE_ELECTRON_OUT"
+npm run proof:live-electron:validate -- --proof-dir "$LIVE_ELECTRON_OUT"
+npm run test:live-electron
+
 # Optional sanitized proof run
 PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-one-tab.XXXXXX)"
 npm run proof:one-tab -- --output-dir "$PROOF_OUT"
@@ -99,3 +106,17 @@ cd ..
 - No browser profile, cookies, history, bookmarks, downloads, or durable browser state is defined.
 - No signing, notarization, updater, rollback, supported-platform, beta, or public-release claim exists.
 - Passing package and contract tests proves only this scaffold and its conformance fixtures.
+
+## Live Electron launch proof boundary
+
+The live launch diagnostic records bounded host, Electron, Playwright, entrypoint,
+startup, readiness, negotiation-order, and cleanup evidence without recording
+environment dumps, credentials, grants, cookies, tokens, page content, or raw
+protocol bodies. Its proof status is one of `passed`, `next-proof-needed`, or
+`failed`; `next-proof-needed` is not a pass claim.
+
+The diagnostic and proof runner use the production `src/main.js` entrypoint and
+deterministic loopback negotiation only. They must not use `--no-sandbox`, enable
+Node integration, disable context isolation, inject credentials, or introduce a
+fallback entrypoint. Full real-Guardian process qualification remains a later
+task even when this deterministic launch proof passes.
