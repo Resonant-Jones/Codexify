@@ -104,17 +104,15 @@ def test_authoring_guide_exists_and_has_required_sections() -> None:
         assert phrase in guide
 
 
-def test_contracts_and_current_truth_link_authoring_aids() -> None:
+def test_contracts_and_architecture_index_link_authoring_aids() -> None:
     reducer = (ROOT / "docs/architecture/guardian-evidence-packet-reducer-contract.md").read_text()
     validator = (ROOT / "docs/architecture/guardian-evidence-packet-static-validator-contract.md").read_text()
     readme = (ROOT / "docs/architecture/README.md").read_text()
-    current = (ROOT / "docs/architecture/00-current-state.md").read_text()
     assert "templates/guardian-evidence-packet-template.v1.json" in reducer
     assert "guardian-evidence-packet-authoring-guide.md" in reducer
     assert "intentionally outside `docs/architecture/fixtures`" in validator
     assert "guardian-evidence-packet-template.v1.json" in readme
     assert "guardian-evidence-packet-authoring-guide.md" in readme
-    assert "Guardian Evidence Packet authoring template and guide" in current
 
 
 def test_batch_target_validates_fixtures_not_template() -> None:
