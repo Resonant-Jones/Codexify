@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-07-31
+2026-08-02
 
 ## Interpretation rule
 
@@ -28,6 +28,7 @@ This file is authoritative for:
 - Clarified trusted-remote/private-preview email sign-in behavior.
 - Recorded the latest dual-provider preview proof as `next-proof-needed`: missing DeepSeek credential and authenticated session prevented runtime turns.
 - Added a Codexify Browser campaign and extension inventory as documentation; this is not shipped browser support.
+- Guardian Evidence Packet authoring template and guide are static authoring aids only; they do not implement runtime reducer behavior or widen release support.
 
 ## Current supported reality
 
