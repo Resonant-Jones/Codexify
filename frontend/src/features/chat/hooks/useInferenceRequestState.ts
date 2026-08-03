@@ -778,17 +778,23 @@ export function useInferenceRequestState() {
           return;
         }
         const timingPatch = extractTimingPatch(payload);
+        const currentTiming = stateRef.current;
         const lifecycleTimingPatch: Partial<InferenceRequestState> =
-          lifecycleState === TASK_LIFECYCLE_STATE.QUEUED && !timingPatch.queuedAt
+          lifecycleState === TASK_LIFECYCLE_STATE.QUEUED &&
+              !timingPatch.queuedAt &&
+              !currentTiming.queuedAt
             ? { queuedAt: new Date().toISOString() }
             : lifecycleState === TASK_LIFECYCLE_STATE.AWAITING_MODEL &&
-                !timingPatch.awaitingModelAt
+                !timingPatch.awaitingModelAt &&
+                !currentTiming.awaitingModelAt
               ? { awaitingModelAt: new Date().toISOString() }
               : lifecycleState === TASK_LIFECYCLE_STATE.AWAITING_FIRST_TOKEN &&
-                  !timingPatch.awaitingFirstTokenAt
+                  !timingPatch.awaitingFirstTokenAt &&
+                  !currentTiming.awaitingFirstTokenAt
                 ? { awaitingFirstTokenAt: new Date().toISOString() }
                 : lifecycleState === TASK_LIFECYCLE_STATE.STREAMING &&
-                    !timingPatch.firstOutputAt
+                    !timingPatch.firstOutputAt &&
+                    !currentTiming.firstOutputAt
                   ? { firstOutputAt: new Date().toISOString() }
                   : {};
 
