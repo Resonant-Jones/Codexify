@@ -1781,4 +1781,111 @@ export async function fetchProviderState() {
   return json;
 }
 
+export type CodingLoopRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "success"
+  | "completed"
+  | "failed"
+  | "failed_retryable"
+  | "failed_fatal"
+  | "canceled"
+  | "cancelled"
+  | "escalated"
+  | string;
+
+export type CodingLoopArtifact = {
+  kind?: string;
+  name?: string;
+  ref?: string;
+  uri?: string;
+  status?: string;
+  sha256?: string;
+  size_bytes?: number;
+};
+
+export type CodingLoopResult = {
+  status?: string;
+  coding_result_status?: string;
+  summary?: string;
+  files_changed_count?: number;
+  error_code?: string;
+  error_message?: string;
+  validation_results?: Record<string, unknown>;
+  validation_result?: Record<string, unknown>;
+  final_validation_status?: string;
+  commit_hash?: string;
+  commit_status?: string;
+  delivery_ok?: boolean;
+  delivery_status?: string;
+  delivery_reason?: string;
+  adapter_session_ref?: string;
+  artifacts?: CodingLoopArtifact[];
+};
+
+export type CodingLoopRun = {
+  run_id: string;
+  deployment_id?: string | null;
+  thread_id?: number | null;
+  source_thread_id?: number | null;
+  source_message_id?: number | null;
+  coding_task_id?: string | null;
+  attempt_id?: string | null;
+  adapter_kind?: string | null;
+  project_id?: string | number | null;
+  status?: CodingLoopRunStatus;
+  runtime_target?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  error?: string | null;
+  result?: CodingLoopResult | null;
+};
+
+export type CodingLoopDispatchPayload = {
+  coding_task_id: string;
+  thread_id: string;
+  source_message_id: string;
+  attempt_id: string;
+  user_id: string;
+  project_id: string | null;
+  adapter_kind: "pi_codex_runner";
+  instructions: string;
+  repo_root: string | null;
+  context_summary: string | null;
+  permission_policy: {
+    allow_shell: boolean;
+    allow_network: boolean;
+    allow_write: boolean;
+    allowed_paths: string[];
+    max_runtime_seconds: number;
+  };
+};
+
+export async function dispatchCodingLoop(
+  payload: CodingLoopDispatchPayload
+): Promise<{ ok: boolean; status?: string; run_id?: string; [key: string]: unknown }> {
+  const response = await api.post("/api/agents/coding/execute", payload);
+  return response.data;
+}
+
+export async function fetchCodingLoopRuns(
+  threadId: string | number
+): Promise<CodingLoopRun[]> {
+  const response = await api.get<{ runs?: CodingLoopRun[] }>(
+    `/api/chat/${normalizePathSegment(threadId)}/coding-runs`
+  );
+  return Array.isArray(response.data?.runs) ? response.data.runs : [];
+}
+
+export async function fetchCodingLoopRun(
+  runId: string
+): Promise<CodingLoopRun | null> {
+  const response = await api.get<{ run?: CodingLoopRun }>(
+    `/api/agents/runs/${normalizePathSegment(runId)}/coding`
+  );
+  return response.data?.run ?? null;
+}
+
 export default api;
