@@ -899,6 +899,57 @@ describe("GuardianChat inference rail", () => {
     expect(createThreadCall?.[1]).not.toHaveProperty("user_id");
   });
 
+  it("includes the canonical local user id when creating a thread (regression: CANONICAL_SINGLE_USER_ID)", async () => {
+    runtimeConfigState.authMode = "local";
+    renderChat("bare", {
+      userName: "Resonant Jones",
+    });
+
+    let threadCreateBody: any = null;
+    apiMock.post.mockImplementation(async (url: string, body?: any) => {
+      if (url === "/api/chat/threads") {
+        threadCreateBody = body;
+        return createApiResponse(
+          { thread_id: 3, thread: { id: 3, title: "New Thread" } },
+          201
+        );
+      }
+      if (url === "/chat/3/messages") {
+        return createApiResponse(
+          {
+            ok: true,
+            thread: { id: 3, title: "New Thread" },
+            message: { id: 789, thread_id: 3 },
+          },
+          200
+        );
+      }
+      if (url === "/chat/3/complete") {
+        return createApiResponse({ task_id: "task-123" }, 200);
+      }
+      return createApiResponse({}, 200);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+    await advanceTimers(100);
+
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/api/chat/threads",
+        expect.anything()
+      );
+    });
+
+    expect(threadCreateBody).toEqual(
+      expect.objectContaining({
+        title: expect.any(String),
+        user_id: "local",
+      })
+    );
+  });
+
   it("surfaces sanitized diagnostics when the create-thread response lacks a thread id", async () => {
     renderChat("draft-thread", {
       userName: "Resonant Jones",

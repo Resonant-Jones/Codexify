@@ -3156,6 +3156,9 @@ export function GuardianChat({
         const createThreadPayload = {
           title: provisionalTitle,
           metadata,
+          ...(runtimeConfig.authMode === "remote"
+            ? {}
+            : { user_id: COMMAND_BUS_ACTOR_ID }),
         };
         const resp = await api.post(createThreadEndpoint, createThreadPayload);
         const response = resp ?? {};

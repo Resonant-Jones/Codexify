@@ -154,8 +154,9 @@ Sequence:
 3. Guardian authenticates the request, persists an `AgentDeployment` and queued `AgentRun`, emits the existing agent/task lifecycle event, and enqueues the existing `CodingExecutionTask` for `CodingWorker`.
 4. The immediate response is an acceptance receipt (`status=accepted`, `run_id`, and source lineage). Acceptance is not worker execution or completion.
 5. The Composer observes existing task events and reads the canonical projections `GET /api/chat/{thread_id}/coding-runs` and `GET /api/agents/runs/{run_id}/coding`. Active runs are bounded-polled until a terminal state so event delivery is an acceleration path, not the persistence boundary.
-6. `CodingWorker` executes through the registered Guardian coding adapter. `AgentStore.store_coding_result()` persists the coding-result artifact, updates the terminal run status, and injects the result into the source thread under the existing lineage contract when the durable database path is available.
-7. The conversation lane renders accepted, active, completed, failed, canceled, or escalated cards with run/source lineage and bounded result evidence. Worker paths and lifecycle controls are not exposed by this slice.
+6. Before the coding consumer process starts, the `worker-coding` entrypoint runs the canonical Pi readiness gate. It checks the Node executable, wrapper, pinned SDK artifact, worker home and auth material, provider/model resolution, provider credential presence, and non-executing adapter initialization. A `blocked` result exits before Redis dequeue; `ready` or explicitly `degraded` posture permits the consumer to start. Credential presence remains weaker than credential validity or live execution proof.
+7. `CodingWorker` executes through the registered Guardian coding adapter. `AgentStore.store_coding_result()` persists the coding-result artifact, updates the terminal run status, and injects the result into the source thread under the existing lineage contract when the durable database path is available.
+8. The conversation lane renders accepted, active, completed, failed, canceled, or escalated cards with run/source lineage and bounded result evidence. Worker paths and lifecycle controls are not exposed by this slice.
 
 State boundaries:
 - `accepted`: Guardian persisted the run and accepted queue dispatch.
@@ -167,6 +168,7 @@ Failure and recovery posture:
 - Durable run readback is account-scoped through the authenticated request identity and a bounded result projection.
 - The UI does not offer Cancel or Retry controls here. The existing cancel route changes durable run state and emits an event, but does not carry the queue task id required by `CodingWorker`'s cancellation check; adding controls without that contract would misrepresent cancellation.
 - There is no autonomous scheduler, direct subprocess launch, credential injection, or parallel lifecycle in this Composer slice.
+- A wrapper file or running container alone is not adapter readiness. The source Compose worker must pass its prerequisite gate before it can consume the coding queue.
 - This implementation is code-path and automated-test evidence only. No live worker/queue/database/browser proof is claimed; `docs/architecture/00-current-state.md` remains unchanged and the next proof needed is a supported-path end-to-end run showing source-message persistence, accepted receipt, worker terminal evidence, result return, and UI readback.
 
 Concrete anchors:

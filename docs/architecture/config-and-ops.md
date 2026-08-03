@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-05-08
+Last updated: 2026-08-03
 Source anchors:
 - Makefile
 - package.json
@@ -67,6 +67,38 @@ Source anchors:
 | `REMOTE_RECALL_TIMEOUT_SECONDS` | Default bounded `20.0`. Timeout for a single Remote Recall provider adapter call. | `guardian/core/config.py` |
 | `GROQ_WEB_SEARCH_ENABLED` | Default `false`. Groq web-search adapter flag. Requires `REMOTE_RECALL_ENABLED=true`, `ALLOW_CLOUD_PROVIDERS=true`, `CODEXIFY_LOCAL_ONLY_MODE=false`, a present `GROQ_API_KEY`, and an egress-allowed `groq` target. | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
 | `GROQ_WEB_SEARCH_MODEL` | Default `groq/compound-mini`. Groq Compound system model id for built-in web search (supported: `groq/compound`, `groq/compound-mini`). | `guardian/core/config.py`, `guardian/web/groq_search_adapter.py` |
+
+### Coding-worker Pi runtime boundary
+
+The source `worker-coding` Compose service uses the dedicated
+`worker-coding-runtime` Dockerfile target. That image installs the locked
+`@mariozechner/pi-coding-agent` runtime declared under
+`codex_runner/pi-runtime/`; the source bind mount does not need a host-built
+`dist` tree. Pi authentication is not part of the image. Compose mounts only
+the named `codexify_pi_auth` volume at `/home/codexify/.pi`, with the canonical
+auth file at `/home/codexify/.pi/agent/auth.json`.
+
+`PI_PROVIDER` and `PI_MODEL` select the coding adapter's effective provider and
+model; their source-Compose defaults are `anthropic` and
+`claude-sonnet-4-20250514`. `ANTHROPIC_API_KEY` is an allowed worker input for
+the current default provider, while Pi's mounted auth store remains the
+persistent authentication boundary. These variables do not change general
+chat routing, provider authorization, supported-profile approval, or the
+local-first release posture.
+
+The canonical command is
+`python /app/backend/scripts/docker/check_worker_coding_readiness.py` inside
+the built service container. It returns `ready`, `blocked`, or `degraded` and
+checks Node, wrapper, SDK artifacts, worker home, auth material, provider/model
+resolution, credential presence, and non-executing adapter initialization.
+Credential presence is not credential validity or live provider proof. A
+blocked startup exits before the Redis coding consumer starts, so it cannot
+dequeue and repeatedly fail accepted tasks.
+
+Operators should run `docker compose config --quiet` and the in-container
+readiness command. They must not shell-source the project env file: Compose can
+safely preserve values such as `LOCAL_PROVIDER_DISPLAY_NAME` containing an
+apostrophe without making those values shell programs.
 
 ### Supported-profile route posture
 

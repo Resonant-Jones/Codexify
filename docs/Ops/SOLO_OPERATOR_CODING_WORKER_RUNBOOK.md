@@ -4,7 +4,7 @@ Purpose: give a solo operator the current truth surface for Guardian-mediated
 coding-worker work without implying autonomous convergence, commit behavior,
 or unbounded retry loops.
 
-Last updated: 2026-05-10
+Last updated: 2026-08-03
 
 Source anchors:
 - `docs/architecture/00-current-state.md`
@@ -24,6 +24,102 @@ Source anchors:
 4. It does not enable retry-until-tests-pass behavior.
 5. Future loop work must consume the normalized test-result contract rather than
    raw stdout/stderr blobs.
+
+## Pi Runtime Readiness Gate
+
+The supported source-Compose lane uses a dedicated
+`codexify-worker-coding-runtime:latest` image. The image installs the exact
+`@mariozechner/pi-coding-agent` version declared in
+`codex_runner/pi-runtime/package-lock.json`; it does not depend on a host-local
+SDK build. Authentication stays outside the image in the named-volume mount
+`codexify_pi_auth:/home/codexify/.pi`.
+
+Wrapper presence is not execution readiness. Before starting the Redis
+consumer, the worker checks Node, the Guardian wrapper, the Pi SDK artifacts,
+worker-home usability, `~/.pi/agent/auth.json`, provider/model resolution, a
+matching provider credential, and non-executing adapter initialization. A
+`blocked` result exits with status 78 before the localhost model bridge starts
+and before `guardian.workers.coding_worker` can dequeue a task.
+
+From the repository root, validate Compose without rendering secret-bearing
+values, build the exact image, and inspect readiness:
+
+```bash
+docker compose config --quiet
+docker compose build worker-coding
+docker compose run --rm --no-deps --entrypoint python worker-coding /app/backend/scripts/docker/check_worker_coding_readiness.py --format human
+docker compose run --rm --no-deps --entrypoint python worker-coding /app/backend/scripts/docker/check_worker_coding_readiness.py --format json
+```
+
+The command is Compose-owned. Do not shell-source the project env file; Docker Compose parses
+the project environment without applying shell quoting rules. In particular,
+an apostrophe in `LOCAL_PROVIDER_DISPLAY_NAME` remains valid and unchanged.
+Use `docker compose config --quiet`, rather than printing the full resolved
+configuration, when the goal is validation only.
+
+### Authentication and provider setup
+
+The canonical persistent auth file is
+`/home/codexify/.pi/agent/auth.json` inside `worker-coding`. Populate the named
+volume interactively; never copy credentials into the Dockerfile, repository,
+command output, or documentation:
+
+```bash
+docker compose run --rm --no-deps --entrypoint /opt/codexify/pi-sdk/node_modules/.bin/pi worker-coding /login
+```
+
+The current source image has no `USER` override, so its effective runtime user
+is root. Running Pi through this same Compose service keeps named-volume file
+ownership consistent with the worker. Do not populate the volume from an
+unrelated host user and do not loosen auth-file permissions to compensate.
+
+The effective provider and model are selected with `PI_PROVIDER` and
+`PI_MODEL`. Their source-Compose defaults are `anthropic` and
+`claude-sonnet-4-20250514`. For the default provider, Pi may resolve a
+credential from the mounted auth file or from `ANTHROPIC_API_KEY` in the
+worker's Compose environment. Other Pi-supported providers should be selected
+explicitly and authenticated through the same mounted Pi auth store. General
+Guardian chat-provider routing is separate and unchanged.
+
+Readiness proves only credential presence as resolved by Pi. It does not prove
+that a token is valid, that the provider is reachable, or that a coding prompt
+can complete.
+
+### Readiness states
+
+| State | Meaning | Queue behavior |
+|---|---|---|
+| `ready` | Every required prerequisite and the non-executing adapter probe passed. | Worker may start consuming tasks. |
+| `degraded` | Required checks passed, but auth-file permissions are broader than the intended private mode. | Worker may start, with an explicit permissions warning. |
+| `blocked` | One or more required prerequisites failed. | Startup exits before queue consumption. |
+
+Stable reasons and recovery:
+
+| Reason | Recovery |
+|---|---|
+| `node_missing` | Rebuild `worker-coding`; do not substitute an arbitrary host Node binary. |
+| `wrapper_missing` | Restore the tracked `codex_runner/src/agent-wrapper.js` mount and rerun readiness. |
+| `pi_sdk_build_missing` | Run `docker compose build --no-cache worker-coding`, then rerun readiness. |
+| `worker_home_unavailable` | Verify the `/home/codexify` directory and the `codexify_pi_auth` mount. |
+| `worker_home_read_only` | Repair named-volume ownership/permissions before relying on token refresh or settings persistence. |
+| `pi_auth_missing` | Run the containerized Pi `/login` command above. |
+| `pi_auth_unreadable` | Repair auth-file ownership and permissions without printing its contents. |
+| `pi_auth_permissions_open` | Restrict the auth file to its effective worker user (normally mode `0600`); do not print the file. |
+| `provider_unresolved` | Set a Pi-supported `PI_PROVIDER` and matching `PI_MODEL`. |
+| `provider_credential_missing` | Authenticate that provider in Pi; for the current Anthropic default, provide an authenticated Pi session or the worker-only `ANTHROPIC_API_KEY` input. |
+| `adapter_initialization_failed` | Rebuild the image and inspect the secret-free readiness JSON plus worker logs for packaging drift. |
+
+After readiness reports `ready` or an intentionally accepted `degraded`
+posture, start and inspect the service:
+
+```bash
+docker compose up -d worker-coding
+docker compose ps worker-coding
+docker compose logs worker-coding --tail=100
+```
+
+Do not submit a coding task while readiness is `blocked`. A process restart or
+wrapper file on disk does not override the gate.
 
 ## Bounded Validation Retry
 
@@ -153,7 +249,7 @@ When the worker-side loop is implemented later, it must:
 # Codexify Coding Worker Runbook
 
 Purpose: Operating runbook for the Guardian coding-worker adapter pipeline (ADR-020).
-Last updated: 2026-05-10
+Last updated: 2026-08-03
 Source anchors:
 - `guardian/routes/agent_orchestration.py` - `POST /api/agents/coding/execute`
 - `guardian/agents/adapters/__init__.py` - adapter registry
@@ -495,7 +591,7 @@ curl -N -sS \
 ### 1. Core Health
 
 ```bash
-set -a; source .env; set +a
+docker compose config --quiet
 
 # Check containers
 docker compose ps
@@ -510,7 +606,7 @@ docker exec codexify-redis-1 redis-cli LLEN codexify:queue:coding-execution
 ### 2. Submit a Test Task
 
 ```bash
-set -a; source .env; set +a
+GUARDIAN_API_KEY="$(scripts/dev/dev-key.sh)"
 
 RESP="$(
   curl -sS -X POST \
@@ -563,44 +659,28 @@ curl -N -sS \
 ### 5. Start Worker Manually
 
 ```bash
-set -a; source .env; set +a
-
-# In a separate terminal
-python -m guardian.workers.coding_worker
+docker compose build worker-coding
+docker compose run --rm --no-deps --entrypoint python worker-coding /app/backend/scripts/docker/check_worker_coding_readiness.py --format human
+docker compose up -d worker-coding
 ```
 
 ## Docker Compose
 
-Add `worker-coding` to `docker-compose.runtime.yml`:
+The supported source lane is the `worker-coding` service in
+`docker-compose.yml`. It builds Dockerfile target `worker-coding-runtime`,
+mounts the tracked Guardian and runner sources, and mounts only the named Pi
+configuration volume at `/home/codexify/.pi`. Its healthcheck runs the same
+canonical readiness script used by operators; it is not a process-only health
+claim.
 
-```yaml
-worker-coding:
-  image: ${CODEXIFY_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-runtime:${CODEXIFY_IMAGE_TAG:-local-beta}
-  working_dir: /app
-  depends_on:
-    redis:
-      condition: service_healthy
-    backend:
-      condition: service_healthy
-  env_file: ${CODEXIFY_RUNTIME_ENV_FILE:-.env}
-  environment:
-    <<: *postgres_env
-    LANG: C.UTF-8
-    LC_ALL: C.UTF-8
-    PYTHONUTF8: "1"
-    PYTHONIOENCODING: utf-8
-    PYTHONPATH: /app
-    REDIS_URL: redis://redis:6379/0
-    GUARDIAN_DB_URL: postgresql://${POSTGRES_USER:-codexify}:${POSTGRES_PASSWORD:-codexify}@db:5432/${POSTGRES_DB:-Codexify}
-    NEO4J_BOLT_URL: bolt://neo4j:7687
-  restart: unless-stopped
-  command: ["python", "-m", "guardian.workers.coding_worker"]
-```
+The packaged `docker-compose.runtime.yml` lane is a separate artifact contract
+and is not made Pi-ready by this source-Compose change.
 
 ## Failure Signatures
 
 | Symptom | Likely Cause | Remediation |
 |---------|--------------|-------------|
+| Readiness exits 78 | One or more Pi prerequisites are `blocked` | Use the stable readiness reason and recovery table above; do not enqueue work |
 | `ADAPTER_NOT_FOUND` in worker logs or run events | `adapter_kind` resolved to an unregistered adapter | Check the deployment spec and `guardian/agents/adapters/__init__.py` |
 | Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
@@ -619,6 +699,9 @@ worker-coding:
 | `CAMPAIGN_RUNNER_PROVIDER_ADAPTER` | No | `pi` | Declares the preferred Campaign Runner adapter seam |
 | `CAMPAIGN_RUNNER_PI_ROUTE` | No | `default` | Declares the requested Pi route label |
 | `CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT` | No | `true` | Documents that brokered execution should preserve backend receipts |
+| `PI_PROVIDER` | No | `anthropic` | Effective provider resolved by the Pi wrapper |
+| `PI_MODEL` | No | `claude-sonnet-4-20250514` | Effective model resolved for the selected provider |
+| `ANTHROPIC_API_KEY` | Required only for env-based default-provider auth | None | Worker-only Compose credential alternative; never print or commit it |
 
 ## Pi Broker Operational Note
 
