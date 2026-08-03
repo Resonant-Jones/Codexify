@@ -1123,7 +1123,6 @@ export function GuardianChat({
     return () => window.removeEventListener("cfy:composer:prefill", onPrefill as EventListener);
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
-  const previousEffectiveThreadIdRef = useRef<number | null>(null);
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
@@ -2575,14 +2574,6 @@ export function GuardianChat({
     setPromptCostPopoverOpen(false);
     setVoicePanelOpen(false);
   }, [effectiveThreadId]);
-
-  useEffect(() => {
-    const previousThreadId = previousEffectiveThreadIdRef.current;
-    previousEffectiveThreadIdRef.current = effectiveThreadId;
-    if (previousThreadId != null && previousThreadId !== effectiveThreadId) {
-      inferenceRequest.reset();
-    }
-  }, [effectiveThreadId, inferenceRequest.reset]);
 
   useEffect(() => {
     if (!promptCostPopoverOpen || typeof document === "undefined") return;
@@ -4218,7 +4209,7 @@ export function GuardianChat({
       {/* Runtime status — read-only provider + request lifecycle indicator */}
       <RuntimeStatusStrip
         providerRuntimeState={providerRuntimeState}
-        inferenceState={inferenceRequest.state}
+        inferenceState={composerInferenceState}
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />
