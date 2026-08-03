@@ -26,7 +26,8 @@ from guardian.agents.coding_agent_contracts import (
 )
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
-from guardian.core.dependencies import require_api_key
+from guardian.core.dependencies import get_current_user, require_api_key
+from guardian.protocol_tokens import AcceptanceStatus
 from guardian.queue import task_events
 
 router = APIRouter(
@@ -65,6 +66,11 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _resolved_request_user(current_user: Any, fallback: str) -> str:
+    resolved = str(current_user or "").strip()
+    return resolved if resolved and not resolved.startswith("Depends(") else fallback
 
 
 class AgentPlanRequest(BaseModel):
@@ -207,6 +213,7 @@ async def start_run(
 @router.post("/coding/execute")
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
+    current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Execute a coding task via a registered coding adapter.
 
@@ -215,6 +222,8 @@ async def execute_coding_task(
 
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/events for progress.
     """
+    resolved_user_id = _resolved_request_user(current_user, envelope.user_id)
+
     # Create deployment to track this coding task and preserve the requested
     # adapter kind in Guardian-owned intake state.
     flow_id = f"coding_{envelope.coding_task_id}"
@@ -241,7 +250,7 @@ async def execute_coding_task(
             "source_message_id": _coerce_optional_positive_int(
                 envelope.source_message_id
             ),
-            "user_id": envelope.user_id,
+            "user_id": resolved_user_id,
             "project_id": envelope.project_id,
             "attempt_id": envelope.attempt_id,
             "instructions": envelope.instructions,
@@ -295,6 +304,13 @@ async def execute_coding_task(
             "coding_task_id": envelope.coding_task_id,
             "attempt_id": envelope.attempt_id,
             "deployment_id": deployment["deployment_id"],
+            "thread_id": deployment.get("thread_id"),
+            "source_thread_id": deployment.get("thread_id"),
+            "source_message_id": _coerce_optional_positive_int(
+                envelope.source_message_id
+            ),
+            "adapter_kind": envelope.adapter_kind,
+            "status": "queued",
         },
     )
 
@@ -319,7 +335,7 @@ async def execute_coding_task(
         "source_thread_id": int(envelope.thread_id)
         if envelope.thread_id
         else None,
-        "user_id": envelope.user_id,
+        "user_id": resolved_user_id,
         "project_id": envelope.project_id,
         "validation_command": envelope.validation_command,
         "max_validation_attempts": envelope.max_validation_attempts,
@@ -343,11 +359,19 @@ async def execute_coding_task(
 
     return {
         "ok": True,
+        "status": AcceptanceStatus.ACCEPTED.value,
         "run_id": run["run_id"],
         "deployment_id": deployment["deployment_id"],
         "coding_task_id": envelope.coding_task_id,
         "campaign_id": envelope.campaign_id,
         "work_order_id": envelope.work_order_id,
+        "thread_id": deployment.get("thread_id"),
+        "source_thread_id": deployment.get("thread_id"),
+        "source_message_id": _coerce_optional_positive_int(
+            envelope.source_message_id
+        ),
+        "attempt_id": envelope.attempt_id,
+        "adapter_kind": envelope.adapter_kind,
     }
 
 
@@ -421,8 +445,12 @@ def _safe_permission_summary(envelope: Any) -> str | None:
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run(run_id: str) -> dict[str, Any]:
-    run = _store.get_run(run_id)
+async def cancel_run(
+    run_id: str,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    request_user = _resolved_request_user(current_user, "") or None
+    run = _store.get_run(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     _store.update_run_status(run_id=run_id, status="canceled")
@@ -434,9 +462,25 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
     return {"ok": True, "run_id": run_id, "status": "canceled"}
 
 
+@router.get("/runs/{run_id}/coding")
+async def get_coding_run(
+    run_id: str,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    request_user = _resolved_request_user(current_user, "") or None
+    run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run_not_found")
+    return {"ok": True, "run": run}
+
+
 @router.get("/runs/{run_id}")
-async def get_run(run_id: str) -> dict[str, Any]:
-    run = _store.get_run(run_id)
+async def get_run(
+    run_id: str,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    request_user = _resolved_request_user(current_user, "") or None
+    run = _store.get_run(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return {"ok": True, "run": run}
@@ -500,4 +544,14 @@ async def list_thread_runs(thread_id: int) -> dict[str, Any]:
 @chat_router.get("/api/chat/{thread_id}/agent-runs")
 async def list_thread_runs_via_chat(thread_id: int) -> dict[str, Any]:
     runs = _store.list_runs_for_thread(thread_id)
+    return {"ok": True, "thread_id": thread_id, "runs": runs}
+
+
+@chat_router.get("/api/chat/{thread_id}/coding-runs")
+async def list_coding_runs_via_chat(
+    thread_id: int,
+    current_user: str | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    request_user = _resolved_request_user(current_user, "") or None
+    runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
     return {"ok": True, "thread_id": thread_id, "runs": runs}

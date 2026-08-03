@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -177,6 +178,91 @@ def _extract_patch_artifact_metadata(
             ),
         }
     return None
+
+
+def _safe_coding_result_for_readback(
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return bounded coding evidence for an authenticated WebUI read.
+
+    Coding artifacts may contain worker paths and internal deployment metadata.
+    The Composer only needs result evidence, so keep this projection explicit
+    rather than exposing the stored artifact envelope wholesale.
+    """
+    if not isinstance(result, dict):
+        return None
+    nested = result.get("result_json")
+    source = nested if isinstance(nested, dict) else result
+    allowed = {
+        "status",
+        "coding_result_status",
+        "summary",
+        "files_changed_count",
+        "error_code",
+        "final_validation_status",
+        "commit_hash",
+        "commit_status",
+        "commit_reason_code",
+        "merge_ready",
+        "human_review_required",
+        "require_human_review_before_merge",
+        "adapter_session_ref",
+        "message_id",
+        "result_message_id",
+        "delivery_ok",
+        "delivery_status",
+        "delivery_reason",
+        "visibility_status",
+    }
+    projection = {
+        key: source[key]
+        for key in allowed
+        if key in source and source[key] is not None
+    }
+    artifacts = source.get("artifacts")
+    if isinstance(artifacts, list):
+        safe_artifacts: list[dict[str, Any]] = []
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            safe_artifact = {
+                key: artifact[key]
+                for key in (
+                    "kind",
+                    "name",
+                    "status",
+                    "sha256",
+                    "size_bytes",
+                )
+                if key in artifact and artifact[key] is not None
+            }
+            if safe_artifact:
+                if "name" in safe_artifact:
+                    safe_artifact["name"] = str(safe_artifact["name"]).replace(
+                        "\\", "/"
+                    ).rsplit("/", 1)[-1]
+                safe_artifacts.append(safe_artifact)
+        if safe_artifacts:
+            projection["artifacts"] = safe_artifacts
+    files_changed = source.get("files_changed")
+    if isinstance(files_changed, (list, tuple)):
+        projection["files_changed_count"] = len(files_changed)
+    for key in ("summary", "error_message", "delivery_reason"):
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            projection[key] = _safe_coding_readback_text(value)
+    return projection or None
+
+
+def _safe_coding_readback_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return re.sub(
+        r"(?<![A-Za-z0-9])/(?:Users|private|tmp|var|workspace|home)/[^\s,;)]+",
+        "<path>",
+        text,
+    )
 
 
 def _find_existing_coding_result_message(
@@ -375,7 +461,12 @@ class AgentStore:
         self._mem_runs[run_id] = data
         return data
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None:
+    def get_run(
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
         if self._has_db():
             with self.db.get_session() as session:
                 row = session.query(AgentRun).filter_by(run_id=run_id).first()
@@ -386,6 +477,21 @@ class AgentStore:
                     .filter_by(id=row.deployment_id)
                     .first()
                 )
+                if user_id:
+                    expected_user_id = str(user_id).strip()
+                    spec_user_id = str(
+                        (dep.spec_json or {}).get("user_id") if dep else ""
+                    ).strip()
+                    if spec_user_id and spec_user_id != expected_user_id:
+                        return None
+                    if row.thread_id is not None:
+                        thread = (
+                            session.query(ChatThread)
+                            .filter_by(id=row.thread_id)
+                            .first()
+                        )
+                        if thread is not None and str(thread.user_id) != expected_user_id:
+                            return None
                 return {
                     "run_id": row.run_id,
                     "deployment_id": dep.deployment_id if dep else None,
@@ -396,8 +502,86 @@ class AgentStore:
                     "rollback_reason": row.rollback_reason,
                     "worktree_id": row.worktree_id,
                     "worktree_path": row.worktree_path,
+                    "error": row.error,
+                    "created_at": row.created_at,
+                    "started_at": row.started_at,
+                    "ended_at": row.ended_at,
                 }
-        return self._mem_runs.get(run_id)
+        run = self._mem_runs.get(run_id)
+        if run is None:
+            return None
+        if user_id:
+            deployment = self._mem_deployments.get(str(run.get("deployment_id")))
+            spec_user_id = str(
+                (deployment or {}).get("spec_json", {}).get("user_id") or ""
+            ).strip()
+            if spec_user_id and spec_user_id != str(user_id).strip():
+                return None
+        return run
+
+    def get_coding_run_snapshot(
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the bounded, account-scoped WebUI coding-run projection."""
+        run = self.get_run(run_id, user_id=user_id)
+        if run is None:
+            return None
+        deployment = self.get_deployment(str(run.get("deployment_id") or ""))
+        spec = dict((deployment or {}).get("spec_json") or {})
+        coding_task_id = str(spec.get("coding_task_id") or "").strip()
+        if not coding_task_id:
+            return None
+
+        result_rows = self.list_coding_results(run_id=run_id)
+        latest_result: dict[str, Any] | None = None
+        if result_rows:
+            content = result_rows[-1].get("content_json") or result_rows[-1].get(
+                "result_json"
+            )
+            if isinstance(content, dict):
+                latest_result = _safe_coding_result_for_readback(content)
+
+        return {
+            "run_id": run_id,
+            "deployment_id": run.get("deployment_id"),
+            "thread_id": run.get("thread_id"),
+            "source_thread_id": _coerce_positive_int(
+                spec.get("source_thread_id") or spec.get("thread_id")
+            ),
+            "source_message_id": _coerce_positive_int(
+                spec.get("source_message_id")
+            ),
+            "coding_task_id": coding_task_id,
+            "attempt_id": str(spec.get("attempt_id") or "").strip() or None,
+            "adapter_kind": str(spec.get("adapter_kind") or "").strip() or None,
+            "project_id": spec.get("project_id"),
+            "status": run.get("status"),
+            "runtime_target": run.get("runtime_target"),
+            "created_at": run.get("created_at"),
+            "started_at": run.get("started_at"),
+            "ended_at": run.get("ended_at"),
+            "error": _safe_coding_readback_text(run.get("error")),
+            "result": latest_result,
+        }
+
+    def list_coding_runs_for_thread(
+        self,
+        thread_id: int,
+        *,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        snapshots: list[dict[str, Any]] = []
+        for run in self.list_runs_for_thread(thread_id):
+            run_id = str(run.get("run_id") or "").strip()
+            if not run_id:
+                continue
+            snapshot = self.get_coding_run_snapshot(run_id, user_id=user_id)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        return snapshots
 
     def list_runs_for_thread(self, thread_id: int) -> list[dict[str, Any]]:
         if self._has_db():
@@ -1580,6 +1764,15 @@ class AgentStore:
                 source_thread_id=expected_thread_id,
                 source_message_id=expected_source_message_id,
                 result_payload=result_payload,
+            )
+        else:
+            self._mem_coding_results.append(
+                {
+                    "run_id": run_id,
+                    "coding_task_id": coding_task_id,
+                    "attempt_id": attempt_id,
+                    "result_json": artifact_payload,
+                }
             )
 
         return {
