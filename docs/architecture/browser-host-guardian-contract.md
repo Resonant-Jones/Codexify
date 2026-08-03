@@ -6,9 +6,12 @@
 - Governing decision: [ADR-054](./adr/054-browser-host-topology-and-release-ownership.md).
 - Implementation status: bounded production one-tab topology skeleton with an
   explicitly gated Guardian development negotiation and attachment adapter;
-  production Guardian integration remains unproven, and the macOS Electron
-  trust-path qualification is currently environment-blocked by the matching
-  Apple-control/current/clean Code Signing subsystem result.
+  production Guardian integration remains unproven. After a normal macOS
+  restart the Apple control passes, the repository and clean locked Electron
+  `43.2.0` bundles are identical by executable and resource manifest, both fail
+  the same signature/Gatekeeper resource validation, and both minimal local
+  applications launch. Production Browser Host qualification remains
+  `next-proof-needed`.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -429,7 +432,18 @@ them.
   compares an Apple control app with the current and clean locked Electron
   distributions and classifies the matching result as
   `host_code_signing_subsystem_unavailable`. Both minimal Electron launches
-  abort before a window; no dependency repair or live Electron pass is claimed.
+  abort before a window in that historical packet; no dependency repair or live
+  Electron pass is claimed by that packet. The post-restart comparison at
+  `docs/architecture/proofs/browser-host/2026-08-03-post-restart-electron-distribution-comparison/`
+  supersedes that host-wide classification for current-host interpretation:
+  Calculator now passes strict signature and Gatekeeper checks; repository and
+  clean Electron `43.2.0` bundles have equal executable and complete relative
+  resource-manifest hashes; both still fail the same resource/signature checks;
+  and both requested-sandbox minimal applications reach `app.whenReady()`, load
+  one local window, and exit successfully. The classification is
+  `clean_electron_43_2_0_also_fails`; repository corruption or metadata drift is
+  not demonstrated, no repair was attempted, and the full Browser Host remains
+  `next-proof-needed`. Guardian authority and wire contracts are unchanged.
 - Trusted-main-process envelope construction and ephemeral attachment:
   implemented and live-test proven by the prior deterministic-stub and
   attachment-adapter packets; the combined negotiation-plus-attachment flow

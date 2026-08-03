@@ -876,6 +876,46 @@ Qualify the complete development Browser Host session against the real Guardian 
   configuration was changed. A full real-Guardian session remains unproven and
   Gate D remains closed.
 
+## Post-restart Electron distribution comparison — 2026-08-03
+
+- Prerequisite commit `a8b3dd00e` is in the current branch ancestry. A normal
+  macOS restart completed before this proof; no OS update or Recovery action
+  was performed.
+- On macOS `26.5.2` arm64 with Gatekeeper enabled and Aqua available,
+  Calculator passes strict signature verification and Gatekeeper assessment.
+  The prior `host_code_signing_subsystem_unavailable` result remains immutable
+  historical evidence but no longer describes the current host-wide state.
+- One clean exact Electron `43.2.0` distribution was obtained with isolated
+  `npm ci` and package-provided installation under the temporary directory.
+  The repository and clean executables have the same SHA-256, and their
+  deterministic bundle-relative regular-file manifests are equal at 258 files
+  and 288,611,706 bytes with zero missing, extra, or content-mismatch paths.
+- Both Electron bundles are arm64 and quarantine-free. Both fail strict
+  signature and Gatekeeper resource validation with the same bounded resource
+  error. Both `--version` checks succeed, and both minimal requested-sandbox
+  applications reach `app.whenReady()`, create and load one local window, and
+  exit successfully. Neither authoritative minimal launch produced `SIGABRT`,
+  so no crash report correlation was required.
+- Primary classification: `clean_electron_43_2_0_also_fails`. The matching
+  distribution identity and failure surface do not demonstrate repository
+  corruption or metadata/resource drift and do not justify a repository-local
+  reinstall.
+- The comparison packet is
+  `docs/architecture/proofs/browser-host/2026-08-03-post-restart-electron-distribution-comparison/`
+  with status `passed`. That status covers comparison completeness only. The
+  minimal Electron status is passed; production Browser Host qualification is
+  still `next-proof-needed`. The full Browser Host test command reached 35 of
+  35 unit tests and 9 of 10 Electron tests, but one real Guardian development-
+  adapter integration assertion failed. No full real-Guardian session was
+  attempted.
+- No repository dependency repair, `node_modules` mutation, package or lock
+  change, macOS security change, quarantine removal, re-signing, insecure flag,
+  runtime change, or release-posture change occurred. Gate C remains passed and
+  Gate D remains closed.
+- Exactly one next atomic task: Qualify Electron 43.2.0 compatibility with
+  macOS 26.5.2 using a temporary adjacent-version matrix without changing
+  Codexify dependencies or release posture.
+
 ## ADR impact
 
 - Classification: aligned with existing ADRs; ADR-054 is accepted.
