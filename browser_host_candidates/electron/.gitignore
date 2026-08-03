@@ -1,0 +1,10 @@
+node_modules/
+.npm-cache/
+package-output/
+proof-output/
+runtime/
+electron-user-data/
+*.dmg
+*.zip
+*.app
+*.trace.zip

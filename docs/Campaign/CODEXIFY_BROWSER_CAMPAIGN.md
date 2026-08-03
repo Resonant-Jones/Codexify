@@ -67,6 +67,113 @@ have its own provenance, consent, compatibility, and recovery contract.
 These observations are pre-read evidence for shaping Task 01. Task 01 remains
 responsible for producing the complete, reviewable inventory proof.
 
+### Proven architecture evaluation
+
+- Stage 3 historically produced
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
+- Its then-current ADR-readiness result was `PROOF_REQUIRED`.
+- No technology or repository topology was selected.
+- The completed comparative evidence and subsequent ADR-054 supersede that
+  pending-evidence state; the earlier evaluation itself did not accept a
+  topology decision.
+- `docs/architecture/browser-host-comparative-proof-harness-spec.md` defines
+  the normative, technology-neutral comparison method.
+
+### Incumbent-family proof evidence
+
+- Shared scaffold prerequisite commit:
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`.
+- Incumbent proof-only source:
+  `browser_host_candidates/tauri/`.
+- Harness adapter:
+  `scripts/browser_host_harness/adapters/tauri_incumbent.py`.
+- Terminal packet:
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+- Terminal run `tauri-proof-79fdb67b` is `proof_complete` for evidence
+  coverage: 89 mandatory cases are terminal (34 `passed`, 42 `inconclusive`,
+  13 `blocked`), with no failed case and no invariant violation.
+- The proof source baseline is
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`; the atomic integration commit is
+  the commit containing the packet and is reported by Git history and task
+  closeout.
+- The result does not select Tauri, widen release truth, prove production
+  Guardian compatibility, or open Gate C. The comparative update below records
+  the final cross-family evidence.
+
+### Materially different-family proof evidence (historical intermediate state)
+
+- Candidate source: `browser_host_candidates/electron/`.
+- Candidate family: `bundled_chromium_electron`.
+- Candidate adapter: `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`.
+- Terminal packet:
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+- Intermediate proof source commit: `59617cf32f40928db969f4455459923f9558e268`.
+- Intermediate packet status: `environment_blocked`. The candidate-local build,
+  dependency verification, unsigned arm64 package attempt, receipt assembly,
+  and cleanup completed; Playwright Electron could not establish a meaningful
+  Electron runtime on the proof host. No alternate automation framework was
+  substituted, no invariant violation was recorded, and live interaction
+  cases remain terminally `inconclusive`.
+- Electron `43.2.0` bundles Chromium `150.0.7871.129`, Node `24.18.0`, and V8
+  `15.0.1240245-electron.0`; Playwright `1.62.1` remains an experimental,
+  proof-only driver.
+- This intermediate packet is superseded by the final packet and is not part
+  of the comparative totals below.
+
+### Comparative terminal evidence update — 2026-07-31
+
+- Incumbent OS-webview candidate: implementation commit
+  `59617cf32f40928db969f4455459923f9558e268`, packet
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`, run
+  `tauri-proof-79fdb67b`, status `proof_complete`.
+- Final bundled-Chromium candidate: commits `37db52dd1`, `3777171c4`, and
+  `3854cfd32`, packet
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`,
+  run `harness-0288e8f5`, status `proof_complete`.
+- The incumbent totals are 34 `passed`, 42 `inconclusive`, 13 `blocked`, and
+  0 `failed`; the final bundled-Chromium totals are 85 `passed`, 4
+  `inconclusive`, 0 `blocked`, and 0 `failed`.
+- Both packets contain the same 89 terminal mandatory cases and no invariant
+  violations. The earlier Electron `environment_blocked` packet associated
+  with `05f5952bc` is superseded and excluded from these totals.
+- Comparative summary:
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`.
+- ADR-readiness classification: `ADR_READY`; ADR-054 now accepts the future
+  architecture decision.
+- Accepted decision: Electron/bundled Chromium, family
+  `bundled_chromium_electron`, with an isolated monorepo-first package;
+  production Tauri remains the trusted shell and the extension remains Tier 0.
+- Gate C is passed for architecture and ownership direction by ADR-054
+  acceptance. Repository extraction and implementation gates remain closed.
+
+### Decision recommendation update — 2026-07-31
+
+- The prior ADR task stopped correctly because the comparative summary was
+  `ADR_READY` but intentionally contained no singular recommendation.
+- The decision-recommendation artifact is
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
+- ADR-054 accepts the `bundled_chromium_electron` family through Electron.
+- ADR-054 accepts an isolated Browser Host application/package in the
+  Codexify monorepo first; dedicated-repository extraction is deferred until
+  independent ownership prerequisites are proven.
+- Production Tauri remains the trusted Codexify desktop shell and launcher;
+  arbitrary remote content must not enter its privileged command boundary.
+- The Chrome extension remains the optional Tier 0 continuity bridge, not the
+  canonical Tier 1 Browser Host.
+- Guardian remains authentication, policy, persistence, task, and
+  provider-execution authority; the trusted Browser Host main process owns
+  authority-bearing envelope construction and authenticated attachment
+  orchestration.
+- The immediate release posture remains `development/internal unsigned proof`.
+- Candidate packets and the comparative summary remain immutable evidence.
+- The recommendation has been adopted by ADR-054; the ADR is accepted future
+  architecture, not current supported runtime.
+- Gate C is passed for architecture and ownership direction; the next
+  implementation gate remains closed.
+- The package-boundary and versioned Guardian/Browser Context contract
+  prerequisite is now the completed implementation slice recorded below.
+
 ### Documented contract
 
 - Guardian retains policy, context, account, and task authority.
@@ -77,6 +184,14 @@ responsible for producing the complete, reviewable inventory proof.
 - Browser capture availability and ordinary chat availability are separate
   states; capture failure must not silently disable or impersonate chat.
 - Remote content is untrusted evidence, not an instruction or permission source.
+- The production package boundary is `browser_host/`; the language-neutral
+  contract package is `browser_host/contracts/`.
+- Contract package versions are `@codexify/browser-host` `0.1.0`,
+  `@codexify/browser-host-contracts` `0.2.0`, protocol `1.0.0`, Browser Context
+  Envelope `1.0.0`, and attachment `1.0.0`.
+- JavaScript and Python consume the same manifest, schemas, canonical tokens,
+  and synthetic fixture index; Electron exists only under the private
+  `browser_host/` proof package and live Guardian integration remains absent.
 
 ### Working theory
 
@@ -91,8 +206,8 @@ second.
 ### Unproven
 
 - No Codexify Browser Host exists.
-- No Electron, Tauri, Chromium Embedded Framework, Chromium fork, or other host
-  technology has been selected.
+- ADR-054 selects Electron/bundled Chromium as future Browser Host
+  architecture; no production Browser Host implementation exists.
 - No dedicated Browser repository has been approved.
 - No cross-repository browser protocol, signing boundary, updater, compatibility
   contract, or release process exists.
@@ -113,6 +228,17 @@ second.
 - The Codexify repository is authoritative for Guardian policy, frontend
   integration, browser-context contracts, identity boundaries, and shared
   architecture documentation.
+- The current extension remains the Tier 0 continuity control.
+- The incumbent OS-webview/Tauri family and a materially different
+  bundled Chromium/Electron family have terminal packets under the same proof
+  method; their comparative summary is recorded at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-comparative-summary.md`
+  with an `ADR_READY` reassessment; ADR-054 accepts the future topology.
+- The Stage 3 topology evaluation returned `PROOF_REQUIRED` before the
+  comparative terminal-packet reassessment; ADR-054 now records the accepted
+  architecture and ownership direction.
+- The accepted future topology is Electron/bundled Chromium in an isolated
+  monorepo-first package; this is not current runtime or release truth.
 - Campaigns are prerequisite-ordered arcs. Each Task is atomic, independently
   validated, and independently committed.
 
@@ -177,10 +303,14 @@ finally release hardening.
 
 ## Explicit non-goals
 
-- No browser, extension, page-capture, or Browser Host implementation.
+- No supported or release-qualified browser, extension, page-capture, or
+  Browser Host implementation; the bounded `browser_host/` runtime is internal
+  proof only and does not widen release truth.
 - No extension repair, relocation, rename, or packaging change.
 - No Electron, Tauri, CEF, Chromium fork, or other technology selection.
-- No dependency, package, build, Tauri, backend, frontend, or runtime change.
+- No supported production dependency, build, Tauri, backend, frontend, or
+  release-surface change; the private `browser_host/` package remains an
+  internal proof surface.
 - No dedicated repository.
 - No Atlas, bookmark, cookie, history, or session import.
 - No autonomous browsing or new browser command tokens.
@@ -221,16 +351,61 @@ finally release hardening.
   renderer processes, or prompt-based authority.
 - Stage kind: `documentation`.
 
-### 03. Repository-topology and Browser Host ADR
+### 03. Repository-topology and Browser Host evidence gate
 
-- Goal: decide whether the Browser Host remains in Codexify or moves to a
-  dedicated repository and define protocol/versioning ownership.
+- Status: architecture evaluation completed in
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`.
+- Historical Stage 3 result: `PROOF_REQUIRED`; no technology or repository
+  topology was selected by that evaluation.
+- Proof methodology:
+  `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
+- Shared technology-neutral scaffold: now exists at
+  `scripts/browser_host_harness/` with focused tests at
+  `tests/browser_host_harness/`. Scaffold proof artifact:
+  `docs/architecture/proofs/2026-07-30-browser-host-shared-harness-scaffold-proof.md`.
+  The scaffold provides the deterministic fixture server, Guardian contract
+  stub, canonical harness registries, and proof-receipt contracts.
+- Incumbent candidate: the proof-only Tauri source exists at
+  `browser_host_candidates/tauri/`; its terminal packet is
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+  Candidate status is `proof_complete` for terminal evidence coverage, with no
+  invariant violation. Interaction-dependent cases that lacked an approved
+  macOS Tauri driver remain `blocked` or `inconclusive`.
+- Materially different candidate: the proof-only bundled Chromium/Electron
+  source exists at `browser_host_candidates/electron/`; its adapter is
+  `scripts/browser_host_harness/adapters/electron_bundled_chromium.py`, and its
+  terminal packet is
+  `docs/architecture/proofs/browser-host/2026-07-31-electron-bundled-chromium/`.
+-  The final packet is `proof_complete` with 85 passed, 4 inconclusive, 0
+  blocked, and 0 failed cases, with no invariant violation. An earlier
+  `environment_blocked` packet is superseded.
+- Control and gate posture: ADR-054 accepts Electron/bundled Chromium and the
+  monorepo-first isolated package posture; the extension remains the Tier 0
+  control, Tauri remains the trusted shell, and Gate C is passed for
+  architecture and ownership direction.
+- Goal: establish the accepted package-boundary and versioned-contract
+  scaffold before any full Browser Host product behavior. This prerequisite is
+  complete; product proof remains closed.
 - Prerequisite: Tasks 01 and 02.
-- Expected evidence: accepted ADR covering build, release, signing, storage,
-  security ownership, compatibility, and rolling upgrade implications.
+- Required pre-ADR evidence: the shared technology-neutral
+  fixture/stub/receipt scaffold (done), an incumbent OS-webview/Tauri candidate
+  proof packet, at least one materially different host-family proof packet, and
+  a common comparative summary.
+- Decision recommendation: the adopted artifact at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`
+- records the singular decision adopted by ADR-054: Electron/bundled Chromium
+  and monorepo-first isolated implementation, while retaining Tauri as the
+  trusted shell and the extension as Tier 0.
+- Completed prerequisite: `browser_host/`, `browser_host/contracts/`, the
+  normative contract, and JavaScript/Python fixture-parity tests exist without
+  runtime Browser Host behavior. The next implementation gate remains closed.
+- Expected decision artifact after proof: ADR-054, now accepted, with build,
+  release, signing, storage, security ownership, compatibility, and rolling
+  upgrade implications recorded.
 - Explicit exclusions: no repository creation, code movement, or host choice by
   implication.
-- Stage kind: `documentation`.
+- Stage kind: `proof` followed by `documentation`.
 
 ### 04. Atlas continuity and Chrome-extension stabilization
 
@@ -326,11 +501,23 @@ A dedicated Browser Host repository may be created only after an accepted ADR
 proves independent build, release, signing, storage, compatibility, recovery,
 and security ownership.
 
+Status: passed for architecture and ownership direction by accepted ADR-054.
+The decision selects Electron/bundled Chromium and a monorepo-first isolated
+Browser Host package, retains Tauri as the trusted shell and the extension as
+Tier 0, and keeps Guardian as authority. Repository extraction remains closed
+until the independent-release prerequisites in ADR-054 are proven.
+
 ### Gate D: Product proof
 
 Tabs, profiles, downloads, history, session persistence, or browser actions may
 not become release claims until the selected Browser Host passes live proof for
 the claimed surface.
+
+Status: the 2026-08-01 packet proves only the bounded one-tab topology,
+capture-preview, and ephemeral-attachment behavior against deterministic
+loopback stubs. The supported integration gate remains closed; live Guardian,
+durable persistence, packaging, signing, updater, and release behavior remain
+unproven.
 
 ## Proof expectations
 
@@ -378,21 +565,367 @@ The Campaign exits only when:
 - Task 02 documents the browser authority and context boundary in
   `docs/architecture/browser-authority-and-context-boundary-contract.md`;
   implementation and live proof remain deferred.
-- Task 03 is next and must evaluate Browser Host topology and the repository
-  boundary without selecting a technology or repository split by implication.
-  No Browser Host technology or repository split has been selected.
+- Task 03 evaluation produced
+  `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
+  at commit `1cbf68113b9113faa907c22d868248609f49f9a5`
+  and returned `PROOF_REQUIRED`.
+- The prior ADR task stopped correctly because the comparative summary was
+  `ADR_READY` but intentionally contained no singular recommendation. The
+  resulting decision recommendation is recorded at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
+  It recommends Electron/bundled Chromium, monorepo-first isolated
+  implementation, retained Tauri and extension roles, Guardian authority, and
+  development/internal unsigned proof. ADR-054 now adopts it; the artifact
+  remains a decision input rather than runtime proof.
+- The common comparison method is
+  `docs/architecture/browser-host-comparative-proof-harness-spec.md`.
+- The shared scaffold prerequisite is commit
+  `eb6eb416d0f70d6b68bd582cb9ffdb82c27e5678`.
+- The incumbent Tauri-family source and terminal packet now exist at
+  `browser_host_candidates/tauri/` and
+  `docs/architecture/proofs/browser-host/2026-07-30-tauri-incumbent/`.
+  This is incumbent-family evidence only: Tauri is not selected, production
+  Tauri is unchanged, and live production Guardian compatibility is not
+  proven.
+- A materially different bundled Chromium/Electron candidate now has a
+  terminal `proof_complete` packet under the same harness. The comparative
+  summary records `ADR_READY`, and the decision recommendation is now recorded
+  at
+  `docs/architecture/proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md`.
+  ADR-054 now adopts the topology and ownership decision. The single next
+  prerequisite is the production package-boundary and versioned-contract
+  scaffold, while the next implementation gate remains closed.
 - Later proof tasks must update their own proof artifacts and compatibility
   records.
 - `docs/architecture/00-current-state.md` changes only in a separately
   authorized release-truth task after qualifying proof.
 
+## Current task completion
+
+- ADR-054 commit: `d8649a382711f64d5dcb1c5b22468a272c0b36ed`.
+- Production source root: `browser_host/`.
+- Versioned contract package: `browser_host/contracts/`.
+- Package status: private `0.1.0` scaffold; contract package status: private
+  `0.2.0` source-of-truth package.
+- Protocol, envelope, and attachment versions: `1.0.0`.
+- JavaScript conformance: passed; Python conformance: passed.
+- Electron `43.2.0` and Playwright `1.62.1` are exact-pinned development
+  dependencies beneath `browser_host/` only. The production package now has a
+  bounded one-tab runtime and sanitized proof packet, while live Guardian
+  integration, product proof, and release qualification remain closed.
+- Gate C remains passed for architecture and ownership direction. Gate D is
+  proven only for bounded internal proof slices; supported one-tab integration
+  and release behavior remain closed.
+
+## Production one-tab skeleton — 2026-07-31
+
+- Prerequisite scaffold commit: `2f6fcd05cc0f778d9b9bbc16872cdd76a4178c0d`.
+- Runtime paths: `browser_host/src/main.js`, `src/runtime/`,
+  `src/preload/trusted-shell-preload.js`, and `src/shell/`.
+- Topology: one trusted Electron `BrowserWindow` and exactly one untrusted
+  remote `WebContentsView`; the remote view has no preload, Node, Electron, or
+  IPC authority and uses a non-persistent session.
+- Negotiation: the main process constructs and validates the v1 hello, sends it
+  to the deterministic 127.0.0.1 Guardian stub with a proof-only synthetic
+  token, validates the response, and creates/loads the remote view only after
+  compatible negotiation. Incompatible, malformed, and unreachable cases
+  leave the trusted shell alive with no remote request.
+- Contract versions: package `0.1.0`, contract package `0.2.0`, protocol,
+  envelope, and attachment `1.0.0`.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-07-31-production-one-tab-skeleton/`.
+  The packet validates compatible, incompatible, malformed, denial, renderer
+  degradation, authority-isolation, and cleanup scenarios.
+- Synthetic credential posture: the runtime token is generated by the proof
+  parent, passed only through `CODEXIFY_BROWSER_HOST_PROOF_TOKEN` in explicit
+  proof mode, read by trusted main, removed from retained environment state,
+  never exposed to either renderer, and absent from receipts/screenshots.
+- Denial posture: numeric-loopback exact-origin navigation only; cross-origin,
+  dangerous schemes, popups, external protocols, downloads, and permissions
+  are denied. Renderer termination degrades the remote view without automatic
+  recreation; cleanup removes support processes and temporary state.
+- DeepSeek orchestration: required pre-edit and post-edit advisory reviews
+  were run through the installed orchestration and delegation skills with
+  exact `deepseek-v4-pro` through Pi. Codex retained implementation and
+  verification authority; no secrets were transmitted and DeepSeek made no
+  repository edits.
+- Explicit non-claims: no capture, attachment, runtime Browser Context
+  Envelope construction, persistence, live production Guardian route,
+  production credential, packaging, signing, updater, rollback, or release
+  behavior was implemented.
+
+### Next atomic task
+
+Implement explicit selected-text and visible-page capture preview with separate
+ephemeral attachment against the deterministic Guardian stub, using the
+versioned Browser Context Envelope contracts and without live production
+Guardian credentials.
+
+## Capture preview and ephemeral attachment — 2026-08-01
+
+- Baseline: `0973f8e56715d464b115d21911e4a5677e996fe3`.
+- Capture paths: trusted-shell selected-text and visible-page preview actions
+  call narrow IPC handlers; the remote renderer receives no new authority.
+- Main-process ownership: the trusted main process validates the remote result,
+  normalizes bounded UTF-8 text, computes hashes and document fingerprints,
+  constructs the versioned Browser Context Envelope, and keeps the ticket only
+  in bounded memory.
+- Sanitization: form controls, password/hidden values, browser storage,
+  scripts/styles, and iframe content are excluded. Page prompt-like text stays
+  evidence and is rendered as text; it cannot alter host policy or commands.
+- Attachment: a separate trusted-shell confirmation constructs the v1
+  attachment and sends it only to the deterministic loopback stub. Accepted
+  and rejected receipts are `not_persisted`; stale, cancelled, replayed, and
+  deterministic failure paths remain fail closed.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-capture-preview-attachment/`.
+- Validation: 17 unit/contract tests, 8 live Electron tests, proof generation,
+  proof validation, and the existing shared contract/Python checks pass.
+- DeepSeek orchestration: strict exact-model preflight passed, but the
+  read-only pre-edit worker timed out after 180 seconds without a result or
+  edits. Codex continued with direct implementation and independent proof;
+  no secrets were transmitted.
+- Explicit non-claims: no live Guardian route or credential, durable
+  persistence, packaging, signing, updater, rollback, or release behavior.
+
+### Next atomic task
+
+Qualify a Guardian-issued one-use attachment grant contract for the v1
+ephemeral attachment path before any live production route or durable
+persistence work.
+
+## Guardian-issued one-use attachment grant contract — 2026-08-01
+
+- Prerequisite capture commit: `fc7574246eb05259652daeffc65c22bc0d53d896`.
+- Contract package: `@codexify/browser-host-contracts` `0.2.0`; Browser Host
+  package remains `0.1.0`; protocol, envelope, and attachment remain `1.0.0`.
+- Grant schemas:
+  `browser_host/contracts/schemas/browser-host-attachment-grant-request.v1.schema.json`
+  and
+  `browser_host/contracts/schemas/browser-host-attachment-grant.v1.schema.json`.
+- Pure Guardian modules:
+  `guardian/browser_host/contract_loader.py` and
+  `guardian/browser_host/attachment_grants.py`.
+- Authorization scheme: `browser_host_attachment_grant`.
+- TTL: bounded to 30–300 seconds, default 120 seconds; exactly one use;
+  `ephemeral` retention only.
+- Storage: process-local, digest-only SHA-256 bearer storage; no database,
+  Redis, file persistence, or reusable Guardian credential.
+- Concurrency: two same-bearer consumers yield exactly one authorized
+  decision and one replay denial.
+- Pure seam and sanitized proof are test-proven; Guardian routing,
+  authenticated issuance, Browser Host transport, and live integration remain
+  unproven.
+- No route, network, API key, session cookie, JWT, production credential,
+  current-state release change, or supported-release change was added.
+- Gate C remains passed for architecture and ownership direction. Gate D
+  remains closed for supported integration and release behavior.
+
+## Development-only Guardian attachment-grant HTTP adapter — 2026-08-01
+
+- Prerequisite: `87fe3257c0d0c12ad00a749b631bfeb866ddaaaf`.
+- Feature flag: `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED`, default
+  `false`; mounting also requires `GUARDIAN_DEV_MODE=true` and
+  `GUARDIAN_EXPOSURE_MODE=local_safe`.
+- Route prefix: `/dev/browser-host/v1`; exact paths are
+  `POST /attachment-grants` and `POST /attachments`. The default route table,
+  supported profiles, and non-local exposure remain unchanged.
+- Store: one application-scoped process-local `AttachmentGrantStore`,
+  digest-only and ephemeral; shutdown clears it and restart invalidates all
+  outstanding grants.
+- Issuance: existing Guardian authentication/current-user dependency derives
+  the internal subject; the subject, API key, session cookie, and JWT are never
+  serialized to the grant response or sent to the Browser Host.
+- Attachment: the one-use `BrowserHostAttachmentGrant` and explicit instance
+  header are the complete authorization capability. Accepted requests return
+  `202` with an existing content-free receipt and `not_persisted`.
+- Rejection: replay and expiration return `409`; scope, version, retention,
+  confirmation, and budget mismatches return valid `403` receipts; malformed
+  bodies are rejected before the grant can be consumed. Concurrent attempts
+  produce exactly one success and one replay rejection.
+- Non-use: no database, Redis, filesystem persistence, provider, worker,
+  queue, command bus, storage writer, or production Browser Host runtime is
+  connected. Raw bearer, bearer digest, subject, and page content are absent
+  from logs, receipts, proof, and retained app state.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-guardian-attachment-http-adapter/`.
+- Gate C remains passed for architecture and ownership direction. Gate D
+  remains closed for supported integration and release qualification.
+- This is a development integration seam, not a supported release path.
+
+## Browser Host Guardian attachment integration — 2026-08-01
+
+- Prerequisite: `191e04bd21e0b677e77442c0cf8b95014626a253`; ADR-054 and the
+  versioned contract package remain unchanged.
+- The trusted Electron main process now selects an explicit
+  `guardian_dev_adapter` transport only when proof mode, the adapter flag,
+  numeric loopback origin, bounded instance ID, timeout, and one-use grant are
+  valid. The deterministic stub remains the negotiation transport and its
+  attachment behavior is unchanged.
+- `scripts/browser_host/launch_with_attachment_grant.py` is a development-only
+  parent broker: it reads `GUARDIAN_API_KEY` only to request one grant, binds
+  the grant request scope to the Browser Host instance, sanitizes the child
+  environment, and never forwards child output or reusable credentials.
+- The main process removes the raw grant from `process.env`, keeps it in a
+  one-shot closure, claims it before the one adapter attempt, and exposes only
+  bounded posture in runtime state and the trusted shell. There is no retry,
+  redirect following, renewal, or deterministic-stub fallback after a claim.
+- Live Electron proof covers accepted `202`/`not_persisted`, local replay
+  rejection, wrong-instance `403`, expiry `409`, disabled-route `404`,
+  transport failure, selected and visible capture coverage, stale/cancelled
+  ticket behavior, renderer redaction, exclusion of sensitive/browser-storage
+  and iframe content, prompt-injection containment, and deterministic-stub
+  continuity.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-01-browser-host-guardian-attachment-integration/`.
+- Gate C remains passed. Gate D remains closed: this is local development
+  integration proof, not production authentication, durable persistence,
+  packaging, signing, updater, or release proof.
+
+### Next atomic task
+
+Define and qualify the supported production Guardian authentication boundary for
+Browser Host attachment without importing development broker credentials,
+before any production route, durable persistence, packaging, or release work.
+
+## Guardian development negotiation adapter — 2026-08-02
+
+- Prerequisite: `8bb098b640a3dbb28da5c0ad498b4124db207964`; the prerequisite is
+  ancestral to the implementation branch.
+- Guardian now owns the credential-free development negotiation route at
+  `POST /dev/browser-host/v1/negotiate`. It is absent by default and mounts
+  only when `GUARDIAN_DEV_MODE=true`,
+  `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`, and
+  `GUARDIAN_EXPOSURE_MODE=local_safe`.
+- Negotiation and attachment gates are independent. The combined development
+  flow requires both explicit Guardian flags and one exact numeric-loopback
+  origin; neither flag changes a supported profile.
+- The Browser Host uses `guardian_dev_adapter` only when proof mode, the
+  explicit negotiation flag, numeric-loopback origin, bounded timeout, and
+  transport selection are valid. The deterministic transport remains an
+  explicitly selected isolated-test transport with no automatic retry or
+  fallback.
+- Negotiation sends the existing Hello v1 body without an API key, cookie, JWT,
+  attachment grant, user identity, or page content. Guardian returns only
+  compatibility metadata and no authority. Remote content is created or
+  loaded only after a compatible response; incompatible, malformed, disabled,
+  and transport-failure outcomes remain fail closed.
+- After compatible negotiation, the existing one-use Guardian attachment grant
+  path remains separate and returns the existing non-durable outcome. No
+  database, Redis, queue, worker, provider, command bus, migration, or release
+  configuration changed.
+- Python policy, route-gate, HTTP-adapter, launcher, and JavaScript client/config
+  checks pass. The requested live Electron integration attempt remains
+  environment-blocked: the pinned Electron binary aborts before the child
+  process can reach the handshake, and the unchanged Electron tests fail at
+  the same launch boundary. No live integration pass is claimed.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-browser-host-guardian-negotiation-integration/`.
+  It records the blocked live qualification, sanitized cleanup state, and the
+  unavailable exact-model delegation review rather than fabricating a pass.
+- Gate C remains passed. Gate D remains closed for supported integration and
+  release qualification. `docs/architecture/00-current-state.md` is unchanged.
+
+### Next atomic task
+
+Qualify the complete development Browser Host session against the real Guardian application process, using Guardian-owned negotiation and one-use attachment grants without the reduced test-support application or durable persistence.
+
+## Live Electron launch diagnostic — 2026-08-02
+
+- Prerequisite commit: `3b1e736ee52ee22958e61e479f060382bf82ea96`.
+- The bounded diagnostic and proof runner use the production Browser Host
+  entrypoint through Playwright with deterministic loopback negotiation only.
+- Current result: `next-proof-needed`; primary classification:
+  `host_security_assessment`.
+- The installed Electron `43.2.0` binary matches the arm64 host, but direct
+  `--version` and production-entrypoint launch terminate with `SIGABRT` before
+  `app.whenReady()` or the trusted window. macOS `spctl` reports an internal
+  Code Signing subsystem error. An Aqua graphical session is present, so this
+  is not classified as a missing graphical session.
+- No repository runtime repair was justified. No insecure sandbox bypass,
+  context-isolation change, credential injection, quarantine removal, signing
+  change, or alternate entrypoint was used.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-live-electron-launch/`.
+  Trusted-shell readiness, compatible negotiation, post-negotiation remote
+  load, and clean live Electron qualification remain unproven. Gate D remains
+  closed and full real-Guardian process qualification remains a later task.
+
+## macOS Electron trust-path qualification — 2026-08-02
+
+- Prerequisite commits: `de3924011` (live launch diagnostics) and
+  `529cc38b1` (refreshed live launch receipt). Both are ancestors of the
+  qualification run; no branch repair, merge, rebase, or push was performed.
+- The qualification matrix compared the first available signed Apple control
+  app (`Calculator.app`), the current locked Electron `43.2.0` bundle, and a
+  clean isolated `npm ci` download with the same `package-lock.json`. The clean
+  install used the package-provided Electron install hook and an isolated cache;
+  its arm64 bundle SHA-256 matched the current repository bundle.
+- Apple code-sign verification passed, but Apple `spctl` assessment returned
+  the Code Signing subsystem error. The current and clean Electron bundles
+  returned the same assessment error; both requested-sandbox minimal local
+  apps terminated with `SIGABRT` before creating a window. The exact primary
+  classification is `host_code_signing_subsystem_unavailable`.
+- Repository-local dependency repair was not attempted: the clean comparison
+  did not pass, so the repair gate was not satisfied. The existing bounded
+  production-entrypoint live proof was not rerun from this qualification lane.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-02-macos-electron-host-qualification/`.
+  Status is `next-proof-needed`; no host security policy, quarantine, signing,
+  trust service, security database, runtime, Guardian, lockfile, or release
+  configuration was changed. A full real-Guardian session remains unproven and
+  Gate D remains closed.
+
+## Post-restart Electron distribution comparison — 2026-08-03
+
+- Prerequisite commit `a8b3dd00e` is in the current branch ancestry. A normal
+  macOS restart completed before this proof; no OS update or Recovery action
+  was performed.
+- On macOS `26.5.2` arm64 with Gatekeeper enabled and Aqua available,
+  Calculator passes strict signature verification and Gatekeeper assessment.
+  The prior `host_code_signing_subsystem_unavailable` result remains immutable
+  historical evidence but no longer describes the current host-wide state.
+- One clean exact Electron `43.2.0` distribution was obtained with isolated
+  `npm ci` and package-provided installation under the temporary directory.
+  The repository and clean executables have the same SHA-256, and their
+  deterministic bundle-relative regular-file manifests are equal at 258 files
+  and 288,611,706 bytes with zero missing, extra, or content-mismatch paths.
+- Both Electron bundles are arm64 and quarantine-free. Both fail strict
+  signature and Gatekeeper resource validation with the same bounded resource
+  error. Both `--version` checks succeed, and both minimal requested-sandbox
+  applications reach `app.whenReady()`, create and load one local window, and
+  exit successfully. Neither authoritative minimal launch produced `SIGABRT`,
+  so no crash report correlation was required.
+- Primary classification: `clean_electron_43_2_0_also_fails`. The matching
+  distribution identity and failure surface do not demonstrate repository
+  corruption or metadata/resource drift and do not justify a repository-local
+  reinstall.
+- The comparison packet is
+  `docs/architecture/proofs/browser-host/2026-08-03-post-restart-electron-distribution-comparison/`
+  with status `passed`. That status covers comparison completeness only. The
+  minimal Electron status is passed; production Browser Host qualification is
+  still `next-proof-needed`. The full Browser Host test command reached 35 of
+  35 unit tests and 9 of 10 Electron tests, but one real Guardian development-
+  adapter integration assertion failed. No full real-Guardian session was
+  attempted.
+- No repository dependency repair, `node_modules` mutation, package or lock
+  change, macOS security change, quarantine removal, re-signing, insecure flag,
+  runtime change, or release-posture change occurred. Gate C remains passed and
+  Gate D remains closed.
+- Exactly one next atomic task: Qualify Electron 43.2.0 compatibility with
+  macOS 26.5.2 using a temporary adjacent-version matrix without changing
+  Codexify dependencies or release posture.
+
 ## ADR impact
 
-- Classification: future ADR evaluation required.
-- ADR created or modified here: none.
+- Classification: aligned with existing ADRs; ADR-054 is accepted.
+- ADR created by the adoption task:
+  `docs/architecture/adr/054-browser-host-topology-and-release-ownership.md`.
+- The decision-recommendation artifact is the singular evidence-backed input
+  adopted by ADR-054; it remains separate from runtime proof.
 - Existing governing contract: ADR-051 continues to govern the current private
   Chrome side-panel client.
-- Future ADR subject: Browser Host authority, repository topology, renderer
+- Accepted ADR subject: Browser Host authority, repository topology, renderer
   isolation, storage ownership, protocol versioning, release/signing ownership,
   and compatibility.
 - Reason: these boundaries would be dangerous to reinterpret after
@@ -405,6 +938,7 @@ The Campaign exits only when:
 - `docs/architecture/adr/adr-index.md`
 - `docs/architecture/adr/051-chrome-side-panel-dual-auth-client-contract.md`
 - `docs/architecture/browser-authority-and-context-boundary-contract.md`
+- `docs/architecture/browser-host-comparative-proof-harness-spec.md`
 - `docs/architecture/agent-protocol-operations.md`
 - `docs/architecture/system-overview.md`
 - `docs/architecture/modules-and-ownership.md`
@@ -416,6 +950,7 @@ The Campaign exits only when:
 - `docs/architecture/chrome-side-panel-client.md`
 - `docs/architecture/proofs/2026-06-23-trusted-remote-browser-codex-proof.md`
 - `docs/architecture/proofs/2026-07-30-codexify-browser-extension-repository-inventory.md`
+- `docs/architecture/proofs/2026-07-30-codexify-browser-host-topology-repository-boundary-evaluation.md`
 - `frontend/chrome-extension/manifest.json`
 - `frontend/chrome-extension/service-worker.ts`
 - `frontend/chrome-extension/src/`

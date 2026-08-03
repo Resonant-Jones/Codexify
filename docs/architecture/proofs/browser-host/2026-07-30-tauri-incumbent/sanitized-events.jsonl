@@ -1,0 +1,6 @@
+{"event": "static_inspection_complete", "runId": "tauri-proof-79fdb67b", "status": "passed"}
+{"event": "harness_started", "runId": "tauri-proof-79fdb67b", "status": "passed"}
+{"durationSeconds": 41.3559, "event": "candidate_unit_tests", "runId": "tauri-proof-79fdb67b", "status": "passed"}
+{"durationSeconds": 61.4514, "event": "candidate_build", "runId": "tauri-proof-79fdb67b", "status": "passed"}
+{"durationSeconds": 2.4346, "event": "candidate_launch", "runId": "tauri-proof-79fdb67b", "status": "passed"}
+{"event": "cleanup", "runId": "tauri-proof-79fdb67b", "status": "passed"}

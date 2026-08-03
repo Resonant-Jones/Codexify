@@ -69,6 +69,14 @@ from guardian.core.config import (
     get_settings,
     resolve_vector_store_runtime,
 )
+from guardian.browser_host.http_adapter import (
+    browser_host_attachment_adapter_enabled,
+    browser_host_negotiation_adapter_enabled,
+    install_browser_host_attachment_adapter,
+    install_browser_host_negotiation_adapter,
+    shutdown_browser_host_attachment_adapter,
+    shutdown_browser_host_negotiation_adapter,
+)
 from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
@@ -517,6 +525,7 @@ from guardian.routes import (
     admin,
     agent,
     agent_orchestration,
+    browser_host,
 )
 from guardian.routes import auth as auth_routes
 from guardian.routes import backfill, coding_work_orders
@@ -591,6 +600,14 @@ async def app_lifespan(app: FastAPI):
     ensure_system_dirs()
 
     settings = get_settings()
+    if getattr(app.state, "browser_host_attachment_adapter_enabled", False):
+        logger.info(
+            "[browser-host] development attachment adapter enabled prefix=/dev/browser-host/v1"
+        )
+    if getattr(app.state, "browser_host_negotiation_adapter_enabled", False):
+        logger.info(
+            "[browser-host] development negotiation adapter enabled prefix=/dev/browser-host/v1 no credentials required"
+        )
     try:
         assert_config_coherence(settings)
     except ConfigCoherenceError as exc:
@@ -829,6 +846,9 @@ async def app_lifespan(app: FastAPI):
             task.cancel()
         await asyncio.gather(*startup_background_tasks, return_exceptions=True)
 
+    shutdown_browser_host_attachment_adapter(app)
+    shutdown_browser_host_negotiation_adapter(app)
+
     logger.info("[shutdown] Guardian API stopped")
 
 
@@ -1043,9 +1063,45 @@ def _include_personal_facts_router() -> None:
     app.include_router(personal_facts_router, prefix="/api")
 
 
+def _include_browser_host_attachment_router() -> None:
+    # Keep this development seam out of the supported profile and beta-core
+    # route inventory.  The remaining three gates are evaluated before a
+    # store or route is created.
+    if _BETA_CORE_ONLY or _SUPPORTED_PROFILE_MANIFEST is not None:
+        logger.info(
+            "[routers] quarantined browser_host (supported release surface)"
+        )
+        return
+    if not browser_host_attachment_adapter_enabled():
+        logger.info(
+            "[routers] quarantined browser_host (development adapter disabled)"
+        )
+        return
+    install_browser_host_attachment_adapter(app, browser_host.router)
+
+
+def _include_browser_host_negotiation_router() -> None:
+    # Negotiation is a separate compatibility operation.  It has its own
+    # explicit flag and never inherits attachment enablement or credentials.
+    if _BETA_CORE_ONLY or _SUPPORTED_PROFILE_MANIFEST is not None:
+        logger.info(
+            "[routers] quarantined browser_host_negotiation (supported release surface)"
+        )
+        return
+    if not browser_host_negotiation_adapter_enabled():
+        logger.info(
+            "[routers] quarantined browser_host_negotiation (development adapter disabled)"
+        )
+        return
+    install_browser_host_negotiation_adapter(app, browser_host.negotiation_router)
+
+
 # =========================
 # Router Inclusion
 # =========================
+
+_include_browser_host_attachment_router()
+_include_browser_host_negotiation_router()
 
 _include_router(
     label="health",
