@@ -29,6 +29,9 @@ This file is authoritative for:
 - Recorded the latest dual-provider preview proof as `next-proof-needed`: missing DeepSeek credential and authenticated session prevented runtime turns.
 - Added a Codexify Browser campaign and extension inventory as documentation; this is not shipped browser support.
 - Guardian Evidence Packet authoring template and guide are static authoring aids only; they do not implement runtime reducer behavior or widen release support.
+- Added a second GuardianEvidencePacket fixture for local validation-toolchain coverage; this demonstrates packet schema coverage only and does not implement runtime reducer behavior.
+- Added a Guardian Evidence Packet future runtime reducer design contract; it defines future reducer boundaries and allowed handoffs only and does not implement runtime reducer behavior.
+- Added a Guardian Evidence Packet static validator contract; it defines future packet shape and guardrail validation only and does not implement runtime validator or reducer behavior.
 
 ## Current supported reality
 
