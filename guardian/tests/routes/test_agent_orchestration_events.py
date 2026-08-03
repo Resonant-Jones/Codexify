@@ -404,6 +404,9 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     result = await agent_orchestration.execute_coding_task(envelope)
 
     assert result["ok"] is True
+    assert result["status"] == "accepted"
+    assert result["source_thread_id"] == 42
+    assert result["source_message_id"] == 99
     assert captured_payloads
     payload = captured_payloads[0]
     assert payload["thread_id"] == 42
@@ -435,6 +438,54 @@ async def test_execute_coding_task_preserves_source_thread_lineage(
     assert deployment["spec_json"]["commit_after_validation"] is False
     assert deployment["spec_json"]["commit_message"] is None
     assert deployment["spec_json"]["require_human_review_before_merge"] is True
+
+
+def test_coding_run_snapshot_is_scoped_and_path_bounded() -> None:
+    local_store = AgentStore()
+    deployment = local_store.create_deployment(
+        flow_id="coding_snapshot",
+        thread_id=42,
+        spec_json={
+            "coding_task_id": "coding-snapshot-1",
+            "source_thread_id": 42,
+            "source_message_id": 99,
+            "attempt_id": "attempt-snapshot-1",
+            "adapter_kind": "pi_codex_runner",
+            "user_id": "alice",
+            "project_id": "17",
+        },
+        spec_hash="snapshot-hash",
+    )
+    run = local_store.create_run(
+        deployment_id=deployment["deployment_id"],
+        thread_id=42,
+        status="queued",
+    )
+
+    local_store.store_coding_result(
+        run_id=run["run_id"],
+        coding_task_id="coding-snapshot-1",
+        attempt_id="attempt-snapshot-1",
+        thread_id=42,
+        source_message_id=99,
+        result_status="failed",
+        result_summary="Bounded result returned.",
+        files_changed=["/workspace/repo/secret.py"],
+        artifacts=[{"kind": "patch", "name": "/workspace/repo/result.patch"}],
+        error_message="worker touched /workspace/repo/secret.py",
+    )
+
+    snapshot = local_store.get_coding_run_snapshot(
+        run["run_id"], user_id="alice"
+    )
+    assert snapshot is not None
+    assert snapshot["status"] == "failed"
+    assert snapshot["source_message_id"] == 99
+    assert snapshot["result"]["files_changed_count"] == 1
+    assert snapshot["result"]["artifacts"][0]["name"] == "result.patch"
+    assert "/workspace/repo" not in json.dumps(snapshot)
+    assert local_store.get_coding_run_snapshot(run["run_id"], user_id="bob") is None
+    assert len(local_store.list_coding_runs_for_thread(42, user_id="alice")) == 1
 
 
 @pytest.mark.asyncio

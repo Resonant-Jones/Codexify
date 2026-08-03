@@ -2,7 +2,7 @@
 
 - Campaign ID: TS-WM-001
 - Status: proposed campaign and governance plan; no runtime implementation or release claim
-- Governing decision: [ADR-053: ThreadSpace ↔ WhisperMesh Managed-Service Boundary](../../architecture/adr/053-threadspace-whispermesh-managed-service-boundary.md)
+- Governing decision: [ADR-055: ThreadSpace ↔ WhisperMesh Managed-Service Boundary](../../architecture/adr/055-threadspace-whispermesh-managed-service-boundary.md)
 - Architecture review: required before any implementation task opens
 
 ## Objective
@@ -62,7 +62,7 @@ The foundation does not silently reclassify an existing JSON collaboration relay
 
 **Deliverables:**
 
-- ADR-053 and this TS-WM-001 campaign;
+- ADR-055 and this TS-WM-001 campaign;
 - a resolved source-of-truth rule for Codexify sovereignty, WhisperMesh protocol schemas, and shared compatibility fixtures; and
 - initial grant/lease, metadata, failure, and stop-condition doctrine.
 
@@ -216,7 +216,7 @@ Pause delivery and require immediate architecture review if:
 
 ## First Atomic Tasks
 
-1. **Task 0.1:** define ADR-053 and TS-WM-001 (this task).
+1. **Task 0.1:** define ADR-055 and TS-WM-001 (this task).
 2. **Task 0.2:** create the WhisperMesh companion boundary note in the WhisperMesh repository.
 3. **Task 1.1:** create protocol v0.1 objects, canonical token domains, and shared negative fixtures.
 
@@ -233,7 +233,7 @@ Every future protocol version must declare compatibility, mixed-version behavior
 Completed in Task 0.1:
 
 - this campaign;
-- ADR-053;
+- ADR-055;
 - ADR index routing; and
 - architecture README routing.
 

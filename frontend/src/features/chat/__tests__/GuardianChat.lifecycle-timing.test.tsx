@@ -606,7 +606,7 @@ describe("GuardianChat lifecycle timing", () => {
     expect(screen.getByText("Existing assistant reply")).toBeInTheDocument();
   });
 
-  it("clears stale lifecycle text when switching threads during an in-flight request", async () => {
+  it("preserves the task stream across thread switches", async () => {
     const { rerender } = renderChat("1");
     const source = await startTrackedRequest();
 
@@ -634,6 +634,7 @@ describe("GuardianChat lifecycle timing", () => {
     await waitFor(() => {
       expect(screen.queryByText("Warming model…")).not.toBeInTheDocument();
     });
+    expect(source.close).not.toHaveBeenCalled();
 
     emitTaskEvent(source, "task.state", {
       thread_id: 1,
@@ -641,6 +642,23 @@ describe("GuardianChat lifecycle timing", () => {
       state: "STREAMING",
     });
     expect(screen.queryByText("Generating…")).not.toBeInTheDocument();
+
+    rerender(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={buildThread("1")}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        sessionTabs={buildSessionTabs("1")}
+        activeSessionTabId={"tab-1" as any}
+        activeProviderId="local"
+        activeModelId="local-model"
+      />
+    );
+
+    await screen.findByText("Generating…");
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
   it("renders generic provider failures as failed request state without adding an assistant message", async () => {

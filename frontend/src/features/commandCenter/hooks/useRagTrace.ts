@@ -299,6 +299,18 @@ export default function useRagTrace(
           return;
         }
         const normalized = normalizeTracePayload(rawTrace, resolvedThreadId);
+        if (!normalized) {
+          setState({
+            error: null,
+            loading: false,
+            resolvedThreadId,
+            rawTrace,
+            trace: null,
+            unavailable: true,
+            unavailableReason: "no_trace",
+          });
+          return;
+        }
         setState({
           error: null,
           loading: false,

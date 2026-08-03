@@ -1,6 +1,6 @@
-name: v1-local-core-web-mcp
+name: v1-user-profile-accent-proof
 version: 1
-surface: local-docker-compose-webui
+surface: internal-proof-only-local-docker-compose-webui
 required_services:
   - frontend
   - backend
@@ -39,6 +39,7 @@ route_posture:
   internal_only:
     - coding_work_orders
     - command_bus
+    - user_profile
   quarantined:
     - neo
     - imprint
@@ -71,12 +72,8 @@ provider_contract:
   ALLOW_CLOUD_PROVIDERS: false
   CODEXIFY_LOCAL_ONLY_MODE: true
   CODEXIFY_EGRESS_ALLOWLIST: ""
-  LOCAL_RUNTIME_PRESET: whooshd-mlx
-  LOCAL_BASE_URL: http://host.docker.internal:8000/v1
+  LOCAL_BASE_URL: http://100.127.148.28:8000/v1
   LOCAL_API_KEY: local
-  LOCAL_COMPAT_FIRST: true
-  LOCAL_PROVIDER_DISPLAY_NAME: "Whoosh'd"
-  LOCAL_PROVIDER_VENDOR: whooshd
   # Model names are NOT enforced here — the system discovers available models
   # at runtime. If no local models exist AND no cloud provider is configured,
   # the /health/llm endpoint will report models_available: false.
