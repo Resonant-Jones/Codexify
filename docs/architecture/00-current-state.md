@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-03
+2026-08-02
 
 ## Interpretation rule
 
@@ -22,10 +22,13 @@ This file is authoritative for:
 
 ## What changed recently
 
-- Pruned the unaccepted Soft Serve/VaultNode local-forge workflow and ADR-054/ADR-055 artifacts from `main`.
-- Added a dedicated architecture-contract CI workflow; it strengthens repository validation but is not live runtime proof.
-- Preserved private-preview startup/proxy hardening and browser campaign documentation without widening the default beta promise.
-- Local `main` is two commits behind `origin/main`; origin-only changes are excluded from this audit's shipped reality.
+- Added static/test-proven configuration and provider-specific proof tooling for the opt-in `v1-whooshd-deepseek-web` preview lane.
+- Repaired private-preview startup health, single-origin proxying, and backend re-resolution after container replacement.
+- Added thread-refresh backoff and retry guards, idempotent migration changes, and private-preview configuration updates.
+- Clarified trusted-remote/private-preview email sign-in behavior.
+- Recorded the latest dual-provider preview proof as `next-proof-needed`: missing DeepSeek credential and authenticated session prevented runtime turns.
+- Added a Codexify Browser campaign and extension inventory as documentation; this is not shipped browser support.
+- Guardian Evidence Packet authoring template and guide are static authoring aids only; they do not implement runtime reducer behavior or widen release support.
 
 ## Current supported reality
 
