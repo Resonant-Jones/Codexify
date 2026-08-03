@@ -70,7 +70,16 @@ import {
 } from "@/contracts/runtimeTokens";
 import { checkAuthGate, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
-import { DocumentLike, type DocumentScope } from "@/types/documents";
+import { DocumentLike } from "@/types/documents";
+import {
+  getDocumentScopeQuery,
+  getDocumentUploadScope,
+  seedDocumentsScope,
+  selectDocumentsProject,
+  selectDocumentsThread,
+  type DocumentsScope,
+  type GuardianSidebarSnapshot,
+} from "@/components/documents/documentScopeProjection";
 import { SessionSpine } from "@/state/session/SessionSpine";
 import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
@@ -119,7 +128,7 @@ import {
 import "./AppShell.css";
 
 // TEMPORARY: inject static design tokens until full migration is done.
-import { injectCssVars } from "@/theme";
+import { injectCssVars, applyPaperTone, normalizeLegacyWarmth } from "@/theme";
 injectCssVars();
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
@@ -1361,9 +1370,35 @@ export default function AppShell({
       return window.localStorage.getItem("cfy.generalProjectId") ? "storage" : "validated";
     });
   const hasFetchedGeneralProjectRef = React.useRef(false);
-  const [activeThreadProjectId, setActiveThreadProjectId] = useState<number | null>(null);
-  const [documentScope, setDocumentScope] = useState<DocumentScope>(
-    () => (readRouteThreadId() != null ? "thread" : "project")
+  const [guardianSidebarSnapshot, setGuardianSidebarSnapshot] =
+    useState<GuardianSidebarSnapshot | null>(null);
+  const [documentsScope, setDocumentsScope] = useState<DocumentsScope>(() =>
+    selectDocumentsProject(null)
+  );
+  const documentsEntrySeededRef = useRef(false);
+  const guardianProjectFallbackId = useMemo<number | null>(
+    () => (generalProjectIdSource === "storage" ? null : generalProjectId),
+    [generalProjectId, generalProjectIdSource]
+  );
+  const seedDocumentsScopeFromGuardian = useCallback(() => {
+    setDocumentsScope(
+      seedDocumentsScope(guardianSidebarSnapshot, guardianProjectFallbackId)
+    );
+  }, [guardianProjectFallbackId, guardianSidebarSnapshot]);
+  const handleGuardianSidebarSnapshot = useCallback(
+    (snapshot: GuardianSidebarSnapshot) => {
+      setGuardianSidebarSnapshot(snapshot);
+    },
+    []
+  );
+  const documentsSidebarThreads = guardianSidebarSnapshot?.threads ?? [];
+  const documentsSidebarThreadsForRender = useMemo<Thread[]>(
+    () => documentsSidebarThreads.map((thread) => ({ ...thread, messages: [] })),
+    [documentsSidebarThreads]
+  );
+  const documentsSidebarPersistence = useMemo(
+    () => ({ tabStorageKey: "cfy.documents.sidebarTab", projectStorageKey: null }),
+    []
   );
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1388,8 +1423,14 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    setDocumentScope(activeRouteThreadId != null ? "thread" : "project");
-  }, [activeRouteThreadId]);
+    if (view !== "documents") {
+      documentsEntrySeededRef.current = false;
+      return;
+    }
+    if (documentsEntrySeededRef.current) return;
+    seedDocumentsScopeFromGuardian();
+    documentsEntrySeededRef.current = true;
+  }, [seedDocumentsScopeFromGuardian, view]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (view !== "guardian") return;
@@ -1398,6 +1439,14 @@ export default function AppShell({
   }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
+      if (
+        nextView === "documents" &&
+        view !== "documents" &&
+        !documentsEntrySeededRef.current
+      ) {
+        seedDocumentsScopeFromGuardian();
+        documentsEntrySeededRef.current = true;
+      }
       setView(nextView);
       if (typeof window === "undefined") return;
 
@@ -1407,7 +1456,7 @@ export default function AppShell({
       }
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
-    [activeRouteThreadId]
+    [activeRouteThreadId, seedDocumentsScopeFromGuardian, view]
   );
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1438,19 +1487,21 @@ export default function AppShell({
   }, []);
   const handleDocumentsSidebarProjectChange = useCallback(
     (projectId: string | null) => {
-      const normalizedProjectId =
-        projectId == null ? null : Number.parseInt(String(projectId), 10);
-      setGeneralProjectIdSource("user");
-      setGeneralProjectId(
-        normalizedProjectId != null && Number.isFinite(normalizedProjectId)
-          ? normalizedProjectId
-          : null
-      );
-      setDocumentScope(
-        projectId == null && activeRouteThreadId != null ? "thread" : "project"
+      setDocumentsScope(selectDocumentsProject(projectId));
+    },
+    []
+  );
+  const handleDocumentsSidebarThreadSelect = useCallback(
+    (threadId: string) => {
+      setDocumentsScope((currentScope) =>
+        selectDocumentsThread(
+          threadId,
+          documentsSidebarThreads,
+          currentScope.projectId
+        )
       );
     },
-    [activeRouteThreadId]
+    [documentsSidebarThreads]
   );
   const handleGuardianProjectChange = useCallback(
     (projectId: string | null) => {
@@ -1551,56 +1602,6 @@ export default function AppShell({
   useEffect(() => {
     let cancelled = false;
     if (startupLocked) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!activeRouteThreadId) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!checkAuthGate(auth, "thread project load")) {
-      setActiveThreadProjectId(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    (async () => {
-      try {
-        const response = await api.get("/chat/threads");
-        const payload = response?.data ?? response;
-        const threads = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.threads)
-          ? payload.threads
-          : [];
-        const hit = threads.find(
-          (thread: any) => Number(thread?.id) === activeRouteThreadId
-        );
-        const projectRaw = hit?.project_id ?? hit?.projectId ?? null;
-        const parsed = projectRaw == null ? NaN : Number(projectRaw);
-        if (cancelled) return;
-        setActiveThreadProjectId(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
-      } catch (err) {
-        if (cancelled) return;
-        setActiveThreadProjectId(null);
-        console.warn("[documents] failed to resolve thread project", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeRouteThreadId, auth, startupLocked]);
-  const effectiveDocumentsProjectId = useMemo<number | null>(
-    () => activeThreadProjectId ?? (generalProjectIdSource === "storage" ? null : generalProjectId),
-    [activeThreadProjectId, generalProjectId, generalProjectIdSource]
-  );
-  useEffect(() => {
-    let cancelled = false;
-    if (startupLocked) {
       return () => {
         cancelled = true;
       };
@@ -1612,10 +1613,7 @@ export default function AppShell({
     }
     (async () => {
       try {
-        const params: Record<string, number> = { limit: 100 };
-        if (effectiveDocumentsProjectId != null) {
-          params.project_id = effectiveDocumentsProjectId;
-        }
+        const params = getDocumentScopeQuery(documentsScope);
         const res = await api.get("/media/documents", { params });
         const docs = unwrapDocumentArray(res?.data);
         if (cancelled) return;
@@ -1632,7 +1630,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [auth, effectiveDocumentsProjectId, startupLocked]);
+  }, [auth, documentsScope, startupLocked]);
   const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1676,19 +1674,17 @@ export default function AppShell({
       mock: false,
     }));
   }, [codexEntries]);
-  const scopedProjectDocuments = useMemo<DocItem[]>(() => {
-    if (documentScope !== "thread" || activeRouteThreadId == null) {
-      return documents;
-    }
-    return documents.filter((doc) => {
-      const threadRaw = (doc as any).threadId ?? (doc as any).thread_id;
-      const threadValue = Number(threadRaw);
-      return Number.isFinite(threadValue) && threadValue === activeRouteThreadId;
-    });
-  }, [activeRouteThreadId, documents, documentScope]);
+  const scopedDocuments = useMemo<DocItem[]>(() => documents, [documents]);
   const allDocuments = useMemo<DocItem[]>(
-    () => dedupeDocItems([...codexDocs, ...scopedProjectDocuments]),
-    [codexDocs, scopedProjectDocuments]
+    () =>
+      documentsScope.kind === "thread"
+        ? scopedDocuments
+        : dedupeDocItems([...codexDocs, ...scopedDocuments]),
+    [codexDocs, documentsScope.kind, scopedDocuments]
+  );
+  const documentsUploadScope = useMemo(
+    () => getDocumentUploadScope(documentsScope),
+    [documentsScope]
   );
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
@@ -1718,11 +1714,14 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 50;
     return Math.max(0, Math.min(100, Math.round(raw)));
   });
-  const [surfaceWarmth, setSurfaceWarmth] = useState<number>(() => {
+  // lightPaperTone — canonical light-mode paper-material control (0–100).
+  // Reuses cfy.surfaceWarmth for backward compatibility; legacy values
+  // are normalized deterministically on read.
+  const [lightPaperTone, setLightPaperTone] = useState<number>(() => {
     if (typeof window === "undefined") return 0;
     const raw = Number(window.localStorage.getItem("cfy.surfaceWarmth"));
     if (!Number.isFinite(raw)) return 0;
-    return Math.max(-100, Math.min(100, Math.round(raw)));
+    return normalizeLegacyWarmth(raw);
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1743,9 +1742,9 @@ export default function AppShell({
   }, [surfaceDepth]);
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("cfy.surfaceWarmth", String(surfaceWarmth));
+      window.localStorage.setItem("cfy.surfaceWarmth", String(lightPaperTone));
     }
-  }, [surfaceWarmth]);
+  }, [lightPaperTone]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🌈 SECTION: Color Helpers and Gradient Generators
@@ -1805,32 +1804,15 @@ export default function AppShell({
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🎚️ SECTION: Surface Tuning Derivation
-     Apply the user's Surface Depth + Surface Warmth preferences to a base
-     neutral surface color. The math is HSL-based so output stays subtle
-     (no neon/saturation) and the default (depth=50, warmth=0) returns the
-     input unchanged.
+     Surface Depth is applied via HSL lightness shift to both light and dark.
+     Paper Tone is light-only and uses perceptual OKLCH interpolation.
      ───────────────────────────────────────────────────────────────────────────── */
-  function tuneSurfaceColor(
-    baseHex: string,
-    depthNorm: number,
-    warmthNorm: number
-  ): string {
+  function tuneSurfaceDepth(baseHex: string, depthNorm: number): string {
     const { r, g, b } = hexToRgb(baseHex);
     const { h, s, l } = rgbToHsl(r, g, b);
-    // Depth (-1 lighter, +1 darker), bounded so we never invert polarity.
     const depthShift = depthNorm * 9; // ±9% lightness around the base
     const newL = Math.max(0, Math.min(100, l + depthShift));
-    // Warmth (-1 cool → H~210°, +1 warm → H~35°). Cap pull at 0.7 of the gap so
-    // we don't slam to a neon target.
-    const warmTarget = 35;
-    const coolTarget = 210;
-    const pull = Math.abs(warmthNorm) * 0.7;
-    const targetH = warmthNorm >= 0 ? warmTarget : coolTarget;
-    let newH = h + (targetH - h) * pull;
-    newH = ((newH % 360) + 360) % 360;
-    // Saturation: stay subtle. Add a small amount with warmth magnitude, cap at 22%.
-    const newS = Math.min(22, s + Math.abs(warmthNorm) * 10);
-    return hslToHex(newH, newS, newL);
+    return hslToHex(h, s, newL);
   }
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -1874,13 +1856,19 @@ export default function AppShell({
   })();
   const panelSheetBase = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
   const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
-  // Surface Tuning: depth/warmth in normalized [-1, 1] space.
-  // depthNorm: -1 = lighter, +1 = darker. warmthNorm: -1 = cool, +1 = warm.
+  // Surface Depth (affects both themes equally).
   const depthNorm = (surfaceDepth - 50) / 50;
-  const warmthNorm = surfaceWarmth / 100;
-  const panelSheet = tuneSurfaceColor(panelSheetBase, depthNorm, warmthNorm);
+  // Paper Tone: light-mode-only material warmth.
+  // In dark mode the stored value is preserved but not applied.
+  const lightPanelSheet = resolved === "light"
+    ? applyPaperTone(panelSheetBase, lightPaperTone)
+    : panelSheetBase;
+  const lightChipBg = resolved === "light"
+    ? applyPaperTone(chipBgBase, lightPaperTone)
+    : chipBgBase;
+  const panelSheet = tuneSurfaceDepth(lightPanelSheet, depthNorm);
   const panelBg = panelSheet;
-  const chipBg = tuneSurfaceColor(chipBgBase, depthNorm, warmthNorm);
+  const chipBg = tuneSurfaceDepth(lightChipBg, depthNorm);
   // Global: soften panel border
   const panelBorder = resolved === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,24,39,0.08)";
   const panelSheetBorder = resolved === "dark" ? "rgba(255,255,255,0.18)" : "rgba(17,24,39,0.14)";
@@ -2021,11 +2009,10 @@ export default function AppShell({
     "--surface-soft": surfaceSoft,
     /* Surface Tuning raw inputs (consumed by AppShell-level derivation). */
     "--surface-depth": String(surfaceDepth),
-    "--surface-warmth": String(surfaceWarmth),
+    "--light-paper-tone": String(lightPaperTone),
     "--surface-sheet": panelSheet,
     "--surface-chip": chipBg,
     "--surface-depth-norm": depthNorm.toFixed(4),
-    "--surface-warmth-norm": warmthNorm.toFixed(4),
     "--text-on-accent": textOnAccent,
     "--info-surface": infoSurface,
     "--info-text": infoText,
@@ -2238,8 +2225,8 @@ export default function AppShell({
       }>).detail;
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
-        setGeneralProjectIdSource("user");
-        setGeneralProjectId(projectId);
+        setDocumentsScope(selectDocumentsProject(projectId));
+        documentsEntrySeededRef.current = true;
       }
       navigateToView("documents");
     };
@@ -2582,6 +2569,8 @@ export default function AppShell({
   const showWorkspaceDrawer =
     workspaceShellEnabled &&
     (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
+  const workspaceProjectId =
+    view === "documents" ? documentsScope.projectId : guardianProjectFallbackId;
   const workspaceDrawerMotionState = isPhoneShell
     ? getMobileWorkspaceMotionState(
         isPhoneShell,
@@ -2697,7 +2686,7 @@ export default function AppShell({
             }}
             onActiveTabChange={handleWorkspaceDrawerTabChange}
             onLayoutModeChange={setWorkspaceLayoutMode}
-            projectId={effectiveDocumentsProjectId}
+            projectId={workspaceProjectId}
           />
         </div>
       </div>
@@ -2727,7 +2716,7 @@ export default function AppShell({
           }}
           onActiveTabChange={handleWorkspaceDrawerTabChange}
           onLayoutModeChange={setWorkspaceLayoutMode}
-          projectId={effectiveDocumentsProjectId}
+          projectId={workspaceProjectId}
         />
       </div>
     )
@@ -3440,20 +3429,21 @@ export default function AppShell({
                           }}
                         >
                         <SidebarRoot
-                            threads={[]}
+                            threads={documentsSidebarThreadsForRender}
                             activeId={
-                              activeRouteThreadId == null
-                                ? null
-                                : String(activeRouteThreadId)
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
                             }
-                            onSelect={(id) => navigateToThread(id)}
+                            onSelect={handleDocumentsSidebarThreadSelect}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              effectiveDocumentsProjectId == null
+                              documentsScope.projectId == null
                                 ? null
-                                : String(effectiveDocumentsProjectId)
+                                : String(documentsScope.projectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
                           />
                         </FrameCard>
                       </div>
@@ -3482,8 +3472,8 @@ export default function AppShell({
                         extColors={extColors}
                         onOpenInThread={openDocInThread}
                         onDeleteDocument={deleteDocument}
-                        projectId={effectiveDocumentsProjectId}
-                        threadId={activeRouteThreadId}
+                        projectId={documentsUploadScope.projectId}
+                        threadId={documentsUploadScope.threadId}
                       />
                     </FrameCard>
                   </div>
@@ -3524,20 +3514,24 @@ export default function AppShell({
                           }}
                         >
                         <SidebarRoot
-                            threads={[]}
+                            threads={documentsSidebarThreadsForRender}
                             activeId={
-                              activeRouteThreadId == null
-                                ? null
-                                : String(activeRouteThreadId)
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
                             }
-                            onSelect={(id) => navigateToThread(id)}
+                            onSelect={(id) => {
+                              handleDocumentsSidebarThreadSelect(id);
+                              closeDocumentsSidebarOverlay();
+                            }}
                             onNewChat={() => navigateToThread(null)}
                             projectId={
-                              effectiveDocumentsProjectId == null
+                              documentsScope.projectId == null
                                 ? null
-                                : String(effectiveDocumentsProjectId)
+                                : String(documentsScope.projectId)
                             }
                             onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
                           />
                         </FrameCard>
                       </div>
@@ -3671,6 +3665,7 @@ export default function AppShell({
                         activeWorkspaceDoc={null}
                         onWorkspaceClose={closeWorkspaceDrawer}
                         onProjectChange={handleGuardianProjectChange}
+                        onSidebarSnapshot={handleGuardianSidebarSnapshot}
                         activeApplicationView={view}
                         applicationDestinations={
                           GUARDIAN_MOBILE_NAVIGATION_DESTINATIONS
@@ -3767,8 +3762,8 @@ export default function AppShell({
                     setDashboardThreadRows={setDashboardThreadRows}
                     surfaceDepth={surfaceDepth}
                     setSurfaceDepth={setSurfaceDepth}
-                    surfaceWarmth={surfaceWarmth}
-                    setSurfaceWarmth={setSurfaceWarmth}
+                    lightPaperTone={lightPaperTone}
+                    setLightPaperTone={setLightPaperTone}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
                   />

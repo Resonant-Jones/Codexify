@@ -7,7 +7,7 @@ import type { Thread } from "@/types/ui";
 import ThreadList from "./ThreadList";
 import ProjectList from "./ProjectList";
 import CreateProjectModal from "./CreateProjectModal";
-import useSidebarThreads from "./useSidebarThreads";
+import useSidebarThreads, { type SidebarPersistenceConfig } from "./useSidebarThreads";
 import useProjectsCache, {
   type UseProjectsCacheResult,
 } from "./useProjectsCache";
@@ -44,7 +44,12 @@ type Props = {
     threadId: string
   ) => string | null | Promise<string | null>;
   onCreateProject?: (data: { name: string; icon?: string; color?: string }) => Promise<Project | void> | Project | void;
+  persistence?: SidebarPersistenceConfig & {
+    tabStorageKey?: string;
+  };
 };
+
+const LEGACY_TAB_STORAGE_KEY = "cfy.sidebarTab";
 
 function colorStringToRgba(input: string, alpha: number, fallback: string): string {
   const value = (input || "").trim();
@@ -135,9 +140,11 @@ export default function SidebarRoot({
   onDeleteThread,
   onBeforeDeleteThread,
   onCreateProject,
+  persistence,
 }: Props) {
+  const tabStorageKey = persistence?.tabStorageKey ?? LEGACY_TAB_STORAGE_KEY;
   const [tab, setTab] = React.useState<"threads" | "projects">(() =>
-    (typeof window === "undefined" ? "threads" : ((localStorage.getItem("cfy.sidebarTab") as any) || "threads"))
+    (typeof window === "undefined" ? "threads" : ((localStorage.getItem(tabStorageKey) as any) || "threads"))
   );
   const [q, setQ] = React.useState("");
   const { enabled: legacyEnabled, open: openLegacy } = useLegacyThreads();
@@ -176,7 +183,13 @@ export default function SidebarRoot({
     renameThread,
     toggleArchiveThread,
     deleteThread,
-  } = useSidebarThreads({ initialThreads: threads, projectId, onProjectChange, projects: projectList });
+  } = useSidebarThreads({
+    initialThreads: threads,
+    projectId,
+    onProjectChange,
+    projects: projectList,
+    persistence,
+  });
 
   const scopeLabel = React.useMemo(() => {
     if (currentProjectId === null) return "General";
@@ -242,11 +255,11 @@ export default function SidebarRoot({
 
   React.useEffect(() => {
     try {
-      localStorage.setItem("cfy.sidebarTab", tab);
+      localStorage.setItem(tabStorageKey, tab);
     } catch {
       /* ignore */
     }
-  }, [tab]);
+  }, [tab, tabStorageKey]);
 
   const filteredThreads = React.useMemo(() => {
     if (!q) return displayThreads;

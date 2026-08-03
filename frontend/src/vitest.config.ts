@@ -20,6 +20,8 @@ export default defineConfig({
       "features/**/*.test.{ts,tsx}",
       "lib/**/*.test.{ts,tsx}",
       "persona/**/*.test.{ts,tsx}",
+      "theme/**/*.test.{ts,tsx}",
+      "src/theme/**/*.{test,spec}.{ts,tsx}",
       "tests/**/*.{test,spec}.{ts,tsx}",
       "test/**/*.test.{ts,tsx}",
       "src/test/**/*.{test,spec}.{ts,tsx}",

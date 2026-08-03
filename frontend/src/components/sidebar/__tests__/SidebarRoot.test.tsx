@@ -16,6 +16,7 @@ function createThread(id: string): Thread {
 }
 
 const mockSetProvenanceFilter = vi.fn();
+const useSidebarThreadsOptionsSpy = vi.fn();
 const mockSidebarState = vi.hoisted(() => ({
   currentProjectId: null as string | null,
   provenanceFilter: null as string | null,
@@ -23,7 +24,9 @@ const mockSidebarState = vi.hoisted(() => ({
 }));
 
 vi.mock("../useSidebarThreads", () => ({
-  default: () => ({
+  default: (options: unknown) => {
+    useSidebarThreadsOptionsSpy(options);
+    return {
     threads: [createThread("thread-1")],
     displayThreads: [createThread("thread-1")],
     scopeLabel: "General",
@@ -39,7 +42,8 @@ vi.mock("../useSidebarThreads", () => ({
     toggleArchiveThread: vi.fn().mockResolvedValue(undefined),
     deleteThread: vi.fn().mockResolvedValue(undefined),
     looseCount: 0,
-  }),
+    };
+  },
 }));
 
 vi.mock("../useProjectsCache", () => ({
@@ -97,6 +101,36 @@ describe("SidebarRoot provenance filter wiring", () => {
 
     expect(screen.getByTestId("project-list")).toBeInTheDocument();
     expect(screen.queryByRole("toolbar", { name: "Imported source filter" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the legacy Guardian tab key by default and isolates Documents tabs", () => {
+    const guardian = render(
+      <SidebarRoot threads={[]} activeId={null} onSelect={vi.fn()} onNewChat={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+    expect(window.localStorage.getItem("cfy.sidebarTab")).toBe("projects");
+    guardian.unmount();
+
+    window.localStorage.setItem("cfy.sidebarTab", "threads");
+    render(
+      <SidebarRoot
+        threads={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onNewChat={vi.fn()}
+        persistence={{ tabStorageKey: "cfy.documents.sidebarTab", projectStorageKey: null }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+    expect(window.localStorage.getItem("cfy.documents.sidebarTab")).toBe("projects");
+    expect(window.localStorage.getItem("cfy.sidebarTab")).toBe("threads");
+    expect(useSidebarThreadsOptionsSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        persistence: { tabStorageKey: "cfy.documents.sidebarTab", projectStorageKey: null },
+      })
+    );
   });
 
   it("shows a dismissible Project Knowledge Base notice once", () => {

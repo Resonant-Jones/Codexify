@@ -85,6 +85,7 @@ const routeCapabilityState = {
 };
 const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 const guardianShellPropsSpy = vi.hoisted(() => vi.fn());
+const documentsSidebarPropsSpy = vi.hoisted(() => vi.fn());
 const authTestState = vi.hoisted(() => ({
   auth: { ready: true, status: "authenticated" as const, token: "test-token" },
   gateAllowed: true,
@@ -329,17 +330,31 @@ vi.mock("@/components/documents/DocumentsView", () => ({
 }));
 
 vi.mock("@/components/sidebar/SidebarRoot", () => ({
-  default: () => (
-    <div data-testid="sidebar-root-mock">
+  default: (props: {
+    threads?: Array<{ id: string }>;
+    activeId?: string | null;
+    projectId?: string | null;
+    onSelect?: (id: string) => void;
+    onProjectChange?: (id: string | null) => void;
+  }) => {
+    documentsSidebarPropsSpy(props);
+    return <div data-testid="sidebar-root-mock">
       <div data-testid="sidebar-threads-tab">Threads</div>
       <div data-testid="sidebar-projects-tab">Projects</div>
-    </div>
-  ),
+      <button data-testid="documents-sidebar-select-thread-21" onClick={() => props.onSelect?.("21")}>
+        Select thread 21
+      </button>
+      <button data-testid="documents-sidebar-select-project-2" onClick={() => props.onProjectChange?.("2")}>
+        Select project 2
+      </button>
+    </div>;
+  },
 }));
 
 vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
   default: (props: {
     onProjectChange?: (projectId: string | null, projectName: string | null) => void;
+    onSidebarSnapshot?: (snapshot: unknown) => void;
     activeApplicationView?: string;
     applicationDestinations?: ReadonlyArray<{
       view: string;
@@ -365,6 +380,24 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
           onClick={() => props.onProjectChange?.("2", "Launch Project")}
         >
           Set Project 2
+        </button>
+        <button
+          type="button"
+          data-testid="guardian-emit-sidebar-snapshot"
+          onClick={() =>
+            props.onSidebarSnapshot?.({
+              threads: [
+                { id: "11", title: "Thread A1", lastMessage: "", unread: 0, participants: [], projectId: "1", projectName: "Project A" },
+                { id: "21", title: "Thread B1", lastMessage: "", unread: 0, participants: [], projectId: "2", projectName: "Project B" },
+              ],
+              activeThreadId: 11,
+              selectedProjectId: 1,
+              selectedProjectName: "Project A",
+              activeThreadProjectId: 1,
+            })
+          }
+        >
+          Emit sidebar snapshot
         </button>
         {(props.applicationDestinations ?? []).map((destination) => (
           <button
@@ -402,6 +435,8 @@ vi.mock("@/components/ShareButton", () => ({
 
 vi.mock("@/theme", () => ({
   injectCssVars: vi.fn(),
+  applyPaperTone: vi.fn((base: string) => base),
+  normalizeLegacyWarmth: vi.fn((value: number) => value),
 }));
 
 let AppShell: typeof import("../AppShell").default;
@@ -775,6 +810,8 @@ describe("AppShell settings utility trigger", () => {
     routeCapabilityState.ready = true;
     routeCapabilityState.state = "available";
     listCodexEntriesSpy.mockClear();
+    documentsSidebarPropsSpy.mockClear();
+    guardianShellPropsSpy.mockClear();
     mockApi.get.mockClear();
     mockApi.post.mockClear();
     mockApi.delete.mockClear();
@@ -942,7 +979,7 @@ describe("AppShell settings utility trigger", () => {
     expect(screen.getByTestId("documents-project-id")).toHaveTextContent(
       "42"
     );
-    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("123");
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("no-thread");
   });
 
   it("preserves the Guardian project selection when switching to Documents", async () => {
@@ -1768,6 +1805,57 @@ describe("AppShell documents sidebar posture", () => {
       "true"
     );
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
+  });
+
+  it("projects Guardian context once, then keeps Documents thread and project selection local", async () => {
+    setViewportWidth(1280);
+    setRoutePath("/chat/11");
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === "/media/documents") return Promise.resolve({ data: { documents: [] } });
+      if (url === "/api/projects") return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    fireEvent.click(screen.getByTestId("guardian-emit-sidebar-snapshot"));
+    fireEvent.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+
+    await screen.findByTestId("documents-view-mock");
+    expect(screen.getByTestId("documents-project-id")).toHaveTextContent("1");
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("11");
+    expect(documentsSidebarPropsSpy.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        activeId: "11",
+        projectId: "1",
+        threads: expect.arrayContaining([expect.objectContaining({ id: "11" })]),
+        persistence: { tabStorageKey: "cfy.documents.sidebarTab", projectStorageKey: null },
+      })
+    );
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+        params: { limit: 100, thread_id: 11 },
+      });
+    });
+
+    fireEvent.click(screen.getByTestId("documents-sidebar-select-project-2"));
+    expect(screen.getByTestId("documents-project-id")).toHaveTextContent("2");
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("no-thread");
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+        params: { limit: 100, project_id: 2 },
+      });
+    });
+
+    fireEvent.click(screen.getByTestId("documents-sidebar-select-thread-21"));
+    expect(screen.getByTestId("documents-project-id")).toHaveTextContent("2");
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("21");
+    expect(window.location.pathname).toBe("/documents");
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/documents", {
+        params: { limit: 100, thread_id: 21 },
+      });
+    });
   });
 
   it("dismisses the Documents sidebar via the toggle button and expands the center lane", async () => {

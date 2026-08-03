@@ -516,10 +516,8 @@ export function ChatBubble({
         overscrollBehavior: "contain",
       }
     : undefined;
-  // Keep padding on the content node itself so collapsed messages still have
-  // inset text when max-height clipping is active.
   const userMessageTextClass = cn(
-    "w-full min-w-0 px-4 py-3 text-left text-sm leading-relaxed whitespace-pre-wrap break-words",
+    "min-w-0 max-w-full text-left text-sm leading-relaxed whitespace-pre-wrap break-words",
     userMessageLooksLikeCode ? "font-mono text-[13px] leading-5" : null
   );
 
@@ -712,10 +710,14 @@ export function ChatBubble({
     >
       {hasVisibleContent ? (
         <div
-          className="max-w-full min-w-0 rounded-[var(--tile-radius)] p-3 shadow-sm"
+          data-testid="chat-user-message-bubble"
+          className={cn(
+            "w-fit max-w-full min-w-0 box-border overflow-hidden rounded-[var(--tile-radius)] px-3 py-2 shadow-sm",
+            isPhoneShell ? "max-w-[calc(100%-var(--shell-gap,10px))]" : null
+          )}
           style={{ background: "var(--accent)", color: "var(--pill-active-text)" }}
         >
-          <div className="flex flex-col gap-2">
+          <div className="flex max-w-full min-w-0 flex-col items-end gap-2">
             {hasDocumentTiles ? (
               <div className="flex w-full flex-col items-end gap-2">
                 {documentTiles.map((tile) => (
