@@ -78,10 +78,10 @@ describe("diagnostics RagTracePanel", () => {
     expect(
       screen.getByText("Source type: semantic-note")
     ).toBeInTheDocument();
-    expect(screen.getByText("Role: assistant")).toBeInTheDocument();
-    expect(screen.getByText("Lane: thread_semantic")).toBeInTheDocument();
-    expect(screen.getByText("Thread: 42")).toBeInTheDocument();
-    expect(screen.getByText("Project: 7")).toBeInTheDocument();
+    expect(screen.getAllByText("Role: assistant")).toHaveLength(2);
+    expect(screen.getAllByText("Lane: thread_semantic")).toHaveLength(2);
+    expect(screen.getAllByText("Thread: 42")).toHaveLength(2);
+    expect(screen.getAllByText("Project: 7")).toHaveLength(2);
     expect(screen.getByText("Policy: local_hits")).toBeInTheDocument();
     expect(screen.getByText("Source mode: project")).toBeInTheDocument();
     expect(

@@ -12,6 +12,29 @@ import {
 
 vi.mock("@/hooks/useLiveEvents", () => ({
   useLiveEvents: () => ({
+    connected: false,
+    connectionStatus: "disconnected",
+    statusUpdatedAt: null,
+    lastEvent: null,
+    diagnostics: {
+      endpoint: null,
+      connectionState: "disconnected",
+      lastEventAt: null,
+      lastPingAt: null,
+      statusUpdatedAt: null,
+      lastHttpStatus: null,
+      transportErrorClass: null,
+      authSource: "unknown",
+      apiKeyPresent: false,
+      hydrationState: "ready",
+      nativeCommandStatus: null,
+      reconnectAttempts: 0,
+      retryMs: 0,
+      subscribers: 0,
+      readyState: 2,
+      lastErrorAt: null,
+      lastEventId: null,
+    },
     subscribe: () => () => {},
   }),
 }));
@@ -25,6 +48,35 @@ vi.mock("@/lib/session", () => ({
   async getSessionState() {
     // Return empty object so SessionSpine initializes cleanly
     return {};
+  },
+}));
+
+vi.mock("@/state/session/SessionStateStore", () => ({
+  InMemorySessionStateStore: class {
+    async getSessionState() {
+      return null;
+    }
+
+    async setSessionState() {}
+
+    async patchSessionState() {
+      return null;
+    }
+
+    async deleteSessionState() {}
+  },
+  RedisSessionStateStore: class {
+    async getSessionState() {
+      return null;
+    }
+
+    async setSessionState() {}
+
+    async patchSessionState() {
+      return null;
+    }
+
+    async deleteSessionState() {}
   },
 }));
 
@@ -78,8 +130,8 @@ describe("Thread document rehydration", () => {
         } as AxiosResponse);
       }
       if (url === "/media/documents") {
-        const projectId = Number(config?.params?.project_id ?? 0);
-        if (projectId === 11) {
+        const threadId = Number(config?.params?.thread_id ?? 0);
+        if (threadId === 101) {
           return Promise.resolve({
             data: {
               documents: [
@@ -103,7 +155,7 @@ describe("Thread document rehydration", () => {
             },
           } as AxiosResponse);
         }
-        if (projectId === 22) {
+        if (threadId === 202) {
           return Promise.resolve({
             data: {
               documents: [
@@ -128,6 +180,7 @@ describe("Thread document rehydration", () => {
 
     render(<App />);
 
+    await screen.findByText("Thread 101");
     await user.click(screen.getByRole("button", { name: /^documents$/i }));
 
     await waitFor(() => {
@@ -135,7 +188,7 @@ describe("Thread document rehydration", () => {
         getSpy.mock.calls.some(
           ([path, cfg]) =>
             path === "/media/documents" &&
-            Number((cfg as any)?.params?.project_id) === 11
+            Number((cfg as any)?.params?.thread_id) === 101
         )
       ).toBe(true);
     });
@@ -146,13 +199,15 @@ describe("Thread document rehydration", () => {
       window.history.pushState({}, "", "/chat/202");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
+    await screen.findByText("Thread 202");
+    await user.click(screen.getByRole("button", { name: /^documents$/i }));
 
     await waitFor(() => {
       expect(
         getSpy.mock.calls.some(
           ([path, cfg]) =>
             path === "/media/documents" &&
-            Number((cfg as any)?.params?.project_id) === 22
+            Number((cfg as any)?.params?.thread_id) === 202
         )
       ).toBe(true);
     });

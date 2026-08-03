@@ -76,14 +76,15 @@ export default function IdentityMemorySettings({ userId }: Props) {
 
       <div className="flex items-center justify-between text-xs">
         <div>
-          <div className="font-semibold" style={{ color: "var(--text)" }}>
+          <label htmlFor="identity-allow-sensitive-modeling" className="font-semibold" style={{ color: "var(--text)" }}>
             Allow sensitive modeling
-          </div>
+          </label>
           <div className="opacity-70" style={{ color: "var(--muted)" }}>
             Permit modeling of sensitive traits (diagnoses, politics).
           </div>
         </div>
         <input
+          id="identity-allow-sensitive-modeling"
           type="checkbox"
           checked={settings?.allow_sensitive_modeling || false}
           onChange={(e) => updateField("allow_sensitive_modeling", e.target.checked)}
@@ -92,14 +93,15 @@ export default function IdentityMemorySettings({ userId }: Props) {
 
       <div className="flex items-center justify-between text-xs">
         <div>
-          <div className="font-semibold" style={{ color: "var(--text)" }}>
+          <label htmlFor="identity-diary-requires-unlock" className="font-semibold" style={{ color: "var(--text)" }}>
             Require unlock for diary threads
-          </div>
+          </label>
           <div className="opacity-70" style={{ color: "var(--muted)" }}>
             Prevent identity writes from diary threads unless explicitly unlocked.
           </div>
         </div>
         <input
+          id="identity-diary-requires-unlock"
           type="checkbox"
           checked={settings?.diary_requires_unlock || false}
           onChange={(e) => updateField("diary_requires_unlock", e.target.checked)}
