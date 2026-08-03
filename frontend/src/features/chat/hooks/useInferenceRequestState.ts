@@ -722,6 +722,9 @@ export function useInferenceRequestState() {
         const payload = parseTaskEventPayload(event);
         const threadId = getTaskEventThreadId(payload);
         const eventTaskId = getTaskEventTaskId(payload);
+        if (stateRef.current.threadId == null) {
+          return;
+        }
         if (
           Number.isFinite(threadId) &&
           stateRef.current.threadId != null &&
@@ -750,6 +753,9 @@ export function useInferenceRequestState() {
         const payload = parseTaskEventPayload(event);
         const threadId = getTaskEventThreadId(payload);
         const eventTaskId = getTaskEventTaskId(payload);
+        if (stateRef.current.threadId == null) {
+          return;
+        }
         if (
           Number.isFinite(threadId) &&
           stateRef.current.threadId != null &&
@@ -772,6 +778,25 @@ export function useInferenceRequestState() {
           return;
         }
         const timingPatch = extractTimingPatch(payload);
+        const currentTiming = stateRef.current;
+        const lifecycleTimingPatch: Partial<InferenceRequestState> =
+          lifecycleState === TASK_LIFECYCLE_STATE.QUEUED &&
+              !timingPatch.queuedAt &&
+              !currentTiming.queuedAt
+            ? { queuedAt: new Date().toISOString() }
+            : lifecycleState === TASK_LIFECYCLE_STATE.AWAITING_MODEL &&
+                !timingPatch.awaitingModelAt &&
+                !currentTiming.awaitingModelAt
+              ? { awaitingModelAt: new Date().toISOString() }
+              : lifecycleState === TASK_LIFECYCLE_STATE.AWAITING_FIRST_TOKEN &&
+                  !timingPatch.awaitingFirstTokenAt &&
+                  !currentTiming.awaitingFirstTokenAt
+                ? { awaitingFirstTokenAt: new Date().toISOString() }
+                : lifecycleState === TASK_LIFECYCLE_STATE.STREAMING &&
+                    !timingPatch.firstOutputAt &&
+                    !currentTiming.firstOutputAt
+                  ? { firstOutputAt: new Date().toISOString() }
+                  : {};
 
         if (lifecycleState === TASK_LIFECYCLE_STATE.COMPLETED) {
           const detail =
@@ -803,6 +828,7 @@ export function useInferenceRequestState() {
         applyPatch({
           taskId,
           ...timingPatch,
+          ...lifecycleTimingPatch,
           ...patch,
         });
       };

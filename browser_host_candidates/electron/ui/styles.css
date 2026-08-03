@@ -1,0 +1,37 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e9edf5;
+  background: #10131a;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 680px; background: radial-gradient(circle at 20% 0%, #22293b, #10131a 48%); }
+main { max-width: 980px; margin: 0 auto; padding: 28px 34px 44px; }
+header { margin-bottom: 24px; }
+.eyebrow { color: #8ea8d9; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; }
+h1, h2 { margin: 0 0 10px; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.1rem; color: #bed1f4; }
+.lede, .hint { color: #aeb8c9; line-height: 1.5; }
+.panel { margin: 18px 0; padding: 20px; border: 1px solid #39445a; border-radius: 14px; background: rgba(25, 30, 42, 0.94); }
+label { display: block; margin: 8px 0; color: #bec8da; font-size: 0.9rem; }
+.address-row, .button-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.address-row input { flex: 1 1 520px; }
+input, button { min-height: 42px; border-radius: 8px; border: 1px solid #53627d; font: inherit; }
+input { padding: 8px 11px; color: #f5f7fb; background: #111722; }
+button { padding: 8px 14px; color: #f5f7fb; background: #263651; cursor: pointer; }
+button:hover { background: #344b72; }
+button:focus-visible, input:focus-visible { outline: 3px solid #f7c873; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+.button-row { margin-top: 12px; }
+.preview-card { margin-top: 16px; padding: 14px; border-radius: 10px; background: #0d1118; border: 1px solid #303a4b; }
+.preview-card dl, .state-list { display: grid; grid-template-columns: minmax(150px, 0.4fr) 1fr; gap: 7px 14px; margin: 0; }
+dt { color: #91a7cb; }
+dd { margin: 0; overflow-wrap: anywhere; color: #f1f4fa; }
+pre { max-height: 240px; overflow: auto; white-space: pre-wrap; color: #d9e4fa; line-height: 1.45; }
+.status { min-height: 24px; color: #f7c873; font-weight: 600; }
+.status[data-state="success"] { color: #8fe0b2; }
+.status[data-state="failure"] { color: #ff9d9d; }
+.state-list { margin-bottom: 16px; }

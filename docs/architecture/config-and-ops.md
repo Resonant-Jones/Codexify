@@ -27,6 +27,8 @@ Source anchors:
 | `GUARDIAN_API_KEYS` | Optional additional accepted API keys | `guardian/core/dependencies.py`, `guardian/core/config.py` |
 | `GUARDIAN_EXPOSURE_MODE` | Defaults to `local_safe`; can force public-facing restrictions | `guardian/core/dependencies.py`, `guardian/core/public_exposure.py` |
 | `GUARDIAN_AUTH_MODE` | Defaults to local auth unless exposure mode or remote settings require otherwise | `guardian/core/dependencies.py` |
+| `GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED` | Default `false`; explicit second gate for the development-only Browser Host attachment-grant adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
+| `GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED` | Default `false`; independent second gate for the credential-free development-only Browser Host negotiation adapter. It has effect only with `GUARDIAN_DEV_MODE=true` and `GUARDIAN_EXPOSURE_MODE=local_safe`. | `guardian/core/config.py`, `guardian/browser_host/http_adapter.py`, `guardian/guardian_api.py` |
 | `GUARDIAN_SESSION_SECRET`, `GUARDIAN_JWT_SECRET` | Needed for remote/session/JWT flows | `guardian/core/dependencies.py` |
 | `GUARDIAN_ALLOWED_ORIGINS` | CORS allowlist consumed at app startup | `guardian/core/dependencies.py`, `guardian/guardian_api.py` |
 | `CODEXIFY_SINGLE_USER_ID` | Default subject in single-user mode | `guardian/core/dependencies.py` |
@@ -117,6 +119,101 @@ profile route-posture change requires restarting the tester `backend` service.
 It does not require a frontend restart. OpenAPI visibility proves router
 registration only; it does not qualify live Hosted Room invocation, worker
 execution, Guardian provenance, or release support.
+
+### Development-only Browser Host attachment adapter
+
+The optional Guardian adapter is mounted at `/dev/browser-host/v1` only when
+`GUARDIAN_DEV_MODE=true`,
+`GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED=true`, and
+`GUARDIAN_EXPOSURE_MODE=local_safe`. The default route table remains unchanged
+when any gate is false, and supported profiles quarantine the adapter.
+
+The grant-issuance path is authenticated through the existing Guardian
+dependency. The attachment path accepts only the short-lived one-use
+`BrowserHostAttachmentGrant` capability and the explicit browser-host instance
+header; it does not receive a reusable API key, session cookie, or JWT. The
+application owns one process-local store, clears it at shutdown, and loses all
+outstanding grants on restart or worker replacement. No database, Redis, queue,
+worker, provider, command-bus, or durable storage path is used. This is a
+development proof seam, not a supported beta or production Browser Host path.
+
+### Browser Host development attachment configuration
+
+The Browser Host client is opt-in and fail-closed. The adapter flag requires
+`CODEXIFY_BROWSER_HOST_PROOF_MODE=1`, a valid synthetic proof token, numeric
+`127.0.0.1` HTTP origins, a bounded instance ID, and a one-use grant. The raw
+grant is supplied only to the child launched by the development broker; the
+trusted main process removes it from `process.env` during configuration and
+keeps it in a one-shot closure. The trusted preload and both renderer surfaces
+receive posture only, never the grant.
+
+| Variable | Browser Host behavior | Default / bound |
+|---|---|---|
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_DEV_ENABLED` | Enables the development adapter transport in the trusted main process. | `false`; also requires proof mode |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_ORIGIN` | Numeric loopback HTTP origin for `POST /dev/browser-host/v1/attachments`. | Required when enabled; `http://127.0.0.1:<port>` only |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_GRANT` | One short-lived `BrowserHostAttachmentGrant` passed by the broker. | Required when enabled; consumed once and never rendered |
+| `CODEXIFY_BROWSER_HOST_INSTANCE_ID` | Binds the grant, request scope, and exact instance header. | Required when enabled; 1–256 bounded identifier characters |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_ATTACHMENT_TIMEOUT_MS` | Timeout for the single adapter request. | `3000`; integer `1000`–`30000` |
+
+The development broker is `scripts/browser_host/launch_with_attachment_grant.py`.
+It reads `GUARDIAN_API_KEY` only in the parent, requests one grant from
+`POST /dev/browser-host/v1/attachment-grants`, launches a sanitized child, and
+does not forward child output. The child receives no reusable API key, session,
+JWT, provider, cookie, signing, or authorization credential. Issuance uses the
+bounded Browser Host instance as the one-use grant request scope so the later
+attachment envelope can satisfy the existing Guardian store without another
+metadata or credential channel.
+
+### Development-only Guardian negotiation adapter
+
+Guardian mounts exactly `POST /dev/browser-host/v1/negotiate` only when
+`GUARDIAN_DEV_MODE=true`,
+`GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED=true`, and
+`GUARDIAN_EXPOSURE_MODE=local_safe`. It is absent by default and requires no
+API key, cookie, JWT, attachment grant, user identity, page content, or
+persistence state. It returns only contract compatibility metadata with
+`Cache-Control: no-store` and `Pragma: no-cache`; negotiation grants no
+attachment, provider, command-bus, native, or durable authority.
+
+Negotiation and attachment route groups are independently mounted. When both
+Browser Host transports are enabled, their numeric-loopback origins must match.
+The Browser Host uses these explicit settings:
+
+| Variable | Browser Host behavior | Default / bound |
+|---|---|---|
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_DEV_ENABLED` | Selects the Guardian development negotiation transport. | `false`; also requires proof mode |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_ORIGIN` | Numeric loopback HTTP origin for `POST /dev/browser-host/v1/negotiate`. | Required when enabled; `http://127.0.0.1:<port>` only |
+| `CODEXIFY_BROWSER_HOST_GUARDIAN_NEGOTIATION_TIMEOUT_MS` | Bounded negotiation timeout. | `3000`; integer `1000`–`30000` |
+| `CODEXIFY_BROWSER_HOST_NEGOTIATION_TRANSPORT` | Explicitly selects `guardian_dev_adapter` or `deterministic_stub`. | `deterministic_stub` unless Guardian mode is enabled; no fallback |
+
+The existing deterministic negotiation transport remains available only for
+isolated tests/proofs. Guardian mode sends one validated Hello v1 request,
+does not retry, does not fall back, and creates no remote view before a
+compatible response. The combined negotiation/attachment proof is generated
+with:
+
+```sh
+cd browser_host
+PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-negotiation.XXXXXX)"
+npm run proof:guardian-negotiation -- --output-dir "$PROOF_OUT"
+npm run proof:guardian-negotiation:validate -- --proof "$PROOF_OUT/proof.json"
+```
+
+The adapter remains development-only, local-only, and outside the supported
+beta release posture.
+
+Negotiation is explicitly selected; the attachment adapter has no retry,
+redirect following, renewal, or fallback to the stub after a claim. Accepted receipts are `202` and
+`not_persisted`; replay and expiry are bounded `409` outcomes, scope mismatch
+is `403`, a disabled route is `404`, and transport failure has no HTTP status.
+The live matrix and sanitized packet are generated with:
+
+```sh
+cd browser_host
+PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-attachment.XXXXXX)"
+npm run proof:guardian-attachment -- --output-dir "$PROOF_OUT"
+npm run proof:guardian-attachment:validate -- --proof "$PROOF_OUT/proof.json"
+```
 
 ## Provider Governance and Beta Operator Workflow
 

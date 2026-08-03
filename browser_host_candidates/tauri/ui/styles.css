@@ -1,0 +1,64 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.45;
+}
+
+body {
+  margin: 0;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  max-width: 58rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+section {
+  margin-block: 1.5rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+  border-radius: 0.5rem;
+}
+
+.notice {
+  border-left: 0.3rem solid #7c5cff;
+  padding-left: 0.8rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.65rem;
+}
+
+input {
+  flex: 1 1 28rem;
+  min-width: 12rem;
+}
+
+button,
+input {
+  font: inherit;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.75rem;
+}
+
+button:focus-visible,
+input:focus-visible,
+pre:focus-visible {
+  outline: 0.2rem solid #7c5cff;
+  outline-offset: 0.15rem;
+}
+
+pre {
+  min-height: 7rem;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  padding: 0.75rem;
+}

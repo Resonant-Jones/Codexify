@@ -243,7 +243,7 @@ describe("ThreadList thread actions menu", () => {
     promptSpy.mockRestore();
   });
 
-  it("reveals the action affordance while an unselected row has keyboard focus", async () => {
+  it("keeps the action affordance limited to the selected row", async () => {
     const user = userEvent.setup();
 
     render(
@@ -267,10 +267,7 @@ describe("ThreadList thread actions menu", () => {
     await user.tab();
     await user.tab();
 
-    expect(await screen.findByRole("button", { name: "Thread actions" })).toBeVisible();
-    expect(screen.getByTestId("thread-row-thread-1")).toContainElement(
-      screen.getByRole("button", { name: "Thread actions" })
-    );
+    expect(screen.queryByRole("button", { name: "Thread actions" })).toBeNull();
   });
 });
 

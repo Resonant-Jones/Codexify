@@ -84,7 +84,6 @@ import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
 import {
   getRuntimeConfigHydrationState,
-  getRuntimeConfigSync,
 } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
@@ -3145,7 +3144,6 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const runtimeConfig = getRuntimeConfigSync();
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -4336,7 +4334,7 @@ export function GuardianChat({
       {/* Runtime status — read-only provider + request lifecycle indicator */}
       <RuntimeStatusStrip
         providerRuntimeState={providerRuntimeState}
-        inferenceState={inferenceRequest.state}
+        inferenceState={composerInferenceState}
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />

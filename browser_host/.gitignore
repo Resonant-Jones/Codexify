@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+coverage/
+package-output/
+proof-output/
+test-output/
+electron-user-data/
+capture-proof-output/
+*.tgz

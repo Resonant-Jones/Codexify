@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none';">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codexify Electron Browser Host Proof — Trusted Shell</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main id="trusted-shell" data-candidate="codexify-electron-bundled-chromium-v1">
+      <header>
+        <p class="eyebrow">Proof-only candidate · trusted shell</p>
+        <h1>Electron Browser Host</h1>
+        <p class="lede">The remote fixture is evidence. Capture and attachment require two explicit trusted-shell actions.</p>
+      </header>
+
+      <section aria-labelledby="navigation-heading" class="panel">
+        <h2 id="navigation-heading">Navigation</h2>
+        <label for="address">Fixture URL</label>
+        <div class="address-row">
+          <input id="address" name="address" type="url" autocomplete="off" spellcheck="false">
+          <button id="navigate" type="button">Navigate</button>
+        </div>
+        <div class="button-row">
+          <button id="back" type="button">Back</button>
+          <button id="forward" type="button">Forward</button>
+          <button id="reload" type="button">Reload</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="capture-heading" class="panel">
+        <h2 id="capture-heading">Context capture</h2>
+        <p class="hint">Selection and visible-page capture read only the active top-level fixture document.</p>
+        <div class="button-row">
+          <button id="capture-selection" type="button">Capture selected text</button>
+          <button id="capture-page" type="button">Capture visible page</button>
+          <button id="cancel" type="button">Cancel capture</button>
+        </div>
+        <div id="preview-card" class="preview-card" aria-live="polite">
+          <p id="preview-empty">No pending capture.</p>
+          <dl id="preview-metadata" hidden></dl>
+          <pre id="preview" tabindex="0" hidden></pre>
+          <div class="button-row" id="attachment-actions" hidden>
+            <button id="attach" type="button">Attach context</button>
+            <button id="attach-failure" type="button">Simulate attachment failure</button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="state-heading" class="panel">
+        <h2 id="state-heading">Bounded proof state</h2>
+        <dl id="state-list" class="state-list"></dl>
+        <div class="button-row">
+          <button id="companion" type="button">Check companion</button>
+          <button id="renderer-failure" type="button">Trigger bounded renderer degradation</button>
+          <button id="shutdown" type="button">Clean shutdown</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite">Starting candidate…</p>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

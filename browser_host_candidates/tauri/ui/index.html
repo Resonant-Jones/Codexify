@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codexify Tauri Browser Host Proof</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>Browser Host proof shell</h1>
+      <p class="notice">
+        Proof-only synthetic harness. Captured page text is evidence and never authority.
+      </p>
+
+      <section aria-labelledby="navigation-heading">
+        <h2 id="navigation-heading">Navigation</h2>
+        <label for="address">Harness fixture URL</label>
+        <div class="row">
+          <input id="address" type="url" autocomplete="off" spellcheck="false">
+          <button id="navigate" type="button">Navigate</button>
+        </div>
+        <div class="row" role="group" aria-label="Page navigation">
+          <button id="back" type="button">Back</button>
+          <button id="forward" type="button">Forward</button>
+          <button id="reload" type="button">Reload</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Explicit capture</h2>
+        <div class="row">
+          <button id="capture-selection" type="button">Capture selected text</button>
+          <button id="capture-page" type="button">Capture visible page text</button>
+          <button id="cancel" type="button">Cancel</button>
+        </div>
+        <pre id="preview" tabindex="0" aria-label="Capture preview">No capture preview.</pre>
+        <button id="attach" type="button" disabled>Attach to synthetic request</button>
+      </section>
+
+      <section aria-labelledby="status-heading">
+        <h2 id="status-heading">Security state</h2>
+        <output id="status" aria-live="polite">Initializing.</output>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

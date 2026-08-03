@@ -21,7 +21,7 @@ bash scripts/whooshd_docker_smoke_up.sh minimal
 ```
 
 The script:
-1. Probes Whoosh'd host health at `http://host.docker.internal:8000/health`
+1. Probes Whoosh'd host health at `http://127.0.0.1:8000/health` from the host
 2. Cleans stale Codexify containers
 3. Tears down orphaned Compose services
 4. Resolves the merged Compose config with the smoke override
@@ -35,23 +35,32 @@ The `v1-local-core-web-mcp` supported profile requires these exact values:
 | Variable | Required Value |
 |----------|---------------|
 | `LLM_PROVIDER` | `local` |
-| `LOCAL_PROVIDER_VENDOR` | `whooshd` |
+| `LOCAL_RUNTIME_PRESET` | `whooshd-mlx` |
 | `LOCAL_BASE_URL` | `http://host.docker.internal:8000/v1` |
+| `LOCAL_API_KEY` | `local` |
+| `LOCAL_COMPAT_FIRST` | `true` |
+| `LOCAL_PROVIDER_DISPLAY_NAME` | `Whoosh'd` |
+| `LOCAL_PROVIDER_VENDOR` | `whooshd` |
 | `WHOOSHD_HEALTH_BASE_URL` | `http://host.docker.internal:8000` |
 | `ALLOW_CLOUD_PROVIDERS` | `false` |
 | `CODEXIFY_EGRESS_ALLOWLIST` | `""` (empty) |
 | `CODEXIFY_LOCAL_ONLY_MODE` | `true` |
 
-Model names are intentionally not enforced by the supported profile. The
-Whoosh'd smoke override currently sets:
+Model names are intentionally not enforced by the supported profile. They are
+runtime inventory, not profile identity. The current smoke override supplies
+configuration defaults only:
 
 | Variable | Smoke Default |
 |----------|---------------|
-| `LOCAL_CHAT_MODEL` | `mlx-community/gemma-4-e2b-it-4bit` |
-| `LOCAL_VISION_MODEL` | `qwen2-vl-2b-mlx` |
-| `LOCAL_GGUF_MODEL` | `qwen2.5-0.5b-gguf` |
+| `LOCAL_CHAT_MODEL` | `gemma-4-12b-it-qat-4bit` |
+| `LOCAL_LLM_MODEL` | `gemma-4-12b-it-qat-4bit` |
+| `LLM_MODEL` | `gemma-4-12b-it-qat-4bit` |
+| `DEFAULT_LOCAL_MODEL` | `gemma-4-12b-it-qat-4bit` |
+| `LOCAL_VISION_MODEL` | `gemma-vision-mlx` |
+| `LOCAL_GGUF_MODEL` | `qwen3-coder-30b-gguf` |
 
-Those defaults are configuration, not live-model proof.
+These defaults are not live inventory proof. A model is supported for a live
+run only when the running Whoosh'd inventory advertises it.
 
 If your Whoosh'd host maintains a registry of several models, point the
 launcher at it with `WHOOSHD_MODEL_REGISTRY_PATH` and use
@@ -62,11 +71,12 @@ registered models without hardcoding a single selection in Codexify.
 ## Live Inventory Truth
 
 Codexify treats Whoosh'd live inventory as proven only by Whoosh'd HTTP
-inventory surfaces:
+inventory surfaces. The profile and smoke defaults below do not prove that
+any model is installed or currently available:
 
 ```bash
-curl http://localhost:8000/v1/models
-curl http://localhost:8000/api/tags
+curl http://127.0.0.1:8000/v1/models
+curl http://127.0.0.1:8000/api/tags
 ```
 
 Inside the Docker backend container, use the host bridge instead of host
@@ -77,9 +87,8 @@ curl http://host.docker.internal:8000/v1/models
 curl http://host.docker.internal:8000/api/tags
 ```
 
-If `LOCAL_CHAT_MODEL` is set to Gemma E2B but Whoosh'd advertises only
-models such as `llama-3.2-3b-mlx`, `qwen2-vl-2b-mlx`, and
-`qwen2.5-0.5b-gguf`, Codexify must not claim Gemma execution. Catalog and
+If `LOCAL_CHAT_MODEL` is set to the Gemma 12B smoke default but Whoosh'd
+does not advertise it, Codexify must not claim Gemma execution. Catalog and
 health surfaces should keep the advertised models visible while marking the
 configured model unavailable with:
 
@@ -135,12 +144,13 @@ After startup, verify each lane:
 
 ### Backend Health
 ```bash
-curl http://localhost:8888/ping
-curl http://localhost:8888/health
-curl http://localhost:8888/api/health/llm
+curl http://127.0.0.1:8888/ping
+curl http://127.0.0.1:8888/health
+curl http://127.0.0.1:8888/api/health/llm
 ```
 
-Expected: `provider: "local"`, `models_available: true` (if Whoosh'd is running).
+Expected: `provider: "local"`, `models_available: true` only when the
+configured model is present in the live Whoosh'd inventory.
 
 If the configured chat model is not advertised by Whoosh'd, expect
 `models_available: false` for the selected model plus advertised-model evidence
@@ -149,15 +159,15 @@ from `/api/llm/catalog`.
 
 ### Text Smoke
 ```bash
-curl -X POST http://localhost:8888/api/chat \
+curl -X POST http://127.0.0.1:8888/api/chat \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <key>" \
   -d '{"prompt": "Reply with exactly: Whooshd text smoke ok."}'
 ```
 
 Verify: `provider=local`, the final model is the configured chat model only
-when Whoosh'd advertises it, and no cloud fallback occurs. If Gemma E2B is the
-configured default but absent from `/v1/models` and `/api/tags`, this smoke is
+when Whoosh'd advertises it, and no cloud fallback occurs. If the Gemma 12B
+smoke default is absent from `/v1/models` and `/api/tags`, this smoke is
 blocked by inventory mismatch rather than counted as Gemma live proof.
 
 ### Vision Smoke (synchronous)
@@ -165,7 +175,7 @@ Use the `tests/fixtures/vision/color_shapes.png` fixture with a multimodal
 request:
 
 ```bash
-curl -X POST http://localhost:8888/api/chat \
+curl -X POST http://127.0.0.1:8888/api/chat \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <key>" \
   -d '{"messages":[{"role":"user","content":[
@@ -174,24 +184,23 @@ curl -X POST http://localhost:8888/api/chat \
   ]}],"max_tokens":80}'
 ```
 
-Verify: `model=qwen2-vl-2b-mlx`, `source=local_vision_env`,
+Verify: `model=gemma-vision-mlx`, `source=local_vision_env`,
 Whoosh'd routes to `mlx_vlm`, response identifies shapes/colors correctly.
 
 ### GGUF Smoke
 ```bash
 # Start llama-server on the host (port 9090, or any free port)
 llama-server \
-  -m models/gguf/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  -m models/gguf/qwen3-coder-30b.gguf \
   --host 127.0.0.1 --port 9090 -ngl 99
 ```
 
 Verify the model appears in Whoosh'd registry and that Whoosh'd has
 an active `llama_cpp` runtime configured to point at the llama-server.
 
-**Current blocker:** Whoosh'd has `qwen2.5-0.5b-gguf` in its model
-inventory but no `llama_cpp` runtime is registered.  Direct llama-server
-inference works; Codexify routing correctly preserves the model name;
-Whoosh'd-side runtime configuration is needed.
+The smoke default `qwen3-coder-30b-gguf` is configuration only. Confirm the
+live Whoosh'd registry and an active `llama_cpp` runtime before treating this
+lane as proven.
 
 ### Async Worker Smoke
 Submit a queued chat completion task.  Verify the worker dequeues,
@@ -229,9 +238,9 @@ appear in application logs.
 
 Codexify → Whoosh'd: `POST http://host.docker.internal:8000/v1/chat/completions`
 
-Whoosh'd model aliases are resolved from Codexify's `config/whooshd/model-profiles/`
-directory — these map short names (`llama-3.2-3b-mlx`) to runtime model IDs
-and backend routing hints.
+Whoosh'd model aliases are resolved from Codexify's
+`config/whooshd/model-profiles/` directory when a runtime advertises a
+matching model ID. The supported profile does not pin those IDs.
 
 ## Tests
 
@@ -251,9 +260,12 @@ standalone boundary, and smoke wrapper script integrity.
   Whoosh'd container.
 - Codexify never imports Whoosh'd server internals.
 
-## Live Verification Results (Phase 30–31)
+## Historical Live Verification Results (Phase 30–31)
 
-All lanes verified 2026-06-14 against host Whoosh'd + Docker Codexify.
+The following results are historical evidence from 2026-06-14, not current
+release proof or a current model-inventory receipt. Re-run the live inventory
+and runtime checks against the then-current main commit before making support
+claims.
 
 | Lane | Status | Notes |
 |------|--------|-------|

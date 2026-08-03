@@ -15,13 +15,18 @@ def test_v1_supported_profile_manifest_loads() -> None:
     manifest = load_supported_profile("v1-local-core-web-mcp")
 
     assert manifest.name == "v1-local-core-web-mcp"
-    assert manifest.provider_contract["LLM_PROVIDER"] == "local"
-    assert (
-        manifest.provider_contract["LOCAL_BASE_URL"]
-        == "http://100.127.148.28:8000/v1"
-    )
-    assert manifest.provider_contract["LOCAL_API_KEY"] == "local"
-    assert "LOCAL_PROVIDER_VENDOR" not in manifest.provider_contract
+    assert manifest.provider_contract == {
+        "LLM_PROVIDER": "local",
+        "ALLOW_CLOUD_PROVIDERS": False,
+        "CODEXIFY_LOCAL_ONLY_MODE": True,
+        "CODEXIFY_EGRESS_ALLOWLIST": "",
+        "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
+        "LOCAL_API_KEY": "local",
+        "LOCAL_COMPAT_FIRST": True,
+        "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
+        "LOCAL_PROVIDER_VENDOR": "whooshd",
+    }
     assert manifest.route_status("command_bus") == "internal_only"
     assert manifest.route_status("personal_facts") == "enabled"
     assert manifest.route_status("tools") == "quarantined"
@@ -172,9 +177,7 @@ def test_whooshd_deepseek_profile_has_no_route_overlap() -> None:
 def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web"
-    )
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
     settings = Settings(
         _env_file=None,
         LLM_PROVIDER="local",
@@ -199,8 +202,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
     assert provider_authorized("deepseek", settings) is True
     assert provider_availability("deepseek", settings) == (True, None)
     assert (
-        default_model_for_provider("deepseek", settings)
-        == "deepseek-v4-flash"
+        default_model_for_provider("deepseek", settings) == "deepseek-v4-flash"
     )
     for provider in {
         "openai",
