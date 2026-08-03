@@ -124,7 +124,7 @@ describe("SharePage", () => {
     render(<SharePage token="upload_token" />);
 
     await waitFor(() => {
-      expect(screen.getByText("report.pdf")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "report.pdf" })).toBeInTheDocument();
       expect(screen.getByText("application/pdf")).toBeInTheDocument();
       expect(screen.getByText(/50\.00 KB/)).toBeInTheDocument();
       expect(screen.getByText("Download Document")).toBeInTheDocument();
@@ -268,8 +268,8 @@ describe("SharePage", () => {
     render(<SharePage token="role_token" />);
 
     await waitFor(() => {
-      const userRole = screen.getAllByText("USER")[0];
-      const assistantRole = screen.getAllByText("ASSISTANT")[0];
+      const userRole = screen.getByText("user");
+      const assistantRole = screen.getByText("assistant");
 
       expect(userRole).toBeInTheDocument();
       expect(assistantRole).toBeInTheDocument();

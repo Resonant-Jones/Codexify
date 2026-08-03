@@ -4,14 +4,16 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("Draft thread route invariants", () => {
-  it("uses create-on-send /chat/messages for null thread sends", () => {
+  it("creates the thread before sending the first message", () => {
     const source = readFileSync(
       resolve(process.cwd(), "features/chat/GuardianChat.tsx"),
       "utf8"
     );
 
-    expect(source).toContain('api.post("/chat/messages"');
-    expect(source).toContain("thread_id: null");
+    expect(source).toContain("const createThreadEndpoint = buildChatThreadsPath()");
+    expect(source).toContain("await api.post(`/chat/${createdThreadId}/messages`");
+    expect(source).not.toContain('api.post("/chat/messages"');
+    expect(source).not.toContain("thread_id: null");
   });
 
   it("routes Guardian create-thread calls through the canonical API prefix", () => {

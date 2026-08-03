@@ -46,10 +46,13 @@ export function InferenceStatusBanner({
     return state.statusText ?? "Working…";
   })();
 
-  const detail = isActive
-    ? null
-    : state.detailText ??
-      (state.phase === "failed" ? state.errorText : null);
+  const isActiveLifecycleDiagnostic =
+    typeof state.detailText === "string" &&
+    /still (waiting|warming up|streaming)/i.test(state.detailText);
+  const detail =
+    !isActive || isActiveLifecycleDiagnostic
+      ? state.detailText ?? (state.phase === "failed" ? state.errorText : null)
+      : null;
 
   const tone =
     state.phase === "failed"

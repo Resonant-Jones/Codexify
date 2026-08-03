@@ -367,7 +367,7 @@ describe("Persona Studio Shell Integration", () => {
     const user = userEvent.setup();
     renderAppShell();
 
-    await user.click(screen.getByRole("tab", { name: /truth matrix/i }));
+    await user.click(screen.getByRole("button", { name: /truth matrix/i }));
 
     const matrix = screen.getByRole("table", { name: /persona studio truth matrix/i });
 

@@ -36,7 +36,7 @@ function normalizeProjectsResponse(res: any): Project[] {
     : [];
   const normalized = list
     .filter(Boolean)
-    .map((p: any) => ({
+    .map((p: any) => normalizeSidebarProject({
       ...p,
       id: String(p.id ?? p.project_id ?? ""),
       name: p.name ?? p.project_name ?? "Untitled",
@@ -53,7 +53,9 @@ function readProjectsCache(): Project[] {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr)
-      ? collapseSidebarGeneralProjectAliases(arr.filter((p) => p && p.id && p.name))
+      ? collapseSidebarGeneralProjectAliases(
+          arr.filter((p) => p && p.id && p.name).map(normalizeSidebarProject)
+        )
       : [];
   } catch {
     return [];

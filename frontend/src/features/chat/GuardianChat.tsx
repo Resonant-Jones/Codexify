@@ -84,7 +84,6 @@ import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
 import {
   getRuntimeConfigHydrationState,
-  getRuntimeConfigSync,
 } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
@@ -1141,6 +1140,7 @@ export function GuardianChat({
     return () => window.removeEventListener("cfy:composer:prefill", onPrefill as EventListener);
   }, []);
   const [currentThreadId, setCurrentThreadId] = useState<number | null>(null);
+  const previousEffectiveThreadIdRef = useRef<number | null>(null);
   const [threadCreationIssue, setThreadCreationIssue] = useState<ThreadIdResolutionDiagnostics | null>(null);
   const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const [composerShellReserve, setComposerShellReserve] = useState(160);
@@ -2603,6 +2603,14 @@ export function GuardianChat({
   }, [effectiveThreadId]);
 
   useEffect(() => {
+    const previousThreadId = previousEffectiveThreadIdRef.current;
+    previousEffectiveThreadIdRef.current = effectiveThreadId;
+    if (previousThreadId != null && previousThreadId !== effectiveThreadId) {
+      inferenceRequest.reset();
+    }
+  }, [effectiveThreadId, inferenceRequest.reset]);
+
+  useEffect(() => {
     if (!promptCostPopoverOpen || typeof document === "undefined") return;
     const onDocumentPointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
@@ -3145,7 +3153,6 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const runtimeConfig = getRuntimeConfigSync();
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -3158,9 +3165,6 @@ export function GuardianChat({
         const createThreadPayload = {
           title: provisionalTitle,
           metadata,
-          ...(runtimeConfig.authMode === "remote"
-            ? {}
-            : { user_id: CANONICAL_SINGLE_USER_ID }),
         };
         const resp = await api.post(createThreadEndpoint, createThreadPayload);
         const response = resp ?? {};
