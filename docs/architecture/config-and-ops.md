@@ -1,5 +1,5 @@
 Purpose: Give senior engineers the operational truth needed to run, debug, and change Codexify safely, with special attention to config precedence, worker dependencies, and failure signatures.
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 Source anchors:
 - Makefile
 - package.json
@@ -213,6 +213,41 @@ cd browser_host
 PROOF_OUT="$(mktemp -d /tmp/codexify-browser-host-guardian-attachment.XXXXXX)"
 npm run proof:guardian-attachment -- --output-dir "$PROOF_OUT"
 npm run proof:guardian-attachment:validate -- --proof "$PROOF_OUT/proof.json"
+```
+
+### Coding Loop route-availability check
+
+In the supported `v1-local-core-web-mcp` profile, the bounded Guardian
+Composer Coding Loop route family is now enabled:
+
+- `POST /api/agents/coding/execute` — dispatch a coding task (acceptance only)
+- `GET /api/agents/runs/{run_id}/coding` — read a single coding run result
+- `GET /api/chat/{thread_id}/coding-runs` — list coding runs for a thread
+
+All three routes require authentication (`X-API-Key` or equivalent) and
+enforce owner scoping. The `agent_orchestration` and `agent_orchestration_chat`
+labels are `enabled` in the profile; unrelated orchestration routes (`agent`,
+federation, delegation, etc.) remain `quarantined`.
+
+Operator verification:
+```bash
+# Confirm the execute route is mounted (expect 200 acceptance, not 404):
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
+  "$BASE_URL/api/agents/coding/execute" \
+  -d '{...}' | jq .status
+# => "accepted"
+
+# Confirm readback is mounted:
+curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
+  "$BASE_URL/api/chat/1/coding-runs" | jq .ok
+# => true
+
+# Confirm unrelated routes remain quarantined:
+curl -sS -H "X-API-Key: $GUARDIAN_API_KEY" \
+  "$BASE_URL/api/tools/manifest"
+# => 404
 ```
 
 ## Provider Governance and Beta Operator Workflow

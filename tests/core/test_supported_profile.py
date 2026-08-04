@@ -32,6 +32,8 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.route_status("tools") == "quarantined"
     assert manifest.route_status("media") == "enabled"
     assert manifest.route_status("obsidian") == "enabled"
+    assert manifest.route_status("agent_orchestration") == "enabled"
+    assert manifest.route_status("agent_orchestration_chat") == "enabled"
 
 
 # ---------------------------------------------------------------------------
@@ -274,3 +276,62 @@ def test_tester_profile_yaml_file_exists() -> None:
     assert isinstance(payload, dict)
     assert payload.get("name") == "v1-friends-family-web"
     assert "auth" in payload.get("route_posture", {}).get("enabled", [])
+
+
+# ---------------------------------------------------------------------------
+# Agent orchestration (Coding Loop) route posture in v1-local-core-web-mcp
+# ---------------------------------------------------------------------------
+
+
+def test_local_profile_agent_orchestration_is_enabled() -> None:
+    """Coding Loop execute and readback routes must be reachable
+    in the supported local operator profile."""
+    manifest = load_supported_profile("v1-local-core-web-mcp")
+
+    assert manifest.route_status("agent_orchestration") == "enabled"
+    assert manifest.route_status("agent_orchestration_chat") == "enabled"
+
+
+def test_local_profile_unrelated_orchestration_remains_quarantined() -> None:
+    """Do not expose general agent, delegation, or autonomous-execution
+    routes while enabling the bounded Coding Loop family."""
+    manifest = load_supported_profile("v1-local-core-web-mcp")
+
+    unrelated_quarantined = {
+        "agent",  # general agent routes
+        "federation",
+        "collaboration",
+        "tools",
+        "api_tools",
+        "codex",
+        "cron",
+        "flows",
+        "voice",
+        "hosted_rooms",
+        "hosted_room_guest",
+    }
+    for label in unrelated_quarantined:
+        assert (
+            manifest.route_status(label) == "quarantined"
+        ), f"{label!r} must remain quarantined in the local profile"
+
+
+def test_local_profile_agent_orchestration_does_not_leak_internal_only() -> None:
+    """Coding work orders remain internal-only; Coding Loop routes
+    are enabled but must not widen the internal surface."""
+    manifest = load_supported_profile("v1-local-core-web-mcp")
+
+    assert manifest.route_status("coding_work_orders") == "internal_only"
+    assert manifest.route_status("command_bus") == "internal_only"
+
+
+def test_local_profile_no_overlapping_route_labels() -> None:
+    manifest = load_supported_profile("v1-local-core-web-mcp")
+
+    enabled = set(manifest.enabled_routes)
+    internal = set(manifest.internal_only_routes)
+    quarantined = set(manifest.quarantined_routes)
+
+    assert not (enabled & internal), f"overlap: {enabled & internal}"
+    assert not (enabled & quarantined), f"overlap: {enabled & quarantined}"
+    assert not (internal & quarantined), f"overlap: {internal & quarantined}"
