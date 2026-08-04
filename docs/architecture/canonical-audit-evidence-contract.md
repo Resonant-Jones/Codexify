@@ -213,10 +213,20 @@ validator. It preserves ordered commands and selected Compose files while
 normalizing unordered claims, relationships, and artifact descriptors. It
 rejects caller-supplied evidence IDs, secret-bearing metadata, unsafe artifact
 paths, inconsistent execution outcomes, unresolved claim references, and
-unsupported live-proof requests. The CLI is stdout-first; an optional output
-path is repository-local, atomic, and non-overwriting unless `--replace` is
-explicit. The producer never executes commands, inspects Docker or services,
-persists evidence, mutates Git, or promotes authority.
+unsupported live-proof requests outside the bounded receipt handoff. For
+`CURRENT_LIVE_PROOF`, it accepts exactly one qualifying `PASS` receipt,
+validates its schema and deterministic ID, preserves the exact receipt bytes
+as a hashed repository-relative artifact, and records explicit
+`derived_from` lineage. It always collects fresh runtime identity for this
+proof class and compares machine, repository, commit, runtime, configuration,
+Compose project, role, and supported-profile identity before assembly.
+Caller metadata cannot disable that collection. Receipt references under
+`supersedes` or `contradicts` fail closed with
+`live_proof_relationship_invalid`; an existing `derived_from` reference is
+retained exactly once. The CLI is stdout-first; an optional output path is
+repository-local, atomic, and non-overwriting unless `--replace` is explicit.
+The producer never executes commands, inspects Docker or services, persists
+evidence, mutates Git, or promotes authority.
 
 A bounded repository-local live proof receipt collector now observes one
 explicitly selected, already-running supported Compose project. It binds the
@@ -227,25 +237,27 @@ schema-validated, secret-safe execution receipt with distinct `PASS`, `FAIL`,
 `BLOCKED`, and `ERROR` outcomes. The subordinate [Canonical Live Proof Receipt
 Contract](./canonical-live-proof-receipt-contract.md) governs this seam. The
 receipt is not accepted canonical evidence, proof storage, promotion approval,
-trusted `latest`, or release approval, and the current manifest producer does
-not consume it.
+trusted `latest`, or release approval. A qualifying `PASS` receipt may now
+support one deterministic `CURRENT_LIVE_PROOF` manifest, but receipt `PASS`
+does not upgrade provisional authority and the manifest remains unpromoted
+evidence.
 
 ## Deferred implementation work
 
-Manifest integration and acceptance of the bounded live receipt, artifact
-collection beyond that receipt, complete canonical manifest production beyond
-the current validated assembly, freshness evaluation, evidence storage,
-cross-record resolution, supersession validation, contradiction resolution,
-pointer storage, promotion receipts, trusted pointers, consumer migration, and
-live VaultNode proof remain separately scoped work. `CURRENT_LIVE_PROOF` is
-still rejected by the manifest producer; other supported proof classes may
-carry nullable runtime fields when static runtime identity is not requested. A
+Artifact collection beyond the receipt, complete canonical manifest
+production beyond the current validated assembly, freshness evaluation,
+evidence storage, cross-record resolution, supersession validation,
+contradiction resolution, pointer storage, promotion receipts, trusted
+pointers, consumer migration, release approval, and live VaultNode proof
+remain separately scoped work. Other supported proof classes may carry
+nullable runtime fields when static runtime identity is not requested. A
 requested static runtime identity must be complete, but it is still not live
-proof without a separately produced receipt, and a receipt is not manifest
-acceptance.
+proof without a separately produced receipt. A receipt and a validator-passing
+manifest remain evidence records; neither is automatic promotion or release
+approval.
 
 ## Non-goals
 
 This contract does not implement producer or consumer migration, a registry,
-pointer, schedule, autonomous audit execution, manifest integration of the
-bounded receipt, release approval, or feature expansion.
+pointer, schedule, autonomous audit execution, evidence storage, promotion,
+trusted `latest`, release approval, or feature expansion.

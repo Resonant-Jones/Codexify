@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-02
+2026-08-04
 
 ## Interpretation rule
 
@@ -48,6 +48,7 @@ This file is authoritative for:
 - Do not assume cloud-provider beta support, packaged-desktop replacement of Compose, or a current local runtime without live endpoint and model-inventory proof.
 - Do not assume the private-preview lane is operational; authenticated Whoosh'd and DeepSeek V4 Flash persisted-turn proof remains open.
 - Do not treat a green health check, route acceptance, unit test, proof receipt, or docs contract as end-to-end runtime proof by itself.
+- Do not treat a validator-passing `CURRENT_LIVE_PROOF` manifest as storage, promotion, trusted `latest`, release approval, or proof of the current live Compose runtime without the separately required live execution evidence.
 - Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, or release qualification.
 - Do not treat browser, email, federation, graph writes, Continuity/Project Pulse, thread lenses, or P2P video documents as shipped beta behavior.
 - Do not assume failed account-import jobs retry automatically, repair partial writes, deduplicate payloads, or reconstruct missing historical staging.
