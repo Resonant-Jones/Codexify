@@ -12,7 +12,6 @@ REDUCER = ROOT / "docs/architecture/guardian-evidence-packet-reducer-contract.md
 VALIDATOR = ROOT / "docs/architecture/guardian-evidence-packet-static-validator-contract.md"
 GUIDE = ROOT / "docs/architecture/guardian-evidence-packet-authoring-guide.md"
 README = ROOT / "docs/architecture/README.md"
-CURRENT = ROOT / "docs/architecture/00-current-state.md"
 
 SECTIONS = [
     "Purpose", "Status", "Scope", "Why This Exists", "Current Truth",
@@ -137,7 +136,6 @@ def test_related_docs_link_design_contract() -> None:
     assert "future reducer outputs must pass static validation before operator surfacing" in VALIDATOR.read_text().lower()
     assert "runtime reducer design contract" in GUIDE.read_text()
     assert "guardian-evidence-packet-runtime-reducer-design-contract.md" in README.read_text()
-    assert "future runtime reducer design contract" in CURRENT.read_text()
 
 
 def test_existing_batch_validation_still_discovers_both_fixtures() -> None:

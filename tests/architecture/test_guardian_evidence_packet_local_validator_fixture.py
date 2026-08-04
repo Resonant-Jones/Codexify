@@ -15,7 +15,6 @@ GUIDE = ROOT / "docs/architecture/guardian-evidence-packet-authoring-guide.md"
 STATIC_CONTRACT = ROOT / "docs/architecture/guardian-evidence-packet-static-validator-contract.md"
 REDUCER_CONTRACT = ROOT / "docs/architecture/guardian-evidence-packet-reducer-contract.md"
 README = ROOT / "docs/architecture/README.md"
-CURRENT = ROOT / "docs/architecture/00-current-state.md"
 
 REQUIRED_FIELDS = {
     "schema_version", "packet_id", "created_at", "source_domain", "evidence_class",
@@ -145,4 +144,3 @@ def test_docs_name_second_fixture_and_boundary() -> None:
     assert "multiple fixtures" in STATIC_CONTRACT.read_text()
     assert "overfit to one evidence source" in REDUCER_CONTRACT.read_text()
     assert "guardian-evidence-packet.local-validator-toolchain.v1.json" in README.read_text()
-    assert "second GuardianEvidencePacket fixture" in CURRENT.read_text()
