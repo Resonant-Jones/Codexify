@@ -532,6 +532,28 @@ control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Define and qualify the supported production Guardian authentication boundary for
-Browser Host attachment without importing development broker credentials,
-before any production route, durable persistence, packaging, or release work.
+## Electron adjacent-version compatibility — 2026-08-04
+
+The temporary matrix tested Electron `43.2.0` (baseline), `43.1.1` (lower
+same-major), `43.3.0` (higher same-major), and `42.8.1` (previous major).
+No stable `44.x.x` candidate was available after prerelease exclusion. The
+Apple Calculator control passed. All four candidates were isolated, arm64,
+and quarantine-free; all failed the same bounded signature and Gatekeeper
+resource-validation pattern.
+
+The minimal requested-sandbox application failed before `app.whenReady()` for
+all four candidates, and the production Browser Host entrypoint failed at the
+same Electron binary/startup milestone. The matrix classification is
+`adjacent_electron_family_incompatibility`. Electron `43.2.0` remains the
+current development dependency, but an upgrade is not evidence-backed by
+this packet. Guardian authority, contracts, and release ownership are
+unchanged. The complete real-Guardian session remains unproven.
+
+Proof: [Electron adjacent-version compatibility proof](./proofs/browser-host/2026-08-04-electron-adjacent-version-compatibility/).
+
+Gate C remains passed and Gate D remains closed.
+
+### Next atomic task
+
+Investigate the macOS 26.5.2 Electron family launch incompatibility outside
+Codexify runtime code using the bounded matrix evidence.

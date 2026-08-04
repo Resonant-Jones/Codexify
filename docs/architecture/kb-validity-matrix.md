@@ -116,3 +116,12 @@ Audit notes:
 - `/docs/Codexify/SECURITY.md`
 - `/docs/infra/context-report.md`
 - `/docs/infra/system_integrity_ledger.md`
+
+## Browser Host adjacent-version proof — 2026-08-04
+
+The proof packet `docs/architecture/proofs/browser-host/2026-08-04-electron-adjacent-version-compatibility/`
+classifies the bounded matrix as `adjacent_electron_family_incompatibility`.
+The production Browser Host remains `next-proof-needed`; complete
+real-Guardian qualification and supported release remain unproven. This is
+supplementary evidence to verify against code, not current runtime or release
+truth. Gate C remains passed and Gate D remains closed.
