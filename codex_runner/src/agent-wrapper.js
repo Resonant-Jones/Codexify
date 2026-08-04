@@ -11,7 +11,11 @@
  *   node agent-wrapper.js audit "<prompt>" [options]
  *   node agent-wrapper.js compile "<prompt>" [options]
  *   node agent-wrapper.js task "<prompt>" [options]
+ *   node agent-wrapper.js readiness
  */
+
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Parse command line args
 const args = process.argv.slice(2);
@@ -70,9 +74,16 @@ function isModuleResolutionError(error) {
 }
 
 async function loadPiSdk() {
-	const codingAgent = await import(new URL("../vendor/pi-coding-agent/dist/index.js", import.meta.url).href);
+	const wrapperDirectory = path.dirname(fileURLToPath(import.meta.url));
+	const packageRoot = process.env.PI_CODING_AGENT_PACKAGE_ROOT
+		? path.resolve(process.env.PI_CODING_AGENT_PACKAGE_ROOT)
+		: path.resolve(wrapperDirectory, "../vendor/pi-coding-agent");
+	const nodeModulesRoot = process.env.PI_CODING_AGENT_NODE_MODULES
+		? path.resolve(process.env.PI_CODING_AGENT_NODE_MODULES)
+		: path.join(packageRoot, "node_modules");
+	const codingAgent = await import(pathToFileURL(path.join(packageRoot, "dist/index.js")).href);
 	const piAi = await import(
-		new URL("../vendor/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/index.js", import.meta.url).href
+		pathToFileURL(path.join(nodeModulesRoot, "@mariozechner/pi-ai/dist/index.js")).href
 	);
 	return {
 		createAgentSession: codingAgent.createAgentSession,
@@ -82,6 +93,46 @@ async function loadPiSdk() {
 		createCodingTools: codingAgent.createCodingTools,
 		getModel: piAi.getModel,
 	};
+}
+
+async function checkReadiness() {
+	const payload = {
+		adapter_initialized: false,
+		provider_resolved: false,
+		provider_credential_available: false,
+		effective_provider: OPTIONS.provider,
+		effective_model: OPTIONS.model,
+		reason: "adapter_initialization_failed",
+	};
+
+	try {
+		const { AuthStorage, ModelRegistry, getModel } = await loadPiSdk();
+		const resolvedModelId = resolveModel(OPTIONS.model, getModel);
+		payload.effective_model = resolvedModelId;
+		const model = getModel(OPTIONS.provider, resolvedModelId);
+		if (!model) {
+			payload.adapter_initialized = true;
+			payload.reason = "provider_unresolved";
+			return payload;
+		}
+
+		payload.adapter_initialized = true;
+		payload.provider_resolved = true;
+		payload.effective_provider = model.provider;
+		payload.effective_model = model.id;
+
+		const authStorage = AuthStorage.create();
+		ModelRegistry.create(authStorage);
+		// hasAuth checks stored/env/fallback presence without refreshing OAuth or
+		// contacting the provider. Readiness is not credential-validity proof.
+		payload.provider_credential_available = authStorage.hasAuth(model.provider);
+		payload.reason = payload.provider_credential_available
+			? null
+			: "provider_credential_missing";
+		return payload;
+	} catch (_error) {
+		return payload;
+	}
 }
 
 async function runAgent() {
@@ -104,8 +155,8 @@ async function runAgent() {
 	} catch (error) {
 		if (isModuleResolutionError(error)) {
 			console.error("Pi SDK dependencies are not available in this Node environment.");
-			console.error("The repo expects a vendored copy under codex_runner/vendor/pi-coding-agent.");
-			console.error("If that tree is missing or incomplete, restore the checkout or refresh the vendored package.");
+			console.error("The coding-worker image supplies the pinned SDK through its configured runtime path.");
+			console.error("Rebuild worker-coding, or restore the vendored SDK artifacts for a source-only run.");
 			console.error("Shared Pi auth still reuses ~/.pi/agent/auth.json once the SDK is present.");
 			process.exit(1);
 		}
@@ -263,8 +314,20 @@ function extractJsonResponse(messages) {
 	return { text: text.trim() };
 }
 
-// Help output
-if (mode === "help" || !prompt) {
+// Readiness is deliberately non-executing: it imports the adapter, resolves the
+// configured model, and asks Pi whether a matching credential is available.
+if (mode === "readiness") {
+	checkReadiness()
+		.then((payload) => console.log(JSON.stringify(payload)))
+		.catch(() => console.log(JSON.stringify({
+			adapter_initialized: false,
+			provider_resolved: false,
+			provider_credential_available: false,
+			effective_provider: OPTIONS.provider,
+			effective_model: OPTIONS.model,
+			reason: "adapter_initialization_failed",
+		})));
+} else if (mode === "help" || !prompt) {
 	console.log(`
 Pi Agent Wrapper for Campaign Runner
 ====================================
@@ -276,6 +339,7 @@ Modes:
   audit    - Run audit analysis on the repository
   compile  - Compile audit results into campaign set
   task     - Execute a single task
+  readiness - Check adapter and credential posture without executing a prompt
   help     - Show this help
 
 Environment Variables:
@@ -313,10 +377,10 @@ Examples:
   node agent-wrapper.js task "Fix the bug in src/index.ts"
 `);
 	process.exit(0);
+} else {
+	// Run
+	runAgent().catch(err => {
+		console.error("Error:", err.message);
+		process.exit(1);
+	});
 }
-
-// Run
-runAgent().catch(err => {
-	console.error("Error:", err.message);
-	process.exit(1);
-});

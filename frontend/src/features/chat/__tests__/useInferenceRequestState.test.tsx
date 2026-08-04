@@ -32,6 +32,7 @@ type MockGuardianEventSource = EventTarget & {
 
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
+  buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
   getAuthToken: vi.fn(() => null),
   getDevApiKey: vi.fn(() => null),
   readRuntimeApiKey: vi.fn(() => null),
@@ -239,6 +240,50 @@ describe("useInferenceRequestState", () => {
     expect(
       describeInferenceRequestState(result.current.state).canonicalState
     ).toBe("streaming");
+  });
+
+  it("preserves synthesized lifecycle timestamps across repeated events", async () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+
+    act(() => {
+      result.current.startRequest({
+        threadId: 1,
+        providerId: "local",
+        modelId: "local-model",
+        mode: "think",
+      });
+      result.current.attachTask("task-1");
+    });
+
+    const source = eventSources.instances[0];
+    const lifecycleFields = [
+      ["QUEUED", "queuedAt"],
+      ["AWAITING_MODEL", "awaitingModelAt"],
+      ["AWAITING_FIRST_TOKEN", "awaitingFirstTokenAt"],
+      ["STREAMING", "firstOutputAt"],
+    ] as const;
+
+    for (const [state, field] of lifecycleFields) {
+      emitTaskEvent(source, "task.state", {
+        thread_id: 1,
+        task_id: "task-1",
+        state,
+      });
+      const firstTimestamp = result.current.state[field];
+      expect(firstTimestamp).toEqual(expect.any(String));
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+      });
+
+      emitTaskEvent(source, "task.state", {
+        thread_id: 1,
+        task_id: "task-1",
+        state,
+      });
+      expect(result.current.state[field]).toBe(firstTimestamp);
+    }
   });
 
   it("marks transport errors as degraded instead of frozen", async () => {

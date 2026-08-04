@@ -9,7 +9,7 @@ from guardian.core.ai_router import (
 )
 from guardian.core.config import Settings
 
-_WHOOSHD_MODEL = "mlx-community/gemma-4-e2b-it-4bit"
+_WHOOSHD_MODEL = "gemma-4-12b-it-qat-4bit"
 
 
 def _supported_profile_settings(**overrides) -> Settings:
@@ -19,7 +19,7 @@ def _supported_profile_settings(**overrides) -> Settings:
         "CODEXIFY_LOCAL_ONLY_MODE": True,
         "CODEXIFY_EGRESS_ALLOWLIST": "",
         "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
-        "LOCAL_BASE_URL": "http://100.127.148.28:8000/v1",
+        "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
         "LOCAL_API_KEY": "local",
         "LOCAL_COMPAT_FIRST": True,
         "LOCAL_PROVIDER_DISPLAY_NAME": "Whoosh'd",
@@ -29,7 +29,14 @@ def _supported_profile_settings(**overrides) -> Settings:
         "LLM_MODEL": _WHOOSHD_MODEL,
     }
     defaults.update(overrides)
-    return Settings(**defaults)
+    settings = Settings(**defaults)
+    # LOCAL_RUNTIME_PRESET is supplied by the runtime preset seam but is not
+    # a declared Settings field on this branch. Bind it explicitly so this
+    # contract test exercises the supported-profile comparison.
+    object.__setattr__(
+        settings, "LOCAL_RUNTIME_PRESET", defaults["LOCAL_RUNTIME_PRESET"]
+    )
+    return settings
 
 
 def test_validate_llm_config_accepts_supported_profile_local_contract(
@@ -82,9 +89,9 @@ def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
 
 def test_supported_profile_keeps_model_inventory_as_runtime_discovery() -> None:
     settings = _supported_profile_settings(
-        LOCAL_CHAT_MODEL="mlx-community/gemma-4-e2b-it-4bit",
-        LOCAL_LLM_MODEL="llama-3.2-3b-mlx",
-        LLM_MODEL="llama-3.2-3b-mlx",
+        LOCAL_CHAT_MODEL="runtime-discovered-chat-model",
+        LOCAL_LLM_MODEL="runtime-discovered-llm-model",
+        LLM_MODEL="runtime-discovered-llm-model",
     )
 
     config_module.validate_llm_config(settings)

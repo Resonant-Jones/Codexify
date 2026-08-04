@@ -47,7 +47,9 @@ import api, {
   dispatchGuardianIntent,
   moveChatThread,
   resolveBackendThreadIdFromResponse,
+  dispatchCodingLoop,
   type ThreadIdResolutionDiagnostics,
+  type CodingLoopDispatchPayload,
   updateThreadConfig,
   OptionalSurfaceError,
 } from "@/lib/api";
@@ -82,7 +84,6 @@ import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
 import {
   getRuntimeConfigHydrationState,
-  getRuntimeConfigSync,
 } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
@@ -116,6 +117,7 @@ import {
   CHAT_LANE_STAGE_GUTTER_CLASS,
 } from "@/features/chat/chatLane";
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
+import { useCodingLoopRuns } from "@/features/chat/codingLoop/CodingLoop";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
 import {
   markRuntimeRouteUnavailableIfNotFound,
@@ -178,6 +180,18 @@ function normalizePreferredName(value: string | null | undefined): string | null
     return null;
   }
   return trimmed;
+}
+
+function generateCodingLoopIdentifier(prefix: string): string {
+  const randomUUID = (globalThis as any)?.crypto?.randomUUID;
+  if (typeof randomUUID === "function") {
+    try {
+      return `${prefix}_${String(randomUUID.call((globalThis as any).crypto))}`;
+    } catch {
+      // Fall through to the local opaque identifier.
+    }
+  }
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function flattenChatEventPayload(data: unknown): Record<string, unknown> {
@@ -1038,6 +1052,8 @@ export function GuardianChat({
     refresh: refreshCatalog,
   } = useLlmCatalog();
   const [turnLocks, setTurnLocks] = useState<Record<number, boolean>>({});
+  const [codingLoopObserverEnabled, setCodingLoopObserverEnabled] =
+    useState(false);
   const [pendingTurnLock, setPendingTurnLock] = useState(false);
   const orphanedThreadRef = useRef<Set<number>>(new Set());
   const recentLocalThreadCreationsRef = useRef<Map<number, number>>(new Map());
@@ -2031,6 +2047,15 @@ export function GuardianChat({
   }, [numericThreadId]);
 
   const effectiveThreadId = currentThreadId ?? numericThreadId ?? null;
+  const {
+    dispatchErrors: codingLoopDispatchErrors,
+    registerAcceptedRun: registerCodingLoopRun,
+    registerDispatchFailure: registerCodingLoopDispatchFailure,
+    runs: codingLoopRuns,
+  } = useCodingLoopRuns(effectiveThreadId, {
+    enabled: codingLoopObserverEnabled,
+    subscribe,
+  });
   const ragTraceThreadId = effectiveThreadId;
   const sourceScopeKey = useMemo(
     () =>
@@ -3119,7 +3144,6 @@ export function GuardianChat({
         return effectiveThreadId;
       }
 
-      const runtimeConfig = getRuntimeConfigSync();
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
@@ -3134,7 +3158,7 @@ export function GuardianChat({
           metadata,
           ...(runtimeConfig.authMode === "remote"
             ? {}
-            : { user_id: CANONICAL_SINGLE_USER_ID }),
+            : { user_id: COMMAND_BUS_ACTOR_ID }),
         };
         const resp = await api.post(createThreadEndpoint, createThreadPayload);
         const response = resp ?? {};
@@ -3290,6 +3314,97 @@ export function GuardianChat({
     []
   );
 
+  const handleCodingLoopDispatch = useCallback(
+    async (content: string, requestedThreadId: number | null) => {
+      setCodingLoopObserverEnabled(true);
+      let sourceThreadId = requestedThreadId;
+      if (sourceThreadId == null) {
+        sourceThreadId = await createThreadFromComposer(content);
+        if (sourceThreadId == null) {
+          throw new Error("Guardian could not create a durable source thread.");
+        }
+        await activateThread(sourceThreadId);
+      }
+
+      const response = await api.post(`/chat/${sourceThreadId}/messages`, {
+        role: "user",
+        content,
+        project_id: workspaceProjectId ?? undefined,
+      });
+      const responseData = response?.data as Record<string, unknown> | undefined;
+      const message =
+        responseData?.message && typeof responseData.message === "object"
+          ? (responseData.message as Record<string, unknown>)
+          : null;
+      const sourceMessageId = Number(message?.id ?? responseData?.message_id);
+      if (!Number.isInteger(sourceMessageId) || sourceMessageId <= 0) {
+        throw new Error("Guardian saved the message without returning its durable id.");
+      }
+
+      emitThreadsRefresh("refresh", {
+        reason: "coding-loop-source-message",
+        id: String(sourceThreadId),
+      });
+      setChatReloadVersion((version) => version + 1);
+
+      const payload: CodingLoopDispatchPayload = {
+        coding_task_id: generateCodingLoopIdentifier("coding"),
+        thread_id: String(sourceThreadId),
+        source_message_id: String(sourceMessageId),
+        attempt_id: generateCodingLoopIdentifier("attempt"),
+        user_id: COMMAND_BUS_ACTOR_ID,
+        project_id:
+          workspaceProjectId == null ? null : String(workspaceProjectId),
+        adapter_kind: "pi_codex_runner",
+        instructions: content,
+        repo_root: null,
+        context_summary: "Explicit Coding Loop dispatch from Guardian Composer.",
+        permission_policy: {
+          allow_shell: false,
+          allow_network: false,
+          allow_write: false,
+          allowed_paths: [],
+          max_runtime_seconds: 300,
+        },
+      };
+
+      try {
+        const dispatch = await dispatchCodingLoop(payload);
+        const runId = String(dispatch?.run_id ?? "").trim();
+        if (!runId) {
+          throw new Error("Guardian accepted no run id for the Coding Loop dispatch.");
+        }
+        registerCodingLoopRun({
+          run_id: runId,
+          deployment_id: typeof dispatch.deployment_id === "string" ? dispatch.deployment_id : null,
+          thread_id: sourceThreadId,
+          source_thread_id: sourceThreadId,
+          source_message_id: sourceMessageId,
+          coding_task_id: payload.coding_task_id,
+          attempt_id: payload.attempt_id,
+          adapter_kind: payload.adapter_kind,
+          project_id: payload.project_id,
+          status: "queued",
+        });
+      } catch (error) {
+        registerCodingLoopDispatchFailure({
+          sourceMessageId,
+          message: error instanceof Error ? error.message : "Guardian dispatch failed.",
+        });
+        throw error;
+      }
+    },
+    [
+      activateThread,
+      createThreadFromComposer,
+      registerCodingLoopDispatchFailure,
+      registerCodingLoopRun,
+      setCodingLoopObserverEnabled,
+      setChatReloadVersion,
+      workspaceProjectId,
+    ]
+  );
+
   // Codex Entry draft flow — bound to the active thread.
   const handleCodexDraftRequest = useCallback(
     async (threadId: number, triggerMessageId?: number | null) => {
@@ -3368,10 +3483,11 @@ export function GuardianChat({
       return;
     }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
+    const codingLoopMode = options?.executionMode === "coding";
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
-      targetThreadId != null && Boolean(requestedProfileId);
-    if (llmBackendUnavailable && !isProfileCommand) {
+      !codingLoopMode && targetThreadId != null && Boolean(requestedProfileId);
+    if (llmBackendUnavailable && !isProfileCommand && !codingLoopMode) {
       const title =
         llmHealth.modelsAvailable === false
           ? "No AI models available."
@@ -3431,6 +3547,10 @@ export function GuardianChat({
       text,
       activeDocumentTiles
     );
+    if (codingLoopMode) {
+      await handleCodingLoopDispatch(contentForSend, targetThreadId);
+      return;
+    }
     if (!targetThreadId) {
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
@@ -4214,7 +4334,7 @@ export function GuardianChat({
       {/* Runtime status — read-only provider + request lifecycle indicator */}
       <RuntimeStatusStrip
         providerRuntimeState={providerRuntimeState}
-        inferenceState={inferenceRequest.state}
+        inferenceState={composerInferenceState}
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
       />
@@ -4258,6 +4378,8 @@ export function GuardianChat({
               onCodexDraftSave={handleCodexDraftSave}
               onCodexDraftDownload={handleCodexDraftDownload}
               onCodexDraftDismiss={handleCodexDraftDismiss}
+              codingLoopRuns={codingLoopRuns}
+              codingLoopDispatchErrors={codingLoopDispatchErrors}
             />
           </div>
         ) : (
@@ -4337,6 +4459,9 @@ export function GuardianChat({
                 draftValue={activeDraft}
                 draftScopeKey={activeSessionTabId ?? "global"}
                 onDraftValueChange={onSessionDraftChange}
+                onExecutionModeChange={(mode) => {
+                  if (mode === "coding") setCodingLoopObserverEnabled(true);
+                }}
                 compactMobile={compactMobile}
                 activeProviderId={selectedProvider?.id ?? activeProviderId}
                 mobileModelId={selectedModel?.id ?? activeModelId}

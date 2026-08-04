@@ -13,7 +13,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from common import log, wait_for_tcp
+from common import log, wait_for_tcp  # noqa: E402
+from guardian.agents.pi_readiness import evaluate_pi_readiness  # noqa: E402
 
 _TARGET_HOST = os.getenv("OLLAMA_PROXY_TARGET_HOST", "host.docker.internal")
 _TARGET_PORT = int(os.getenv("OLLAMA_PROXY_TARGET_PORT", "11434"))
@@ -96,6 +97,16 @@ def _start_proxy() -> http.server.ThreadingHTTPServer:
 
 
 def main() -> int:
+    readiness = evaluate_pi_readiness()
+    for line in readiness.to_human().splitlines():
+        log("worker-coding", line)
+    if not readiness.can_consume_tasks:
+        log(
+            "worker-coding",
+            "Pi prerequisites are blocked; exiting before queue consumption.",
+        )
+        return 78
+
     server = _start_proxy()
     worker_cmd = [sys.executable, "-m", "guardian.workers.coding_worker"]
     log(

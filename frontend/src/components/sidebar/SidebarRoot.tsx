@@ -213,8 +213,13 @@ export default function SidebarRoot({
       (project) => String(project.id) === String(currentProjectId)
     );
     if (currentProjectExists) return;
+    // A controlled Documents sidebar can be scoped to the active thread's
+    // project before the project cache has hydrated that project. Preserve
+    // that scope until the cache catches up instead of falling back to
+    // General and widening the document query.
+    if (activeId && projectId) return;
     setScope(defaultProjectId);
-  }, [currentProjectId, projectList, setScope]);
+  }, [activeId, currentProjectId, projectId, projectList, setScope]);
 
   const columnClass = clsx("w-full min-w-0", SIDEBAR_RAIL);
 

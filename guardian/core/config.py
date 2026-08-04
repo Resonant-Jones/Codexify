@@ -651,6 +651,18 @@ class Settings(BaseSettings):
         default=False,
         description="Enable dev-only routes such as /dev/*.",
     )
+    GUARDIAN_BROWSER_HOST_ATTACHMENT_DEV_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable the development-only Browser Host attachment-grant HTTP adapter."
+        ),
+    )
+    GUARDIAN_BROWSER_HOST_NEGOTIATION_DEV_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable the credential-free development-only Browser Host negotiation HTTP adapter."
+        ),
+    )
     GUARDIAN_FEDERATION_ENABLED: bool = Field(
         default=False,
         description="Master gate for all federation endpoints.",

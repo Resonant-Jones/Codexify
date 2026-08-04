@@ -25,6 +25,11 @@ import api from "@/lib/api";
 import { CodexDraftCard } from "@/features/chat/components/CodexDraftCard";
 import type { CodexDraft } from "@/api/codex";
 import { cn } from "@/lib/utils";
+import {
+  CodingLoopCards,
+  type CodingLoopDispatchFailure,
+} from "@/features/chat/codingLoop/CodingLoop";
+import type { CodingLoopRun } from "@/lib/api";
 import { parseDocumentContextContent } from "@/lib/documentContext";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
@@ -243,6 +248,8 @@ export function ChatView({
   onCodexDraftSave,
   onCodexDraftDownload,
   onCodexDraftDismiss,
+  codingLoopRuns = [],
+  codingLoopDispatchErrors = [],
 }: {
   threadId: number;
   guardianName?: string;
@@ -272,6 +279,8 @@ export function ChatView({
   onCodexDraftSave?: (draft: CodexDraft) => void | Promise<void>;
   onCodexDraftDownload?: (draft: CodexDraft) => void;
   onCodexDraftDismiss?: () => void;
+  codingLoopRuns?: CodingLoopRun[];
+  codingLoopDispatchErrors?: CodingLoopDispatchFailure[];
 }) {
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
@@ -1015,6 +1024,11 @@ export function ChatView({
               onDismiss={onCodexDraftDismiss}
             />
           ) : null}
+
+          <CodingLoopCards
+            runs={codingLoopRuns}
+            dispatchErrors={codingLoopDispatchErrors}
+          />
 
           {showStreamingDraft ? (
             <div

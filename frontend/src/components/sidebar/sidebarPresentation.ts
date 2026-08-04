@@ -132,14 +132,30 @@ export function resolveSidebarGeneralProjectId<T extends SidebarProjectLike>(
 export function collapseSidebarGeneralProjectAliases<T extends SidebarProjectLike>(
   projects: readonly T[]
 ): T[] {
-  const seen = new Set<string>();
+  let generalIndex = -1;
+  let generalProject: T | null = null;
+  const result: T[] = [];
 
-  return projects.filter((project) => {
-    if (!isSidebarGeneralProjectName(project.name)) return true;
-    if (seen.has("general")) return false;
-    seen.add("general");
-    return true;
-  });
+  for (const project of projects) {
+    if (!isSidebarGeneralProjectName(project.name)) {
+      result.push(project);
+      continue;
+    }
+
+    if (!generalProject) {
+      generalIndex = result.length;
+      generalProject = project;
+      result.push(project);
+      continue;
+    }
+
+    if (hasImportedProvenance(generalProject) && !hasImportedProvenance(project)) {
+      generalProject = project;
+      result[generalIndex] = project;
+    }
+  }
+
+  return result;
 }
 
 export function normalizeSidebarProjectId(value: unknown): string | null {

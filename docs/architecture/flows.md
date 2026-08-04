@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-07-21
+Last updated: 2026-08-03
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -141,6 +141,65 @@ sequenceDiagram
     EvalWorker->>PG: persist groundedness verdicts
     Worker->>Redis: publish progress and terminal task events
     Worker->>Redis: release turn lock
+```
+
+## 1A) Guardian Composer Coding Loop Flow
+
+Trigger:
+- The Composer remains in normal Chat mode by default. The user explicitly selects the visible `Coding Loop` mode and submits a task description.
+
+Sequence:
+1. `frontend/src/features/chat/GuardianChat.tsx` creates a durable source thread when needed, then persists the authored user message through `POST /api/chat/{thread_id}/messages`. The returned message id is required before dispatch.
+2. The Composer calls the existing `POST /api/agents/coding/execute` route with source thread/message, attempt, project, adapter, instructions, and a bounded permission policy. The frontend does not launch a process or call an adapter directly.
+3. Guardian authenticates the request, persists an `AgentDeployment` and queued `AgentRun`, emits the existing agent/task lifecycle event, and enqueues the existing `CodingExecutionTask` for `CodingWorker`.
+4. The immediate response is an acceptance receipt (`status=accepted`, `run_id`, and source lineage). Acceptance is not worker execution or completion.
+5. The Composer observes existing task events and reads the canonical projections `GET /api/chat/{thread_id}/coding-runs` and `GET /api/agents/runs/{run_id}/coding`. Active runs are bounded-polled until a terminal state so event delivery is an acceleration path, not the persistence boundary.
+6. Before the coding consumer process starts, the `worker-coding` entrypoint runs the canonical Pi readiness gate. It checks the Node executable, wrapper, pinned SDK artifact, worker home and auth material, provider/model resolution, provider credential presence, and non-executing adapter initialization. A `blocked` result exits before Redis dequeue; `ready` or explicitly `degraded` posture permits the consumer to start. Credential presence remains weaker than credential validity or live execution proof.
+7. `CodingWorker` executes through the registered Guardian coding adapter. `AgentStore.store_coding_result()` persists the coding-result artifact, updates the terminal run status, and injects the result into the source thread under the existing lineage contract when the durable database path is available.
+8. The conversation lane renders accepted, active, completed, failed, canceled, or escalated cards with run/source lineage and bounded result evidence. Worker paths and lifecycle controls are not exposed by this slice.
+
+State boundaries:
+- `accepted`: Guardian persisted the run and accepted queue dispatch.
+- `active`: worker progress or a nonterminal durable run is observed.
+- `completed` / `failed` / `canceled` / `escalated`: terminal state is read from canonical run/result evidence; a visible event alone is insufficient.
+- dispatch failure: the authored message remains durable and the UI reports that Guardian did not accept execution.
+
+Failure and recovery posture:
+- Durable run readback is account-scoped through the authenticated request identity and a bounded result projection.
+- The UI does not offer Cancel or Retry controls here. The existing cancel route changes durable run state and emits an event, but does not carry the queue task id required by `CodingWorker`'s cancellation check; adding controls without that contract would misrepresent cancellation.
+- There is no autonomous scheduler, direct subprocess launch, credential injection, or parallel lifecycle in this Composer slice.
+- A wrapper file or running container alone is not adapter readiness. The source Compose worker must pass its prerequisite gate before it can consume the coding queue.
+- This implementation is code-path and automated-test evidence only. No live worker/queue/database/browser proof is claimed; `docs/architecture/00-current-state.md` remains unchanged and the next proof needed is a supported-path end-to-end run showing source-message persistence, accepted receipt, worker terminal evidence, result return, and UI readback.
+
+Concrete anchors:
+- `frontend/src/features/chat/components/Composer.tsx`
+- `frontend/src/features/chat/GuardianChat.tsx`
+- `frontend/src/features/chat/codingLoop/CodingLoop.tsx`
+- `guardian/routes/agent_orchestration.py`
+- `guardian/agents/store.py`
+- `guardian/workers/coding_worker.py`
+
+```mermaid
+sequenceDiagram
+    participant UI as Composer
+    participant ChatAPI as chat route
+    participant Guardian as coding route/store
+    participant Redis as coding queue/events
+    participant Worker as CodingWorker
+    participant PG as canonical store
+
+    UI->>ChatAPI: POST source user message
+    ChatAPI-->>UI: durable source_message_id
+    UI->>Guardian: POST /api/agents/coding/execute
+    Guardian->>PG: persist deployment + queued run
+    Guardian->>Redis: enqueue CodingExecutionTask + lifecycle event
+    Guardian-->>UI: accepted run_id + lineage
+    UI->>Redis: observe existing task events
+    UI->>Guardian: bounded readback polling
+    Worker->>Redis: dequeue coding task
+    Worker->>PG: persist coding result + terminal run
+    Worker->>PG: Guardian-owned result return into source thread
+    UI->>Guardian: read terminal coding projection
 ```
 
 ## 2) RAG / Context Assembly Flow

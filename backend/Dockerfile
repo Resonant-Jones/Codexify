@@ -124,6 +124,15 @@ FROM builder AS builder-tts
 COPY backend/requirements-tts.txt /tmp/backend/requirements-tts.txt
 RUN python -m pip install -r /tmp/backend/requirements-tts.txt
 
+# === Pi SDK runtime stage: exact dependency declared by codex_runner ===
+FROM node:20.19.5-bookworm-slim AS pi-sdk-runtime
+
+WORKDIR /opt/codexify/pi-sdk
+COPY codex_runner/pi-runtime/package.json codex_runner/pi-runtime/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
+    test -f node_modules/@mariozechner/pi-coding-agent/dist/index.js && \
+    test -f node_modules/@mariozechner/pi-ai/dist/index.js
+
 # === Final stage: Create minimal runtime image ===
  # NOTE: The non-"-dev" runtime image is intentionally hardened/minimal and does not ship with apt.
  # We use the "-dev" variant here because this stage needs to install ffmpeg via apt-get.
@@ -176,6 +185,22 @@ COPY --from=builder /app_staging/entrypoint.py /app/entrypoint.py
 EXPOSE 8888
 
 ENTRYPOINT ["python", "/app/entrypoint.py"]
+
+# === Coding-worker runtime: backend plus pinned Pi SDK and Node 20 ===
+FROM runtime AS worker-coding-runtime
+
+ENV PI_CODING_AGENT_PACKAGE_ROOT=/opt/codexify/pi-sdk/node_modules/@mariozechner/pi-coding-agent \
+    PI_CODING_AGENT_NODE_MODULES=/opt/codexify/pi-sdk/node_modules
+
+COPY --from=pi-sdk-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=pi-sdk-runtime /opt/codexify/pi-sdk /opt/codexify/pi-sdk
+
+RUN node --version && \
+    test -f "$PI_CODING_AGENT_PACKAGE_ROOT/dist/index.js" && \
+    test -f "$PI_CODING_AGENT_NODE_MODULES/@mariozechner/pi-ai/dist/index.js"
+
+ENTRYPOINT ["python"]
+CMD ["/app/backend/scripts/docker/run_worker_coding.py"]
 
 # === TTS runtime stage: backend runtime + pinned TTS deps ===
 FROM runtime AS tts-runtime

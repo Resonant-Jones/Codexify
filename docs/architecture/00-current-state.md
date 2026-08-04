@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first beta hardening at `c7d4510c1`. The supported path is the local Docker Compose stack with local-only provider posture. Merged private-preview and browser work adds bounded opt-in or documentation surfaces; neither widens the default release promise.
+`main` is in local-first beta hardening at `50721d0f5`. The supported path remains the local Docker Compose stack with local-only provider posture. Mainline has narrowed the accepted release surface by pruning unmerged forge and UI-personalization artifacts; private-preview and browser work remain bounded opt-in or documentation surfaces.
 
 ## What changed recently
 
@@ -30,6 +30,9 @@ This file is authoritative for:
 - Added a Codexify Browser campaign and extension inventory as documentation; this is not shipped browser support.
 - Guardian Evidence Packet authoring template and guide are static authoring aids only; they do not implement runtime reducer behavior or widen release support.
 - Restored the bounded canonical live-proof receipt handoff in the audit tooling: one qualifying `PASS` receipt can support a deterministic `CURRENT_LIVE_PROOF` manifest, with mandatory fresh runtime comparison and fail-closed receipt lineage.
+- Added a second GuardianEvidencePacket fixture for local validation-toolchain coverage; this demonstrates packet schema coverage only and does not implement runtime reducer behavior.
+- Added a Guardian Evidence Packet future runtime reducer design contract; it defines future reducer boundaries and allowed handoffs only and does not implement runtime reducer behavior.
+- Added a Guardian Evidence Packet static validator contract; it defines future packet shape and guardrail validation only and does not implement runtime validator or reducer behavior.
 
 ## Current supported reality
 
@@ -37,8 +40,9 @@ This file is authoritative for:
 - The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, and `LLM_PROVIDER=local`.
 - `whooshd-mlx` is the supported Apple Silicon local runtime preset; other local presets require explicit configuration.
 - Chat completion, upload -> embed -> readback, and workspace-local retrieval are the supported beta paths.
-- `GET /health`, `GET /health/chat`, and `GET /api/health/llm` are the primary operator checks; use them with the supported profile and model catalog.
+- `GET /health`, `GET /health/chat`, and `GET /api/health/llm` are the primary operator checks.
 - OpenAI export import, Task Prompt Archive, and owner-scoped retry of failed zero-write import jobs are present on `main`.
+- Architecture-contract validation is defined on `main`; it does not prove live service behavior or release readiness.
 
 ## Not yet true / do not assume
 
@@ -47,32 +51,34 @@ This file is authoritative for:
 - Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract is end-to-end runtime or release proof by itself.
 - Do not treat a validator-passing `CURRENT_LIVE_PROOF` manifest as storage, promotion, trusted `latest`, release approval, or proof of the current live Compose runtime without the separately required live execution evidence.
 - Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, or release qualification.
-- Do not treat the Browser campaign, email, federation, graph writes, Continuity/Project Pulse, thread lenses, or P2P video documents as shipped beta behavior.
+- Do not treat browser, email, federation, graph writes, Continuity/Project Pulse, thread lenses, or P2P video documents as shipped beta behavior.
 - Do not assume failed account-import jobs retry automatically, repair partial writes, deduplicate payloads, or reconstruct missing historical staging.
-- Do not count local branches, unmerged work, draft plans, obsolete worktrees, or local commits not present on `main` as shipped reality.
+- Do not count local branches, unmerged work, draft plans, obsolete worktrees, origin-only commits, or local commits not present on `main` as shipped reality.
 
 ## Active blockers
 
-- Fresh live Compose proof is still needed at the current `main` tip, including terminal completion and persisted output.
+- Local `main` trails `origin/main` by two commits; reconcile the audited tip before using remote state as release evidence.
+- Fresh live Compose proof is still needed at the audited `main` tip, including terminal completion and persisted output.
 - Queue-coupled chat still requires healthy Redis, worker, turn-lock, and terminal-event behavior on the supported path.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
-- The private-preview lane is blocked on its missing DeepSeek credential and authenticated session-token prerequisite; provider-specific runtime proof remains open.
+- The private-preview lane lacks its required DeepSeek credential and authenticated session-token prerequisite.
 - Hosted Room end-to-end Guardian execution and broader federation/delegation remain outside release qualification.
 
 ## This week's priorities
 
-1. Run fresh supported-profile, provider-catalog, health, and local-runtime checks on `main`.
-2. Capture live proof for chat, upload/readback, workspace retrieval, queue completion, and import recovery.
-3. Complete the private-preview prerequisites and provider-specific proof, or keep that lane explicitly quarantined.
-4. Reduce or clearly fence canonical-versus-legacy configuration drift.
-5. Keep browser, Hosted Room, and other planning surfaces out of release claims.
+1. Reconcile the intended audited `main` tip, then rerun release checks from that commit.
+2. Capture live proof for health, model inventory, chat, upload/readback, workspace retrieval, queue completion, and import recovery.
+3. Reduce or clearly fence canonical-versus-legacy configuration drift.
+4. Complete private-preview prerequisites and provider-specific proof, or keep that lane quarantined.
+5. Keep browser, Hosted Room, federation, and other planning surfaces out of release claims.
 
 ## Release definition right now
 
 - [x] The supported profile and local-only flags define the beta posture.
 - [x] Whoosh'd local runtime and core chat/upload/retrieval paths are represented on `main`.
-- [x] Health surfaces include provider and queue/worker checks for the supported path.
-- [ ] Fresh live Compose evidence confirms the current `main` tip, terminal completion, and persisted output.
+- [x] Architecture-contract validation is defined on `main`.
+- [ ] The audited `main` tip is reconciled with the intended release commit.
+- [ ] Fresh live Compose evidence confirms terminal completion and persisted output.
 - [ ] Queue, configuration, migration, and recovery behavior are green for the supported install path.
 - [ ] Any claimed private-preview lane has authenticated, provider-specific persisted-turn proof.
 - [ ] Every release claim is merged to `main` and backed by evidence at the claimed proof level.
