@@ -154,24 +154,34 @@ does not write a registry, manifest, promotion receipt, or trusted pointer.
 
 ## Relationship to canonical evidence
 
-The receipt preserves provenance for a later manifest-integration task. The
-current canonical evidence manifest producer still rejects
-`CURRENT_LIVE_PROOF`; the current canonical evidence schema, producer, and
-validator are unchanged by this seam. A future task must explicitly define how
-a qualifying receipt is attached to a manifest without weakening ADR-041 or
-ADR-042.
+The receipt preserves provenance for the bounded manifest handoff. The
+canonical evidence manifest producer accepts exactly one schema-valid
+`CURRENT_LIVE_PROOF` receipt only when its outcome is `PASS`, its deterministic
+ID matches, its exact source bytes are hash-recorded as an artifact, and all
+machine, repository, commit, runtime, configuration, Compose project, role,
+and supported-profile identities match fresh observations. Runtime identity
+collection is mandatory for this proof class; caller metadata cannot disable
+it. A receipt ID already present under `derived_from` is retained once, while
+the same ID under `supersedes` or `contradicts` fails closed with
+`live_proof_relationship_invalid`.
 
-Still deferred are manifest acceptance of `CURRENT_LIVE_PROOF`, durable evidence
-storage, freshness evaluation, cross-record resolution, supersession and
-contradiction resolution, promotion receipts, trusted pointers, consumer
-migration, and release approval.
+Receipt `PASS` is necessary but insufficient for canonical authority. The
+manifest producer still derives `authority_status` from the existing machine
+and repository candidacy rules, and the resulting manifest is unpromoted
+evidence rather than storage, a freshness decision, a trusted pointer, or
+release approval. The canonical evidence schema and existing validator remain
+the governing validation boundary.
+
+Still deferred are durable evidence storage, freshness evaluation, cross-record
+resolution, supersession and contradiction resolution, promotion receipts,
+trusted pointers, consumer migration, and release approval.
 
 ## Non-goals
 
 This contract does not add Docker lifecycle management, container execution,
 operator-supplied commands, arbitrary probes, chat turns, ingestion proof,
 provider mutation, migration execution, database queries, container logs,
-manifest generation, evidence storage, freshness calculation, trusted
+additional manifest consumers, evidence storage, freshness calculation, trusted
 `latest`, GitHub Actions, or release approval.
 
 ## Related documents
