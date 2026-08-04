@@ -791,6 +791,11 @@ class ChatCompletionTask(BaseTask):
     requested_source_mode: str | None = None
     system_override: str | None = None
     retrieval_override: dict[str, Any] | None = None
+    # Turn-scoped, untrusted browser selection evidence submitted with this
+    # completion attempt. Lives only in the queued task payload: it is never
+    # persisted with messages/threads, embedded, or written to memory/identity
+    # stores, so it cannot replay onto later completion attempts.
+    browser_context: dict[str, Any] | None = None
     preferred_name: str | None = None
     profession: str | None = None
     guardian_name: str | None = None
@@ -850,6 +855,8 @@ class ChatCompletionTask(BaseTask):
             retrieval_override=_coerce_mapping(
                 payload.get("retrieval_override")
             )
+            or None,
+            browser_context=_coerce_mapping(payload.get("browser_context"))
             or None,
             preferred_name=_coerce_optional_text(payload.get("preferred_name")),
             profession=_coerce_optional_text(payload.get("profession")),
