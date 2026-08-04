@@ -12,13 +12,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionRequest
 from guardian.agents.commit_gate import (
     CommitGateError,
-    CommitGateResult,
     commit_after_green,
 )
 from guardian.agents.events import build_coding_result_lineage_payload
@@ -2456,6 +2456,11 @@ class CodingWorker:
                     },
                     *result_artifact_payload,
                 ]
+            if mutation_guard is not None and validation_command:
+                result_artifact_payload = [
+                    dict(mutation_guard),
+                    *result_artifact_payload,
+                ]
 
             delivery = self.store.store_coding_result(
                 run_id=task.run_id,
@@ -2562,6 +2567,7 @@ class CodingWorker:
                     require_human_review_before_merge
                 ),
                 patch_artifact=patch_artifact_metadata,
+                mutation_guard=mutation_guard,
             )
             return
 
@@ -2747,6 +2753,7 @@ class CodingWorker:
                             or "mutation scope verification failed"
                         ),
                         mutation_guard_status="blocked",
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -2955,9 +2962,7 @@ class CodingWorker:
                     require_human_review_before_merge=(
                         require_human_review_before_merge
                     ),
-                    mutation_guard=mutation_guard
-                    if validation_command
-                    else None,
+                    mutation_guard=mutation_guard,
                 )
                 return
 
