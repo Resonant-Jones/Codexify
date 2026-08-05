@@ -121,7 +121,14 @@ Audit notes:
 
 The proof packet `docs/architecture/proofs/browser-host/2026-08-04-electron-adjacent-version-compatibility/`
 classifies the bounded matrix as `adjacent_electron_family_incompatibility`.
-The production Browser Host remains `next-proof-needed`; complete
-real-Guardian qualification and supported release remain unproven. This is
-supplementary evidence to verify against code, not current runtime or release
-truth. Gate C remains passed and Gate D remains closed.
+A subsequent reconciliation proof (2026-08-04,
+`docs/architecture/proofs/browser-host/2026-08-04-electron-minimal-launch-reconciliation/`)
+classified `prior_matrix_harness_not_reproducible`: Electron 43.2.0 passed
+all 18 minimal-launch attempts (2 locations x 3 launch methods x 3
+repetitions) without SIGABRT. The adjacent-family incompatibility
+interpretation is narrowed — the SIGABRT was an environmental or harness
+artifact, not a reproducible Electron family defect. The production Browser
+Host remains `next-proof-needed`; complete real-Guardian qualification and
+supported release remain unproven. This is supplementary evidence to verify
+against code, not current runtime or release truth. Gate C remains passed and
+Gate D remains closed.

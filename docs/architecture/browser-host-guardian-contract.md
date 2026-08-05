@@ -10,8 +10,14 @@
   restart the Apple control passes, the repository and clean locked Electron
   `43.2.0` bundles are identical by executable and resource manifest, both fail
   the same signature/Gatekeeper resource validation, and both minimal local
-  applications launch. Production Browser Host qualification remains
-  `next-proof-needed`.
+  applications launch. A subsequent adjacent-version matrix reported SIGABRT
+  for Electron 43.2.0 and three adjacent versions before `app.whenReady()`,
+  but a committed reconciliation proof (2026-08-04,
+  `prior_matrix_harness_not_reproducible`) found that Electron 43.2.0 passes
+  minimal launch deterministically across 18 attempts (2 locations x 3 launch
+  methods x 3 repetitions). The adjacent-family incompatibility interpretation
+  is not supported by reproducible evidence. Production Browser Host
+  qualification remains `next-proof-needed`.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under

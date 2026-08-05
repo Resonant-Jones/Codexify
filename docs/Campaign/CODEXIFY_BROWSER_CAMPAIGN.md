@@ -941,8 +941,41 @@ Qualify the complete development Browser Host session against the real Guardian 
 
 ### Next atomic task
 
-Investigate the macOS 26.5.2 Electron family launch incompatibility outside
-Codexify runtime code using the bounded matrix evidence.
+~~Investigate the macOS 26.5.2 Electron family launch incompatibility outside
+Codexify runtime code using the bounded matrix evidence.~~
+
+Superseded by the reconciliation proof below.
+
+## Electron minimal-launch reconciliation — 2026-08-04
+
+- Prerequisite commits:
+  `8982720e835147f7fe56eb723600cb9699dc12b9` (post-restart comparison) and
+  `f0e7e7ef4de6454b6f009be6cf675152ffe0e911` (adjacent-version matrix).
+- Branch: `codex/reconcile-electron-minimal-launch`.
+- Exact matrix: 2 application locations (temporary `/tmp`, user-local
+  `~/Library/Application Support/`) x 3 launch methods (direct executable,
+  LaunchServices `/usr/bin/open`, playwright-style) x 3 repetitions = 18
+  attempts with Electron 43.2.0 only.
+- Host control: macOS 26.5.2 arm64, Gatekeeper enabled, Aqua available;
+  Calculator passed. Electron 43.2.0 executable SHA-256
+  `79019361f697c1a8...` matches both prior proofs.
+- Method pattern: `all_methods_pass`; location pattern: `all_locations_pass`;
+  repeatability pattern: `deterministic_pass`; crash pattern: `no_crashes`.
+- Primary classification: `prior_matrix_harness_not_reproducible`.
+  All 18 attempts passed without SIGABRT. The prior adjacent-version matrix
+  SIGABRT result is not reproducible. The adjacent-family incompatibility
+  interpretation is narrowed — the prior failure was an environmental or
+  harness artifact, not a reproducible Electron family defect.
+- No repository dependency, package, lockfile, runtime, Guardian, macOS
+  security, quarantine, signing, CI, or release-posture change occurred.
+  Gate C remains passed and Gate D remains closed.
+- Proof packet:
+  `docs/architecture/proofs/browser-host/2026-08-04-electron-minimal-launch-reconciliation/`.
+
+### Next atomic task
+
+Audit the prior adjacent-version matrix harness for the environmental or
+invocation difference that produced false Electron-family failure evidence.
 
 ## ADR impact
 
