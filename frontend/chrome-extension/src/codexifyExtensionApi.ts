@@ -51,6 +51,19 @@ export interface CompletionReceipt {
   traceUrl: string | null
 }
 
+/**
+ * Explicitly captured browser selection evidence attached to exactly one
+ * completion attempt. The backend treats it as untrusted, turn-scoped context
+ * that is never persisted, embedded, or written into memory/identity stores.
+ */
+export interface BrowserSelectionContext {
+  content: string
+  sourceUrl?: string | null
+  sourceTitle?: string | null
+  capturedAt?: string
+  [key: string]: unknown
+}
+
 export interface TaskLifecycleEvent {
   type: string
   state: string | null
@@ -76,7 +89,10 @@ export interface CodexifyExtensionApi {
   createThread(title?: string): Promise<CodexifyThread>
   listMessages(threadId: number, discoveryUrl?: string | null): Promise<CodexifyMessage[]>
   persistUserMessage(threadId: number, content: string): Promise<void>
-  requestCompletion(threadId: number): Promise<CompletionReceipt>
+  requestCompletion(
+    threadId: number,
+    browserContext?: BrowserSelectionContext | null,
+  ): Promise<CompletionReceipt>
   cancelTask(taskId: string): Promise<void>
   subscribeToTask(receipt: CompletionReceipt, callbacks: TaskLifecycleCallbacks): () => void
 }
@@ -372,13 +388,19 @@ export class FetchCodexifyExtensionApi implements CodexifyExtensionApi {
     })
   }
 
-  async requestCompletion(threadId: number): Promise<CompletionReceipt> {
+  async requestCompletion(
+    threadId: number,
+    browserContext: BrowserSelectionContext | null = null,
+  ): Promise<CompletionReceipt> {
     const requestId = crypto.randomUUID()
     const turnId = crypto.randomUUID()
     const body = asRecord(await this.requestJson(`/api/chat/${threadId}/complete`, {
       method: "POST",
       headers: { "X-Request-ID": requestId },
-      body: JSON.stringify({ turn_id: turnId }),
+      body: JSON.stringify({
+        turn_id: turnId,
+        ...(browserContext ? { browser_context: browserContext } : {}),
+      }),
     }))
 
     const taskId = firstString(body, "task_id", "taskId")

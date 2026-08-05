@@ -12,13 +12,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionRequest
 from guardian.agents.commit_gate import (
     CommitGateError,
-    CommitGateResult,
     commit_after_green,
 )
 from guardian.agents.events import build_coding_result_lineage_payload
@@ -2020,6 +2020,17 @@ class CodingWorker:
         allowed_paths = _normalize_allowed_paths(
             permission_policy.get("allowed_paths")
         )
+
+        task_workdir = str(task.cwd or "").strip() or None
+        guard_snapshot = _git_mutation_guard_snapshot(
+            cwd=task_workdir,
+            allowed_paths=allowed_paths,
+        )
+        repo_root = guard_snapshot["repo_root"]
+        before_paths = list(guard_snapshot["before_paths"])
+        before_ok = bool(guard_snapshot["before_ok"])
+        mutation_guard_enabled = bool(guard_snapshot["enabled"])
+
         validation_attempt_budget = _resolve_validation_attempt_budget(
             task, deployment_spec
         )
@@ -2191,6 +2202,49 @@ class CodingWorker:
         worktree_cleanup_finalized = False
         current_attempt_index = 0
 
+        def _guard_warning() -> str | None:
+            if repo_root is None or not before_ok:
+                return "mutation_scope_cannot_be_proven_without_git_porcelain"
+            return None
+
+        def _current_guard_metadata(
+            *,
+            status: str,
+            changed_paths: list[str],
+            disallowed_paths: list[str],
+            error_code: str | None = None,
+            warning: str | None = None,
+        ) -> dict[str, Any]:
+            return _mutation_guard_metadata(
+                enabled=mutation_guard_enabled,
+                status=status,
+                allowed_paths=allowed_paths,
+                changed_paths=changed_paths,
+                disallowed_paths=disallowed_paths,
+                error_code=error_code,
+                warning=warning,
+            )
+
+        def _collect_after_guard() -> dict[str, Any]:
+            if repo_root is None:
+                return _current_guard_metadata(
+                    status="unverified",
+                    changed_paths=[],
+                    disallowed_paths=[],
+                    error_code=_error_value("MUTATION_SCOPE_UNVERIFIED"),
+                    warning=_guard_warning(),
+                )
+            after_paths, after_ok = _run_git_porcelain_paths(repo_root)
+            return _evaluate_mutation_guard(
+                repo_root=repo_root,
+                before_paths=before_paths,
+                before_ok=before_ok,
+                after_paths=after_paths,
+                after_ok=after_ok,
+                allowed_paths=allowed_paths,
+                allow_write=bool(permission_policy.get("allow_write")),
+            )
+
         def _finalize_worktree_for_terminal(
             *,
             success_like: bool,
@@ -2233,6 +2287,7 @@ class CodingWorker:
             human_review_required: bool = True,
             require_human_review_before_merge: bool = True,
             mutation_guard_status: str | None = None,
+            mutation_guard: dict[str, Any] | None = None,
         ) -> None:
             patch_artifact_metadata: dict[str, Any] | None = None
             if (
@@ -2401,6 +2456,11 @@ class CodingWorker:
                     },
                     *result_artifact_payload,
                 ]
+            if mutation_guard is not None and validation_command:
+                result_artifact_payload = [
+                    dict(mutation_guard),
+                    *result_artifact_payload,
+                ]
 
             delivery = self.store.store_coding_result(
                 run_id=task.run_id,
@@ -2507,6 +2567,7 @@ class CodingWorker:
                     require_human_review_before_merge
                 ),
                 patch_artifact=patch_artifact_metadata,
+                mutation_guard=mutation_guard,
             )
             return
 
@@ -2692,6 +2753,7 @@ class CodingWorker:
                             or "mutation scope verification failed"
                         ),
                         mutation_guard_status="blocked",
+                        mutation_guard=mutation_guard,
                     )
                     return
 
@@ -2900,9 +2962,7 @@ class CodingWorker:
                     require_human_review_before_merge=(
                         require_human_review_before_merge
                     ),
-                    mutation_guard=mutation_guard
-                    if validation_command
-                    else None,
+                    mutation_guard=mutation_guard,
                 )
                 return
 
@@ -3787,6 +3847,7 @@ class CodingWorker:
         human_review_required: bool = True,
         require_human_review_before_merge: bool = True,
         patch_artifact: dict[str, Any] | None = None,
+        mutation_guard: dict[str, Any] | None = None,
     ) -> None:
         """Emit terminal task event."""
         del result

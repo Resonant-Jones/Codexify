@@ -152,6 +152,87 @@ describe("Codexify extension auth transport", () => {
     })
   })
 
+  it("attaches captured browser selection evidence to exactly one completion request", async () => {
+    const requestId = "req-extension-browser"
+    const turnId = "turn-extension-browser"
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn()
+        .mockReturnValueOnce(requestId)
+        .mockReturnValueOnce(turnId),
+    })
+    const browserContext = {
+      captureKind: "selected_text",
+      sourceKind: "selection",
+      sourceUrl: "https://example.com/articles/intro",
+      sourceTitle: "An Example Article",
+      capturedAt: "2026-07-21T12:00:00.000Z",
+      contentType: "text/plain",
+      content: "selected evidence sentence",
+      contentLength: 25,
+      truncated: false,
+      extractorVersion: "chrome-selection-v1",
+      retentionClass: "ephemeral_attachment",
+      userInitiated: true,
+    }
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://127.0.0.1:8888/api/chat/7/complete")
+      expect(JSON.parse(String(init?.body))).toEqual({
+        turn_id: turnId,
+        browser_context: browserContext,
+      })
+      return new Response(JSON.stringify({
+        ok: true,
+        request_id: requestId,
+        task_id: "task-extension-browser",
+        turn_id: turnId,
+        thread_id: 7,
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(
+      createCodexifyExtensionApi(profile).requestCompletion(7, browserContext),
+    ).resolves.toMatchObject({
+      taskId: "task-extension-browser",
+      requestId,
+      turnId,
+      threadId: 7,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("never sends browser selection evidence on the durable message contract", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://127.0.0.1:8888/api/chat/7/messages")
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toEqual({ role: "user", content: "ask about the page" })
+      expect("browser_context" in body).toBe(false)
+      expect("metadata" in body).toBe(false)
+      return new Response(JSON.stringify({
+        ok: true,
+        message: { id: 1, thread_id: 7, role: "user", content: "ask about the page" },
+      }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+
+    await expect(
+      createCodexifyExtensionApi(profile).persistUserMessage(7, "ask about the page"),
+    ).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it("requests task cancellation through the authenticated task contract", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("http://127.0.0.1:8888/api/tasks/task-extension-test/cancel")

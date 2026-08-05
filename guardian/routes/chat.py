@@ -602,6 +602,12 @@ class ChatCompletionRequest(BaseModel):
     guardian_name: Optional[str] = None
     turn_id: Optional[str] = None
     source_mode: Optional[str] = None
+    # Turn-scoped, untrusted browser selection evidence. Carried only for the
+    # completion attempt that submits it: it is never persisted, embedded, or
+    # written into thread/message metadata, so it cannot become memory,
+    # retrieval material, or a durable browser record. Absent for normal web
+    # clients, which are unaffected.
+    browser_context: Optional[Dict[str, Any]] = None
     slash_intent: Optional["SlashIntentRequest"] = Field(
         default=None, alias="slashIntent"
     )
@@ -2980,6 +2986,11 @@ async def chat_complete(
         requested_source_mode=requested_source_mode,
         system_override=merged_system_override,
         retrieval_override=retrieval_override,
+        browser_context=(
+            dict(body.browser_context)
+            if isinstance(body.browser_context, dict)
+            else None
+        ),
         preferred_name=body.preferred_name,
         profession=body.profession,
         guardian_name=body.guardian_name,
