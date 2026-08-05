@@ -23,6 +23,9 @@ COMPOSE_FILES=(
   -p "$TESTER_PROJECT"
   -f "$REPO_ROOT/docker-compose.yml"
   -f "$REPO_ROOT/docker-compose.tester.yml"
+  # The Tester is permanently the approved dual-provider lane: Whoosh'd's
+  # exclusive Gemma model plus the egress-allowlisted DeepSeek provider.
+  -f "$REPO_ROOT/docker-compose.whooshd-deepseek.yml"
 )
 
 TESTER_START_SERVICES=(
