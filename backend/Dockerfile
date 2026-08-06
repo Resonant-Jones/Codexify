@@ -8,13 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /tmp
 
 # Copy requirements and install dependencies
-COPY requirements.txt requirements/ backend/requirements.txt* ./
+COPY requirements/ backend/requirements.txt* ./
 
 RUN python - <<'PY'
 import os, sys, subprocess
 candidates = [
     "./backend/requirements.txt",
-    "./requirements.txt",
     "./all.txt",
 ]
 req_file = None
