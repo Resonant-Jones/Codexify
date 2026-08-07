@@ -726,7 +726,7 @@ def test_product_doc_references_exist():
 
 def test_validation_uses_only_docs_and_schemas():
     """Confirm this test file does not import any runtime source modules.
-    
+
     Check that no guardian.* or frontend.* modules are imported at module level
     in this test file. The test itself only depends on json, pathlib, os, re,
     sys, jsonschema, and pytest.
