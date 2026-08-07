@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0.0",
+  "packet_id": "codexify:arp:chat-completion-support-example",
+  "created_at": "2026-08-07T12:05:00Z",
+  "repository_revision": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+  "graph_revision": "4df417541e5c0ae9c2f4b973c73ba59b5b8920ae5553d7b36e8b51c8e5d84e9f",
+  "question_or_intent": "What currently proves that Codexify chat completion is supported?",
+  "authority_profile": "release_and_support",
+  "reading_budget": {
+    "maximum_sources": 4,
+    "maximum_hops": 2,
+    "maximum_total_chunks": 12,
+    "maximum_sections_per_source": 3
+  },
+  "selected_sources": [
+    {
+      "document_id": "codexify:doc:architecture:current-state",
+      "path": "docs/architecture/00-current-state.md",
+      "selection_reason": "Required release-and-support root. It states the current supported beta posture while its expired illustrative freshness window is surfaced separately.",
+      "authority_scope": "current release posture and supported chat path",
+      "authority_class": "release_authority",
+      "freshness_state": "stale",
+      "evidence_class": "documented-contract",
+      "retrieval_priority": "required",
+      "required_sections": ["Current supported reality", "Not yet true / do not assume", "Active blockers"],
+      "graph_path": []
+    },
+    {
+      "document_id": "codexify:doc:architecture:chat-runtime-contract",
+      "path": "docs/architecture/chat-runtime-contract.md",
+      "selection_reason": "Selected as the current normative structural description of completion acceptance, worker execution, and assistant persistence boundaries after resolving the compatibility pointer.",
+      "authority_scope": "chat completion flow and acceptance-versus-completion semantics",
+      "authority_class": "normative_contract",
+      "freshness_state": "current",
+      "evidence_class": "documented-contract",
+      "retrieval_priority": "supporting",
+      "required_sections": ["Completion Acceptance Ownership", "Minimal State Transition Rules"],
+      "graph_path": [
+        {
+          "from_document_id": "codexify:doc:architecture:chat-runtime-state-pointer",
+          "relation_type": "pointer_to",
+          "to_document_id": "codexify:doc:architecture:chat-runtime-contract"
+        }
+      ]
+    }
+  ],
+  "resolved_pointers": [
+    {
+      "pointer_document_id": "codexify:doc:architecture:chat-runtime-state-pointer",
+      "pointer_path": "docs/architecture/chat-runtime-state-contract.md",
+      "target_document_id": "codexify:doc:architecture:chat-runtime-contract",
+      "target_path": "docs/architecture/chat-runtime-contract.md",
+      "reason": "The compatibility file explicitly directs readers to the normative Chat Runtime Contract and must not be ingested as duplicate authority."
+    }
+  ],
+  "supersession_chains": [],
+  "excluded_sources": [
+    {
+      "document_id": "codexify:doc:proof:2026-04-04-clean-start-migration",
+      "exclusion_reason": "Historical live proof at commit 65520918483e194da808115d94ebde9078a42886. It may answer a dated provenance question but cannot prove current-head chat support."
+    },
+    {
+      "document_id": "codexify:doc:report:2026-08-03-axis-brief",
+      "exclusion_reason": "Generated branch/session report excluded by default because the requested question does not name its date, branch, worktree, or session."
+    }
+  ],
+  "conflicts": [],
+  "stale_warnings": [
+    {
+      "document_id": "codexify:doc:architecture:current-state",
+      "freshness_state": "stale",
+      "reason": "The illustrative two-day hot-document freshness window expired. The source remains visible as release authority, but the packet cannot silently treat it as refreshed current-head proof.",
+      "changed_anchors": []
+    }
+  ],
+  "proof_gaps": [
+    {
+      "authority_scope": "chat completion support at repository revision 60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+      "required_evidence_class": "proven-live-runtime",
+      "reason": "The illustrative graph contains no fresh supported-path proof of terminal completion and persisted assistant output at this repository revision. Documentation and historical proof do not close that gap."
+    }
+  ],
+  "unavailable_sources": [],
+  "human_decisions_required": [
+    "A human release owner must decide whether future current-head live evidence is sufficient to update or reaffirm the release claim."
+  ],
+  "illustrative": true,
+  "notice": "This example demonstrates deterministic source selection only. It is not an actual current runtime proof, release approval, architecture acceptance, or executable permission."
+}
