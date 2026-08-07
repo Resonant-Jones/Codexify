@@ -63,6 +63,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     hosted_actor = script.get_revision("8b02d5f3a7c9")
     browser_audit = script.get_revision("c3d4e5f6a7b8")
     delegation = script.get_revision("d4e5f6a7b8c9")
+    email_login_alias = script.get_revision("c1a2b3c4d5e6")
 
     hosted_foundation = script.get_revision("b2c3d4e5f6a8")
 
@@ -84,9 +85,10 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert metadata[
         "e3f2a1b4c5d6_add_authenticated_principals_table.py"
     ]["down_revision"] == ("4c9d1e2f3a5b", "d4e5f6a7b8c9")
+    assert email_login_alias.down_revision == "d0e1f2a3b4c6"
 
     heads = script.get_heads()
-    assert heads == ["d0e1f2a3b4c6"]
+    assert heads == ["c1a2b3c4d5e6"]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
