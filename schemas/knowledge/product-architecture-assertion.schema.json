@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexify.dev/schemas/knowledge/product-architecture-assertion.schema.json",
+  "title": "Codexify Product Architecture Assertion Schema",
+  "description": "Schema for evidence-backed Product Architecture Assertions representing temporal posture claims, architecture relationship claims, and their provenance. Assertions are temporal and evidence-backed; they are not intrinsic stable concept properties.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assertion_id",
+    "assertion_kind",
+    "subject_id",
+    "assertion_scope",
+    "effective_from",
+    "authority_document_ids",
+    "evidence_document_ids",
+    "governing_adr_document_ids",
+    "repository_revision",
+    "evidence_class",
+    "notes",
+    "record_purpose"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "assertion_id": {
+      "type": "string",
+      "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$",
+      "description": "Stable assertion identity."
+    },
+    "assertion_kind": {
+      "type": "string",
+      "enum": ["posture", "relationship"],
+      "description": "Discriminator: 'posture' for orthogonal dimension claims, 'relationship' for typed architectural edges."
+    },
+    "subject_id": {
+      "type": "string",
+      "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$",
+      "description": "Stable concept identity of the assertion subject."
+    },
+    "assertion_scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Bounded scope inside which this assertion is meaningful."
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 start of assertion validity."
+    },
+    "effective_until": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Optional RFC 3339 end of assertion validity. Absence means open-ended."
+    },
+    "authority_document_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dlgDocumentId" },
+      "description": "DLG document identities of the authority sources supporting this assertion."
+    },
+    "evidence_document_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dlgDocumentId" },
+      "description": "DLG document identities of evidence supporting this assertion."
+    },
+    "governing_adr_document_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dlgDocumentId" },
+      "description": "DLG document identities of governing ADRs. Must resolve to ADR-kind DLG nodes."
+    },
+    "repository_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full Git commit SHA at which this assertion was recorded."
+    },
+    "evidence_class": {
+      "type": "string",
+      "enum": [
+        "proven-live-runtime",
+        "proven-test",
+        "proven-code-path",
+        "documented-contract",
+        "working-theory",
+        "aspirational",
+        "unknown"
+      ],
+      "description": "Evidence level supporting this assertion."
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Bounded human-readable notes."
+    },
+    "record_purpose": {
+      "type": "string",
+      "enum": ["canonical_assertion", "example_only"],
+      "description": "Whether this is a canonical assertion or an example fixture."
+    },
+    "posture": {
+      "$ref": "#/$defs/postureDimensions",
+      "description": "Required when assertion_kind is 'posture'."
+    },
+    "predicate": {
+      "$ref": "#/$defs/relationPredicate",
+      "description": "Required when assertion_kind is 'relationship'."
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$",
+      "description": "Required when assertion_kind is 'relationship'. Stable concept identity of the assertion object."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "assertion_kind": { "const": "posture" } },
+        "required": ["assertion_kind"]
+      },
+      "then": {
+        "required": ["posture"],
+        "properties": {
+          "predicate": false,
+          "object_id": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "assertion_kind": { "const": "relationship" } },
+        "required": ["assertion_kind"]
+      },
+      "then": {
+        "required": ["predicate", "object_id"],
+        "properties": {
+          "posture": false
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "dlgDocumentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "DLG document identity. All ADR, contract, proof, and authority references use this namespace."
+    },
+    "relationPredicate": {
+      "type": "string",
+      "enum": [
+        "participates_in",
+        "provides_capability",
+        "depends_on_capability",
+        "presented_through",
+        "integrates_via",
+        "implemented_by",
+        "bounded_by",
+        "supports_program",
+        "classified_by"
+      ],
+      "description": "Canonical Product Architecture relation predicate."
+    },
+    "postureDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "support_posture": {
+          "type": "string",
+          "enum": ["supported", "internal", "optional", "strategic", "experimental", "historical", "unknown"],
+          "description": "Current support posture. Never intrinsic to stable concept identity."
+        },
+        "runtime_participation": {
+          "type": "string",
+          "enum": ["required", "supporting", "optional", "inactive", "unknown"],
+          "description": "Current runtime participation posture."
+        },
+        "ownership_state": {
+          "type": "string",
+          "enum": ["owned", "unowned", "entangled", "unknown"],
+          "description": "Current ownership state. 'unowned' and 'entangled' are ownership warnings, not maturity statuses."
+        },
+        "strategy_state": {
+          "type": "string",
+          "enum": ["now", "next", "observatory", "parked", "unknown"],
+          "description": "Current strategic posture."
+        },
+        "integration_state": {
+          "type": "string",
+          "enum": ["integrated", "partial", "contract_only", "prototype", "absent", "unknown"],
+          "description": "Current integration state."
+        }
+      },
+      "description": "Orthogonal posture dimensions. At least one dimension must be asserted."
+    }
+  }
+}

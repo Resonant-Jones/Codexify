@@ -54,7 +54,12 @@
       },
       "content_hash": "ec822ec0cd5ece547917e35d3b1036fdf7837ba0b7cae20d2d7ba111be01f8c4",
       "relations": [],
-      "governing_adr_posture": "not_applicable"
+      "governing_adr_posture": "not_applicable",
+      "architecture_scope": {
+        "program_ids": ["codexify:program:digital-cognitive-workspace"],
+        "capability_ids": ["codexify:capability:runtime-lifecycle"],
+        "client_surface_ids": ["codexify:client:web"]
+      }
     },
     {
       "schema_version": "1.0.0",
@@ -119,7 +124,16 @@
           "rationale": "The contract names accepted ADR-038 as a source anchor for the transport visibility plane."
         }
       ],
-      "governing_adr_posture": "accepted"
+      "governing_adr_posture": "accepted",
+      "architecture_scope": {
+        "program_ids": ["codexify:program:digital-cognitive-workspace"],
+        "capability_ids": [
+          "codexify:capability:provider-tool-adapter-interfaces",
+          "codexify:capability:events-receipts-observability"
+        ],
+        "client_surface_ids": ["codexify:client:web"],
+        "relation_refs": ["codexify:assertion:product-architecture:example-dcw-depends-identity-v1"]
+      }
     },
     {
       "schema_version": "1.0.0",

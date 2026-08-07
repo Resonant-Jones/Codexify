@@ -84,6 +84,72 @@
   "human_decisions_required": [
     "A human release owner must decide whether future current-head live evidence is sufficient to update or reaffirm the release claim."
   ],
+  "architecture_context": {
+    "programs": [
+      {
+        "concept_id": "codexify:program:digital-cognitive-workspace",
+        "concept_type": "program",
+        "title": "Digital Cognitive Workspace",
+        "selection_reason": "Chat completion is a core product-program capability. The question asks about supported chat completion, which belongs to this product program.",
+        "graph_path": ["Root product program for the chat completion question."]
+      }
+    ],
+    "capabilities": [
+      {
+        "concept_id": "codexify:capability:provider-tool-adapter-interfaces",
+        "concept_type": "capability",
+        "title": "Provider and Tool Adapter Interfaces",
+        "selection_reason": "Chat completion depends on provider mediation, which is part of this shared capability.",
+        "graph_path": ["depends_on_capability traversal from Digital Cognitive Workspace"]
+      },
+      {
+        "concept_id": "codexify:capability:events-receipts-observability",
+        "concept_type": "capability",
+        "title": "Events, Receipts, and Observability",
+        "selection_reason": "Completion events and task receipts are observability concerns relevant to proving support.",
+        "graph_path": ["depends_on_capability traversal from Digital Cognitive Workspace"]
+      }
+    ],
+    "client_surfaces": [
+      {
+        "concept_id": "codexify:client:web",
+        "concept_type": "client_surface",
+        "title": "Web Client",
+        "selection_reason": "The supported chat path is presented through the Web client on the local Compose path.",
+        "graph_path": ["presented_through traversal from Digital Cognitive Workspace"]
+      }
+    ],
+    "relationship_assertions": [
+      {
+        "assertion_id": "codexify:assertion:product-architecture:example-dcw-depends-identity-v1",
+        "assertion_kind": "relationship",
+        "subject_id": "codexify:program:digital-cognitive-workspace",
+        "predicate": "depends_on_capability",
+        "object_id": "codexify:capability:identity",
+        "effective_from": "2026-08-07T00:00:00Z",
+        "authority_document_ids": ["codexify:doc:architecture:current-state"],
+        "evidence_class": "documented-contract",
+        "stale": false,
+        "conflicting": false,
+        "inferred": false,
+        "unresolved": false
+      }
+    ],
+    "ownership_warnings": [],
+    "mapping_gaps": [],
+    "architecture_graph_paths": [
+      {
+        "description": "Resolution trail: release authority root -> chat runtime contract -> product program context -> capability dependency",
+        "traversal_steps": [
+          {
+            "from_document_id": "codexify:doc:architecture:current-state",
+            "relation_type": "applies_to",
+            "to_document_id": "codexify:doc:architecture:chat-runtime-contract"
+          }
+        ]
+      }
+    ]
+  },
   "illustrative": true,
-  "notice": "This example demonstrates deterministic source selection only. It is not an actual current runtime proof, release approval, architecture acceptance, or executable permission."
+  "notice": "This example demonstrates deterministic source selection with product-architecture context. It is not an actual current runtime proof, release approval, architecture acceptance, or executable permission. Architecture context is illustrative and does not grant execution permission or architecture approval."
 }

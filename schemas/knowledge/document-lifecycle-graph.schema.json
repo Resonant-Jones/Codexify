@@ -358,7 +358,8 @@
           "type": "string",
           "enum": ["not_applicable", "proposed", "accepted", "missing_required"],
           "description": "Explicit architecture-governance posture for validation."
-        }
+        },
+        "architecture_scope": { "$ref": "#/$defs/architectureScope" }
       },
       "allOf": [
         {
@@ -427,6 +428,55 @@
           }
         }
       ]
+    },
+    "architectureScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bounded product-architecture extension referencing ontology and assertion IDs. Does not duplicate ontology definitions or override DLG authority, freshness, lifecycle, evidence, disposition, supersession, or retrieval fields.",
+      "properties": {
+        "program_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable product or platform program identities."
+        },
+        "capability_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable shared capability identities."
+        },
+        "client_surface_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable client surface identities."
+        },
+        "adapter_family_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable adapter family identities."
+        },
+        "source_subsystem_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:source:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$" },
+          "description": "Future source subsystem identities."
+        },
+        "assertion_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$" },
+          "description": "Product Architecture Assertion identities."
+        },
+        "relation_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$" },
+          "description": "References to relationship assertion identities. Does not embed mutable current relationship truth as anonymous static edge objects."
+        }
+      }
     },
     "supersessionEntry": {
       "type": "object",

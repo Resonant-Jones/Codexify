@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexify.dev/schemas/knowledge/product-architecture-ontology.schema.json",
+  "title": "Codexify Product Architecture Ontology Schema",
+  "description": "Schema for the machine-readable Product Architecture Ontology: stable architecture concepts, typed relation semantics, dependency-direction doctrine, and derived projection rules. It defines vocabulary, not current relationship instances.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ontology_id",
+    "title",
+    "status",
+    "programs",
+    "capabilities",
+    "client_surfaces",
+    "adapter_families",
+    "source_subsystem_contract",
+    "relation_types",
+    "allowed_dependency_directions",
+    "forbidden_dependency_directions",
+    "derived_projection_rules",
+    "identity_patterns"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Version of the Product Architecture Ontology schema contract."
+    },
+    "ontology_id": {
+      "type": "string",
+      "const": "codexify:ontology:product-architecture:v1",
+      "description": "Stable identity of this ontology version."
+    },
+    "title": {
+      "type": "string",
+      "const": "Codexify Product Architecture Ontology v1",
+      "description": "Human-readable title."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "accepted"],
+      "description": "Ontology acceptance status. Must remain 'proposed' until the governing ADR is accepted."
+    },
+    "governing_adr_document_id": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "DLG document identity of the governing ADR."
+    },
+    "programs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/programConcept" },
+      "description": "Stable product, platform, and infrastructure program concepts."
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/capabilityConcept" },
+      "description": "Stable shared platform capability concepts."
+    },
+    "client_surfaces": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/clientSurfaceConcept" },
+      "description": "Stable client surface concepts."
+    },
+    "adapter_families": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/adapterFamilyConcept" },
+      "description": "Stable adapter family concepts."
+    },
+    "source_subsystem_contract": {
+      "$ref": "#/$defs/sourceSubsystemContract",
+      "description": "Future source-subsystem identity pattern and required relationship semantics. No current inventory is included."
+    },
+    "relation_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/relationType" },
+      "description": "Canonical Product Architecture relation vocabulary with allowed subject/object types and semantics."
+    },
+    "allowed_dependency_directions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dependencyDirection" },
+      "description": "Permitted dependency directions between concept types."
+    },
+    "forbidden_dependency_directions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/forbiddenDependencyDirection" },
+      "description": "Explicitly prohibited dependency patterns."
+    },
+    "derived_projection_rules": {
+      "$ref": "#/$defs/derivedProjectionRules",
+      "description": "Deterministic rules for deriving flat projection labels from posture assertions."
+    },
+    "identity_patterns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program", "capability", "client", "adapter", "source_subsystem", "assertion"],
+      "properties": {
+        "program": {
+          "type": "string",
+          "const": "codexify:program:{slug}",
+          "description": "Pattern for product or platform program identity."
+        },
+        "capability": {
+          "type": "string",
+          "const": "codexify:capability:{slug}",
+          "description": "Pattern for shared capability identity."
+        },
+        "client": {
+          "type": "string",
+          "const": "codexify:client:{slug}",
+          "description": "Pattern for client surface identity."
+        },
+        "adapter": {
+          "type": "string",
+          "const": "codexify:adapter:{slug}",
+          "description": "Pattern for adapter family identity."
+        },
+        "source_subsystem": {
+          "type": "string",
+          "const": "codexify:source:{domain}:{slug}",
+          "description": "Pattern for future source subsystem identity."
+        },
+        "assertion": {
+          "type": "string",
+          "const": "codexify:assertion:product-architecture:{stable-id}",
+          "description": "Pattern for product architecture assertion identity."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stableConceptId": {
+      "type": "string",
+      "pattern": "^codexify:(program|capability|client|adapter|source|assertion):[a-z0-9][a-z0-9-]*$",
+      "description": "Stable architecture concept identity. Path-independent semantic address."
+    },
+    "programConcept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title", "description", "program_class"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$",
+          "description": "Stable program identity. Must not change with path, posture, or priority."
+        },
+        "type": {
+          "type": "string",
+          "const": "program",
+          "description": "Concept type discriminant."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "program_class": {
+          "type": "string",
+          "enum": ["product", "platform", "product_and_network", "product_and_physical_interface", "infrastructure"],
+          "description": "Stable program classification. Independent of current support or priority."
+        },
+        "concerns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "description": "Stable concerns owned by this program."
+        }
+      }
+    },
+    "capabilityConcept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$",
+          "description": "Stable shared capability identity."
+        },
+        "type": {
+          "type": "string",
+          "const": "capability",
+          "description": "Concept type discriminant."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "vendor_neutral": {
+          "type": "boolean",
+          "description": "True unless the capability is inherently vendor-specific. Adapter-mediated capabilities remain vendor-neutral."
+        }
+      }
+    },
+    "clientSurfaceConcept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$",
+          "description": "Stable client surface identity."
+        },
+        "type": {
+          "type": "string",
+          "const": "client_surface",
+          "description": "Concept type discriminant."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "authority_boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Statement of what the client does not own (identity, persistence, policy)."
+        }
+      }
+    },
+    "adapterFamilyConcept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$",
+          "description": "Stable adapter family identity."
+        },
+        "type": {
+          "type": "string",
+          "const": "adapter_family",
+          "description": "Concept type discriminant."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "authority_boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Statement of what the adapter must not own or redefine."
+        }
+      }
+    },
+    "sourceSubsystemContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id_pattern", "description", "required_semantics", "current_inventory_status"],
+      "properties": {
+        "id_pattern": {
+          "type": "string",
+          "const": "codexify:source:{domain}:{slug}",
+          "description": "Future source-subsystem identity pattern."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Definition of what a source subsystem represents."
+        },
+        "required_semantics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Rules that future source-subsystem records must follow."
+        },
+        "current_inventory_status": {
+          "type": "string",
+          "const": "no_inventory_exists",
+          "description": "No repository-wide source-subsystem inventory exists."
+        }
+      }
+    },
+    "relationType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predicate", "description", "allowed_subject_types", "allowed_object_types", "direction_constraint"],
+      "properties": {
+        "predicate": {
+          "type": "string",
+          "enum": [
+            "participates_in",
+            "provides_capability",
+            "depends_on_capability",
+            "presented_through",
+            "integrates_via",
+            "implemented_by",
+            "bounded_by",
+            "supports_program",
+            "classified_by"
+          ],
+          "description": "Product Architecture relation predicate."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "allowed_subject_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["program", "capability", "client_surface", "adapter_family", "source_subsystem", "dlg_document", "assertion"]
+          },
+          "description": "Concept types allowed as the subject of this relation."
+        },
+        "allowed_object_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["program", "capability", "client_surface", "adapter_family", "source_subsystem", "dlg_document", "assertion"]
+          },
+          "description": "Concept types allowed as the object of this relation."
+        },
+        "direction_constraint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Explicit direction constraint statement."
+        },
+        "does_not_prove": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "Things this relation type does not by itself prove."
+        }
+      }
+    },
+    "dependencyDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_type", "to_type", "description"],
+      "properties": {
+        "from_type": {
+          "type": "string",
+          "enum": ["client_surface", "product_program", "platform_program", "shared_capability", "adapter_implementation", "infrastructure_program", "source_subsystem"],
+          "description": "Dependent concept type."
+        },
+        "to_type": {
+          "type": "string",
+          "enum": ["program_contract", "capability_contract", "capability_implementation", "adapter_interface", "external_system", "governing_documents", "support_contract"],
+          "description": "Dependency target type."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Any condition or boundary on this permitted direction."
+        }
+      }
+    },
+    "forbiddenDependencyDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_type", "to_type", "rationale"],
+      "properties": {
+        "from_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Source concept or pattern that must not depend."
+        },
+        "to_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Target concept or pattern that must not be depended on in this direction."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "derivedProjectionRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "flat_labels", "generation_requirements"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Rules for deriving flat projection labels from posture assertions."
+        },
+        "flat_labels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/flatLabel" },
+          "description": "Flat projection labels and their derivation rules."
+        },
+        "generation_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Required metadata for any generated projection."
+        }
+      }
+    },
+    "flatLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "definition", "derivation_rule"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": ["current_core", "current_support", "active_optional", "strategic_parked", "experimental", "historical"],
+          "description": "Derived flat projection label. Not a canonical source assertion."
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "derivation_rule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Deterministic rules mapping from posture assertion dimensions to this label."
+        }
+      }
+    }
+  }
+}

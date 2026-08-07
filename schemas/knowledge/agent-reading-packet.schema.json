@@ -98,6 +98,7 @@
       "items": { "type": "string", "minLength": 1, "maxLength": 500 },
       "description": "Decisions the resolver is not authorized to make."
     },
+    "architecture_context": { "$ref": "#/$defs/architectureContext" },
     "illustrative": {
       "type": "boolean",
       "description": "True only for a noncanonical example packet."
@@ -330,6 +331,180 @@
         { "required": ["document_id"] },
         { "required": ["path"] }
       ]
+    },
+    "architectureContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bounded architecture context providing product-architecture orientation for the packet. Does not grant execution permission or architecture approval.",
+      "properties": {
+        "programs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Product or platform programs relevant to this question."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Shared capabilities relevant to this question."
+        },
+        "client_surfaces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Client surfaces relevant to this question."
+        },
+        "adapter_families": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Adapter families relevant to this question."
+        },
+        "source_subsystems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Source subsystems relevant to this question."
+        },
+        "dependency_boundaries": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Dependency boundary descriptions relevant to this question."
+        },
+        "posture_assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureAssertionRef" },
+          "description": "Relevant posture assertions with effective periods and authority."
+        },
+        "relationship_assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureAssertionRef" },
+          "description": "Relevant relationship assertions with subject, predicate, object, effective period, and authority."
+        },
+        "ownership_warnings": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Ownership warnings (unowned, entangled) encountered during resolution."
+        },
+        "mapping_gaps": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Unresolved mapping gaps encountered."
+        },
+        "architecture_graph_paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureGraphPath" },
+          "description": "Query-specific relational trails assembled by the resolver. Not filesystem paths."
+        }
+      }
+    },
+    "architectureConceptRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["concept_id", "concept_type", "title", "selection_reason", "graph_path"],
+      "properties": {
+        "concept_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$",
+          "description": "Stable concept identity."
+        },
+        "concept_type": {
+          "type": "string",
+          "enum": ["program", "capability", "client_surface", "adapter_family", "source_subsystem"],
+          "description": "Architecture concept type."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "selection_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Why this concept is relevant to the question."
+        },
+        "graph_path": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "Relational trail explaining why this concept was selected."
+        }
+      }
+    },
+    "architectureAssertionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion_id", "effective_from", "authority_document_ids", "evidence_class"],
+      "properties": {
+        "assertion_id": {
+          "type": "string",
+          "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$"
+        },
+        "assertion_kind": {
+          "type": "string",
+          "enum": ["posture", "relationship"]
+        },
+        "subject_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$"
+        },
+        "predicate": {
+          "type": "string",
+          "description": "Relation predicate when assertion_kind is relationship."
+        },
+        "object_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$"
+        },
+        "asserted_dimensions": {
+          "type": "object",
+          "description": "Posture dimensions when assertion_kind is posture.",
+          "properties": {
+            "support_posture": { "type": "string" },
+            "runtime_participation": { "type": "string" },
+            "ownership_state": { "type": "string" },
+            "strategy_state": { "type": "string" },
+            "integration_state": { "type": "string" }
+          }
+        },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_until": { "type": "string", "format": "date-time" },
+        "authority_document_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/documentId" }
+        },
+        "evidence_class": { "$ref": "#/$defs/evidenceClass" },
+        "stale": {
+          "type": "boolean",
+          "description": "Whether the assertion is stale relative to current repository revision."
+        },
+        "conflicting": {
+          "type": "boolean",
+          "description": "Whether another current assertion conflicts with this one."
+        },
+        "inferred": {
+          "type": "boolean",
+          "description": "Whether this assertion is inferred rather than reviewed."
+        },
+        "unresolved": {
+          "type": "boolean",
+          "description": "Whether the assertion is unresolved."
+        }
+      }
+    },
+    "architectureGraphPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "traversal_steps"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-readable explanation of the relational trail."
+        },
+        "traversal_steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graphPathStep" },
+          "description": "Ordered traversal steps through DLG and product-architecture relations."
+        }
+      }
     }
   }
 }
