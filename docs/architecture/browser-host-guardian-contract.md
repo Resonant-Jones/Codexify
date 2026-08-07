@@ -10,8 +10,14 @@
   restart the Apple control passes, the repository and clean locked Electron
   `43.2.0` bundles are identical by executable and resource manifest, both fail
   the same signature/Gatekeeper resource validation, and both minimal local
-  applications launch. Production Browser Host qualification remains
-  `next-proof-needed`.
+  applications launch. A subsequent adjacent-version matrix reported SIGABRT
+  for Electron 43.2.0 and three adjacent versions before `app.whenReady()`,
+  but a committed reconciliation proof (2026-08-04,
+  `prior_matrix_harness_not_reproducible`) found that Electron 43.2.0 passes
+  minimal launch deterministically across 18 attempts (2 locations x 3 launch
+  methods x 3 repetitions). The adjacent-family incompatibility interpretation
+  is not supported by reproducible evidence. Production Browser Host
+  qualification remains `next-proof-needed`.
 - Release status: not current release truth, not supported-runtime proof, and
   not a beta or public-release claim.
 - Source of truth for wire meaning: the language-neutral JSON files under
@@ -532,6 +538,28 @@ control-plane and identity ownership. It does not modify any ADR.
 
 ## Next atomic task
 
-Define and qualify the supported production Guardian authentication boundary for
-Browser Host attachment without importing development broker credentials,
-before any production route, durable persistence, packaging, or release work.
+## Electron adjacent-version compatibility — 2026-08-04
+
+The temporary matrix tested Electron `43.2.0` (baseline), `43.1.1` (lower
+same-major), `43.3.0` (higher same-major), and `42.8.1` (previous major).
+No stable `44.x.x` candidate was available after prerelease exclusion. The
+Apple Calculator control passed. All four candidates were isolated, arm64,
+and quarantine-free; all failed the same bounded signature and Gatekeeper
+resource-validation pattern.
+
+The minimal requested-sandbox application failed before `app.whenReady()` for
+all four candidates, and the production Browser Host entrypoint failed at the
+same Electron binary/startup milestone. The matrix classification is
+`adjacent_electron_family_incompatibility`. Electron `43.2.0` remains the
+current development dependency, but an upgrade is not evidence-backed by
+this packet. Guardian authority, contracts, and release ownership are
+unchanged. The complete real-Guardian session remains unproven.
+
+Proof: [Electron adjacent-version compatibility proof](./proofs/browser-host/2026-08-04-electron-adjacent-version-compatibility/).
+
+Gate C remains passed and Gate D remains closed.
+
+### Next atomic task
+
+Investigate the macOS 26.5.2 Electron family launch incompatibility outside
+Codexify runtime code using the bounded matrix evidence.
