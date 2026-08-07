@@ -2,11 +2,16 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
 ## Date
 
 2026-08-07
+
+## Acceptance
+
+- Accepted: 2026-08-07
+- Human approver: Resonant Jones
 
 ## Context
 
@@ -18,11 +23,11 @@ Paths alone are not durable identity. Modification time is not freshness. Docume
 
 ## Decision
 
-Codexify proposes the Document Lifecycle Graph (DLG): a repository-native, schema-governed property graph over governed documents.
+Codexify adopts the Document Lifecycle Graph (DLG): a repository-native, schema-governed property graph over governed documents.
 
-The DLG will use stable document identities independent of file paths, orthogonal lifecycle axes, typed directed relationships, scope-specific authority profiles, and bounded Agent Reading Packets. Git will remain the canonical persistence layer for hand-reviewed document metadata. Aggregate graphs, reports, vector metadata, relational views, RDF exports, in-memory graphs, and Neo4j projections will be derived, disposable, and reconstructable.
+The DLG uses stable document identities independent of file paths, orthogonal lifecycle axes, typed directed relationships, scope-specific authority profiles, and bounded Agent Reading Packets. Git remains the canonical persistence layer for hand-reviewed document metadata. Aggregate graphs, reports, vector metadata, relational views, RDF exports, in-memory graphs, and Neo4j projections remain derived, disposable, and reconstructable.
 
-The normative design is the [Document Lifecycle Graph Contract](../document-lifecycle-graph-contract.md). Its two Draft 2020-12 schemas define document-graph records and Agent Reading Packets. This ADR remains proposed until human architecture review accepts or rejects it.
+The normative design is the [Document Lifecycle Graph Contract](../document-lifecycle-graph-contract.md). Its two Draft 2020-12 schemas define document-graph records and Agent Reading Packets. Acceptance establishes the architecture and governance model only; it does not implement the future tooling, projections, retrieval integration, or runtime surfaces described by the contract.
 
 ## Authority and truth boundary
 
@@ -31,7 +36,7 @@ The normative design is the [Document Lifecycle Graph Contract](../document-life
 - Current code, focused tests, and live proof retain implementation-evidence roles; graph metadata cannot replace or manufacture them.
 - Authority is scope-specific and query-specific. The DLG defines no universal truth score and no LLM-generated authority score.
 - Axis Node remains a portable reasoning interface. The DLG evolves its source-map model without creating a parallel truth store or granting an Axis instance execution or approval authority.
-- Human review remains required for ADR acceptance, canonicalization, supersession, contradiction resolution, quarantine, and destructive migration decisions.
+- Human review remains required for future ADR acceptance, canonicalization, supersession, contradiction resolution, quarantine, and destructive migration decisions.
 
 ## Canonical persistence decision
 
@@ -76,6 +81,6 @@ This ADR does not implement a corpus inventory, node-record corpus, graph valida
 
 It does not repair the pre-existing ADR-number collisions visible in the current index.
 
-## Acceptance gate
+## Acceptance record
 
-Human architecture review must decide whether to accept ADR-056. Repository presence, schema validation, documentation validation, or an illustrative example does not constitute acceptance or implementation proof.
+Resonant Jones accepted ADR-056 on 2026-08-07. This acceptance approves the DLG docs/control-plane architecture; repository presence, schema validation, documentation validation, or an illustrative example still does not constitute tooling, runtime, retrieval, database-projection, release, or other implementation proof.

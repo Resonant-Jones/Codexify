@@ -39,7 +39,7 @@ The character directive is communication posture, not repository orientation, ex
 
 The package is docs-backed context infrastructure. Repository presence does not prove that any model automatically reads it, that a harness loads it, or that different models behave equivalently.
 
-The proposed [Document Lifecycle Graph Contract](../architecture/document-lifecycle-graph-contract.md) and [ADR-056](../architecture/adr/056-document-lifecycle-graph-control-plane.md) define a future Git-backed control plane that may evolve this package's static source map into stable document records and bounded Agent Reading Packets. No corpus migration, automatic retrieval, runtime ingestion, Neo4j projection, or agent authority is implemented. `00-current-state.md` remains release truth, and Axis Node remains an interface rather than a parallel truth store.
+The accepted [Document Lifecycle Graph Contract](../architecture/document-lifecycle-graph-contract.md) and [ADR-056](../architecture/adr/056-document-lifecycle-graph-control-plane.md) define the Git-backed control-plane architecture that may evolve this package's static source map into stable document records and bounded Agent Reading Packets. No corpus migration, DLG tooling, automatic retrieval, runtime ingestion, database projection, automatic graph loading, or agent authority is implemented. Acceptance grants Axis no execution or architecture-approval authority; `00-current-state.md` remains release truth, and Axis Node remains an interface rather than a parallel truth store.
 
 ## Maintenance and review
 

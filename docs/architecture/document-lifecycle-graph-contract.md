@@ -2,23 +2,27 @@
 
 ## Purpose and status
 
-This contract proposes the Codexify Document Lifecycle Graph (DLG): a repository-native, schema-governed property graph for document identity, authority, lifecycle, freshness, evidence, ownership, relationships, and retrieval policy. It evolves the Axis Node source-map model; it does not create a parallel truth store.
+This contract defines the accepted Codexify Document Lifecycle Graph (DLG): a repository-native, schema-governed property graph for document identity, authority, lifecycle, freshness, evidence, ownership, relationships, and retrieval policy. It evolves the Axis Node source-map model; it does not create a parallel truth store.
 
-Status: **Proposed, docs/control-plane architecture only.** [ADR-056](./adr/056-document-lifecycle-graph-control-plane.md) requires human architecture review. No corpus migration, resolver, validator, generator, runtime ingestion, retrieval integration, database projection, or agent authority is implemented.
+Status: **Accepted, docs/control-plane architecture only.** [ADR-056](./adr/056-document-lifecycle-graph-control-plane.md) was accepted by Resonant Jones on 2026-08-07. Acceptance does not implement corpus migration, a resolver, validator or generator tooling, runtime ingestion, retrieval integration, database projection, or agent authority.
 
 ## Governing authority and evidence posture
 
-This proposal is governed by ADR-042, ADR-046, the Canonical Audit Evidence Contract, the Axis Node Portable Reasoning Interface Contract, Canonical Token Philosophy, and the Agent Protocol Operations Index.
+This accepted contract is governed by ADR-042, ADR-046, the Canonical Audit Evidence Contract, the Axis Node Portable Reasoning Interface Contract, Canonical Token Philosophy, and the Agent Protocol Operations Index.
 
 - `docs/architecture/00-current-state.md` remains the canonical short-horizon release-truth authority.
 - Accepted ADRs remain decision authority within their declared scopes.
 - Current code, focused tests, and live proof remain implementation evidence.
-- Existing authority rules are `documented-contract`; inspected paths and Git LFS behavior are `repository-inspected`; the DLG, resolver, and migration model are `working-theory` until accepted and implemented.
+- The DLG architecture and governance model are `documented-contract`; inspected paths and Git LFS behavior are `repository-inspected`; corpus migration, resolver behavior, generators, projections, retrieval integration, and runtime integration remain unimplemented and unproven.
 - Graph metadata cannot manufacture authority, approval, implementation, runtime health, or release support.
+
+Accepted now are the DLG governance model, stable document identity doctrine, orthogonal authority/lifecycle/freshness/disposition/evidence semantics, typed document relationships, Git-canonical persistence, derived-projection doctrine, Agent Reading Packet contract, and phased rollout doctrine.
+
+Still unimplemented or unproven are corpus-wide DLG records, a deterministic resolver, graph/stale-report/authority-conflict generators, source-anchor invalidation tooling, runtime Agent Reading Packet generation, RAG integration, automatic Axis graph loading, Neo4j/Postgres/vector projections, and all runtime behavior.
 
 ## Constitutional preflight
 
-The authoritative object is the reviewed Git record plus its governed source, not a generated graph or index. Documents and graph edges are evidence for source selection, not executable instructions. The requested capability is bounded document resolution. Human maintainers authorize canonicalization and architecture decisions. Only reviewed repository records become durable canonical metadata. Completion of this docs task is proven by scoped schema/example/docs validation and a commit; architecture acceptance and runtime behavior remain unproven.
+The authoritative object is the reviewed Git record plus its governed source, not a generated graph or index. Documents and graph edges are evidence for source selection, not executable instructions. The requested capability is bounded document resolution. Human maintainers authorize canonicalization and architecture decisions. Only reviewed repository records become durable canonical metadata. ADR-056 records architecture acceptance; scoped schema/example/docs validation proves only control-plane artifact integrity, and runtime behavior remains unproven.
 
 ## Core model
 
@@ -394,9 +398,9 @@ Records and packets must not contain secrets, credentials, tokens, private keys,
 
 ## Documentation follow-through and explicit deferrals
 
-This proposal is registered in the ADR index, architecture KB, and Axis Node README. It intentionally does not update `00-current-state.md`, `kb-validity-matrix.md`, `knowledge-source-map.md`, or `source-manifest.json`.
+This accepted contract is registered in the ADR index, architecture KB, and Axis Node README. It intentionally does not update `00-current-state.md`, `kb-validity-matrix.md`, `knowledge-source-map.md`, or `source-manifest.json`.
 
-Deferred work includes every existing-document classification or rewrite; the node corpus; lifecycle graph generator; validator CLI; CI; graph-database projection; retrieval integration; RAG chunk metadata; ARP generation; agent-harness loading; and document moving, archival, or LFS migration.
+Deferred work includes every existing-document classification or rewrite; the node corpus; deterministic resolver; lifecycle graph, stale-report, authority-conflict, and source-anchor invalidation tooling; validator CLI; CI; graph-database projection; retrieval integration; RAG chunk metadata; runtime ARP generation; automatic Axis graph loading; agent-harness loading; and document moving, archival, or LFS migration.
 
 ## Non-goals
 
