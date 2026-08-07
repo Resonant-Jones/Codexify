@@ -86,7 +86,21 @@ not obsolete SHA identity, are the governing proof.
 
 ## Publication status
 
-`publication_status: pending`
+`publication_status: verified`
 
-This receipt is committed before publication. Canonical remote ancestry is not
-claimed until it is verified after a successful non-force push.
+- `origin/main` after first publication: `6e62b17e9416e17cdd14736d728f8eb6c20f43d9`
+- Remote verification time: `2026-08-07T20:14:56Z`
+- DLG definition (`b706095af08c3283b3db0a29d1fad8548c5c82f6`):
+  `origin_main_ancestry_exit=0`.
+- DLG acceptance (`397f73c8b55d6655b3143249c095b7c2fd965fc1`):
+  `origin_main_ancestry_exit=0`.
+- PAO proposal (`6f3400267dbdda26cb8b998b0101d437ad5ed56e`):
+  `origin_main_ancestry_exit=0`.
+- PAO relationship repair (`f5161fc80cc766624be7715702f8749f417e8cc6`):
+  `origin_main_ancestry_exit=0`.
+- First proof commit (`6e62b17e9416e17cdd14736d728f8eb6c20f43d9`):
+  `origin_main_ancestry_exit=0`.
+
+Both the PAO proposal and relationship repair are contained in canonical
+`origin/main`. The first receipt was committed before publication and its
+canonical remote ancestry has now been verified without force-pushing.
