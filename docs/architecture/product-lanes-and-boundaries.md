@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the Codexify Product Architecture Ontology: a stable vocabulary for product programs, platform programs, shared capabilities, client surfaces, adapter families, and their allowed architectural relationships. It extends the accepted [Document Lifecycle Graph (DLG)](./document-lifecycle-graph-contract.md) and works alongside accepted ADRs and [current-state](./00-current-state.md) truth.
+This document defines the proposed Codexify Product Architecture Ontology: a stable vocabulary for product programs, platform programs, shared capabilities, client surfaces, adapter families, and their allowed architectural relationships. If ADR-057 is accepted, it will extend the accepted [Document Lifecycle Graph (DLG)](./document-lifecycle-graph-contract.md) and work alongside accepted ADRs and [current-state](./00-current-state.md) truth.
 
 The ontology answers "what stable part of Codexify is this?" and "what architectural role can it play?"—not "what is currently supported?" or "what is currently implemented?"
 
@@ -228,7 +228,7 @@ Key distinctions:
 
 ### Relationship assertions
 
-Relationship assertions record that a typed architecture relationship is claimed to hold between two stable concepts.
+Relationship assertions record that a typed architecture relationship is claimed to hold between permitted endpoint identities. Most endpoints are stable architecture concepts; `participates_in`, `bounded_by`, and `classified_by` also admit DLG document or Product Architecture Assertion identities in the exact positions defined by the predicate.
 
 Required fields: `subject_id`, `predicate`, `object_id`.
 
@@ -266,6 +266,8 @@ Flat labels must never be used as canonical source assertions. Future generated 
 | `bounded_by` | Architecture concept or source subsystem is bounded by a governing DLG document |
 | `supports_program` | Capability, platform, or infrastructure program supports a product program |
 | `classified_by` | DLG document or source subsystem is classified by an assertion |
+
+The assertion schema enforces endpoint categories that are visible from ID shape. Program-class restrictions for `provides_capability`, `depends_on_capability`, and `supports_program` are resolved from the ontology's `program_class` metadata rather than copied into a second program registry.
 
 Semantics:
 
@@ -479,7 +481,7 @@ graph TD
     E -->|supports_program| A
     F[infrastructure programs] -->|supports_program| A
     C -->|connects to| G[external systems]
-    H[source subsystems] -->|implemented_by| B
+    B -->|implemented_by| H[source subsystems]
     H -->|participates_in| A
     A -->|bounded_by| I[DLG documents]
     B -->|bounded_by| I

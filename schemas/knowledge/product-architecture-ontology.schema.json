@@ -43,8 +43,7 @@
       "description": "Ontology acceptance status. Must remain 'proposed' until the governing ADR is accepted."
     },
     "governing_adr_document_id": {
-      "type": "string",
-      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "$ref": "#/$defs/governingAdrDocumentId",
       "description": "DLG document identity of the governing ADR."
     },
     "programs": {
@@ -143,10 +142,56 @@
     }
   },
   "$defs": {
-    "stableConceptId": {
+    "programId": {
       "type": "string",
-      "pattern": "^codexify:(program|capability|client|adapter|source|assertion):[a-z0-9][a-z0-9-]*$",
-      "description": "Stable architecture concept identity. Path-independent semantic address."
+      "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$"
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$"
+    },
+    "clientSurfaceId": {
+      "type": "string",
+      "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$"
+    },
+    "adapterFamilyId": {
+      "type": "string",
+      "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$"
+    },
+    "sourceSubsystemId": {
+      "type": "string",
+      "pattern": "^codexify:source:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "Path-independent source-subsystem identity with separate domain and slug segments."
+    },
+    "productArchitectureAssertionId": {
+      "type": "string",
+      "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$"
+    },
+    "dlgDocumentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$"
+    },
+    "governingAdrDocumentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:adr:[a-z0-9][a-z0-9-]*$"
+    },
+    "stableConceptId": {
+      "oneOf": [
+        { "$ref": "#/$defs/programId" },
+        { "$ref": "#/$defs/capabilityId" },
+        { "$ref": "#/$defs/clientSurfaceId" },
+        { "$ref": "#/$defs/adapterFamilyId" },
+        { "$ref": "#/$defs/sourceSubsystemId" }
+      ],
+      "description": "Stable path-independent architecture concept identity. Assertions and DLG documents are references, not architecture concepts."
+    },
+    "architectureReferenceId": {
+      "oneOf": [
+        { "$ref": "#/$defs/stableConceptId" },
+        { "$ref": "#/$defs/productArchitectureAssertionId" },
+        { "$ref": "#/$defs/dlgDocumentId" }
+      ],
+      "description": "Reference identity used by architecture semantics without conflating concepts, assertions, or DLG documents."
     },
     "programConcept": {
       "type": "object",
@@ -154,8 +199,7 @@
       "required": ["id", "type", "title", "description", "program_class"],
       "properties": {
         "id": {
-          "type": "string",
-          "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$",
+          "$ref": "#/$defs/programId",
           "description": "Stable program identity. Must not change with path, posture, or priority."
         },
         "type": {
@@ -193,8 +237,7 @@
       "required": ["id", "type", "title", "description"],
       "properties": {
         "id": {
-          "type": "string",
-          "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$",
+          "$ref": "#/$defs/capabilityId",
           "description": "Stable shared capability identity."
         },
         "type": {
@@ -224,8 +267,7 @@
       "required": ["id", "type", "title", "description"],
       "properties": {
         "id": {
-          "type": "string",
-          "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$",
+          "$ref": "#/$defs/clientSurfaceId",
           "description": "Stable client surface identity."
         },
         "type": {
@@ -257,8 +299,7 @@
       "required": ["id", "type", "title", "description"],
       "properties": {
         "id": {
-          "type": "string",
-          "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$",
+          "$ref": "#/$defs/adapterFamilyId",
           "description": "Stable adapter family identity."
         },
         "type": {

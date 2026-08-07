@@ -19,7 +19,7 @@ Codexify needs a durable way to describe which product program a document or sub
 
 A prior product-lane proposal attempted to solve this with an independently maintained `product-lane-registry.toml`. That would create a second machine-readable architecture truth surface beside the accepted Document Lifecycle Graph (DLG), current-state documentation, ADRs, source code, and proof records.
 
-This ADR replaces that design by defining the Product Architecture Ontology as a versioned vocabulary and assertion layer that extends the accepted DLG rather than competing with it.
+This ADR proposes replacing that design with the Product Architecture Ontology: a versioned vocabulary and assertion layer that would extend the accepted DLG rather than compete with it.
 
 ## Decision
 
@@ -39,9 +39,9 @@ It does not encode current posture, current relationship instances, repository p
 
 The DLG is canonical for document identity, paths, authority, lifecycle, freshness, disposition, evidence classification, supersession, contradiction, retrieval policy, source selection, and Agent Reading Packets.
 
-The Product Architecture Ontology becomes canonical only for product-program vocabulary, platform-program vocabulary, shared-capability vocabulary, client-surface vocabulary, adapter-family vocabulary, source-subsystem identity pattern, product-architecture relation vocabulary, relationship semantics, dependency-direction doctrine, assertion semantics, and derived product-lane projection rules.
+Upon acceptance of this ADR, the Product Architecture Ontology would become canonical only for product-program vocabulary, platform-program vocabulary, shared-capability vocabulary, client-surface vocabulary, adapter-family vocabulary, source-subsystem identity pattern, product-architecture relation vocabulary, relationship semantics, dependency-direction doctrine, assertion semantics, and derived product-lane projection rules.
 
-The Product Architecture Assertion layer becomes canonical for reviewed architecture claims such as current posture, current architecture participation, architecture relationship instances, ownership state, integration state, strategy state, and temporal relationship validity.
+Upon acceptance of this ADR, the Product Architecture Assertion layer would become canonical for reviewed architecture claims such as current posture, current architecture participation, architecture relationship instances, ownership state, integration state, strategy state, and temporal relationship validity.
 
 ### 3. Stable concept identity is path-independent
 
@@ -174,7 +174,7 @@ All governing ADRs and contracts referenced by the ontology and assertions use D
 
 ### Positive
 
-- Stable product vocabulary exists independently of repository layout.
+- If ADR-057 is accepted, stable product vocabulary will exist independently of repository layout.
 - Product posture and architecture relationships are explicit, temporal, and evidence-backed.
 - DLG remains the single document identity and lifecycle authority.
 - No second machine-readable truth store competes with the DLG.

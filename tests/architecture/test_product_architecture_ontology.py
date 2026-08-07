@@ -750,3 +750,319 @@ def test_validation_uses_only_docs_and_schemas():
                 assert not full_name.startswith("frontend"), (
                     f"Test imports frontend runtime module: {full_name}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Relationship endpoint repair regression coverage
+# ---------------------------------------------------------------------------
+
+PRODUCT_PROGRAM_CLASSES = {
+    "product",
+    "product_and_network",
+    "product_and_physical_interface",
+}
+
+EXPECTED_RELATION_ENDPOINT_TYPES = {
+    "participates_in": ({"source_subsystem", "dlg_document", "capability"}, {"program"}),
+    "provides_capability": ({"program", "source_subsystem"}, {"capability"}),
+    "depends_on_capability": ({"program"}, {"capability"}),
+    "presented_through": ({"program"}, {"client_surface"}),
+    "integrates_via": ({"capability", "program"}, {"adapter_family"}),
+    "implemented_by": ({"program", "capability", "client_surface", "adapter_family"}, {"source_subsystem"}),
+    "bounded_by": ({"program", "capability", "client_surface", "adapter_family", "source_subsystem"}, {"dlg_document"}),
+    "supports_program": ({"capability", "program"}, {"program"}),
+    "classified_by": ({"dlg_document", "source_subsystem"}, {"assertion"}),
+}
+
+SOURCE_SUBSYSTEM_ID_PATTERN = re.compile(
+    r"^codexify:source:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$"
+)
+PRODUCT_ARCHITECTURE_ASSERTION_ID_PATTERN = re.compile(
+    r"^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$"
+)
+
+
+def relationship_assertion(subject_id: str, predicate: str, object_id: str) -> dict:
+    """Build one schema-complete relationship fixture without claiming runtime proof."""
+    return {
+        "schema_version": "1.0.0",
+        "assertion_id": "codexify:assertion:product-architecture:test-relation",
+        "assertion_kind": "relationship",
+        "subject_id": subject_id,
+        "predicate": predicate,
+        "object_id": object_id,
+        "assertion_scope": "Deterministic endpoint regression fixture.",
+        "effective_from": "2026-08-07T00:00:00Z",
+        "authority_document_ids": ["codexify:doc:architecture:product-lanes-and-boundaries"],
+        "evidence_document_ids": [],
+        "governing_adr_document_ids": ["codexify:doc:adr:056-document-lifecycle-graph"],
+        "repository_revision": "0" * 40,
+        "evidence_class": "proven-test",
+        "notes": "Test-only illustrative relationship; not live-runtime proof.",
+        "record_purpose": "example_only",
+    }
+
+
+def posture_assertion(subject_id: str) -> dict:
+    """Build one schema-complete posture fixture."""
+    assertion = relationship_assertion(
+        subject_id,
+        "depends_on_capability",
+        "codexify:capability:identity",
+    )
+    assertion["assertion_kind"] = "posture"
+    assertion.pop("predicate")
+    assertion.pop("object_id")
+    assertion["posture"] = {"ownership_state": "unknown"}
+    return assertion
+
+
+def assertion_schema_accepts(assertion: dict) -> bool:
+    schema = load_json(ASSERTION_SCHEMA_PATH)
+    return jsonschema.Draft202012Validator(schema).is_valid(assertion)
+
+
+def ontology_endpoint(identifier: str, ontology: dict) -> tuple[str, str | None]:
+    """Resolve endpoint category and program class from ontology-owned metadata."""
+    for program in ontology["programs"]:
+        if program["id"] == identifier:
+            return "program", program["program_class"]
+    for collection, concept_type in (
+        ("capabilities", "capability"),
+        ("client_surfaces", "client_surface"),
+        ("adapter_families", "adapter_family"),
+    ):
+        if any(item["id"] == identifier for item in ontology[collection]):
+            return concept_type, None
+    if SOURCE_SUBSYSTEM_ID_PATTERN.fullmatch(identifier):
+        return "source_subsystem", None
+    if DLG_DOC_ID_PATTERN.fullmatch(identifier):
+        return "dlg_document", None
+    if PRODUCT_ARCHITECTURE_ASSERTION_ID_PATTERN.fullmatch(identifier):
+        return "assertion", None
+    raise ValueError(f"Unresolvable Product Architecture endpoint: {identifier}")
+
+
+def relationship_semantically_valid(subject_id: str, predicate: str, object_id: str) -> bool:
+    """Resolve ontology-owned endpoint and program-class semantics deterministically."""
+    ontology = load_json(ONTOLOGY_JSON_PATH)
+    relation = next(
+        (item for item in ontology["relation_types"] if item["predicate"] == predicate),
+        None,
+    )
+    if relation is None:
+        return False
+    try:
+        subject_type, subject_program_class = ontology_endpoint(subject_id, ontology)
+        object_type, object_program_class = ontology_endpoint(object_id, ontology)
+    except ValueError:
+        return False
+    if subject_type not in relation["allowed_subject_types"]:
+        return False
+    if object_type not in relation["allowed_object_types"]:
+        return False
+
+    if predicate == "provides_capability" and subject_type == "program":
+        return subject_program_class == "platform"
+    if predicate == "depends_on_capability":
+        return subject_program_class in PRODUCT_PROGRAM_CLASSES | {"platform"}
+    if predicate == "supports_program":
+        valid_subject = subject_type == "capability" or subject_program_class in {
+            "platform",
+            "infrastructure",
+        }
+        return valid_subject and object_program_class in PRODUCT_PROGRAM_CLASSES
+    return True
+
+
+@pytest.mark.parametrize(
+    ("definition", "valid_id", "invalid_id"),
+    [
+        ("programId", "codexify:program:threadspace", "codexify:capability:identity"),
+        ("capabilityId", "codexify:capability:identity", "codexify:program:threadspace"),
+        ("clientSurfaceId", "codexify:client:web", "codexify:adapter:storage"),
+        ("adapterFamilyId", "codexify:adapter:storage", "codexify:client:web"),
+        ("sourceSubsystemId", "codexify:source:backend:context-broker", "codexify:source:context-broker"),
+        (
+            "productArchitectureAssertionId",
+            "codexify:assertion:product-architecture:classification-example",
+            "codexify:assertion:classification-example",
+        ),
+        ("dlgDocumentId", "codexify:doc:architecture:chat-runtime", "codexify:contract:chat-runtime"),
+    ],
+)
+def test_ontology_identity_helpers_match_canonical_forms(definition, valid_id, invalid_id):
+    schema = load_json(ONTOLOGY_SCHEMA_PATH)
+    validator = jsonschema.Draft202012Validator(schema["$defs"][definition])
+    assert validator.is_valid(valid_id)
+    assert not validator.is_valid(invalid_id)
+
+
+def test_source_subsystem_requires_domain_and_slug():
+    valid = relationship_assertion(
+        "codexify:source:backend:context-broker",
+        "provides_capability",
+        "codexify:capability:context-retrieval-assembly",
+    )
+    invalid = relationship_assertion(
+        "codexify:source:context-broker",
+        "provides_capability",
+        "codexify:capability:context-retrieval-assembly",
+    )
+    assert assertion_schema_accepts(valid)
+    assert not assertion_schema_accepts(invalid)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "subject_id", "object_id"),
+    [
+        ("participates_in", "codexify:source:backend:context-broker", "codexify:program:node-runtime"),
+        ("participates_in", "codexify:doc:architecture:chat-runtime", "codexify:program:digital-cognitive-workspace"),
+        ("participates_in", "codexify:capability:identity", "codexify:program:threadspace"),
+        ("provides_capability", "codexify:program:node-runtime", "codexify:capability:persistence"),
+        ("provides_capability", "codexify:source:backend:persistence", "codexify:capability:persistence"),
+        ("depends_on_capability", "codexify:program:digital-cognitive-workspace", "codexify:capability:identity"),
+        ("depends_on_capability", "codexify:program:threadspace", "codexify:capability:identity"),
+        ("depends_on_capability", "codexify:program:home-presence", "codexify:capability:identity"),
+        ("depends_on_capability", "codexify:program:node-runtime", "codexify:capability:persistence"),
+        ("presented_through", "codexify:program:digital-cognitive-workspace", "codexify:client:web"),
+        ("integrates_via", "codexify:capability:provider-tool-adapter-interfaces", "codexify:adapter:local-inference"),
+        ("integrates_via", "codexify:program:node-runtime", "codexify:adapter:storage"),
+        ("implemented_by", "codexify:program:node-runtime", "codexify:source:backend:guardian-api"),
+        ("implemented_by", "codexify:capability:identity", "codexify:source:backend:identity"),
+        ("implemented_by", "codexify:client:web", "codexify:source:frontend:web-client"),
+        ("implemented_by", "codexify:adapter:storage", "codexify:source:backend:storage-adapter"),
+        ("bounded_by", "codexify:program:threadspace", "codexify:doc:architecture:threadspace-boundary"),
+        ("bounded_by", "codexify:capability:identity", "codexify:doc:architecture:identity-contract"),
+        ("bounded_by", "codexify:client:browser-host", "codexify:doc:adr:054-browser-host-topology"),
+        ("bounded_by", "codexify:adapter:storage", "codexify:doc:architecture:data-and-storage"),
+        ("bounded_by", "codexify:source:backend:context-broker", "codexify:doc:architecture:chat-runtime"),
+        ("supports_program", "codexify:capability:identity", "codexify:program:threadspace"),
+        ("supports_program", "codexify:program:node-runtime", "codexify:program:digital-cognitive-workspace"),
+        ("supports_program", "codexify:program:infrastructure-services", "codexify:program:threadspace"),
+        (
+            "classified_by",
+            "codexify:doc:architecture:chat-runtime",
+            "codexify:assertion:product-architecture:chat-runtime-classification",
+        ),
+        (
+            "classified_by",
+            "codexify:source:backend:context-broker",
+            "codexify:assertion:product-architecture:context-broker-classification",
+        ),
+    ],
+)
+def test_valid_relationship_endpoint_cases(predicate, subject_id, object_id):
+    assertion = relationship_assertion(subject_id, predicate, object_id)
+    assert assertion_schema_accepts(assertion)
+    assert relationship_semantically_valid(subject_id, predicate, object_id)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "subject_id", "object_id"),
+    [
+        ("participates_in", "codexify:client:web", "codexify:adapter:storage"),
+        ("provides_capability", "codexify:capability:identity", "codexify:capability:persistence"),
+        ("depends_on_capability", "codexify:client:web", "codexify:capability:identity"),
+        ("presented_through", "codexify:capability:identity", "codexify:client:web"),
+        ("integrates_via", "codexify:adapter:storage", "codexify:capability:persistence"),
+        ("implemented_by", "codexify:source:backend:identity", "codexify:capability:identity"),
+        ("bounded_by", "codexify:program:threadspace", "codexify:capability:identity"),
+        ("supports_program", "codexify:client:web", "codexify:program:threadspace"),
+        ("classified_by", "codexify:doc:architecture:chat-runtime", "codexify:capability:identity"),
+    ],
+)
+def test_invalid_relationship_endpoint_cases(predicate, subject_id, object_id):
+    assertion = relationship_assertion(subject_id, predicate, object_id)
+    assert not assertion_schema_accepts(assertion)
+    assert not relationship_semantically_valid(subject_id, predicate, object_id)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "subject_id", "object_id"),
+    [
+        ("provides_capability", "codexify:program:threadspace", "codexify:capability:identity"),
+        (
+            "depends_on_capability",
+            "codexify:program:infrastructure-services",
+            "codexify:capability:persistence",
+        ),
+        (
+            "supports_program",
+            "codexify:program:digital-cognitive-workspace",
+            "codexify:program:threadspace",
+        ),
+    ],
+)
+def test_program_class_restrictions_come_from_ontology(predicate, subject_id, object_id):
+    assertion = relationship_assertion(subject_id, predicate, object_id)
+    assert assertion_schema_accepts(assertion), "ID-shape schema should not duplicate program registry"
+    assert not relationship_semantically_valid(subject_id, predicate, object_id)
+
+
+@pytest.mark.parametrize(
+    "subject_id",
+    [
+        "codexify:program:threadspace",
+        "codexify:capability:identity",
+        "codexify:client:web",
+        "codexify:adapter:storage",
+        "codexify:source:backend:context-broker",
+    ],
+)
+def test_posture_subjects_remain_architecture_concepts(subject_id):
+    assert assertion_schema_accepts(posture_assertion(subject_id))
+
+
+@pytest.mark.parametrize(
+    "subject_id",
+    [
+        "codexify:doc:architecture:chat-runtime",
+        "codexify:assertion:product-architecture:chat-runtime-classification",
+    ],
+)
+def test_posture_subjects_reject_documents_and_assertions(subject_id):
+    assert not assertion_schema_accepts(posture_assertion(subject_id))
+
+
+def test_governing_adr_document_id_domain_is_tightened():
+    valid = relationship_assertion(
+        "codexify:program:threadspace",
+        "depends_on_capability",
+        "codexify:capability:identity",
+    )
+    invalid = dict(valid)
+    invalid["governing_adr_document_ids"] = ["codexify:doc:proof:some-proof"]
+    assert assertion_schema_accepts(valid)
+    assert not assertion_schema_accepts(invalid)
+
+
+def test_ontology_relation_declarations_match_semantic_validator():
+    ontology = load_json(ONTOLOGY_JSON_PATH)
+    actual = {
+        relation["predicate"]: (
+            set(relation["allowed_subject_types"]),
+            set(relation["allowed_object_types"]),
+        )
+        for relation in ontology["relation_types"]
+    }
+    assert actual == EXPECTED_RELATION_ENDPOINT_TYPES
+    assert all(relation["direction_constraint"].strip() for relation in ontology["relation_types"])
+
+
+def test_product_architecture_proposal_statuses_remain_pending():
+    ontology = load_json(ONTOLOGY_JSON_PATH)
+    adr_text = (REPO_ROOT / "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md").read_text(
+        encoding="utf-8"
+    )
+    assert ontology["status"] == "proposed"
+    assert "## Status\n\nProposed." in adr_text
+    assert "Human approval: Pending" in adr_text
+
+
+def test_product_architecture_diagram_preserves_implemented_by_direction():
+    product_doc = (REPO_ROOT / "docs/architecture/product-lanes-and-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert "B -->|implemented_by| H[source subsystems]" in product_doc
+    assert "H[source subsystems] -->|implemented_by| B" not in product_doc
