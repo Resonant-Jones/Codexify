@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
 ## Date
 
@@ -11,7 +11,13 @@ Proposed.
 ## Acceptance
 
 - Proposed: 2026-08-07
-- Human approval: Pending
+- Accepted: 2026-08-07
+- Human approver: Resonant Jones
+- Acceptance scope: Resonant Jones accepted the Product Architecture Ontology
+  docs/control-plane architecture only. Acceptance does not prove runtime
+  implementation, source-subsystem classification, posture assertions,
+  relationship assertions, dependency enforcement, current support posture,
+  current product lanes, or release qualification.
 
 ## Context
 
@@ -19,7 +25,7 @@ Codexify needs a durable way to describe which product program a document or sub
 
 A prior product-lane proposal attempted to solve this with an independently maintained `product-lane-registry.toml`. That would create a second machine-readable architecture truth surface beside the accepted Document Lifecycle Graph (DLG), current-state documentation, ADRs, source code, and proof records.
 
-This ADR proposes replacing that design with the Product Architecture Ontology: a versioned vocabulary and assertion layer that would extend the accepted DLG rather than compete with it.
+This ADR replaces that design with the Product Architecture Ontology: a versioned vocabulary and assertion layer that extends the accepted DLG rather than competes with it.
 
 ## Decision
 
@@ -39,9 +45,9 @@ It does not encode current posture, current relationship instances, repository p
 
 The DLG is canonical for document identity, paths, authority, lifecycle, freshness, disposition, evidence classification, supersession, contradiction, retrieval policy, source selection, and Agent Reading Packets.
 
-Upon acceptance of this ADR, the Product Architecture Ontology would become canonical only for product-program vocabulary, platform-program vocabulary, shared-capability vocabulary, client-surface vocabulary, adapter-family vocabulary, source-subsystem identity pattern, product-architecture relation vocabulary, relationship semantics, dependency-direction doctrine, assertion semantics, and derived product-lane projection rules.
+The Product Architecture Ontology is canonical only for product-program vocabulary, platform-program vocabulary, shared-capability vocabulary, client-surface vocabulary, adapter-family vocabulary, source-subsystem identity pattern, product-architecture relation vocabulary, relationship semantics, dependency-direction doctrine, assertion semantics, and derived product-lane projection rules.
 
-Upon acceptance of this ADR, the Product Architecture Assertion layer would become canonical for reviewed architecture claims such as current posture, current architecture participation, architecture relationship instances, ownership state, integration state, strategy state, and temporal relationship validity.
+The Product Architecture Assertion layer is the canonical record layer for reviewed architecture claims such as current posture, current architecture participation, architecture relationship instances, ownership state, integration state, strategy state, and temporal relationship validity. No canonical assertion corpus is created by this acceptance.
 
 ### 3. Stable concept identity is path-independent
 
@@ -114,9 +120,9 @@ Forbidden directions include: capability → product-specific UI, adapter → id
 
 Product and platform boundaries will be formalized before any repository splitting. Concept identity is path-independent, so future splits remain possible. No source movement is performed by this ADR.
 
-### 14. Ontology status is proposed
+### 14. Ontology status is accepted
 
-The Product Architecture Ontology is proposed pending human review and acceptance. It does not change runtime behavior, release posture, or current-state truth. `00-current-state.md` remains release authority. No runtime, persistence, migration, Compose, provider, or source-layout behavior changes.
+The Product Architecture Ontology is accepted docs/control-plane architecture under ADR-057. Acceptance does not change runtime behavior, release posture, or current-state truth. `00-current-state.md` remains release authority. No runtime, persistence, migration, Compose, provider, or source-layout behavior changes.
 
 ## Governing ADRs and alignment
 
@@ -174,7 +180,7 @@ All governing ADRs and contracts referenced by the ontology and assertions use D
 
 ### Positive
 
-- If ADR-057 is accepted, stable product vocabulary will exist independently of repository layout.
+- Stable product vocabulary exists independently of repository layout.
 - Product posture and architecture relationships are explicit, temporal, and evidence-backed.
 - DLG remains the single document identity and lifecycle authority.
 - No second machine-readable truth store competes with the DLG.

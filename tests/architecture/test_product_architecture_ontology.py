@@ -1050,14 +1050,17 @@ def test_ontology_relation_declarations_match_semantic_validator():
     assert all(relation["direction_constraint"].strip() for relation in ontology["relation_types"])
 
 
-def test_product_architecture_proposal_statuses_remain_pending():
+def test_product_architecture_acceptance_statuses_are_recorded():
     ontology = load_json(ONTOLOGY_JSON_PATH)
+    ontology_schema = load_json(ONTOLOGY_SCHEMA_PATH)
     adr_text = (REPO_ROOT / "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md").read_text(
         encoding="utf-8"
     )
-    assert ontology["status"] == "proposed"
-    assert "## Status\n\nProposed." in adr_text
-    assert "Human approval: Pending" in adr_text
+    assert ontology["status"] == "accepted"
+    assert "accepted" in ontology_schema["properties"]["status"]["enum"]
+    assert "## Status\n\nAccepted." in adr_text
+    assert "- Accepted: 2026-08-07" in adr_text
+    assert "- Human approver: Resonant Jones" in adr_text
 
 
 def test_product_architecture_diagram_preserves_implemented_by_direction():

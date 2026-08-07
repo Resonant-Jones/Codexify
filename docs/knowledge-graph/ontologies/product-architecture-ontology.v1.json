@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "ontology_id": "codexify:ontology:product-architecture:v1",
   "title": "Codexify Product Architecture Ontology v1",
-  "status": "proposed",
+  "status": "accepted",
   "governing_adr_document_id": "codexify:doc:adr:057-product-architecture-ontology",
   "programs": [
     {

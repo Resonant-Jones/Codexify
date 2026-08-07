@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the proposed Codexify Product Architecture Ontology: a stable vocabulary for product programs, platform programs, shared capabilities, client surfaces, adapter families, and their allowed architectural relationships. If ADR-057 is accepted, it will extend the accepted [Document Lifecycle Graph (DLG)](./document-lifecycle-graph-contract.md) and work alongside accepted ADRs and [current-state](./00-current-state.md) truth.
+This document defines the accepted Codexify Product Architecture Ontology: a stable vocabulary for product programs, platform programs, shared capabilities, client surfaces, adapter families, and their allowed architectural relationships. Under accepted ADR-057, it extends the accepted [Document Lifecycle Graph (DLG)](./document-lifecycle-graph-contract.md) and works alongside accepted ADRs and [current-state](./00-current-state.md) truth.
 
 The ontology answers "what stable part of Codexify is this?" and "what architectural role can it play?"—not "what is currently supported?" or "what is currently implemented?"
 
@@ -521,8 +521,8 @@ graph TD
 
 ## Implementation status
 
-The ontology is **proposed** under ADR-057. The ontology is not a runtime implementation, release claim, or repository inventory. It is not a parallel DLG. Semantic IDs are not filesystem paths. Graph paths are relational trails assembled for a question.
+The ontology is **accepted docs/control-plane architecture** under ADR-057. Its vocabulary and assertion semantics are accepted; it is not a runtime implementation, release claim, repository inventory, or parallel DLG. Semantic IDs are not filesystem paths. Graph paths are relational trails assembled for a question.
 
-The ontology defines relationship vocabulary. Assertions record actual relationship claims. No source directories have been moved or classified. No generated product registry exists yet.
+The ontology defines relationship vocabulary. Assertions record actual relationship claims, but no canonical assertion corpus exists yet. No source-subsystem inventory exists, no source directories have been moved or classified, no runtime resolver or dependency enforcement exists, and no generated product-lane projection exists yet.
 
 `00-current-state.md` remains current release truth. Accepted ADRs govern architectural decisions. ADRs and contracts are referenced by DLG document identity. Product posture is temporal. Architecture relationships may be temporal. Product identity is stable. DLG lifecycle and product posture are different axes.
