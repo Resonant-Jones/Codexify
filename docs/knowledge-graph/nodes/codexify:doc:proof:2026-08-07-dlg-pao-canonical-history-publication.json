@@ -71,6 +71,39 @@
     "effective_from": "2026-08-07T20:14:56Z"
   },
   "content_hash": "a7a21363992ec0bbdba7e56e954682882c8f844e9b678e079fc3253591fc45b2",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "canonical publication and ancestry of ADR-056 definition and acceptance milestones on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt records the DLG definition and acceptance milestones and verifies their canonical origin/main ancestry."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "authority_scope": "canonical publication and bounded validation of the DLG contract history recorded on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies canonical ancestry for the DLG definition and acceptance history and records bounded architecture validation at those revisions."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "authority_scope": "pre-acceptance canonical publication and validation of ADR-057 proposal history on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies the PAO proposal and relationship-semantic repair before ADR-057 acceptance; it does not prove acceptance."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "authority_scope": "pre-acceptance canonical publication and validation of the Product Architecture Ontology contract history on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies the PAO proposal and semantic-repair history and records bounded ontology validation; it does not prove later acceptance."
+    }
+  ],
   "governing_adr_posture": "not_applicable"
 }

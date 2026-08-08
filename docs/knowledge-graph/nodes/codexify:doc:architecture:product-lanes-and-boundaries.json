@@ -94,6 +94,23 @@
     "effective_from": "2026-08-07T00:00:00Z"
   },
   "content_hash": "12ce5c58ed63efcad55363695344fc92a2f3f2a0b278e9212209dc785b21a8e2",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "governed_by",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "authority_scope": "Product Architecture Ontology vocabulary, assertions, relationships, and dependency doctrine",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "Accepted ADR-057 establishes this Product Architecture Ontology contract and its bounded doctrine."
+    },
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "authority_scope": "Product Architecture Ontology integration with DLG identity, authority, lifecycle, evidence, and retrieval semantics",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "Product Lanes extends the DLG and relies on it for document identity, authority, lifecycle, evidence, and retrieval semantics."
+    }
+  ],
   "governing_adr_posture": "accepted"
 }

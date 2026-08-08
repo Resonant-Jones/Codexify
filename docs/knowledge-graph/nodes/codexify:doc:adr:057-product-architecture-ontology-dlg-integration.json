@@ -82,6 +82,15 @@
     "effective_from": "2026-08-07T00:00:00Z"
   },
   "content_hash": "c555995be833d45cffd739892f84afce512a230f21e896900a29106538303d12",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "Product Architecture Ontology integration with the accepted DLG control plane",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "ADR-057 extends the accepted DLG and preserves DLG document identity as the sole ADR and contract identity domain."
+    }
+  ],
   "governing_adr_posture": "accepted"
 }

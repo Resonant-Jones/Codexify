@@ -88,6 +88,15 @@
     "effective_from": "2026-08-07T00:00:00Z"
   },
   "content_hash": "b568b35f1907fff910042790460c39c79f74cb38df8abc6147bd95f56f1d0b16",
-  "relations": [],
+  "relations": [
+    {
+      "relation_type": "governed_by",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "DLG document metadata, relationships, freshness, retrieval, and staged-migration doctrine",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "ADR-056 adopts the DLG and names this contract as its normative design."
+    }
+  ],
   "governing_adr_posture": "accepted"
 }
