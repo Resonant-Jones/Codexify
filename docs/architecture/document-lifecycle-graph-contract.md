@@ -177,7 +177,9 @@ Required semantics:
 
 ## Graph invariants
 
-Future semantic validation must enforce:
+The per-node JSON Schema enforces structural and classification validity. A reviewed Phase 1 node is structurally and classification-valid when its required metadata is truthful and schema-valid, even when `relations` is empty because reviewed edges have not yet been populated. An empty Phase 1 `relations` array records sequencing, not an assertion that the document is ungoverned or unrelated.
+
+Relation completeness is a cross-record semantic property. Before a connected corpus is considered relation-complete in Phase 2/3, future semantic validation must enforce:
 
 - document IDs are unique;
 - active canonical paths are unique;
@@ -300,7 +302,7 @@ These are scoped resolution orders, not a global hierarchy.
 |---|---|
 | New draft | New ID; `draft`, `unknown`, `unreviewed`; no authority inference. |
 | Proposed contract | `proposed`; governing ADR posture declared; human acceptance pending. |
-| Accepted contract | `active` + `accepted`; `governed_by` accepted ADR required. |
+| Accepted contract | `active` + `accepted`; record `governing_adr_posture = accepted`. A relation-complete graph also requires the reviewed `governed_by` edge to an accepted ADR. |
 | Active becomes stale | Only freshness becomes `stale`; lifecycle remains `active`. |
 | Reverification | Approved evidence updates verification fields and restores `current`. |
 | Supersession | Newer node adds `supersedes`; older record remains with `superseded`. |
@@ -324,15 +326,15 @@ Enumerate governed document-like files, calculate hashes, detect Git LFS pointer
 
 ### Phase 1: classify
 
-Create reviewed node records; assign kinds and orthogonal axes; identify owners, authority scopes, and unclassifiable material.
+Create reviewed document-node records; assign stable identities, kinds, and orthogonal classification metadata; identify owners, authority scopes, and unclassifiable material. `relations` may remain empty during Phase 1 while the record truthfully declares its governing ADR posture. An already accepted architecture contract therefore records `governing_adr_posture = accepted` before its Phase 2 edge exists. Phase 1 must not fabricate a relation solely to satisfy schema shape.
 
 ### Phase 2: connect
 
-Add reviewed pointer, governance, derivation, evidence, dependency, contradiction, and supersession edges. Preserve unresolved relationships instead of guessing.
+Add reviewed pointer, governance, derivation, evidence, dependency, contradiction, and supersession edges. During this phase, an accepted architecture-contract node with accepted governing ADR posture receives its reviewed `governed_by` edge to an accepted ADR node; the edge uses `canonicality = canonical` and `review_status = accepted`. Preserve unresolved relationships instead of guessing.
 
 ### Phase 3: validate and generate
 
-Validate nodes, build the aggregate, produce stale/collision/authority-conflict/orphan reports, and create ARPs for representative questions.
+Validate nodes and cross-record relation completeness, build the aggregate, produce stale/collision/authority-conflict/orphan reports, and create ARPs for representative questions. Full target resolution, accepted-contract linkage, pointer cardinality, cycle checks, and other graph-level semantic enforcement remain future Phase 3 tooling; schema-valid Phase 1 records alone are not proof of a relation-complete graph.
 
 ### Phase 4: human canonicalization
 

@@ -352,7 +352,8 @@
         "content_hash": { "$ref": "#/$defs/sha256" },
         "relations": {
           "type": "array",
-          "items": { "$ref": "#/$defs/relation" }
+          "items": { "$ref": "#/$defs/relation" },
+          "description": "Present on every node. May be empty during Phase 1 classification; reviewed relations are added during Phase 2, and cross-record relation completeness belongs to later semantic validation."
         },
         "governing_adr_posture": {
           "type": "string",
@@ -412,18 +413,7 @@
           },
           "then": {
             "properties": {
-              "governing_adr_posture": { "const": "accepted" },
-              "relations": {
-                "contains": {
-                  "type": "object",
-                  "properties": {
-                    "relation_type": { "const": "governed_by" },
-                    "review_status": { "const": "accepted" }
-                  },
-                  "required": ["relation_type", "review_status"]
-                },
-                "minContains": 1
-              }
+              "governing_adr_posture": { "const": "accepted" }
             }
           }
         }
