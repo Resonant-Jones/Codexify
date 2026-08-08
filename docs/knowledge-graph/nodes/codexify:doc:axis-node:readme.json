@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:axis-node:readme",
+  "path": "docs/axis-node/README.md",
+  "title": "Axis Node",
+  "kind": "runtime_map",
+  "summary": "Axis Node entrypoint for role terminology, orientation workflow, source-authority routing, and the docs-only reasoning-interface boundary.",
+  "aliases": [],
+  "authority_class": "structural_authority",
+  "authority_scopes": [
+    "Axis Node entrypoint and orientation routing",
+    "Axis role, node, instance, and harness terminology",
+    "Axis Node docs-only interface and current implementation boundary"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "the Axis Node contract or terminology changes",
+      "the source manifest or orientation protocol changes",
+      "the documented Axis Node implementation boundary changes"
+    ],
+    "reason": "Verified against the Axis Node contract, manifest, and invocation protocol at the Phase 1 base."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/axis-node/README.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/axis-node/axis-node-contract.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/axis-node/source-manifest.json",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/axis-node/invocation-protocol.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "orienting an Axis-capable session",
+    "resolving Axis Node terms, source hierarchy, or task-generation boundaries",
+    "checking what the docs-backed Axis interface does and does not implement"
+  ],
+  "must_not_prove": [
+    "a live autonomous agent, harness, hidden memory, or automatic retrieval system",
+    "runtime execution or architecture-approval authority for an Axis instance",
+    "release readiness or a parallel repository truth store"
+  ],
+  "retrieval_policy": {
+    "default_policy": "conditional",
+    "applicable_intents": [
+      "architecture_orientation",
+      "axis_orientation",
+      "task_generation"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof",
+      "release_support"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Purpose",
+      "Start here",
+      "What this does not do",
+      "Current implementation status"
+    ],
+    "maximum_chunk_budget": 6
+  },
+  "temporal": {
+    "created_at": "2026-07-15T17:21:01Z",
+    "effective_from": "2026-07-15T17:21:01Z"
+  },
+  "content_hash": "94cfcae9b3cbd1f8d85d997729c7d895901c522eaa184e67b9654ef2cfb2ba09",
+  "relations": [],
+  "governing_adr_posture": "not_applicable"
+}

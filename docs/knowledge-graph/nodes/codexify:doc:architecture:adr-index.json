@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:architecture:adr-index",
+  "path": "docs/architecture/adr/adr-index.md",
+  "title": "ADR Index",
+  "kind": "runtime_map",
+  "summary": "Structural routing index for the Architecture Decision Record set, its reading order, and its recorded ADR graph.",
+  "aliases": [
+    "Architecture Decision Record Index"
+  ],
+  "authority_class": "structural_authority",
+  "authority_scopes": [
+    "ADR discovery and routing",
+    "ADR reading order",
+    "ADR graph navigation"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "an ADR is added, removed, renumbered, or retitled",
+      "an indexed ADR review posture changes",
+      "the documented ADR graph or reading order changes"
+    ],
+    "reason": "Verified as the canonical ADR routing surface at the Phase 1 base."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/adr/adr-index.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/adr/*.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "locating an applicable Architecture Decision Record",
+    "reviewing the ADR reading order or documented ADR graph",
+    "checking which decision document should be read directly"
+  ],
+  "must_not_prove": [
+    "acceptance or decision authority independently of the indexed ADR",
+    "runtime implementation of an indexed decision",
+    "release support for capabilities mentioned by indexed ADRs"
+  ],
+  "retrieval_policy": {
+    "default_policy": "conditional",
+    "applicable_intents": [
+      "adr_discovery",
+      "architecture_decision",
+      "historical_provenance"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof",
+      "release_support"
+    ],
+    "priority": "supporting",
+    "section_hints": [
+      "Purpose",
+      "Reading Order",
+      "ADR Graph"
+    ],
+    "maximum_chunk_budget": 5
+  },
+  "temporal": {
+    "created_at": "2026-04-14T20:56:05Z",
+    "effective_from": "2026-04-14T20:56:05Z"
+  },
+  "content_hash": "e273efcbf095d0f2ae7b83e1f4909c4ba9260d80011b8c9763864356b1430503",
+  "relations": [],
+  "governing_adr_posture": "not_applicable"
+}
