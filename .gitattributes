@@ -18,4 +18,4 @@ tests/audit/fixtures/canonical-evidence.valid.provisional.json -filter -diff -me
 
 # Document Lifecycle Graph control-plane records must stay connector-readable plaintext.
 schemas/knowledge/**/*.json -filter -diff -merge text
-docs/knowledge-graph/**/*.json -filter -diff -merge text
+docs/knowledge-graph/**/*.json !filter diff !merge text
