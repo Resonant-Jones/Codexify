@@ -1,0 +1,77 @@
+{
+  "authority_profile": "release_and_support",
+  "conflicts": [],
+  "created_at": "2026-08-08T14:27:29-04:00",
+  "excluded_sources": [
+    {
+      "document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "exclusion_reason": "Accepted DLG architecture decision outside the bounded current release/support answer; its must_not_prove boundary excludes runtime behavior and release support."
+    },
+    {
+      "document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "exclusion_reason": "Accepted PAO architecture decision outside the bounded current release/support answer; it does not establish current support posture or release qualification."
+    },
+    {
+      "document_id": "codexify:doc:architecture:adr-index",
+      "exclusion_reason": "Structural ADR discovery and routing only; it cannot establish release support independently of current-state authority."
+    },
+    {
+      "document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "exclusion_reason": "Normative DLG contract not required for this scoped release question and explicitly not runtime, resolver, or release proof."
+    },
+    {
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "exclusion_reason": "Structural architecture routing surface, not release-support authority or live-runtime proof."
+    },
+    {
+      "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "exclusion_reason": "Normative Product Architecture Ontology contract; its vocabulary does not prove current support, runtime participation, or release."
+    },
+    {
+      "document_id": "codexify:doc:axis-node:readme",
+      "exclusion_reason": "Structural Axis orientation surface, not release readiness or a parallel repository truth store."
+    },
+    {
+      "document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+      "exclusion_reason": "Historical publication and validation evidence, not current release/support authority or current-head runtime proof."
+    }
+  ],
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "human_decisions_required": [],
+  "illustrative": true,
+  "notice": "Representative DLG Phase 3B calibration fixture; generated and reconstructable from the pinned Phase 3A graph. It is not a runtime retrieval receipt, not execution authorization, not architecture approval, and not proof beyond the selected sources' evidence boundaries.",
+  "packet_id": "codexify:arp:representative-release-support",
+  "proof_gaps": [],
+  "question_or_intent": "What is currently supported in the Codexify release, and what remains explicitly unsupported or deferred?",
+  "reading_budget": {
+    "maximum_hops": 0,
+    "maximum_sections_per_source": 4,
+    "maximum_sources": 3,
+    "maximum_total_chunks": 12
+  },
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "resolved_pointers": [],
+  "schema_version": "1.0.0",
+  "selected_sources": [
+    {
+      "authority_class": "release_authority",
+      "authority_scope": "present release promise",
+      "document_id": "codexify:doc:architecture:current-state",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [],
+      "path": "docs/architecture/00-current-state.md",
+      "required_sections": [
+        "Current supported reality",
+        "Not yet true / do not assume",
+        "Active blockers",
+        "Release definition right now"
+      ],
+      "retrieval_priority": "required",
+      "selection_reason": "Required scoped release/support root. It states the current release promise and explicit deferrals; it is neither universal architecture authority nor live-runtime proof."
+    }
+  ],
+  "stale_warnings": [],
+  "supersession_chains": [],
+  "unavailable_sources": []
+}

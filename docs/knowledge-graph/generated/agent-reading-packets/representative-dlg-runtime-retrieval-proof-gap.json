@@ -1,0 +1,98 @@
+{
+  "authority_profile": "implementation_behavior",
+  "conflicts": [],
+  "created_at": "2026-08-08T14:27:29-04:00",
+  "excluded_sources": [
+    {
+      "document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "exclusion_reason": "Accepted DLG architecture-decision authority, not proven code-path or live-runtime evidence for retrieval implementation."
+    },
+    {
+      "document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "exclusion_reason": "Accepted PAO architecture-decision authority, not implementation evidence for DLG runtime retrieval."
+    },
+    {
+      "document_id": "codexify:doc:architecture:adr-index",
+      "exclusion_reason": "Structural ADR routing cannot prove implementation or live behavior."
+    },
+    {
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "exclusion_reason": "Structural architecture routing cannot establish DLG runtime retrieval implementation."
+    },
+    {
+      "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "exclusion_reason": "PAO architecture doctrine explicitly does not prove runtime DLG retrieval, current relationships, or integration."
+    },
+    {
+      "document_id": "codexify:doc:axis-node:readme",
+      "exclusion_reason": "Structural Axis orientation does not implement or prove automatic retrieval or a runtime harness."
+    },
+    {
+      "document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+      "exclusion_reason": "Historical publication and validation evidence explicitly does not prove DLG runtime retrieval implementation or live behavior."
+    }
+  ],
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "human_decisions_required": [],
+  "illustrative": true,
+  "notice": "Representative DLG Phase 3B calibration fixture; generated and reconstructable from the pinned Phase 3A graph. It is not a runtime retrieval receipt, not execution authorization, not architecture approval, and not proof beyond the selected sources' evidence boundaries.",
+  "packet_id": "codexify:arp:representative-dlg-runtime-retrieval-proof-gap",
+  "proof_gaps": [
+    {
+      "authority_scope": "DLG runtime retrieval implementation behavior",
+      "reason": "No current code-path evidence represented in the nine-node calibration graph proves DLG runtime retrieval integration.",
+      "required_evidence_class": "proven-code-path"
+    },
+    {
+      "authority_scope": "DLG runtime retrieval live behavior",
+      "reason": "No live-runtime evidence represented in the nine-node calibration graph proves DLG retrieval integration is operating in a supported runtime path.",
+      "required_evidence_class": "proven-live-runtime"
+    }
+  ],
+  "question_or_intent": "Is DLG runtime retrieval integration implemented and proven by the current calibration corpus?",
+  "reading_budget": {
+    "maximum_hops": 0,
+    "maximum_sections_per_source": 5,
+    "maximum_sources": 3,
+    "maximum_total_chunks": 16
+  },
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "resolved_pointers": [],
+  "schema_version": "1.0.0",
+  "selected_sources": [
+    {
+      "authority_class": "release_authority",
+      "authority_scope": "present release promise",
+      "document_id": "codexify:doc:architecture:current-state",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [],
+      "path": "docs/architecture/00-current-state.md",
+      "required_sections": [
+        "Current supported reality",
+        "Not yet true / do not assume",
+        "Release definition right now"
+      ],
+      "retrieval_priority": "required",
+      "selection_reason": "Required current-state root for the release boundary: DLG automatic retrieval is not assumed or release-supported here. This source is not code-path or live-runtime proof."
+    },
+    {
+      "authority_class": "normative_contract",
+      "authority_scope": "Agent Reading Packet and staged migration doctrine",
+      "document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [],
+      "path": "docs/architecture/document-lifecycle-graph-contract.md",
+      "required_sections": [
+        "Graph invariants",
+        "Staged corpus migration"
+      ],
+      "retrieval_priority": "primary",
+      "selection_reason": "Required accepted architecture root for the implemented-versus-unimplemented and staged-retrieval boundary; a normative contract is not implementation evidence."
+    }
+  ],
+  "stale_warnings": [],
+  "supersession_chains": [],
+  "unavailable_sources": []
+}
