@@ -1,0 +1,9 @@
+{
+  "generated_at": "2026-08-08T12:25:50-04:00",
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
+  "record_type": "supersession_map",
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "schema_version": "1.0.0",
+  "supersession_set": []
+}
