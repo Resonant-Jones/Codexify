@@ -99,6 +99,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False
     )
+    email: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(
         String(16), nullable=False, default="guest", server_default="guest"

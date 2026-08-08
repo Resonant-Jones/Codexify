@@ -84,6 +84,7 @@ import { logOnce } from "@/lib/logging/logOnce";
 import { useAuthState } from "@/lib/authState";
 import {
   getRuntimeConfigHydrationState,
+  getRuntimeConfigSync,
 } from "@/lib/runtimeConfig";
 import {
   describeModelCapability,
@@ -3145,6 +3146,7 @@ export function GuardianChat({
       }
 
       const originTabId = options?.tabId ?? activeSessionTabIdRef.current;
+      const runtimeConfig = getRuntimeConfigSync();
       const firstLine = bodyText.trim().split(/\n+/)[0] ?? "";
       const provisionalTitle = firstLine.slice(0, 60) || NEW_THREAD_TITLE;
       const metadata = originTabId

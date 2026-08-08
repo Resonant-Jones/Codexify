@@ -272,6 +272,13 @@ class Settings(BaseSettings):
             "provider source metadata, e.g. whooshd."
         ),
     )
+    LOCAL_RUNTIME_PRESET: str = Field(
+        default="",
+        description=(
+            "Named local-runtime preset key, e.g. whooshd-mlx, ollama, "
+            "lmstudio, or custom-openai-compatible."
+        ),
+    )
     WHOOSHD_MANAGED: bool = Field(
         default=False,
         description="When true, Codexify may auto-start Whoosh'd as a managed sidecar process.",

@@ -49,6 +49,13 @@ Source anchors:
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
 | `personal_fact_revisions` | Fact history | supports auditability of memory changes |
 
+### Account authentication entities
+
+| Entity | Why it matters | Key invariants |
+|---|---|---|
+| `users` | Canonical account and authentication boundary | `id` remains the durable ownership identifier; `username` is unique; nullable `email` is a normalized, unique login alias only; password material remains one-way hashed. Resolving an email alias must return the existing `users.id` and must not rewrite account ownership, username, role, or password state. |
+| `user_profiles` | Account-owned presentation metadata | 1:1 with `users.id`; profile fields do not replace canonical account identity. |
+
 ### Hosted Room persistence entities
 
 The persistence foundation governed by [[adr/053-node-hosted-room-access-boundary|ADR-053]] provides storage truth for the bounded Hosted Room owner, guest-session, message, and explicit Guardian-invocation routes. ADR-053 remains `Proposed`; implemented code paths do not establish release qualification or cross-node Hosted Room support.
