@@ -26,6 +26,7 @@ from guardian.protocol_tokens import (
     GuardianProviderFailureKind,
     GuardianProviderTransportClassification,
 )
+from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 
 SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
 
@@ -645,6 +646,7 @@ def test_chat_with_ai_local_only_invalid_local_chat_model_fails_clearly(
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_EGRESS_ALLOWLIST="",
         LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_PROVIDER_VENDOR="whooshd",
         LOCAL_LLM_MODEL="library2/ministral-3:8b",
         LOCAL_CHAT_MODEL="qwen3.5:0.8b",
         DEFAULT_LOCAL_MODEL="library2/ministral-3:8b",
@@ -779,6 +781,161 @@ def test_stream_local_local_only_uses_resolved_model_for_execution(
 
     assert result == ["Local ", "stream"]
     assert captured["json"]["model"] == "qwen3.5:0.8b"
+
+
+def _whooshd_stage_2e_settings() -> Settings:
+    return Settings(
+        LLM_PROVIDER="local",
+        CODEXIFY_LOCAL_ONLY_MODE=True,
+        ALLOW_CLOUD_PROVIDERS=False,
+        CODEXIFY_EGRESS_ALLOWLIST="",
+        LOCAL_BASE_URL=SUPPORTED_LOCAL_BASE_URL,
+        LOCAL_PROVIDER_VENDOR="whooshd",
+        LOCAL_CHAT_MODEL="gemma-4-12b-it-qat-4bit",
+        LOCAL_LLM_MODEL="gemma-4-12b-it-qat-4bit",
+        DEFAULT_LOCAL_MODEL="gemma-4-12b-it-qat-4bit",
+        LLM_MODEL="gemma-4-12b-it-qat-4bit",
+    )
+
+
+def _whooshd_stage_2e_provenance() -> dict:
+    return {
+        "schema_version": "whooshd.runtime.v1",
+        "request_id": "req-stage2e",
+        "requested_model_id": "gemma-4-12b-it-qat-4bit",
+        "advertised_model_id": "gemma-4-12b-it-qat-4bit",
+        "resolved_model_id": "gemma-4-12b-it-qat-4bit",
+        "backend_reported_model_id": "gemma-4-12b-it-qat-4bit",
+        "runtime_kind": "mlx_vlm",
+        "adapter_name": "mlx-vlm",
+        "resolution_source": "authoritative_registry",
+        "execution_mode": "managed_sidecar",
+        "streaming": False,
+        "queued": False,
+        "batched": False,
+        "model_lifecycle": "ready",
+        "whooshd_version": "0.1.0rc1",
+    }
+
+
+def test_call_local_uses_strict_structured_payload_only_for_exact_stage_2e_target(
+    monkeypatch,
+):
+    _disable_supported_profile(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return _MockRawResponse(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": '{"kind":"assistant","text":"Hello","command_id":null,"arguments":{}}'
+                        },
+                    }
+                ],
+                "runtime_provenance": _whooshd_stage_2e_provenance(),
+            }
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+    result = call_local(
+        [{"role": "user", "content": "hello"}],
+        "gemma-4-12b-it-qat-4bit",
+        settings=_whooshd_stage_2e_settings(),
+        tools=[
+            {
+                "command_id": "op::lookup_widget",
+                "description": "Return a synthetic widget status.",
+                "input_schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["widget_id"],
+                    "properties": {
+                        "widget_id": {"type": "string", "enum": ["alpha"]}
+                    },
+                },
+            }
+        ],
+    )
+
+    assert isinstance(result, WhooshdStructuredResponse)
+    payload = captured["json"]
+    assert payload["model"] == "gemma-4-12b-it-qat-4bit"
+    assert payload["stream"] is False
+    assert payload["temperature"] == 0
+    assert payload["seed"] == 20260809
+    assert payload["response_format"]["type"] == "json_schema"
+    assert "tools" not in payload
+    assert "tool_choice" not in payload
+    assert "function_call" not in payload
+    assert (
+        payload["response_format"]["json_schema"]["schema"]["oneOf"][1]["properties"]["command_id"]
+        == {"const": "op::lookup_widget"}
+    )
+    assert payload["messages"][0]["role"] == "system"
+    assert "op::lookup_widget" in payload["messages"][0]["content"]
+    normalized = ai_router.normalize_completion_output(result)
+    assert normalized.kind == "assistant"
+    assert normalized.text == "Hello"
+    assert normalized.provider == "whooshd"
+
+
+def test_call_local_keeps_no_tools_whooshd_chat_unstructured(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        _ = (url, headers, timeout)
+        captured["json"] = json
+        return _MockRawResponse(
+            {"choices": [{"message": {"content": "ordinary response"}}]}
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+    result = call_local(
+        [{"role": "user", "content": "hello"}],
+        "gemma-4-12b-it-qat-4bit",
+        settings=_whooshd_stage_2e_settings(),
+        tools=None,
+    )
+
+    assert result == "ordinary response"
+    payload = captured["json"]
+    assert "response_format" not in payload
+    assert "seed" not in payload
+    assert payload["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_call_local_rejects_multiple_stage_2e_tools_before_post(monkeypatch):
+    _disable_supported_profile(monkeypatch)
+    monkeypatch.setattr(
+        ai_router.requests,
+        "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider inference should not run")
+        ),
+    )
+    tools = [
+        {"command_id": "op::one", "description": "one"},
+        {"command_id": "op::two", "description": "two"},
+    ]
+
+    with pytest.raises(HTTPException) as exc:
+        call_local(
+            [{"role": "user", "content": "hello"}],
+            "gemma-4-12b-it-qat-4bit",
+            settings=_whooshd_stage_2e_settings(),
+            tools=tools,
+        )
+
+    assert exc.value.status_code == 400
+    assert "exactly one" in exc.value.detail
 
 
 def test_call_local_timeout_surfaces_provider_timeout(monkeypatch):
