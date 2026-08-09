@@ -9,16 +9,25 @@ tags:
 * persona-studio
 * ownership
   aliases:
-* ADR-005
+* ADR-058
 * Imprint UI Deprecation and Identity Ownership
 
 ---
 
-# ADR-005: Imprint UI Deprecation and Identity Ownership
+# ADR-058: Imprint UI Deprecation and Identity Ownership
 
 ## Status
 
 Proposed
+
+## Canonicalization history
+
+This proposal was originally stored as ADR-005, which collided with the later
+Accepted Runtime Mode and Account Boundary Invariants. Human canonicalization
+retained Runtime Mode as ADR-005 and moved this decision to ADR-058. The move
+changes numeric identity and path only; this proposal remains Proposed.
+Historical references to the former Imprint ADR-005 remain historical evidence
+and must not be reinterpreted as references to Runtime Mode.
 
 ## Date
 

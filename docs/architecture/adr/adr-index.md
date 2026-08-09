@@ -35,11 +35,9 @@ Use this note as the local map for all ADRs.
 2. [[002-Dual-State-Machine-Model|ADR-002 Dual State Machine Model]]
 3. [[003-Message-Identity-vs-Request-Identity|ADR-003 Message Identity vs Request Identity]]
 4. [[004-Retrieval-Policy-as-Control-Plane|ADR-004 Retrieval Policy as Control Plane]]
-5. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]]
 6. [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
 7. [[010-Self-Extending-Agent-Plugin-System|ADR-010 Self-Extending Agent Plugin System]] — bounded self-extending architecture for generated capabilities, plugin forge flow, and sovereignty boundaries.
-5. [[005-Runtime-Mode-and-Account-Boundary-Invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
-6. [[005-Imprint-UI-Deprecation-and-Identity-Ownership|ADR-005 Imprint UI Deprecation and Identity Ownership]] — retained as the legacy identity-ownership UI boundary note.
+5. [[005-runtime-mode-and-account-boundary-invariants|ADR-005 Runtime Mode and Account Boundary Invariants]]
 7. [[006-flow-builder-elicitation-lane|ADR-006 Flow Builder Elicitation Lane]] — upstream spec-building lane for turning tacit expertise into validated workflow structure before execution.
 8. [[007-Memory-Graph-Derived-Write-Hook|ADR-007 Memory Graph Derived Write Hook]] — derived graph candidate emission after assistant persistence, kept non-blocking and idempotent.
 9. [[008-Candidate-Trace-Surface|ADR-008 Candidate Trace Surface]] — backend-only candidate-output diagnostic surface, TTL-bound and excluded from export.
@@ -88,6 +86,7 @@ Use this note as the local map for all ADRs.
 48. [[054-browser-host-topology-and-release-ownership|ADR-054 Codexify Browser Host Topology and Release Ownership]] — accepted selection of the `bundled_chromium_electron` Browser Host family with an isolated monorepo-first application/package, retained trusted Tauri shell and Tier 0 extension roles, Guardian authority, and deferred independent-release extraction.
 49. [[055-orthogonal-ui-material-personalization|ADR-055 Orthogonal UI Material Personalization]] — governing decision for additive material axes, cross-theme Surface Temperature, light-only Paper Tone, separate persistence responsibilities, and accessibility-bounded user material expression.
 50. [[055-threadspace-whispermesh-managed-service-boundary|ADR-055 ThreadSpace ↔ WhisperMesh Managed-Service Boundary]] — proposed docs-only authority boundary: Codexify and ThreadSpace own Room sovereignty, grants, and collaboration state, while WhisperMesh Network Assist may issue only narrower, expiring service leases after grant verification; Hosted Rooms and managed processing require separate future decisions.
+51. [[058-imprint-ui-deprecation-and-identity-ownership|ADR-058 Imprint UI Deprecation and Identity Ownership]] — Proposed; renumbered from the duplicate ADR-005 identity during DLG human canonicalization.
 
 ---
 
