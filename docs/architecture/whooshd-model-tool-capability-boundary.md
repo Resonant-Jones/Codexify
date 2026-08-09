@@ -82,11 +82,20 @@ canonical runtime tokens. It does not modify Whoosh'd source.
 - **Provider identity**: `whooshd` — the single Codexify `provider` field value.
 - **Runtime engine**: The inference execution engine (`llama_cpp`, `mlx_lm`,
   `mlx_lm_server`, `mlx_vlm`).
-- **Model target**: An exact combination of model artifact (revision/hash/
-  quantization), runtime engine, adapter, chat template, and tokenizer.
-- **Tool-qualified**: An exact model target has current evidence proving it can
+- **Source record identity**: An origin-specific record that contributes model
+  identity and evidence. Examples are a managed `RegisteredModel`, an
+  external-route `ExternalModelInventoryEntry`, and a configured
+  `RegistryModelEntry`. It is not the universal qualification subject.
+- **Resolved execution target**: The exact model/runtime target selected after
+  source records converge through model/runtime resolution. It binds the
+  invocation alias to the artifact, runtime engine, adapter, template, and
+  other material execution dimensions available at that seam.
+- **Qualification proof identity**: The evidence-bound identity of one resolved
+  execution target. It is the comparison key used to decide whether a previous
+  qualification receipt is still current.
+- **Tool-qualified**: An exact resolved execution target has current evidence proving it can
   participate in the canonical bounded tool loop.
-- **Tool-eligible**: A tool-qualified target is also currently runnable and
+- **Tool-eligible**: A tool-qualified resolved execution target is also currently runnable and
   healthy.
 
 ## Existing Whoosh'd Lifecycle
@@ -151,7 +160,7 @@ It is exposed via `GET /models` and `GET /v1/models`. When `TOOLS` is
 eventually populated, Codexify's whooshd sidecar health probes and catalog
 endpoints can read it from `/v1/models`.
 
-## Provider vs Runtime vs Model Target
+## Provider vs Runtime vs Resolved Execution Target
 
 This contract normatively separates three layers beneath the Whoosh'd provider
 identity:
@@ -163,12 +172,79 @@ identity:
    execution backend. Different engines have different tool-transport
    capabilities. Engine capabilities are NOT model capabilities.
 
-3. **Model target**: the exact combination of artifact, quant, engine, adapter,
-   chat template, and tokenizer. Tool qualification attaches HERE, not at the
+3. **Resolved execution target**: the exact selected combination of invocation
+   alias, source-record evidence, artifact, quant, engine, adapter, chat
+   template, and tokenizer. Tool qualification attaches HERE, not at the
    provider or engine level.
 
-Codexify must route to `whooshd` → `exact model alias/public id` → `effective
-capability view for that target`. No new provider identities are created.
+Codexify must route to `whooshd` → `exact invocation alias` → `resolved
+execution target` → `effective capability view for that target`. No new
+provider identities are created.
+
+## Model-Origin Identity and Resolution Convergence
+
+Whoosh'd has several legitimate model-origin surfaces. They carry different
+evidence and must not be collapsed into one universal model identity:
+
+- **Managed model-store registration**: `RegisteredModel` is the durable
+  model-store representation. Its `model_id`, managed path, detected format,
+  candidate lineage, and inspection evidence describe a managed artifact; its
+  presence does not make it runnable or tool-qualified.
+- **External weight-route inventory**: `ExternalModelInventoryEntry` is the
+  read-only representation of a model found through a configured external
+  route. Its public `id` (the current external-route public invocation ID),
+  `model_id`, route, path, format, runtime hint, and route metadata identify
+  that external discovery result. It remains an external-route inventory
+  record, not a universal qualification identity.
+- **Configured/runtime registry**: `RegistryModelEntry` is the YAML/static
+  routing descriptor. Its configured alias, path or repository reference,
+  engine, format, modalities, and warm policy contribute configured routing
+  evidence; it is not a durable model-store record.
+- **Runtime selection**: `routing.RuntimeResolution` is the current runtime
+  seam that retains the selected adapter plus requested, advertised, and
+  resolved model aliases and the resolution source. It is useful evidence of
+  the selected execution path, but it does not yet carry the complete artifact,
+  template, tokenizer, parser, or runtime-build identity needed for a
+  qualification key.
+
+The conceptual convergence is therefore:
+
+```text
+managed model identity --------┐
+                               │
+external model identity -------┼--> model/runtime resolution
+                               │             |
+configured model identity -----┘             v
+                                     exact resolved target
+                                              |
+                                              v
+                                      tool qualification
+                                              |
+                                              v
+                                     runtime eligibility
+                                              |
+                                              v
+                                       Guardian authority
+```
+
+The qualification subject is the **exact resolved execution target selected by
+Whoosh'd**. A source record supplies evidence that helps establish that target;
+no one source record, including `ExternalModelInventoryEntry.id` (or a future
+field named `public_id`), independently defines it. This is a conceptual
+clarification only. It creates neither a new runtime target type nor a new
+source-of-truth registry.
+
+### Identity layers
+
+| Layer | Current examples | Qualification role |
+| --- | --- | --- |
+| Source record identity | `RegisteredModel.model_id`; external inventory `id`/`model_id`/route; configured `RegistryModelEntry` alias | Supplies provenance and source-specific artifact/routing evidence. |
+| Resolved execution target identity | `RuntimeResolution` aliases, resolution source, selected adapter/runtime; resolved artifact/template details where available | Defines which concrete execution path is under evaluation. |
+| Qualification proof identity | A receipt binding the full material target dimensions listed below | Determines whether a previous proof is applicable or stale. |
+
+This distinction permits heterogeneous managed, external, and configured model
+origins to use one qualification system without pretending that they are the
+same inventory population.
 
 ## Tool Transport Capability
 
@@ -215,10 +291,11 @@ A runtime engine that can technically forward tools does not guarantee that any
 particular model loaded on that engine understands when and how to use the
 advertised tools. Transport is necessary but insufficient.
 
-## Exact Model/Template Qualification
+## Exact Resolved-Target Qualification
 
-Tool qualification requires evidence that the exact model target — including
-its specific artifact, quant, tokenizer, and chat template — can:
+Tool qualification requires evidence that the exact resolved execution target
+— including its specific artifact, quant, tokenizer, runtime, adapter, and
+chat template — can:
 
 1. receive one bounded authorized tool advertisement
 2. select the correct tool when a test prompt clearly requires it
@@ -250,28 +327,39 @@ A model can be tool-qualified but not currently eligible because the runtime
 is offline, the model is unloading, or the adapter is degraded. Conversely,
 a model can be runnable but not tool-qualified because no evidence exists.
 
-## Qualification Evidence
+## Qualification Evidence and Proof Identity
 
-A future qualification receipt must identify:
+A future qualification receipt must bind strongly enough to detect material
+target drift. At minimum, its proof identity must record, or explicitly mark
+as unavailable:
 
-- exact public model alias (Whoosh'd model ID)
-- runtime engine
-- model artifact/revision identity available at runtime
-- quantization or variant
-- chat template / tool parser identity where relevant
-- transport mode tested (native or structured)
-- tool protocol version/contract tested (Stage 2A)
-- qualification result (pass / fail / degraded)
-- proof timestamp
-- runtime/engine version evidence sufficient to detect staleness
+| Dimension | Required evidence posture | Current implementation gap |
+| --- | --- | --- |
+| Public invocation alias | The exact alias used on the request. | `RuntimeResolution` retains requested/advertised/resolved aliases. |
+| Model origin/source kind | `managed`, `external`, `configured/static`, or another supported source. | Current provenance records a resolution source, but no canonical qualification source-kind field exists. |
+| Artifact/model identity | Managed `model_id`, external `model_id`, configured repository/path, or equivalent immutable artifact identifier. | No universal artifact-identity field is carried through runtime provenance. |
+| Artifact location | Exact managed path, external resolved path, or configured path where that path is material. | Runtime provenance does not retain a path; path handling differs by origin. |
+| Revision or hash | Upstream revision, immutable manifest/hash, or artifact hashes when available. | No runtime receipt field or invalidation mechanism exists. |
+| Quantization | Exact quant/variant where applicable. | Registry/inventory metadata may have it, but the runtime/provenance seam does not bind it universally. |
+| Runtime/engine and adapter | Exact runtime kind, adapter kind/name, and execution mode. | Current runtime provenance carries these values, but no qualification receipt consumes them. |
+| Runtime version/build | Runtime binary/package/build evidence sufficient to detect behavioral drift. | Whoosh'd version alone is insufficient; the adapter/upstream runtime build is not uniformly captured. |
+| Tokenizer identity | Tokenizer artifact, revision, or content hash when tokenization is material. | No canonical runtime provenance field exists. |
+| Chat-template identity | Template name/revision/hash, including any tool-format rendering behavior. | No canonical runtime provenance field exists. |
+| Tool parser/template identity | Native parser version or strict structured parser/template identity. | `InferenceAdapter` has no tool-transport/parser contract. |
+| Structured grammar/parser identity | Grammar/schema/parser identifier when structured transport is used. | No current grammar/parser or receipt field exists. |
+| Transport mode | The exact `native` or `strict structured` path actually tested. | No transport-mode enum or producer exists. |
+| Qualification result and time | Pass/fail/degraded result, Stage 2A contract version, proof timestamp, and receipt provenance. | No qualification persistence or producer exists. |
 
-This contract does not create storage tables or files. It defines the
-conceptual evidence shape.
+These are evidence requirements, not a demand that every current runtime type
+already expose every dimension. Missing dimensions are explicit implementation
+gaps; this task does not add a data structure, persistence schema, token, or
+runtime field to fill them.
 
 ## Qualification Invalidation
 
-Tool qualification must not silently survive material changes to the execution
-target. Prior evidence is considered stale when any of the following change:
+Tool qualification must not silently survive material changes to the resolved
+execution target or its proof identity. Prior evidence is considered stale
+when any of the following change:
 
 - model artifact revision (different weight file or HF revision)
 - quantization (if behavior may materially differ)
@@ -367,7 +455,13 @@ normalize to the same Codexify semantic tool-turn contract.
 - Request-schema support is not tool qualification.
 - Forwarding tools is not proof the target can use them.
 - `runnable` does not imply tool-qualified.
-- Qualification attaches to an exact execution target, not the provider name.
+- Qualification attaches to an exact resolved execution target, not the
+  provider name or any one source inventory record.
+- `ExternalModelInventoryEntry` remains an external-route inventory
+  representation; its public ID is never the universal qualification target.
+- `RegisteredModel` remains a managed model-store representation.
+- Managed, external, and configured source records may contribute evidence but
+  do not create separate model-capability systems.
 - Exact-model qualification must be evidence-backed.
 - A hardcoded model-family allowlist is not the architecture.
 - Native and strict structured transport may satisfy the same canonical
@@ -422,25 +516,75 @@ Each question requires a separate architecture-impact slice.
 
 ## Recommended First Implementation Proof (Stage 2D)
 
-Based on current reconnaissance:
+### Local inventory receipt — 2026-08-09
 
-- **Runtime**: `llama_cpp` (via Whoosh'd's `LlamaCppAdapter`)
-- **Transport mode**: Native (OpenAI-compatible `/v1/chat/completions` with
-  `tools`)
-- **Model target**: The smallest available GGUF model proven to have a
-  compatible chat template, such as a small Qwen 2.5 or Gemma family GGUF
-  available in the current local weight store at
-  `/Volumes/Dev_SSD/whooshd/model-weights`.
-- **Rationale**: llama.cpp server is the most mature local runtime for native
-  tool calling. It has the strongest upstream evidence of OpenAI-compatible
-  tool support, an existing Whoosh'd adapter (`LlamaCppAdapter`), and a
-  straightforward path through HTTP forwarding. A small GGUF model minimizes
-  memory pressure and cold-start time for the proof. The exact target should
-  be the one available model at the current install that has the clearest
-  upstream tool-calling documentation.
-- **Not claimed**: that this proof generalizes to all GGUF models, all
-  llama.cpp-served models, or all Whoosh'd targets. It is the narrowest
-  useful first local tool-transport proof.
+Read-only inspection used the local Whoosh'd checkout
+`/Volumes/Dev_SSD/ResonantConstructs/Whoosh'd` at
+`e191798be3a290b291e0878eac8309d8b6ce7130` (branch
+`codex/cwc-007-control-error-contract`). The checkout has an unrelated
+untracked `.venv311/`; it was not modified. Current `GET /v1/models` and
+`GET /models` at `127.0.0.1:8000` advertise exactly one non-stub local model:
 
-Stage 2D should be a separate implementation task with its own explicit
-architecture-impact authorization. This contract does not implement it.
+| Evidence | Observed value |
+| --- | --- |
+| Public invocation alias | `gemma-4-12b-it-qat-4bit` |
+| Source origin | `configured/static`; the running inventory reports `resolution_source: authoritative_registry` and the local configuration is a `RegistryModelEntry`. |
+| Underlying artifact/model identity | `mlx-community/gemma-4-12B-it-qat-4bit`, evidenced by the installed artifact directory and the Codexify model profile. |
+| Exact artifact identity | MLX/safetensors snapshot: `model-00001-of-00003.safetensors`, `model-00002-of-00003.safetensors`, and `model-00003-of-00003.safetensors`, with `model.safetensors.index.json` at `/Volumes/Dev_SSD/whooshd/model-weights/hub/models--mlx-community--gemma-4-12B-it-qat-4bit`. This is not a GGUF artifact. |
+| Quantization | `QAT 4-bit`, as named by the configured alias and display name. |
+| Resolved configured path | `/Volumes/Dev_SSD/whooshd/model-weights/hub/models--mlx-community--gemma-4-12B-it-qat-4bit` |
+| Runtime / adapter | `mlx_vlm` / `MlxVlmAdapter` (`adapter_name: mlx-vlm`, `execution_mode: managed_sidecar`). |
+| Current status | Advertised by the authoritative registry, but `GET /models` reports `loaded: false` and the model provenance reports `model_lifecycle: unloaded`. `GET /health` is ready with no active model; this is inventory/readiness evidence, not an inference or tool proof. |
+| Template evidence | The installed `chat_template.jinja` contains `tool_calls`, `tool_responses`, `tool_call_id`, `<|tool_call>`, and `<|tool_response>` handling. Its observed SHA-256 is `36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0`. |
+| Tool-parser evidence | The current `MlxVlmAdapter.list_models()` reports `supports_tools=False`; no Whoosh'd native tool parser or strict structured parser is presently exposed. The template alone is not parser or qualification evidence. |
+
+The inspected configured model registry, current endpoint inventory, model-store
+code, external-route code, model resolver, routing seam, adapters, and their
+managed/external resolution tests establish origin and selection vocabulary.
+They do not establish an actual local `llama_cpp` execution target: no GGUF
+file was found under the current documented weight roots, and the repository's
+Qwen GGUF configuration is an example/validated configuration whose referenced
+`models/gguf/qwen2.5-0.5b-instruct-q4_k_m.gguf` is absent from this machine.
+
+### Pinned Stage 2D target
+
+Stage 2D will qualify **only**:
+
+```text
+gemma-4-12b-it-qat-4bit
+using: mlx_vlm / MlxVlmAdapter
+with: mlx-community/gemma-4-12B-it-qat-4bit,
+      model-00001-of-00003.safetensors + model-00002-of-00003.safetensors
+      + model-00003-of-00003.safetensors (QAT 4-bit)
+through: strict structured transport (proposed; not implemented or qualified)
+```
+
+**Qualification status: unproven.** The target is pinned because it is the
+only exact local model/runtime combination currently advertised by Whoosh'd,
+has a configured deterministic invocation alias and resolved artifact path,
+and its installed template has concrete tool-turn rendering evidence. It is
+not the ideal small native `llama_cpp` proof target; no actual local GGUF path
+is currently advertised or present. Selecting a hypothetical Qwen or "any
+GGUF" would substitute configuration/examples for local model truth.
+
+Stage 2D must first verify that a strict structured transport can be made
+explicit, constrained, parsed, and correlated for this exact target; the
+current adapter's `supports_tools=False` makes that an implementation/proof
+gate, not a capability claim. It must also warm the selected target and record
+the actual runtime/build, tokenizer, template, artifact-hash, parser/grammar,
+and transport evidence that is currently absent from runtime provenance. If
+that preflight cannot establish a strict structured path, Stage 2D stops;
+importing or configuring a separate GGUF/`llama_cpp` target is a new,
+separately authorized selection/intake slice.
+
+A successful Stage 2D may claim only that this exact resolved Gemma MLX target,
+with the recorded proof identity and strict structured transport, passed the
+bounded Stage 2A tool-turn qualification. It must not generalize to all Gemma
+models, all MLX models, all `mlx_vlm` targets, all GGUF models, all
+`llama_cpp` targets, Whoosh'd as a whole, or Guardian authority. It does not
+populate `ModelCapability.TOOLS` or expose tools to ordinary Guardian chat
+unless a separate authorized implementation later makes and consumes that
+evidence.
+
+Stage 2D remains a separate architecture-impact task requiring explicit human
+authorization. This contract does not implement it.
