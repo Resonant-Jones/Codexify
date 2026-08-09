@@ -15,7 +15,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-08T13:54:04Z",
     "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
     "triggers": [
@@ -23,7 +23,7 @@
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Verified against the canonical KB routing refresh and listed source anchors at the Phase 1 base."
+    "reason": "Architecture KB source and freshness-invalidating architecture anchors changed after the recorded verification boundary; source-byte integrity is synchronized, and semantic freshness requires later committed-revision re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "e61efdd0cbbd43e078078d2a871a685b210f3c2b419cb780c41727dc99a6dcc0",
+  "content_hash": "11f859bc21f2efdfa6f84ce1ad752d00ace208c7bac734eea46680bbd775307b",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
