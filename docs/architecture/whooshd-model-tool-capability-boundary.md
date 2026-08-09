@@ -587,3 +587,30 @@ runtime/template identity. It does not say Whoosh'd, MLX, MLX-VLM, Gemma, or
 Guardian capability, grant command authority, or implement production
 transport. A separate authorized, identity-pinned implementation slice must
 consume this evidence while preserving the Stage 1 advertised-subset gate.
+
+### Stage 2E implementation status — 2026-08-09
+
+Stage 2E now implements a latent, Guardian-side transport adapter only for the
+exact Stage 2D proof identity: local provider with
+`LOCAL_PROVIDER_VENDOR=whooshd`, alias `gemma-4-12b-it-qat-4bit`, and exactly
+one canonical tool whose flat, closed input schema is within the recorded
+subset. It sends a non-streaming OpenAI-compatible request using strict
+`response_format.json_schema` ModelTurn grammar and deterministic sampling
+settings. It never sends native `tools`, `tool_choice`, or function-call
+fields.
+
+The response parser accepts only one complete JSON ModelTurn object, rejects
+prose, fences, alternate shapes, duplicate fields, and repair attempts, and
+checks a tool decision's returned runtime provenance before the existing Stage
+1 advertised-subset gate can invoke anything. Continuation is ordinary
+assistant/user context containing the selected command, arguments, and result;
+it carries no provider-native tool-call identifier or new authority. A second
+tool decision remains the existing bounded-loop failure.
+
+No-tools local chat remains on its prior stream path. Multiple tools,
+unsupported schemas, a non-identity target, malformed output, or provenance
+mismatch fail closed; this does not advertise a capability, change
+`MlxVlmAdapter.supports_tools`, update a model/profile/registry, or make a
+release claim. This implementation consumes the Stage 2D receipt but does not
+repeat live runtime proof; the runtime contract still cannot attest the pinned
+MLX-VLM package, tokenizer, or template fingerprint per response.

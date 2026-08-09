@@ -72,6 +72,10 @@ from guardian.core.ai_router import (
     resolve_model_vision_capability_state,
     stream_local,
 )
+from guardian.providers.whooshd_tool_adapter import (
+    build_continuation_messages as build_whooshd_structured_continuation_messages,
+    is_qualified_transport_candidate,
+)
 from guardian.core.candidate_trace_store import store_candidate_trace
 from guardian.core.completion_terminal import (
     CompletionAttemptResult,
@@ -1163,7 +1167,14 @@ def _execute_completion_attempt(
         merged.update(metadata)
         exc.metadata = merged
 
-    if provider == "local":
+    uses_whooshd_structured_transport = is_qualified_transport_candidate(
+        provider=provider,
+        provider_vendor=getattr(settings, "LOCAL_PROVIDER_VENDOR", None),
+        model=model,
+        tools=getattr(task, "tools", None),
+    )
+
+    if provider == "local" and not uses_whooshd_structured_transport:
         stream = stream_local(
             messages_for_llm,
             model,
@@ -1281,7 +1292,7 @@ def _execute_completion_attempt(
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
                     "tools": getattr(task, "tools", None)
-                    if provider == "deepseek"
+                    if provider in {"deepseek", "local"}
                     else None,
                     "settings": settings,
                     "prompt_meta": (
@@ -5395,7 +5406,14 @@ def _execute_bounded_tool_turn_completion(
         loop_stop_reason = ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
     tool_turn_state = ToolTurnState.COMMAND_DISPATCHED.value
 
-    if provider == "deepseek":
+    if normalized_first_output.provider == "whooshd":
+        current_messages = build_whooshd_structured_continuation_messages(
+            current_messages,
+            command_id=normalized_first_output.command_id,
+            arguments=normalized_first_output.arguments or {},
+            command_result=command_result,
+        )
+    elif provider == "deepseek":
         current_messages = _append_deepseek_tool_result_messages(
             current_messages,
             assistant_message=normalized_first_output.raw_assistant_message or {},

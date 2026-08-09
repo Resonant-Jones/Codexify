@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from guardian.core import chat_completion_service
-from guardian.protocol_tokens import ToolLoopStopReason, ToolTurnState
+from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.protocol_tokens import (
+    CompletionTerminalStatus,
+    ToolLoopStopReason,
+    ToolTurnState,
+)
 from guardian.providers.deepseek_adapter import DeepSeekResponse
+from guardian.providers.whooshd_control_plane import parse_whooshd_runtime_provenance
+from guardian.providers.whooshd_tool_adapter import (
+    WhooshdStructuredResponse,
+    WhooshdStructuredTransportError,
+)
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -88,6 +99,63 @@ def _seed_service(
     )
 
 
+def _whooshd_stage_2e_response(
+    content: str,
+    *,
+    command_id: str = "op::lookup_widget",
+) -> WhooshdStructuredResponse:
+    runtime_provenance = parse_whooshd_runtime_provenance(
+        {
+            "schema_version": "whooshd.runtime.v1",
+            "request_id": "req-stage2e",
+            "requested_model_id": "gemma-4-12b-it-qat-4bit",
+            "advertised_model_id": "gemma-4-12b-it-qat-4bit",
+            "resolved_model_id": "gemma-4-12b-it-qat-4bit",
+            "backend_reported_model_id": "gemma-4-12b-it-qat-4bit",
+            "runtime_kind": "mlx_vlm",
+            "adapter_name": "mlx-vlm",
+            "resolution_source": "authoritative_registry",
+            "execution_mode": "managed_sidecar",
+            "streaming": False,
+            "queued": False,
+            "batched": False,
+            "model_lifecycle": "ready",
+            "whooshd_version": "0.1.0rc1",
+        }
+    )
+    assert runtime_provenance is not None
+    return WhooshdStructuredResponse(
+        content=content,
+        raw_payload={"choices": [{"message": {"content": content}}]},
+        runtime_provenance=runtime_provenance,
+        response_correlation=None,
+        command_id=command_id,
+        argument_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["widget_id"],
+            "properties": {
+                "widget_id": {"type": "string", "enum": ["alpha"]}
+            },
+        },
+    )
+
+
+def _whooshd_stage_2e_tool() -> dict[str, Any]:
+    return {
+        "command_id": "op::lookup_widget",
+        "description": "Return a synthetic widget status.",
+        "input_schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["widget_id"],
+            "properties": {
+                "widget_id": {"type": "string", "enum": ["alpha"]}
+            },
+        },
+    }
+
+
 def test_ordinary_chat_reaches_deepseek_provider_with_no_effective_tools(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -121,6 +189,252 @@ def test_ordinary_chat_reaches_deepseek_provider_with_no_effective_tools(
     assert provider_tools == [None]
     assert result["assistant_text"] == "plain answer"
     assert result["payload_summary"]["toolTurnState"] == "idle"
+
+
+def test_whooshd_structured_tool_turn_executes_once_and_uses_adapter_continuation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-structured")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [_whooshd_stage_2e_tool()]
+
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *, payload, **_kwargs: command_calls.append(payload)
+        or {"run_id": "run-whooshd", "status": "completed", "inline_result": {"status": "green"}},
+    )
+    provider_calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+
+    def _chat_with_ai(messages, **kwargs):
+        provider_calls.append(([dict(message) for message in messages], kwargs))
+        if len(provider_calls) == 1:
+            return _whooshd_stage_2e_response(
+                '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+            )
+        return _whooshd_stage_2e_response(
+            '{"kind":"assistant","text":"Widget alpha is green.","command_id":null,"arguments":{}}'
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert len(command_calls) == 1
+    assert command_calls[0].command_id == "op::lookup_widget"
+    assert len(provider_calls) == 2
+    assert provider_calls[0][1]["tools"] == task.tools
+    continuation = provider_calls[1][0]
+    assert continuation[-2] == {
+        "role": "assistant",
+        "content": '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}',
+    }
+    assert continuation[-1]["role"] == "user"
+    assert "Whoosh'd structured tool result:" in continuation[-1]["content"]
+    assert "tool_call_id" not in continuation[-1]["content"]
+    assert result["assistant_text"] == "Widget alpha is green."
+    assert result["payload_summary"]["toolTurnState"] == "completed"
+    assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
+
+
+def test_whooshd_structured_valid_transport_still_hits_stage_1_authority_gate(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-unadvertised")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [{**_whooshd_stage_2e_tool(), "command_id": "op::advertised"}]
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: command_calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: _whooshd_stage_2e_response(
+            '{"kind":"tool_decision","text":null,"command_id":"op::returned","arguments":{"widget_id":"alpha"}}',
+            command_id="op::returned",
+        ),
+    )
+
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert command_calls == []
+    assert exc.value.metadata["loopStopReason"] == "tool_command_blocked"
+
+
+def test_whooshd_structured_provenance_mismatch_blocks_before_execute_invoke(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-provenance-mismatch")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [_whooshd_stage_2e_tool()]
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: command_calls.append((args, kwargs)),
+    )
+    response = _whooshd_stage_2e_response(
+        '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: replace(
+            response,
+            runtime_provenance=replace(
+                response.runtime_provenance,
+                resolved_model_id="another-model",
+            ),
+        ),
+    )
+
+    with pytest.raises(WhooshdStructuredTransportError, match="provenance"):
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert command_calls == []
+
+
+def test_whooshd_structured_second_tool_decision_keeps_one_turn_hard_stop(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-limit")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [_whooshd_stage_2e_tool()]
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *, payload, **_kwargs: command_calls.append(payload)
+        or {"run_id": "run-whooshd-limit", "status": "completed"},
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: _whooshd_stage_2e_response(
+            '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+        ),
+    )
+
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert len(command_calls) == 1
+    assert exc.value.metadata["loopStopReason"] == "tool_turn_limit_reached"
+    assert exc.value.metadata["toolTurnState"] == "limit_reached"
+
+
+def test_whooshd_ordinary_chat_with_no_tools_keeps_stream_path(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-ordinary")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    stream_calls: list[dict[str, Any]] = []
+
+    def _stream_local(_messages, _model, **kwargs):
+        stream_calls.append(kwargs)
+
+        def _stream():
+            yield "ordinary local answer"
+            return CompletionTerminalEvidence(
+                status=CompletionTerminalStatus.SUCCESS,
+                visible_output_emitted=True,
+                explicit_provider_terminal_observed=True,
+                finish_reason="stop",
+                transport_ended_cleanly=True,
+                provider="local",
+                model="gemma-4-12b-it-qat-4bit",
+            )
+
+        return _stream()
+
+    monkeypatch.setattr(chat_completion_service, "stream_local", _stream_local)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("ordinary no-tools local chat must stream")
+        ),
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert task.tools is None
+    assert len(stream_calls) == 1
+    assert result["assistant_text"] == "ordinary local answer"
 
 
 def test_plain_answer_path_skips_command_bus(monkeypatch: pytest.MonkeyPatch):
