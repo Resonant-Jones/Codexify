@@ -87,6 +87,41 @@ def _seed_service(
     )
 
 
+def test_ordinary_chat_reaches_deepseek_provider_with_no_effective_tools(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(monkeypatch, provider="deepseek")
+    task = _build_task(task_id="task-no-effective-tools")
+    task.provider = "deepseek"
+
+    provider_tools: list[Any] = []
+
+    def _chat_with_ai(_messages, **kwargs):
+        provider_tools.append(kwargs.get("tools"))
+        return DeepSeekResponse(
+            content="plain answer",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={
+                "role": "assistant",
+                "content": "plain answer",
+            },
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert task.tools is None
+    assert provider_tools == [None]
+    assert result["assistant_text"] == "plain answer"
+    assert result["payload_summary"]["toolTurnState"] == "idle"
+
+
 def test_plain_answer_path_skips_command_bus(monkeypatch: pytest.MonkeyPatch):
     _seed_service(monkeypatch)
     task = _build_task()
@@ -118,7 +153,8 @@ def test_plain_answer_path_skips_command_bus(monkeypatch: pytest.MonkeyPatch):
     assert len(chat_calls) == 1
     assert result["assistant_text"] == "plain answer"
     assert result["payload_summary"]["messageId"] == 2
-    assert result["payload_summary"]["requestId"] == task.task_id
+    assert result["payload_summary"]["requestId"] == task.request_id
+    assert task.request_id != task.task_id
     assert result["payload_summary"]["toolTurnId"] is None
     assert result["payload_summary"]["toolTurnState"] == "idle"
     assert result["payload_summary"]["loopStopReason"] == "plain_answer"
@@ -315,6 +351,92 @@ def test_deepseek_native_tool_call_replays_losslessly_and_runs_once(
         "tool_call_id": "call-1",
         "content": '{"run_id": "run-deepseek", "status": "completed", "invoke_version": "1.0", "manifest_version": "1.0", "events_url": "/events/run-deepseek", "inline_result": {"value": "ok"}}',
     }
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Stage 1 must reject model-returned commands outside the nonempty "
+        "advertised tool set before command-bus execution"
+    ),
+)
+def test_deepseek_rejects_unadvertised_command_before_command_bus(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(monkeypatch, provider="deepseek")
+    task = _build_task(task_id="task-unadvertised-command")
+    task.provider = "deepseek"
+    task.tools = [
+        {
+            "command_id": "op::advertised",
+            "description": "The only advertised command",
+        }
+    ]
+
+    command_calls: list[Any] = []
+
+    def _execute_invoke(*, payload, **_kwargs):
+        command_calls.append(payload)
+        return {
+            "run_id": "run-unadvertised",
+            "status": "completed",
+            "invoke_version": "1.0",
+            "manifest_version": "1.0",
+            "events_url": "/events/run-unadvertised",
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _execute_invoke)
+
+    provider_calls: list[list[dict[str, Any]]] = []
+    assistant_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "call-unadvertised", "type": "function"}],
+    }
+
+    def _chat_with_ai(messages, **_kwargs):
+        provider_calls.append([dict(message) for message in messages])
+        if len(provider_calls) == 1:
+            return DeepSeekResponse(
+                content="",
+                reasoning_content=None,
+                tool_calls=[
+                    {
+                        "command_id": "op::unadvertised",
+                        "tool_call_id": "call-unadvertised",
+                        "arguments": {},
+                    }
+                ],
+                raw_assistant_message=assistant_message,
+                raw_payload={"choices": [{"message": assistant_message}]},
+            )
+        return DeepSeekResponse(
+            content="should not reach a second provider call",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={
+                "role": "assistant",
+                "content": "should not reach a second provider call",
+            },
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
+
+    caught_error = None
+    try:
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+    except chat_completion_service.ToolLoopExecutionError as exc:
+        caught_error = exc
+
+    assert command_calls == []
+    assert len(provider_calls) == 1
+    assert caught_error is not None
+    assert caught_error.metadata["loopStopReason"] == "tool_decision_invalid"
+    assert caught_error.metadata["toolTurnState"] == "failed"
 
 
 def test_tool_execution_failure_surfaces_bounded_stop_reason(
