@@ -8,7 +8,7 @@ Source anchors:
 
 # Module Diagram Coverage Matrix
 
-Diagram Review Marker: 2026-05-11
+Diagram Review Marker: 2026-08-09
 
 ## Scope
 
