@@ -275,6 +275,23 @@ That boundary is governed by
 Provider capability records under this contract describe ability; they do
 not grant Guardian command authority.
 
+### Provider-specific qualification evidence
+
+An effective capability may consume provider-specific evidence without making
+that evidence a provider-neutral wire requirement. For the identity-pinned
+Whoosh'd strict-structured path, a future effective tool capability requires a
+future qualification record and a current runtime-attestation `MATCH` for the
+exact resolved execution target, in addition to readiness, permitted
+provider/model capability, and Guardian authority. The detailed local-runtime
+attestation boundary is governed by
+[`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md).
+
+That attestation does not itself declare or grant a capability, and it does
+not authorize Guardian commands. It is evidence consumed below this generic
+capability layer. Other providers may use different trustworthy proof and
+lifecycle evidence; they are not required to implement Whoosh'd artifact,
+tokenizer, template, or decoder identity fields.
+
 ### 1. Runtime Discovery Spec
 
 Should define:

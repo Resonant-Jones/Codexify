@@ -6,6 +6,7 @@ Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/whooshd-model-profiles.md
 - docs/architecture/whooshd-control-plane-v1.md
+- docs/architecture/whooshd-runtime-qualification-attestation-contract.md
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
 - docs/architecture/canonical-token-philosophy.md
@@ -614,3 +615,21 @@ mismatch fail closed; this does not advertise a capability, change
 release claim. This implementation consumes the Stage 2D receipt but does not
 repeat live runtime proof; the runtime contract still cannot attest the pinned
 MLX-VLM package, tokenizer, or template fingerprint per response.
+
+### Stage 2F attestation requirement — 2026-08-09
+
+[`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md)
+defines the remaining runtime-truth boundary. Stage 2E's alias and current
+runtime-provenance guard is necessary containment, but it is not sufficient
+for final capability advertisement: the current response cannot attest all
+material Stage 2D proof-key dimensions, including artifact revision/quant,
+runtime and structured-decoder builds, tokenizer identity, and effective
+template/parser fingerprints.
+
+Before this target can ever become an effective capability, Whoosh'd must
+originate an attestation for the exact resolved execution target and Codexify
+must establish a `MATCH` against a future machine-readable qualification
+record. Missing or mismatched material evidence must fail closed. This is not
+implemented by Stage 2F, does not change `ModelCapability.TOOLS`,
+`RuntimeModel.supports_tools`, `MlxVlmAdapter.supports_tools`, ordinary chat,
+or Guardian authority, and does not make the latent Stage 2E transport public.
