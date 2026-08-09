@@ -17,7 +17,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-08T13:54:04Z",
     "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
     "triggers": [
@@ -25,7 +25,7 @@
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Verified as the canonical ADR routing surface at the Phase 1 base."
+    "reason": "ADR Index source changed during the human-approved ADR-005 to ADR-058 canonicalization and requires committed-revision re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "e273efcbf095d0f2ae7b83e1f4909c4ba9260d80011b8c9763864356b1430503",
+  "content_hash": "3e6b633efd660236902d53a922cba9f6cf6e42044058e2da4fe447a7664a00f3",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
