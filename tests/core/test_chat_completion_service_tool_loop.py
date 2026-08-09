@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from guardian.core import chat_completion_service
+from guardian.protocol_tokens import ToolLoopStopReason, ToolTurnState
 from guardian.providers.deepseek_adapter import DeepSeekResponse
 from guardian.tasks.types import ChatCompletionTask
 
@@ -168,6 +169,7 @@ def test_single_tool_decision_path_invokes_command_bus_once_and_reinjects_result
 ):
     _seed_service(monkeypatch)
     task = _build_task(task_id="task-tool-decision")
+    task.tools = [{"command_id": "op::echo", "description": "echo"}]
 
     command_calls: list[dict[str, Any]] = []
 
@@ -241,6 +243,7 @@ def test_second_tool_decision_hard_stops_after_one_bounded_turn(
 ):
     _seed_service(monkeypatch)
     task = _build_task(task_id="task-tool-limit")
+    task.tools = [{"command_id": "op::echo", "description": "echo"}]
 
     command_calls: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -353,13 +356,6 @@ def test_deepseek_native_tool_call_replays_losslessly_and_runs_once(
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Stage 1 must reject model-returned commands outside the nonempty "
-        "advertised tool set before command-bus execution"
-    ),
-)
 def test_deepseek_rejects_unadvertised_command_before_command_bus(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -423,20 +419,78 @@ def test_deepseek_rejects_unadvertised_command_before_command_bus(
 
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
 
-    caught_error = None
-    try:
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
         chat_completion_service.run_chat_completion_task(
             task,
             persist_assistant_message=False,
         )
-    except chat_completion_service.ToolLoopExecutionError as exc:
-        caught_error = exc
 
     assert command_calls == []
     assert len(provider_calls) == 1
-    assert caught_error is not None
-    assert caught_error.metadata["loopStopReason"] == "tool_decision_invalid"
-    assert caught_error.metadata["toolTurnState"] == "failed"
+    assert exc.value.metadata["messageId"] == 2
+    assert exc.value.metadata["requestId"] == task.request_id
+    assert task.request_id != task.task_id
+    assert exc.value.metadata["toolTurnId"] is not None
+    assert (
+        exc.value.metadata["loopStopReason"]
+        == ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+    )
+    assert exc.value.metadata["toolTurnState"] == ToolTurnState.FAILED.value
+    assert exc.value.metadata["commandRunId"] is None
+
+
+@pytest.mark.parametrize(
+    "advertised_tools",
+    [None, []],
+    ids=["none", "empty"],
+)
+def test_plaintext_tool_decision_without_advertised_tools_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+    advertised_tools: list[dict[str, Any]] | None,
+):
+    _seed_service(monkeypatch)
+    task = _build_task(task_id="task-no-advertised-tools")
+    task.tools = advertised_tools
+
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: command_calls.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+    )
+
+    provider_calls: list[list[dict[str, Any]]] = []
+
+    def _chat_with_ai(messages, **_kwargs):
+        provider_calls.append([dict(message) for message in messages])
+        return (
+            '{"type":"tool_decision","command_id":"op::unadvertised",'
+            '"arguments":{}}'
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
+
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert task.tools == advertised_tools
+    assert command_calls == []
+    assert len(provider_calls) == 1
+    assert exc.value.metadata["messageId"] == 2
+    assert exc.value.metadata["requestId"] == task.request_id
+    assert task.request_id != task.task_id
+    assert exc.value.metadata["toolTurnId"] is not None
+    assert (
+        exc.value.metadata["loopStopReason"]
+        == ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+    )
+    assert exc.value.metadata["toolTurnState"] == ToolTurnState.FAILED.value
+    assert exc.value.metadata["commandRunId"] is None
 
 
 def test_tool_execution_failure_surfaces_bounded_stop_reason(
@@ -444,6 +498,7 @@ def test_tool_execution_failure_surfaces_bounded_stop_reason(
 ):
     _seed_service(monkeypatch)
     task = _build_task(task_id="task-tool-failure")
+    task.tools = [{"command_id": "op::echo", "description": "echo"}]
 
     command_calls: list[dict[str, Any]] = []
 
