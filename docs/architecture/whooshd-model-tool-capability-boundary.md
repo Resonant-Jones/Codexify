@@ -556,10 +556,12 @@ using: mlx_vlm / MlxVlmAdapter
 with: mlx-community/gemma-4-12B-it-qat-4bit,
       model-00001-of-00003.safetensors + model-00002-of-00003.safetensors
       + model-00003-of-00003.safetensors (QAT 4-bit)
-through: strict structured transport (proposed; not implemented or qualified)
+through: the recorded MLX-VLM JSON-Schema grammar transport (qualified only
+         for the exact proof identity)
 ```
 
-**Qualification status: unproven.** The target is pinned because it is the
+**Qualification status: qualified for the exact recorded proof identity only.**
+The target is pinned because it is the
 only exact local model/runtime combination currently advertised by Whoosh'd,
 has a configured deterministic invocation alias and resolved artifact path,
 and its installed template has concrete tool-turn rendering evidence. It is
@@ -567,24 +569,21 @@ not the ideal small native `llama_cpp` proof target; no actual local GGUF path
 is currently advertised or present. Selecting a hypothetical Qwen or "any
 GGUF" would substitute configuration/examples for local model truth.
 
-Stage 2D must first verify that a strict structured transport can be made
-explicit, constrained, parsed, and correlated for this exact target; the
-current adapter's `supports_tools=False` makes that an implementation/proof
-gate, not a capability claim. It must also warm the selected target and record
-the actual runtime/build, tokenizer, template, artifact-hash, parser/grammar,
-and transport evidence that is currently absent from runtime provenance. If
-that preflight cannot establish a strict structured path, Stage 2D stops;
-importing or configuring a separate GGUF/`llama_cpp` target is a new,
-separately authorized selection/intake slice.
+### Stage 2D qualification receipt — 2026-08-09
 
-A successful Stage 2D may claim only that this exact resolved Gemma MLX target,
-with the recorded proof identity and strict structured transport, passed the
-bounded Stage 2A tool-turn qualification. It must not generalize to all Gemma
-models, all MLX models, all `mlx_vlm` targets, all GGUF models, all
-`llama_cpp` targets, Whoosh'd as a whole, or Guardian authority. It does not
-populate `ModelCapability.TOOLS` or expose tools to ordinary Guardian chat
-unless a separate authorized implementation later makes and consumes that
-evidence.
+The local live proof is recorded in
+[`2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-strict-structured-tool-qualification-proof.md`](proofs/2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-strict-structured-tool-qualification-proof.md).
+It proved a generation-time MLX-VLM JSON-Schema grammar constraint and passed
+the bounded semantic fixture for the exact recorded Gemma artifact, MLX-VLM
+0.6.2, llguidance 1.7.6, tokenizer/template, and schema identity. No schema
+weakening occurred.
 
-Stage 2D remains a separate architecture-impact task requiring explicit human
-authorization. This contract does not implement it.
+This result means only: the exact Stage 2D proof identity for
+`gemma-4-12b-it-qat-4bit` demonstrated the semantic behavior required for a
+future strict-structured Whoosh'd tool transport under the recorded
+runtime/template identity. It does not say Whoosh'd, MLX, MLX-VLM, Gemma, or
+`MlxVlmAdapter` supports tools generally; it does not populate
+`ModelCapability.TOOLS`, change `MlxVlmAdapter.supports_tools`, expose a
+Guardian capability, grant command authority, or implement production
+transport. A separate authorized, identity-pinned implementation slice must
+consume this evidence while preserving the Stage 1 advertised-subset gate.
