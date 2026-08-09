@@ -1046,16 +1046,27 @@ def _append_deepseek_tool_result_messages(
     tool_call_id: str,
     command_result: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    next_messages = [dict(message) for message in messages if isinstance(message, dict)]
-    next_messages.append(dict(assistant_message))
-    next_messages.append(
-        {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": json.dumps(command_result, ensure_ascii=False, default=str),
-        }
+    """Delegate the DeepSeek continuation shape to the provider adapter.
+
+    The adapter owns the wire translation. The generic Guardian runtime only
+    supplies the provider-neutral fields:
+
+    - The semantic raw assistant message envelope (opaque).
+    - The provider-side tool-call correlation identity (``tool_call_id``).
+    - The Command Bus execution result (semantic).
+
+    The adapter preserves any provider-private continuation material inside
+    the assistant message envelope (for example, ``reasoning_content``) without
+    exposing it to the generic tool executor.
+    """
+    from guardian.providers.deepseek_adapter import build_continuation_messages
+
+    return build_continuation_messages(
+        messages,
+        raw_assistant_message=assistant_message,
+        tool_call_id=tool_call_id,
+        command_result=command_result,
     )
-    return next_messages
 
 
 def _tool_turn_completion_result(

@@ -423,3 +423,63 @@ These are deliberate documentation-only deferrals. They are not omissions. They 
 - Any durable persistence of provider continuation state for crash recovery.
 
 These questions must each be addressed by a separate architecture-impact slice with its own pre-read and ADR-conflict check. They are not addressed by this contract.
+
+
+## 18. Implementation Status (Stage 2B)
+
+This contract was first implemented against the DeepSeek provider transport.
+The implementation status is:
+
+- **DeepSeek native tool transport is now test-proven against the canonical
+  semantic boundary.** The DeepSeek adapter owns the wire translation in both
+  directions through build_continuation_messages and the existing
+  build_payload / parse_response / normalize_tool_calls /
+  build_tool_definitions helpers. The generic Guardian runtime
+  (chat_completion_service.py) calls the adapter through the
+  provider-neutral NormalizedCompletionOutput dataclass and does not
+  inspect DeepSeek-private fields.
+- **The Stage 1 advertised-subset gate remains Guardian authority.** No
+  authority check is duplicated in the adapter. Provider-native and
+  structured non-native calls reach the same gate through the same path.
+- **DeepSeek-specific continuation state is adapter-owned and
+  request-scoped.** The adapter preserves reasoning_content inside the
+  raw assistant message envelope opaquely. Generic Guardian and Command Bus
+  code does not branch on reasoning_content. The continuation request
+  replays the full assistant message so the provider can continue inference
+  (per the DeepSeek Thinking Mode guide).
+- **No ordinary chat capability exposure was added.** Production chat
+  producers still leave task.tools unset. The Stage 2B implementation
+  only proves the DeepSeek transport seam against the contract under
+  synthesized test fixtures.
+- **Other providers remain unimplemented and unqualified under this
+  contract.** OpenAI Chat Completions, OpenAI Responses, Groq, whooshd, and
+  local runtimes are not in scope for Stage 2B and have no claim of
+  conformance to this contract.
+- **No release-support claim follows from this code-path / test proof.**
+  This is a code-path and test-proven adapter against the contract only.
+  Live DeepSeek execution, deepseek-v4-flash / deepseek-v4-pro runtime
+  behavior, and reasoning-mode continuation remain to be proven by a
+  separate supported-path proof.
+
+External documentation consulted:
+
+- https://api-docs.deepseek.com/guides/tool_calls (DeepSeek API Docs,
+  accessed 2026-08-09 for this commit). Confirmed that the Chat
+  Completions API uses the OpenAI-shape native tool call and that
+  continuation is achieved by appending the assistant message plus a
+  role: tool message with the matching tool_call_id.
+- https://api-docs.deepseek.com/guides/thinking_mode (DeepSeek API
+  Docs, accessed 2026-08-09). Confirmed that for requests carrying the
+  tools parameter, reasoning_content must be fully passed back to
+  the API in all subsequent requests, or the API returns a 400 error.
+  This is the documented origin of the provider-continuation-state
+  requirement that this contract treats as opaque continuation material.
+
+The implementation does not introduce a new shared module. The existing
+NormalizedCompletionOutput dataclass in guardian/core/ai_router.py
+already carried every required semantic field (canonical command
+identity, tool-call correlation identity, structured arguments, opaque
+provider envelope), and the DeepSeek adapter reads/writes it without
+duplicating the type. Inspecting it confirmed that creating a parallel
+tool_turn_contracts module would have split the abstraction without
+adding semantics.
