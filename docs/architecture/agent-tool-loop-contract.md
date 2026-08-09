@@ -9,6 +9,18 @@ Source anchors:
 - guardian/protocol_tokens.py
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
+- docs/architecture/provider-tool-turn-boundary-contract.md
+
+## Adjacent Governing Contract
+
+Provider wire translation is governed by
+[`provider-tool-turn-boundary-contract.md`](./provider-tool-turn-boundary-contract.md).
+That contract defines the canonical semantic seam between provider transport
+and Codexify model/tool-turn semantics. The bounded runtime described in this
+file consumes provider-normalized semantic outcomes; it does not consume
+provider wire formats directly. The Stage 1 advertised-subset authorization
+gate remains the pre-execution authority seam, and the one-tool-turn runtime
+contract in this file is unchanged.
 
 ## Scope
 

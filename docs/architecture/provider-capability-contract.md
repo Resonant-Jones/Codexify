@@ -312,3 +312,19 @@ Suggested future name:
 - No billing logic
 - No credential management changes
 - No release-surface expansion
+
+## Relationship to Provider/Tool-Turn Boundary
+
+Provider capability records produced under this contract may describe whether
+and how a provider can transport the canonical model/tool-turn contract from
+[`provider-tool-turn-boundary-contract.md`](./provider-tool-turn-boundary-contract.md).
+They do not define Guardian authority, the canonical `ModelTurn` shape, the
+tool-call correlation identity, the normalized tool-result shape, or the
+provider-continuation-state boundary. Those definitions live in the boundary
+contract, not in capability records.
+
+In other words, this contract is cross-cutting with, not subordinate to, the
+provider/tool-turn boundary contract. Capability records describe what a
+provider can transport; the boundary contract defines what a tool turn is.
+
+This contract remains planning-only and is not current runtime truth.
