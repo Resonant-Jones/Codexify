@@ -483,3 +483,25 @@ provider envelope), and the DeepSeek adapter reads/writes it without
 duplicating the type. Inspecting it confirmed that creating a parallel
 tool_turn_contracts module would have split the abstraction without
 adding semantics.
+
+### Whoosh'd per-Model Qualification
+
+Unlike DeepSeek (one relatively homogeneous native transport), Whoosh'd is a
+single provider identity containing heterogeneous model/runtime targets.
+Tool-transport qualification therefore occurs below the provider identity at
+the exact target/runtime/template boundary. The per-model qualification
+contract is
+[`whooshd-model-tool-capability-boundary.md`](./whooshd-model-tool-capability-boundary.md).
+All qualified paths still normalize to the same Codexify semantic tool-turn
+contract defined here. Stage 2B DeepSeek behavior is unchanged.
+
+### Continuation-State Carrier Scope
+
+The `raw_assistant_message` field on `NormalizedCompletionOutput` is
+currently proven sufficient for the DeepSeek native continuation
+implementation (Stage 2B). It is NOT yet established as the universal opaque
+continuation-state carrier for every future provider or runtime. Future
+adapters (such as Whoosh'd local runtime adapters) may reveal a need for a
+more generic opaque provider-state carrier. Such a change requires a separate
+architecture-impact review; it is not authorized by the Stage 2B
+implementation or by this contract.
