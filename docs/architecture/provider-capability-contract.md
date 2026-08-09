@@ -263,6 +263,18 @@ Capability displays should not collapse into a single green/red availability dot
 
 This note intentionally stops before implementation.
 
+## Cross-Provider Capability Boundaries
+
+For the DeepSeek provider, capability is relatively homogeneous: one native
+transport has been test-proven against the canonical tool-turn contract
+(Stage 2B). For Whoosh'd, which is a single provider identity containing
+heterogeneous model/runtime targets, tool-capability qualification occurs
+below the provider level at the exact target/runtime/template boundary.
+That boundary is governed by
+[`whooshd-model-tool-capability-boundary.md`](./whooshd-model-tool-capability-boundary.md).
+Provider capability records under this contract describe ability; they do
+not grant Guardian command authority.
+
 ### 1. Runtime Discovery Spec
 
 Should define:

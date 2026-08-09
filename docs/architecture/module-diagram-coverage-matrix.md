@@ -1,5 +1,5 @@
 Purpose: Track which high-coupling runtime modules require module-level diagrams, why they require them, and what diagram work remains.
-Last updated: 2026-05-11
+Last updated: 2026-08-09
 Source anchors:
 - docs/architecture/modules-and-ownership.md
 - docs/architecture/flows.md
