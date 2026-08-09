@@ -29,11 +29,14 @@ If the provider returns plain output, the existing completion path continues.
 If the provider returns a structured tool decision:
 
 1. The runtime generates a `toolTurnId`.
-2. The runtime executes exactly one command through the command bus.
-3. The resulting `commandRunId` is captured.
-4. The command result is re-injected into the completion messages as bounded context.
-5. The runtime requests one final assistant answer.
-6. The runtime hard-stops after that final answer.
+2. The runtime derives the canonical command IDs from the nonempty tool set authorized and advertised through `ChatCompletionTask.tools` for that request.
+3. The selected canonical `command_id` must belong to that exact set; missing or nonmatching advertised authority stops with `tool_command_blocked` before `execute_invoke`, with `toolTurnState=failed` and no `commandRunId`.
+4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
+5. The runtime executes exactly one authorized command through the command bus.
+6. The resulting `commandRunId` is captured.
+7. The command result is re-injected into the completion messages as bounded context.
+8. The runtime requests one final assistant answer.
+9. The runtime hard-stops after that final answer.
 
 No recursive retry choreography, planner loop, or second tool turn is part of this slice.
 

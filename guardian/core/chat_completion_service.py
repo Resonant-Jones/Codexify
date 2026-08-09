@@ -5062,6 +5062,18 @@ async def build_messages_for_llm(
     return messages_for_llm, provider, model, bundle, trace
 
 
+def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
+    tools = getattr(task, "tools", None)
+    if not isinstance(tools, list):
+        return frozenset()
+    return frozenset(
+        command_id
+        for tool in tools
+        if isinstance(tool, dict)
+        and (command_id := str(tool.get("command_id") or "").strip())
+    )
+
+
 def _execute_bounded_tool_turn_completion(
     task: ChatCompletionTask,
     *,
@@ -5285,6 +5297,23 @@ def _execute_bounded_tool_turn_completion(
                 loop_stop_reason=ToolLoopStopReason.TOOL_DECISION_INVALID.value,
                 command_run_id=None,
             ),
+        )
+
+    authorized_command_ids = _authorized_tool_command_ids(task)
+    if (
+        not authorized_command_ids
+        or normalized_first_output.command_id not in authorized_command_ids
+    ):
+        raise ToolLoopExecutionError(
+            ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            )
+            | {"command_id": normalized_first_output.command_id},
         )
 
     tool_turn_state = ToolTurnState.DECISION_RECEIVED.value
