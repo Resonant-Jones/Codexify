@@ -11,6 +11,7 @@ Source anchors:
 - guardian/providers/whooshd_sidecar.py
 - guardian/core/ai_router.py
 - guardian/core/chat_completion_service.py
+- guardian/memory_graph/graph_write_identity.py
 - Whoosh'd ref e191798be3a290b291e0878eac8309d8b6ce7130 (ResonantConstructs/Whoosh'd)
 
 # Whoosh'd Runtime Qualification Attestation Contract
@@ -74,7 +75,7 @@ cross-process filesystem/package inspection.
 
 ## Not Yet True
 
-- There is no canonical `RuntimeQualificationAttestation` object or digest.
+- No runtime `RuntimeQualificationAttestation` object or digest is produced.
 - No per-response provenance carries a reference to an attestation.
 - No runtime endpoint, inventory surface, or health response proves the exact
   MLX-VLM package/build, llguidance version, tokenizer identity, template
@@ -278,29 +279,200 @@ weight hashing.
 
 ## Attestation Canonicalization
 
-The recommended representation is **structured bounded fields plus a
-deterministic digest**. Structured fields allow safe mismatch diagnosis; a
-digest makes compact equality and stale-proof detection deterministic. Either
-alone is insufficient: fields alone make comparison/evolution fragile, while
-an opaque digest alone prevents useful operator truth.
+The required representation is **structured bounded fields plus a deterministic
+digest**. Structured fields allow safe mismatch diagnosis; a digest makes
+compact equality and stale-proof detection deterministic. Either alone is
+insufficient: fields alone make comparison/evolution fragile, while an opaque
+digest alone prevents useful operator truth.
 
-The attestation schema must define:
+### Digest selection
 
-- an independent attestation schema/version marker;
-- a fixed, named set of required proof-key fields and their normalized forms;
-- deterministic field ordering and explicit handling of arrays/maps;
-- explicit distinction among absent, `unknown`, and an observed value;
-- a named/versioned digest algorithm and canonical serialization;
-- exclusion of raw paths, timestamps, request/correlation IDs, prompts, and
-  all other request-specific values from the identity digest; and
-- a rule that unsupported or future required fields never collapse into a
-  matching digest by omission.
+The v1 attestation digest primitive is **SHA-256**. Its algorithm identifier
+is `sha256`; its only canonical serialized representation is:
 
-No digest primitive is selected here. The current architecture has no
-canonical attestation-digest algorithm, so choosing one is an implementation
-task with a versioned schema decision. A qualification record and attestation
-may compare structured fields as well as the digest; disagreement between
-them is insufficient evidence, not a convenience fallback.
+```text
+sha256:<64 lowercase hexadecimal characters>
+```
+
+No whitespace, uppercase hexadecimal, base64, unprefixed hexadecimal, or
+alternative prefix is canonical for v1. The digest input is the UTF-8 byte
+sequence of the canonical identity JSON document defined below. It must not be
+Python or Pydantic `repr`, pretty-printed JSON, an already-generated digest,
+or a filesystem path.
+
+`guardian/memory_graph/graph_write_identity.py` is precedent for deterministic
+SHA-256 over compact sorted-key UTF-8 JSON. It is not a shared implementation
+dependency: its recursive sorting of lists/sets is explicitly not adopted
+here. Whoosh'd and Codexify must independently implement this contract and
+converge through the fixed vector below.
+
+The SHA-256 digest is a deterministic identity fingerprint. It is **not** a
+signature, MAC, proof of remote trust, proof the producer is uncompromised,
+authorization token, Guardian capability grant, or a replacement for transport
+authentication.
+
+### V1 canonical identity document
+
+For the independent attestation schema version
+`whooshd.qualification-attestation.v1`, the canonical identity document has
+exactly these top-level material fields. This amendment fixes the field names
+that Stage 2F required but had not yet serialized:
+
+| Field | Required bounded identity evidence |
+| --- | --- |
+| `attestation_schema_version` | Exactly `whooshd.qualification-attestation.v1`. |
+| `canonicalization_profile` | Exactly `whooshd.qualification-attestation.canonical-json.v1`. |
+| `invocation_model_id` | Public invocation alias. |
+| `resolved_model_id` | Actual resolved model/repository identity, never a local path. |
+| `artifact_identity` | Object with `kind` and `value`: a bounded revision or artifact/manifest fingerprint. |
+| `quantization` | Normalized loaded artifact quantization descriptor. |
+| `runtime_kind` | Canonical runtime kind. |
+| `adapter` | Object with adapter `name` and semantic `semantic_build` identity. |
+| `whooshd_build_identity` | Bounded Whoosh'd semantic build/version identity. |
+| `serving_runtime` | Object with serving runtime `package` and `version`. |
+| `structured_decoder` | Object with decoder `package` and `version`. |
+| `tokenizer` | Object with tokenizer `implementation` and bounded `identity_fingerprint`. |
+| `chat_template_fingerprint` | Bounded fingerprint of the effective chat template. |
+| `tool_template_parser` | Object with `relationship` and `identity_fingerprint`; it records whether the tool parser/template is `distinct` or `shared_chat_template`. A shared identity is real evidence and must refer to the effective shared template, not a placeholder. |
+| `structured_transport` | Object with strict transport `mode` and `protocol_version`. |
+| `qualification_protocol_version` | The ModelTurn/qualification protocol version proved for the target. |
+
+The document has no extension fields. Nested objects have only the named
+members in this table. `artifact_identity.kind` must identify the safe evidence
+form (for example, `revision` or `manifest_fingerprint`); its `value` must not
+be a filesystem path. The v1 document has no arrays, but a canonicalizer must
+preserve—not sort—the semantic order of any array admitted by a future profile.
+Unordered sets are invalid canonical input.
+
+### Canonical JSON v1 rules
+
+The canonicalization profile identifier is
+`whooshd.qualification-attestation.canonical-json.v1`. It requires:
+
+- only the exact material fields and nested members above; unknown extension
+  fields are rejected rather than ignored;
+- NFC normalization of every participating JSON object key and string value
+  before serialization;
+- rejection of duplicate object keys after NFC normalization, including a
+  collision between two otherwise distinct input spellings;
+- no case-folding, trimming, uppercasing, lowercasing, or other semantic
+  rewriting during canonicalization—producer/schema normalization belongs
+  before this boundary;
+- lexicographic JSON object-key ordering at every object level, independent of
+  Python insertion order;
+- compact JSON with comma element/member separators, colon key/value
+  separators, and no insignificant whitespace;
+- direct non-ASCII JSON string serialization (`ensure_ascii=false` equivalent)
+  and UTF-8 encoding, with no BOM;
+- rejection of `NaN`, `Infinity`, `-Infinity`, implementation-specific numeric
+  values, and object-representation-dependent serialization; and
+- preservation of JSON array order whenever an allowed profile includes an
+  array. Arrays are never sorted merely to obtain determinism.
+
+The digest domain is the `attestation_schema_version` plus the immutable
+canonicalization profile in the document. The digest includes no request IDs,
+correlation/task/attempt IDs, timestamps, PIDs, hosts, ports, queue/batch or
+streaming state, lifecycle/readiness state, latency, metrics, health/load
+timestamps, random salts, machine IDs, secrets, raw paths, prompts, or
+completions.
+
+### Completeness and comparison
+
+Every field in the v1 canonical identity document is required for a
+qualification-grade digest. Missing, `null`, empty, malformed, or unknown
+evidence makes the attestation incomplete. Placeholder strings such as
+`unknown`, `unavailable`, or `n/a` are not evidence and must not be inserted to
+obtain a digest.
+
+An incomplete attestation may retain bounded observed fields for diagnostics,
+but its `attestation_digest` is absent and its future qualification result is
+`INSUFFICIENT_EVIDENCE`. It must not hash fabricated values. A complete
+attestation has `digest_algorithm: sha256`, the profile identifier above, and
+`attestation_digest: sha256:<hex>`.
+
+For the same schema and profile, equal canonical material identity produces an
+equal digest; a changed material identity produces a different expected digest.
+Future Codexify comparison must require agreement on attestation schema,
+canonicalization profile, digest algorithm, and digest value. A missing
+required field is `INSUFFICIENT_EVIDENCE`; a complete but different identity is
+`MISMATCH`; agreement on all required material evidence is `MATCH`. These stay
+conceptual classifications and are not runtime-protocol tokens.
+
+### Immutability and profile evolution
+
+`whooshd.qualification-attestation.canonical-json.v1` is immutable once a
+producer ships. A change to key ordering, NFC handling, included/excluded
+material fields, missing/null treatment, array semantics, JSON encoding, or
+digest input structure requires a new canonicalization-profile version.
+Changing the digest primitive requires a distinct algorithm identifier and
+architecture review. A bug fix that would change already emitted v1 bytes is
+an identity-contract compatibility issue; it must not silently redefine v1.
+
+### Normative synthetic fixed vector
+
+This synthetic fixture contains no private path, secret, or model-weight hash.
+Its displayed object intentionally uses an order different from the canonical
+key order and includes NFC `Café` to exercise direct Unicode serialization.
+
+```json
+{
+  "tool_template_parser": {
+    "relationship": "distinct",
+    "identity_fingerprint": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "tokenizer": {
+    "identity_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "implementation": "GemmaTokenizer"
+  },
+  "structured_transport": {
+    "protocol_version": "model-turn.strict-json-schema.v1",
+    "mode": "strict_json_schema"
+  },
+  "structured_decoder": {"version": "1.7.6", "package": "llguidance"},
+  "serving_runtime": {"version": "0.6.2", "package": "mlx-vlm"},
+  "runtime_kind": "mlx_vlm",
+  "resolved_model_id": "example.org/Gemma-4-12B-IT-QAT-4bit",
+  "quantization": "qat-4bit",
+  "qualification_protocol_version": "model-turn.strict-json-schema.v1",
+  "whooshd_build_identity": "whooshd-0.1.0rc1+synthetic",
+  "invocation_model_id": "Gemma-4-12B-IT-QAT-4bit",
+  "chat_template_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "canonicalization_profile": "whooshd.qualification-attestation.canonical-json.v1",
+  "attestation_schema_version": "whooshd.qualification-attestation.v1",
+  "artifact_identity": {
+    "value": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "kind": "manifest_fingerprint"
+  },
+  "adapter": {"semantic_build": "MlxVlmAdapter-Café-v1", "name": "mlx-vlm"}
+}
+```
+
+Its exact canonical JSON is one line, with no leading/trailing whitespace or
+trailing newline:
+
+```text
+{"adapter":{"name":"mlx-vlm","semantic_build":"MlxVlmAdapter-Café-v1"},"artifact_identity":{"kind":"manifest_fingerprint","value":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"attestation_schema_version":"whooshd.qualification-attestation.v1","canonicalization_profile":"whooshd.qualification-attestation.canonical-json.v1","chat_template_fingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","invocation_model_id":"Gemma-4-12B-IT-QAT-4bit","qualification_protocol_version":"model-turn.strict-json-schema.v1","quantization":"qat-4bit","resolved_model_id":"example.org/Gemma-4-12B-IT-QAT-4bit","runtime_kind":"mlx_vlm","serving_runtime":{"package":"mlx-vlm","version":"0.6.2"},"structured_decoder":{"package":"llguidance","version":"1.7.6"},"structured_transport":{"mode":"strict_json_schema","protocol_version":"model-turn.strict-json-schema.v1"},"tokenizer":{"identity_fingerprint":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","implementation":"GemmaTokenizer"},"tool_template_parser":{"identity_fingerprint":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","relationship":"distinct"},"whooshd_build_identity":"whooshd-0.1.0rc1+synthetic"}
+```
+
+Its byte interpretation is exactly the UTF-8 encoding of that line (including
+the two bytes `c3 a9` for `é`), with no BOM and no terminal newline. The
+normative digest algorithm is `sha256`; the expected lowercase hexadecimal
+digest is:
+
+```text
+5f1923d1afa0f3a804bd3c12f37486b9f6b692baf43a294c766610399d95725f
+```
+
+The exact serialized digest is:
+
+```text
+sha256:5f1923d1afa0f3a804bd3c12f37486b9f6b692baf43a294c766610399d95725f
+```
+
+This vector was independently checked with Python `hashlib.sha256` over the
+documented UTF-8 bytes and `shasum -a 256` over the same byte stream. Both
+produced the expected hexadecimal value. Stage 2F.1a fixed-vector tests must
+reproduce this value exactly.
 
 ## RuntimeProvenance Integration Decision
 
@@ -483,7 +655,7 @@ OpenAI, or another provider.
 ## Non-Goals
 
 - Implementing an attestation producer, cache, endpoint, or parser.
-- Selecting a digest algorithm or writing digest code.
+- Writing digest or attestation implementation code.
 - Creating the machine-readable qualification record or persistence schema.
 - Probing a model, loading/restarting a runtime, installing packages, or
   qualifying a second model.
@@ -510,11 +682,13 @@ cannot authorize a public capability advertisement.
 **Stage 2F.1 — Implement the bounded Whoosh'd attestation producer and
 Codexify consumer/validation seam defined here.**
 
-That separately authorized slice should first define the versioned attestation
-shape, compute it at successful target initialization/reload from the serving
-runtime's directly observable state, retain it with the target, reference it
-from the existing `RuntimeProvenance` carrier, extend Codexify's bounded parser,
-and prove absent/malformed/mismatched behavior fails closed. It must not add
+That separately authorized slice should implement the immutable v1 identity
+document and SHA-256 canonicalization profile defined above; compute it at
+successful target initialization/reload from the serving runtime's directly
+observable state; retain it with the target; reference it from the existing
+`RuntimeProvenance` carrier; extend Codexify's bounded parser; and prove the
+fixed vector plus absent/malformed/mismatched behavior fails closed. It must
+not add
 `ModelCapability.TOOLS`, `supports_tools`, capability advertisement, or
 Guardian tool exposure until a later approved qualification-record and
 effective-capability projection slice.
