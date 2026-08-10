@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `6a51017fe`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
+`main` is in local-first beta hardening at `4ba72ec9e`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
 
 ## What changed recently
 
@@ -58,7 +58,7 @@ This file is authoritative for:
 
 ## Active blockers
 
-- Fresh live Compose proof is still needed at `6a51017fe`, including health, model inventory, terminal completion, persisted output, and retrieval.
+- Fresh live Compose proof is still needed at `4ba72ec9e`, including health, model inventory, terminal completion, persisted output, and retrieval.
 - Queue-coupled chat still needs current-tip evidence for Redis, worker, turn-lock, and terminal-event behavior.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
 - The bounded Coding Loop lane lacks current-tip proof of backend route acceptance, provider adapter execution, terminal result persistence, and durable source-thread readback; the prior proof stopped at backend exit code 3.
@@ -67,7 +67,7 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Capture fresh supported-Compose proof at `6a51017fe`: health, model inventory, chat, persistence, and retrieval.
+1. Capture fresh supported-Compose proof at `4ba72ec9e`: health, model inventory, chat, persistence, and retrieval.
 2. Verify queue completion, turn locking, migration behavior, and import recovery under the supported profile.
 3. Reconcile or clearly fence canonical-versus-legacy configuration paths.
 4. Re-prove provider/tool-turn and the enabled Coding Loop lanes end to end, or quarantine them until their required proof exists.
