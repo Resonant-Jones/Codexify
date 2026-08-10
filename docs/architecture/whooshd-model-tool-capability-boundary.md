@@ -776,12 +776,22 @@ No capability has been advertised. No `task.tools` producer exists. The
 projection is exposed only as a pure function and a bounded
 `WhooshdToolCapabilityProjection` value. Stage 1 remains the sole
 command-authority gate, and the one-command invocation limit is
-unchanged. The next capability-projection slice (Stage 2H) would
-cross-verify DeepSeek and Whoosh'd transports; no follow-up has begun.
+unchanged.
 
-No capability projection exists yet. `ModelCapability.TOOLS`,
-`RuntimeModel.supports_tools`, and `MlxVlmAdapter.supports_tools` are
-unchanged. No canonical runtime protocol token has been added. No
-release-support claim has been widened. Stage 2G is the next atomic slice for
-evidence-aware effective tool-capability projection, subject to a current
-match, readiness, and explicit exposure policy.
+### Stage 2H transport convergence proof — 2026-08-10
+
+Stage 2H supplies deterministic test proof that the exact qualified Whoosh'd
+strict-structured transport is semantically converged with DeepSeek native
+tool transport at the Codexify boundary. Both normalize to the same bounded
+canonical action (`kind`, `command_id`, and structured arguments), traverse
+the same Stage 1 advertised-subset Guardian authority gate, and use the same
+`execute_invoke` seam and one-command limit. The receipt is
+[`2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md`](proofs/2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md).
+
+The Stage 2F.1b post-response qualification `MATCH` remains mandatory before a
+Whoosh'd tool proposal reaches Guardian authority. Stage 2G remains separate
+pre-request eligibility evidence, not a capability advertisement or command
+authorization token. `task.tools` still has no ordinary production producer;
+`ModelCapability.TOOLS`, `RuntimeModel.supports_tools`, and
+`MlxVlmAdapter.supports_tools` remain unchanged. No release-support claim or
+canonical runtime token has been added.
