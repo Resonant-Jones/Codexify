@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T20:00:28Z",
-    "verified_commit": "7073a9676467c11d90e79e103ef8b02fb983be04",
+    "state": "current",
+    "verified_at": "2026-08-10T21:47:43Z",
+    "verified_commit": "d598ae2e984b865337b678f72cbb62f575d645d8",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "ADR Index source and ADR corpus changed during the human-approved Provider Capability canonicalization from ADR-041 to ADR-062 and require committed-revision semantic re-verification."
+    "reason": "Re-verified the committed ADR corpus and Reading Order at d598ae2e984b865337b678f72cbb62f575d645d8 after Provider Capability Model canonicalization as ADR-062; VaultNode remains ADR-041 and the remaining collision cleanup stays separately scoped."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
