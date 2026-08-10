@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "state": "current",
+    "verified_at": "2026-08-09T22:43:56Z",
+    "verified_commit": "963628b7019786ead1ce2f7386ad05254576830b",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Architecture KB source and freshness-invalidating architecture anchors changed after the recorded verification boundary; source-byte integrity is synchronized, and semantic freshness requires later committed-revision re-verification."
+    "reason": "Re-verified against the committed architecture entrypoint and freshness-invalidating architecture/code anchors after the ADR-058 canonicalization baseline."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

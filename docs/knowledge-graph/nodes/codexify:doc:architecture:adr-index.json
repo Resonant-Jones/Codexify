@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "state": "current",
+    "verified_at": "2026-08-09T22:43:56Z",
+    "verified_commit": "963628b7019786ead1ce2f7386ad05254576830b",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "ADR Index source changed during the human-approved ADR-005 to ADR-058 canonicalization and requires committed-revision re-verification."
+    "reason": "Re-verified against the committed ADR corpus and canonical ADR-005 to ADR-058 routing after human canonicalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

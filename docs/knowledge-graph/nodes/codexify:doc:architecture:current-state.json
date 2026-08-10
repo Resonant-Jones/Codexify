@@ -17,16 +17,16 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "state": "current",
+    "verified_at": "2026-08-09T22:43:56Z",
+    "verified_commit": "963628b7019786ead1ce2f7386ad05254576830b",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "window_days": 7,
-    "reason": "Canonical current-state source changed after the recorded verification boundary; source-byte integrity is synchronized, and semantic freshness requires later committed-revision re-verification."
+    "reason": "Re-verified against the committed current-state source and declared release-truth boundary after the ADR-058 canonicalization baseline."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
