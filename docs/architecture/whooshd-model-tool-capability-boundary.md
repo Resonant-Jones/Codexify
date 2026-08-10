@@ -795,3 +795,19 @@ authorization token. `task.tools` still has no ordinary production producer;
 `ModelCapability.TOOLS`, `RuntimeModel.supports_tools`, and
 `MlxVlmAdapter.supports_tools` remain unchanged. No release-support claim or
 canonical runtime token has been added.
+
+### Stage 2I production consumer — 2026-08-10
+
+Stage 2I is the first production consumer of the Stage 2G projection. It may
+advertise only `op::health_health_get` to the exact qualified target when the
+current `ModelInfo` inventory produces `outcome=eligible` under an explicit
+exposure permission. Codexify reads the configured Whoosh'd `/v1/models`
+surface once per candidate turn, parses only the bounded inventory evidence,
+and retains neither raw inventory nor endpoint/path metadata.
+
+Ineligible inventory, absent or malformed attestation, mismatch, wrong model,
+runtime or adapter, and every non-ready state remain no-tools ordinary local
+chat; the existing streaming path is preserved. Stage 2G remains pre-request
+eligibility evidence. Stage 2F.1b remains mandatory after inference and before
+Stage 1, independently rejecting changed serving identity. This does not
+qualify another model, broaden `supports_tools`, or change release posture.

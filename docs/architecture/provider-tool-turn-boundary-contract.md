@@ -532,3 +532,24 @@ This proof does not declare every provider transport implemented or qualified,
 does not make loose/free-form JSON a structured transport, and does not change
 ordinary `task.tools`, capability advertisement, Command Bus authority,
 production behavior, or release posture.
+
+## 20. First Ordinary Read-Only Advertisement (Stage 2I)
+
+Stage 2I consumes the Stage 2H semantic convergence seam for exactly one
+production capability: `op::health_health_get` (`GET /health`). After the
+completion runtime resolves its effective provider/model, it may populate an
+otherwise unset `task.tools` with that one canonical command and an empty,
+least-authority model schema. The same list is sent to the provider and remains
+the Stage 1 advertised-subset authority input.
+
+DeepSeek receives the command through its existing opaque native-function
+alias transport. The exact Stage 2D-qualified Whoosh'd target may receive the
+same canonical command through its existing non-streaming strict structured
+transport only when Stage 2G is eligible. All other providers, other local
+runtimes, and ineligible Whoosh'd states remain automatically unadvertised.
+
+Stage 2I neither changes provider adapters nor treats transport eligibility as
+command authority. Whoosh'd Stage 2F.1b still verifies actual response
+provenance before the shared Stage 1 gate, so a stale pre-request eligibility
+snapshot cannot cause an invocation. This is code/test evidence only and adds
+no release-support claim.
