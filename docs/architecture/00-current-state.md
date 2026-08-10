@@ -37,7 +37,7 @@ This file is authoritative for:
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` are the primary operator checks.
 - OpenAI export import, Task Prompt Archive, and owner-scoped retry of failed zero-write import jobs are present on `main`.
 - Linked email aliases are resolved as a fallback to the existing user identity; the username path remains first.
-- Bounded chat tool decisions now pass through one advertised-subset authority gate; ordinary chat still exposes no effective tools.
+- Bounded chat tool decisions pass through one advertised-subset authority gate. When `task.tools` is unset, ordinary chat may automatically expose exactly the read-only, zero-argument `op::health_health_get` (`GET /health`) capability to DeepSeek or to the exact Whoosh'd target when its current capability projection is eligible; explicit tool selections remain untouched, command visibility does not bypass execution authority, and this deterministic implementation does not widen release support.
 - The exact `gemma-4-12b-it-qat-4bit` Whoosh'd target has a live strict-structured qualification receipt, but this is not general model or release support.
 - Coding Loop route registration, focused tests, worker readiness/guard evidence, and profile enablement are present; they do not prove a successful adapter turn or durable terminal result.
 - Architecture-contract, schema, DLG, and proof-validation tooling is present on `main`; it is not live-service proof.
