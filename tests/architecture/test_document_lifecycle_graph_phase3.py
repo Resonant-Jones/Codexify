@@ -26,8 +26,24 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts/knowledge_graph/validate_and_generate_dlg.py"
 SCHEMA_PATH = REPO_ROOT / "schemas/knowledge/document-lifecycle-graph.schema.json"
 NODES_DIR = REPO_ROOT / "docs/knowledge-graph/nodes"
-BASE_SHA = "1c51187427d843af88bc7fbd2dc7cea58c892fd3"
 BASE_GENERATED_AT = "2026-08-08T12:25:50-04:00"
+
+
+def current_repository_revision() -> str:
+    """Return the committed revision governing the live repository corpus."""
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    revision = completed.stdout.strip()
+    assert len(revision) == 40 and all(
+        character in "0123456789abcdef" for character in revision
+    )
+    return revision
 
 
 def sha256_text(value: str) -> str:
@@ -169,7 +185,9 @@ def contract_and_adr() -> tuple[dict, dict]:
 
 
 def test_current_nine_node_corpus_validates() -> None:
-    result = dlg.validate_repository(REPO_ROOT, BASE_SHA, BASE_GENERATED_AT)
+    result = dlg.validate_repository(
+        REPO_ROOT, current_repository_revision(), BASE_GENERATED_AT
+    )
 
     assert not result.has_errors
     assert result.schema_valid_node_count == 9
@@ -177,7 +195,9 @@ def test_current_nine_node_corpus_validates() -> None:
 
 
 def test_current_relationship_baseline_and_target_resolution() -> None:
-    result = dlg.validate_repository(REPO_ROOT, BASE_SHA, BASE_GENERATED_AT)
+    result = dlg.validate_repository(
+        REPO_ROOT, current_repository_revision(), BASE_GENERATED_AT
+    )
 
     assert result.edge_count == 8
     assert result.predicate_counts() == {
@@ -445,7 +465,9 @@ def test_no_supersedes_edge_produces_empty_truthful_supersession_set(tmp_path: P
 
 
 def test_graph_revision_is_deterministic_and_changes_with_node_relation_and_schema() -> None:
-    result = dlg.validate_repository(REPO_ROOT, BASE_SHA, BASE_GENERATED_AT)
+    result = dlg.validate_repository(
+        REPO_ROOT, current_repository_revision(), BASE_GENERATED_AT
+    )
     first = dlg.compute_graph_revision(result.schema, result.schema_bytes, result.nodes)
     second = dlg.compute_graph_revision(result.schema, result.schema_bytes, result.nodes)
     changed_node = copy.deepcopy(result.nodes)
