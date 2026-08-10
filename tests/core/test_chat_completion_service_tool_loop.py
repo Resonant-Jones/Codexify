@@ -15,6 +15,9 @@ from guardian.protocol_tokens import (
 )
 from guardian.providers.deepseek_adapter import DeepSeekResponse
 from guardian.providers.whooshd_control_plane import parse_whooshd_runtime_provenance
+from guardian.providers.whooshd_qualification import (
+    STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
+)
 from guardian.providers.whooshd_tool_adapter import (
     WhooshdStructuredResponse,
     WhooshdStructuredTransportError,
@@ -104,6 +107,8 @@ def _whooshd_stage_2e_response(
     *,
     command_id: str = "op::lookup_widget",
 ) -> WhooshdStructuredResponse:
+    record = STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD
+    material = record.material
     runtime_provenance = parse_whooshd_runtime_provenance(
         {
             "schema_version": "whooshd.runtime.v1",
@@ -121,6 +126,16 @@ def _whooshd_stage_2e_response(
             "batched": False,
             "model_lifecycle": "ready",
             "whooshd_version": "0.1.0rc1",
+            "qualification_attestation": {
+                "attestation_schema_version": material.attestation_schema_version,
+                "canonicalization_profile": material.canonicalization_profile,
+                "digest_algorithm": record.digest_algorithm,
+                "attestation_digest": record.expected_attestation_digest,
+                "invocation_model_id": material.invocation_model_id,
+                "resolved_model_id": material.resolved_model_id,
+                "runtime_kind": material.runtime_kind,
+                "adapter_name": material.adapter_name,
+            },
         }
     )
     assert runtime_provenance is not None
@@ -326,12 +341,62 @@ def test_whooshd_structured_provenance_mismatch_blocks_before_execute_invoke(
             response,
             runtime_provenance=replace(
                 response.runtime_provenance,
-                resolved_model_id="another-model",
+                qualification_attestation=replace(
+                    response.runtime_provenance.qualification_attestation,
+                    attestation_digest="sha256:" + "0" * 64,
+                ),
             ),
         ),
     )
 
-    with pytest.raises(WhooshdStructuredTransportError, match="provenance"):
+    with pytest.raises(WhooshdStructuredTransportError, match="mismatch"):
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert command_calls == []
+
+
+def test_whooshd_structured_insufficient_evidence_blocks_before_execute_invoke(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-insufficient-evidence")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [_whooshd_stage_2e_tool()]
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: command_calls.append((args, kwargs)),
+    )
+    response = _whooshd_stage_2e_response(
+        '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: replace(
+            response,
+            runtime_provenance=replace(
+                response.runtime_provenance,
+                qualification_attestation=None,
+            ),
+        ),
+    )
+
+    with pytest.raises(WhooshdStructuredTransportError, match="insufficient_evidence"):
         chat_completion_service.run_chat_completion_task(
             task,
             persist_assistant_message=False,

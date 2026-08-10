@@ -663,32 +663,45 @@ OpenAI, or another provider.
   recursive tool-loop behavior.
 - Replacing existing model inventory, model profiles, or Whoosh'd routing.
 
+## Implemented Stage 2F.1 Boundary
+
+Stage 2F.1a is implemented by Whoosh'd at
+`d08e3261d8ed2217b9c258bb783138fc6a06df9f`. It retains target-scoped
+attestation material at the serving-target owner and carries only its bounded
+reference through additive `whooshd.runtime.v1` provenance.
+
+Stage 2F.1b is implemented in Codexify as one immutable record for the exact
+Stage 2D Gemma target. The record is evidence-bound to the primary Stage 2D
+receipt and its tokenizer-reconciliation amendment; runtime code does not read
+either Markdown document. Codexify independently implements the immutable v1
+canonical JSON profile, pins the record's full target digest, parses the exact
+producer reference shape, and compares it internally as `MATCH`, `MISMATCH`,
+or `INSUFFICIENT_EVIDENCE`. These are internal comparison classifications, not
+runtime protocol tokens.
+
+Legacy `whooshd.runtime.v1` provenance remains valid without an attestation
+reference. A missing, incomplete, malformed, or unrecognized reference is
+`INSUFFICIENT_EVIDENCE`; recognized material or digest disagreement is
+`MISMATCH`. For a Stage 2E structured tool decision only, Codexify performs
+the existing route/runtime/adapter/non-streaming structural checks first and
+then requires `MATCH` before the decision can reach the existing Stage 1
+advertised-subset authority gate. Ordinary assistant output remains valid
+without qualification evidence.
+
 ## Current Gaps
 
-The current local implementation has no authoritative retained object that
-binds the loaded MLX-VLM process's artifact revision/quantization, package
-versions, tokenizer, template, parser, and strict structured mechanism to the
-Whoosh'd `RuntimeResolution`. Codexify's v1 parser also has no attestation
-reference field and no qualification-record comparator. The Stage 2D document
-contains the historic proof values, but cannot prove that a later request is
-served by the same material target.
+The record/comparator does not make a current service qualified: a loaded
+target may still emit no complete reference, and that condition fails closed
+for the latent structured-tool path. Codexify has not added a qualification
+database, a second runtime registry, an inventory replacement, capability
+projection, tool advertisement, or an operator UI. The Stage 2D receipt and
+record remain historical evidence; only Whoosh'd can describe the target that
+served a later request.
 
-Until those gaps are closed with separate authorization, Stage 2E's exact
-alias/runtime guard remains a necessary transport containment check only. It
-cannot authorize a public capability advertisement.
+## Recommended Next Atomic Slice
 
-## Recommended Implementation Slice
-
-**Stage 2F.1 — Implement the bounded Whoosh'd attestation producer and
-Codexify consumer/validation seam defined here.**
-
-That separately authorized slice should implement the immutable v1 identity
-document and SHA-256 canonicalization profile defined above; compute it at
-successful target initialization/reload from the serving runtime's directly
-observable state; retain it with the target; reference it from the existing
-`RuntimeProvenance` carrier; extend Codexify's bounded parser; and prove the
-fixed vector plus absent/malformed/mismatched behavior fails closed. It must
-not add
-`ModelCapability.TOOLS`, `supports_tools`, capability advertisement, or
-Guardian tool exposure until a later approved qualification-record and
-effective-capability projection slice.
+**Stage 2G — implement evidence-aware effective tool-capability projection for
+the exact Stage 2D target.** It may consider a current `MATCH`, readiness, and
+explicit exposure policy together, while preserving the Stage 1 authority gate.
+It must not infer a match, change `ModelCapability.TOOLS` merely from the
+record, or widen the release promise without separate runtime proof.

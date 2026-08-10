@@ -14,6 +14,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from guardian.providers.whooshd_control_plane import (
+    WhooshdRuntimeProvenance,
+    parse_whooshd_runtime_provenance,
+)
+from guardian.providers.whooshd_qualification import (
+    STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
+    WhooshdQualificationOutcome,
+    compare_whooshd_qualification,
+)
+
 QUALIFIED_VENDOR = "whooshd"
 QUALIFIED_MODEL_ALIAS = "gemma-4-12b-it-qat-4bit"
 QUALIFIED_RUNTIME_KIND = "mlx_vlm"
@@ -366,12 +376,10 @@ def _provenance_mapping(raw: Any) -> Mapping[str, Any] | None:
 
 
 def validate_runtime_provenance(raw: Any) -> None:
-    """Fail closed when a tool proposal lacks the qualified runtime evidence.
+    """Require Stage 2E structure and a Stage 2F qualification match.
 
-    The current contract exposes runtime, adapter, route, and request identities
-    but not the MLX-VLM build, tokenizer, or template fingerprint. Those absent
-    dimensions remain a capability-advertisement limitation rather than a
-    reason to inspect model files from Guardian.
+    This remains a provider-wire validation seam.  It neither advertises a
+    tool nor authorizes the command selected by a validated response.
     """
 
     provenance = _provenance_mapping(raw)
@@ -395,6 +403,20 @@ def validate_runtime_provenance(raw: Any) -> None:
     if provenance.get("streaming") is not False:
         raise WhooshdStructuredTransportError(
             "Whoosh'd structured tool decision must use non-streaming provenance"
+        )
+    parsed_provenance = (
+        raw
+        if isinstance(raw, WhooshdRuntimeProvenance)
+        else parse_whooshd_runtime_provenance(dict(provenance))
+    )
+    comparison = compare_whooshd_qualification(
+        STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
+        parsed_provenance,
+    )
+    if comparison.outcome is not WhooshdQualificationOutcome.MATCH:
+        raise WhooshdStructuredTransportError(
+            "Whoosh'd structured tool decision provenance qualification "
+            f"{comparison.outcome.value.lower()}: {comparison.reason}"
         )
 
 

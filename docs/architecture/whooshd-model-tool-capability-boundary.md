@@ -601,9 +601,12 @@ settings. It never sends native `tools`, `tool_choice`, or function-call
 fields.
 
 The response parser accepts only one complete JSON ModelTurn object, rejects
-prose, fences, alternate shapes, duplicate fields, and repair attempts, and
-checks a tool decision's returned runtime provenance before the existing Stage
-1 advertised-subset gate can invoke anything. Continuation is ordinary
+prose, fences, alternate shapes, duplicate fields, and repair attempts. For a
+tool decision, it performs the existing structural runtime-provenance checks
+and then requires the Stage 2F.1b live-attestation comparison to be `MATCH`
+before the existing Stage 1 advertised-subset gate can invoke anything.
+`MISMATCH` and `INSUFFICIENT_EVIDENCE` fail closed before that authority seam.
+Continuation is ordinary
 assistant/user context containing the selected command, arguments, and result;
 it carries no provider-native tool-call identifier or new authority. A second
 tool decision remains the existing bounded-loop failure.
@@ -616,23 +619,18 @@ release claim. This implementation consumes the Stage 2D receipt but does not
 repeat live runtime proof; the runtime contract still cannot attest the pinned
 MLX-VLM package, tokenizer, or template fingerprint per response.
 
-### Stage 2F attestation requirement — 2026-08-09
+### Stage 2F attestation boundary — 2026-08-09
 
 [`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md)
-defines the remaining runtime-truth boundary. Stage 2E's alias and current
-runtime-provenance guard is necessary containment, but it is not sufficient
-for final capability advertisement: the current response cannot attest all
-material Stage 2D proof-key dimensions, including artifact revision/quant,
-runtime and structured-decoder builds, tokenizer identity, and effective
-template/parser fingerprints.
+defines the runtime-truth boundary. Stage 2F.1a now originates the bounded
+target reference and Stage 2F.1b now consumes it through one Codexify
+machine-readable qualification record and pure comparator. A record is not a
+live claim: missing or mismatched material evidence fails closed for a Stage
+2E tool decision, and ordinary assistant output requires no attestation.
 
-Before this target can ever become an effective capability, Whoosh'd must
-originate an attestation for the exact resolved execution target and Codexify
-must establish a `MATCH` against a future machine-readable qualification
-record. Missing or mismatched material evidence must fail closed. This is not
-implemented by Stage 2F, does not change `ModelCapability.TOOLS`,
-`RuntimeModel.supports_tools`, `MlxVlmAdapter.supports_tools`, ordinary chat,
-or Guardian authority, and does not make the latent Stage 2E transport public.
+This does not change `ModelCapability.TOOLS`, `RuntimeModel.supports_tools`,
+`MlxVlmAdapter.supports_tools`, ordinary chat, Guardian authority, or the
+latent/public status of the Stage 2E transport.
 
 ### Stage 2F.1a producer status — 2026-08-09
 
@@ -646,12 +644,12 @@ incomplete runtimes emit no qualification-grade digest. The producer's
 (sorted keys, compact separators, `ensure_ascii=False`, UTF-8), then
 SHA-256, prefixed `sha256:`.
 
-### Stage 2F.1b pause / resume status — 2026-08-09
+### Stage 2F.1b qualification-record status — 2026-08-09
 
-Stage 2F.1b (the Codexify half of the attestation boundary) paused at the
-explicit evidence-completeness gate because the original Stage 2D receipt
-did not pin the producer-compatible `tokenizer.identity_fingerprint` value
-(it recorded the raw-file SHA only).
+The original Stage 2D receipt did not pin the producer-compatible
+`tokenizer.identity_fingerprint` value (it recorded the raw-file SHA only).
+The supplemental reconciliation proof resolved that evidence gap without
+requalifying the model.
 
 The supplemental reconciliation proof
 [`2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md`](proofs/2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md)
@@ -660,13 +658,16 @@ against the unchanged Stage 2D artifact. The expected
 `tokenizer.identity_fingerprint` for the Stage 2D qualified target is
 `sha256:d9b98aa21582c4a1dcf598a17ffbede72feabe6a46b1a6bb8cf1ed5ab44eb264`.
 
-Stage 2F.1b may now resume, reading **both** the original Stage 2D
-proof and the supplemental reconciliation proof, and may then construct
-the complete machine-readable qualification record and continue with
-the Codexify attestation comparator.
+Stage 2F.1b now consumes both receipts as the audit evidence for one complete,
+immutable exact-target record and independently canonicalizes/computes the
+expected v1 digest. `whooshd.runtime.v1` remains backward compatible: an absent
+or malformed optional reference cannot match. `MATCH`, `MISMATCH`, and
+`INSUFFICIENT_EVIDENCE` are internal comparison results only, and Stage 1 still
+separately authorizes any command after a matching structured decision.
 
 No capability projection exists yet. `ModelCapability.TOOLS`,
 `RuntimeModel.supports_tools`, and `MlxVlmAdapter.supports_tools` are
 unchanged. No canonical runtime protocol token has been added. No
-release-support claim has been widened. Stage 1 remains the sole
-command-authority gate.
+release-support claim has been widened. Stage 2G is the next atomic slice for
+evidence-aware effective tool-capability projection, subject to a current
+match, readiness, and explicit exposure policy.

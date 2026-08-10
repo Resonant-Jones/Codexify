@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
-
 WHOOSHD_CONTROL_PLANE_VERSION = "whooshd.control.v1"
 WHOOSHD_CONTROL_VERSION_HEADER = "X-Whooshd-Contract-Version"
 WHOOSHD_RUNTIME_PROVENANCE_SCHEMA = "whooshd.runtime.v1"
@@ -84,6 +83,17 @@ _RUNTIME_FIELD_NAMES = (
 _PRIVATE_OR_URL_RE = re.compile(r"(?:^[/~]|^[A-Za-z]:[\\/]|://|[?&#])")
 _SAFE_RUNTIME_TEXT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _SAFE_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_SAFE_ATTESTATION_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ATTESTATION_REFERENCE_FIELDS = (
+    "attestation_schema_version",
+    "canonicalization_profile",
+    "digest_algorithm",
+    "attestation_digest",
+    "invocation_model_id",
+    "resolved_model_id",
+    "runtime_kind",
+    "adapter_name",
+)
 
 
 class WhooshdContractVersionError(ValueError):
@@ -137,6 +147,32 @@ class WhooshdErrorDiagnostic:
 
 
 @dataclass(frozen=True)
+class WhooshdQualificationAttestationReference:
+    """Bounded target-attestation reference carried by runtime provenance."""
+
+    attestation_schema_version: str
+    canonicalization_profile: str
+    digest_algorithm: str
+    attestation_digest: str
+    invocation_model_id: str
+    resolved_model_id: str
+    runtime_kind: str
+    adapter_name: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "attestation_schema_version": self.attestation_schema_version,
+            "canonicalization_profile": self.canonicalization_profile,
+            "digest_algorithm": self.digest_algorithm,
+            "attestation_digest": self.attestation_digest,
+            "invocation_model_id": self.invocation_model_id,
+            "resolved_model_id": self.resolved_model_id,
+            "runtime_kind": self.runtime_kind,
+            "adapter_name": self.adapter_name,
+        }
+
+
+@dataclass(frozen=True)
 class WhooshdRuntimeProvenance:
     """Content-free runtime evidence accepted from Whoosh'd v1 responses."""
 
@@ -159,6 +195,8 @@ class WhooshdRuntimeProvenance:
     codexify_task_id: str | None = None
     codexify_attempt_id: str | None = None
     whooshd_request_id: str | None = None
+    qualification_attestation: WhooshdQualificationAttestationReference | None = None
+    qualification_attestation_malformed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -183,9 +221,36 @@ class WhooshdRuntimeProvenance:
                 "codexify_task_id": self.codexify_task_id,
                 "codexify_attempt_id": self.codexify_attempt_id,
                 "whooshd_request_id": self.whooshd_request_id,
+                "qualification_attestation": (
+                    self.qualification_attestation.as_dict()
+                    if self.qualification_attestation is not None
+                    else None
+                ),
             }.items()
             if value is not None
         }
+
+
+def _parse_qualification_attestation_reference(
+    raw: Any,
+) -> WhooshdQualificationAttestationReference | None:
+    """Accept one complete, content-free attestation reference shape only."""
+
+    if not isinstance(raw, dict) or set(raw) != set(_ATTESTATION_REFERENCE_FIELDS):
+        return None
+    values: dict[str, str] = {}
+    for field in _ATTESTATION_REFERENCE_FIELDS:
+        value = raw.get(field)
+        if not isinstance(value, str):
+            return None
+        if not value or len(value) > 256 or not _SAFE_RUNTIME_TEXT_RE.fullmatch(value):
+            return None
+        if _PRIVATE_OR_URL_RE.search(value):
+            return None
+        values[field] = value
+    if not _SAFE_ATTESTATION_DIGEST_RE.fullmatch(values["attestation_digest"]):
+        return None
+    return WhooshdQualificationAttestationReference(**values)
 
 
 def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | None:
@@ -255,6 +320,11 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
     for name, value in text_values.items():
         if raw.get(name) is not None and value is None:
             return None
+    raw_attestation = raw.get("qualification_attestation")
+    attestation_present = "qualification_attestation" in raw
+    qualification_attestation = _parse_qualification_attestation_reference(
+        raw_attestation
+    )
     return WhooshdRuntimeProvenance(
         schema_version=WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
         request_id=text_values["request_id"],
@@ -275,6 +345,10 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
         codexify_task_id=text_values["codexify_task_id"],
         codexify_attempt_id=text_values["codexify_attempt_id"],
         whooshd_request_id=text_values["whooshd_request_id"],
+        qualification_attestation=qualification_attestation,
+        qualification_attestation_malformed=(
+            attestation_present and qualification_attestation is None
+        ),
     )
 
 
