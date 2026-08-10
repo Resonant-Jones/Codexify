@@ -17,16 +17,16 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-09T22:43:56Z",
-    "verified_commit": "963628b7019786ead1ce2f7386ad05254576830b",
+    "state": "current",
+    "verified_at": "2026-08-10T13:21:09Z",
+    "verified_commit": "0cf943bd9bda292bc13e8f30f85efb118eed921d",
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "window_days": 7,
-    "reason": "Current State source was refreshed and its obsolete pre-reconciliation audited-tip SHA was re-anchored to the reconciled 4ba72ec9e lineage; source hash is synchronized and committed-revision semantic re-verification is required."
+    "reason": "Re-verified against the committed reconciled current-state source and release-truth boundary after rewritten-history anchor normalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

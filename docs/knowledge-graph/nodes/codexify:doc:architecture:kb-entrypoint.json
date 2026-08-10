@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T13:03:03Z",
-    "verified_commit": "9efe1a7bd88470a34ec13a3454666ab6d3b2c99a",
+    "state": "current",
+    "verified_at": "2026-08-10T13:21:09Z",
+    "verified_commit": "0cf943bd9bda292bc13e8f30f85efb118eed921d",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-established the reconciled ADR-059 verification boundary at 9efe1a7bd88470a34ec13a3454666ab6d3b2c99a; later weekly architecture/current-state changes invalidate freshness, while current README source bytes are synchronized pending committed-revision re-verification."
+    "reason": "Re-verified against the committed reconciled architecture corpus, current-state routing boundary, and declared invalidating anchors after truth-anchor normalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
