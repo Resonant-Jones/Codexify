@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T13:21:09Z",
-    "verified_commit": "0cf943bd9bda292bc13e8f30f85efb118eed921d",
+    "state": "current",
+    "verified_at": "2026-08-10T14:01:23Z",
+    "verified_commit": "f44d6610d4abda19c44affe1f093f7a1e538aca7",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Architecture ADR corpus changed after the recorded verification boundary during ADR-016 to ADR-060 Workspace Retrieval canonicalization; README source bytes remain unchanged and committed-revision semantic re-verification is required."
+    "reason": "Re-verified against the committed architecture corpus, ADR-060 routing change, and declared invalidating anchors after Workspace Retrieval canonicalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

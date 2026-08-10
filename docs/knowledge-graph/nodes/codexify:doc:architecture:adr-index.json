@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T13:03:03Z",
-    "verified_commit": "9efe1a7bd88470a34ec13a3454666ab6d3b2c99a",
+    "state": "current",
+    "verified_at": "2026-08-10T14:01:23Z",
+    "verified_commit": "f44d6610d4abda19c44affe1f093f7a1e538aca7",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "ADR Index source and ADR corpus changed during the human-approved ADR-016 to ADR-060 Workspace Retrieval canonicalization and require committed-revision re-verification."
+    "reason": "Re-verified against the committed ADR corpus and canonical ADR-016 / ADR-060 routing after Workspace Retrieval canonicalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
