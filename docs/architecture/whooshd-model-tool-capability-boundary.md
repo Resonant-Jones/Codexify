@@ -633,3 +633,40 @@ record. Missing or mismatched material evidence must fail closed. This is not
 implemented by Stage 2F, does not change `ModelCapability.TOOLS`,
 `RuntimeModel.supports_tools`, `MlxVlmAdapter.supports_tools`, ordinary chat,
 or Guardian authority, and does not make the latent Stage 2E transport public.
+
+### Stage 2F.1a producer status — 2026-08-09
+
+Stage 2F.1a is implemented in Whoosh'd (read-only from Codexify's view) at
+commit `d08e3261d8ed2217b9c258bb783138fc6a06df9f`. The producer now emits a
+target-scoped qualification-attestation reference through the existing
+`RuntimeProvenance` (`whooshd.runtime.v1`) when complete evidence exists;
+incomplete runtimes emit no qualification-grade digest. The producer's
+`tokenizer.identity_fingerprint` is computed from the parsed
+`tokenizer_config.json` via a documented canonical re-serialization
+(sorted keys, compact separators, `ensure_ascii=False`, UTF-8), then
+SHA-256, prefixed `sha256:`.
+
+### Stage 2F.1b pause / resume status — 2026-08-09
+
+Stage 2F.1b (the Codexify half of the attestation boundary) paused at the
+explicit evidence-completeness gate because the original Stage 2D receipt
+did not pin the producer-compatible `tokenizer.identity_fingerprint` value
+(it recorded the raw-file SHA only).
+
+The supplemental reconciliation proof
+[`2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md`](proofs/2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md)
+now provides that canonical tokenizer identity, with byte-exact reproduction
+against the unchanged Stage 2D artifact. The expected
+`tokenizer.identity_fingerprint` for the Stage 2D qualified target is
+`sha256:d9b98aa21582c4a1dcf598a17ffbede72feabe6a46b1a6bb8cf1ed5ab44eb264`.
+
+Stage 2F.1b may now resume, reading **both** the original Stage 2D
+proof and the supplemental reconciliation proof, and may then construct
+the complete machine-readable qualification record and continue with
+the Codexify attestation comparator.
+
+No capability projection exists yet. `ModelCapability.TOOLS`,
+`RuntimeModel.supports_tools`, and `MlxVlmAdapter.supports_tools` are
+unchanged. No canonical runtime protocol token has been added. No
+release-support claim has been widened. Stage 1 remains the sole
+command-authority gate.
