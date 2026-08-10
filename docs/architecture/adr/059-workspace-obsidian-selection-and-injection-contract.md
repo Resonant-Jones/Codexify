@@ -18,7 +18,7 @@ Command.
 
 ## Context
 
-ADR-016 made `retrievalSource="workspace"` a live backend meaning for local knowledge, including Obsidian-backed notes. ADR-023 then made the live workspace proof harness canonical so the runtime seam could be validated end to end on the supported local Compose path.
+ADR-060 made `retrievalSource="workspace"` a live backend meaning for local knowledge, including Obsidian-backed notes. ADR-023 then made the live workspace proof harness canonical so the runtime seam could be validated end to end on the supported local Compose path.
 
 What was still missing was a truthful contract for the evidence gap between:
 
@@ -66,7 +66,7 @@ Searchability alone is weaker than completion-context inclusion and is not suffi
 
 ## Governing Contracts
 
-- [ADR-016: Workspace Retrieval Source for Local Knowledge](./016-workspace-retrieval-source-for-local-knowledge.md)
+- [ADR-060: Workspace Retrieval Source for Local Knowledge](./060-workspace-retrieval-source-for-local-knowledge.md)
 - [ADR-023: Workspace E2E Proof Harness Contract](./023-workspace-e2e-proof-harness-contract.md)
 - [Critical Flows](../flows.md)
 - [System Overview](../system-overview.md)

@@ -3,7 +3,18 @@ status: accepted
 date: 2026-04-27
 ---
 
-# ADR-016: Workspace Retrieval Source for Local Knowledge
+# ADR-060: Workspace Retrieval Source for Local Knowledge
+
+## Canonicalization History
+
+This Accepted decision was originally stored as ADR-016, which numerically
+collided with ADR-016 Continuity Governance Surface Contract. Accepted Phase 4B
+human adjudication retained Continuity Governance as ADR-016 and moved Workspace
+Retrieval to ADR-060. This changes Workspace Retrieval's numeric identity and
+path only; it remains an independent Accepted decision with the same architecture
+and retrieval/runtime meaning. Historical references to the former Workspace
+Retrieval ADR-016 remain historical evidence and must not be reinterpreted as
+references to Continuity Governance.
 
 ## Context
 

@@ -15,7 +15,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T13:21:09Z",
     "verified_commit": "0cf943bd9bda292bc13e8f30f85efb118eed921d",
     "triggers": [
@@ -23,7 +23,7 @@
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified against the committed reconciled architecture corpus, current-state routing boundary, and declared invalidating anchors after truth-anchor normalization."
+    "reason": "Architecture ADR corpus changed after the recorded verification boundary during ADR-016 to ADR-060 Workspace Retrieval canonicalization; README source bytes remain unchanged and committed-revision semantic re-verification is required."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

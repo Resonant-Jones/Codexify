@@ -87,6 +87,7 @@ Use this note as the local map for all ADRs.
 50. [[055-threadspace-whispermesh-managed-service-boundary|ADR-055 ThreadSpace ↔ WhisperMesh Managed-Service Boundary]] — proposed docs-only authority boundary: Codexify and ThreadSpace own Room sovereignty, grants, and collaboration state, while WhisperMesh Network Assist may issue only narrower, expiring service leases after grant verification; Hosted Rooms and managed processing require separate future decisions.
 51. [[058-imprint-ui-deprecation-and-identity-ownership|ADR-058 Imprint UI Deprecation and Identity Ownership]] — Proposed; renumbered from the duplicate ADR-005 identity during DLG human canonicalization.
 52. [[059-workspace-obsidian-selection-and-injection-contract|ADR-059 Workspace Obsidian Selection and Injection Contract]] — Accepted; renumbered from the duplicate ADR-024 identity during DLG human canonicalization. It remains the contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
+53. [[060-workspace-retrieval-source-for-local-knowledge|ADR-060 Workspace Retrieval Source for Local Knowledge]] — Accepted; renumbered from the duplicate ADR-016 identity during DLG human canonicalization. It remains the canonical contract for `retrievalSource="workspace"` as user-bounded, local-first workspace retrieval semantics.
 
 ---
 
