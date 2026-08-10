@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-10T15:55:28Z",
-    "verified_commit": "e30d13609ef4538c98b943acd0e318a4ab4a0878"
+    "verified_at": "2026-08-10T20:00:28Z",
+    "verified_commit": "7073a9676467c11d90e79e103ef8b02fb983be04",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified the committed Architecture KB routing against the reconciled architecture corpus and the new provider-tool, Whoosh'd capability, and runtime-qualification entrypoints at e30d13609ef4538c98b943acd0e318a4ab4a0878."
+    "reason": "Re-verified Architecture KB structural routing at 7073a9676467c11d90e79e103ef8b02fb983be04 and synchronized the node hash to the committed README bytes; release truth remains delegated to Current State."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "a03098edf0c3db845c5e472a5190b71d2ea0474fa3b389149b40399f42c33b72",
+  "content_hash": "d3d957b465d8c2cc2bf4eef06921aaafcb3cfb7c9ae3b8ee5e0aa6dc33e956fa",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
