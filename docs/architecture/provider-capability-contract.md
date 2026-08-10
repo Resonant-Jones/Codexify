@@ -331,6 +331,36 @@ Suggested future name:
 
 - `provider-capability-compatibility-contract.md`
 
+## Implemented Provider-Specific Effective Capability (Stage 2G)
+
+This note remains planning-only for the generic provider capability
+framework. One narrow provider-specific effective capability has been
+implemented and is documented separately at the exact-target level:
+
+- Provider: `whooshd`
+- Target: the exact Stage 2D qualified execution identity
+- Surface: parsed current Whoosh'd runtime inventory
+  (`whooshd.runtime.v1` / `ModelInfo` payload, full bounded attestation
+  when the adapter-loaded path is active)
+- Comparator: `guardian/providers/whooshd_qualification.py`
+  (`compare_whooshd_inventory_qualification`), re-using the existing
+  `whooshd.qualification-attestation.canonical-json.v1` canonicalizer
+- Projection: `guardian/providers/whooshd_tool_capability.py`
+  (`project_whooshd_tool_capability`)
+- Snapshot fields: `outcome`, `invocation_model_id`, `runtime_kind`,
+  `adapter_name`, `qualification_outcome`, `runtime_ready`,
+  `exposure_allowed`, `reason`, `qualification_reason`
+
+This implementation does **not** turn into the generic provider capability
+registry/routing framework implied above. The projection answers only the
+narrow Stage 2G question for one target; a future Stage 2H convergence
+proof and a separate Stage 2I capability advertisement layer would
+generalize any of these decisions. Effective eligibility is
+evidence-aware and distinct from a runtime's `supports_tools` field —
+`supports_tools=True` without matching attestation cannot qualify a
+target, and `supports_tools=False` on the exact qualified target does
+not disqualify it.
+
 ## Non-Goals
 
 - No runtime discovery implementation

@@ -576,6 +576,44 @@ principle is materiality: invalidate when a change can alter the exact
 generation, parsing, or structured-transport behavior the qualification
 proved; do not invalidate for diagnostics that cannot.
 
+## Codexify Consumer Surfaces (Stage 2F.1b + Stage 2G)
+
+Two complementary Codexify consumers now read bounded attestation evidence.
+They intentionally guard different points in the request lifecycle.
+
+### Post-response execution check (Stage 2F.1b)
+
+The per-request `whooshd.runtime.v1` `qualification_attestation` reference
+attached to each response is consumed by
+`guardian/providers/whooshd_qualification.py::compare_whooshd_qualification`
+and re-validated by `guardian/providers/whooshd_tool_adapter.py`.  It
+verifies the exact target identity that served one request before the
+Stage 1 advertised-subset authority gate may invoke a command.  The
+reference is bounded to the eight diagnostic fields listed in
+`RuntimeQualificationAttestationReference`; the digest alone establishes
+identity here.
+
+### Pre-request inventory check (Stage 2G)
+
+The current Whoosh'd runtime inventory surface carries the full bounded
+qualification attestation for each adapter-loaded target.  Codexify's
+`guardian/providers/whooshd_control_plane.py::parse_whooshd_runtime_inventory_entry`
+and `guardian/providers/whooshd_qualification.py::compare_whooshd_inventory_qualification`
+consume that full attestation.  Codexify re-canonicalizes the inventory
+material with the existing `whooshd.qualification-attestation.canonical-json.v1`
+profile and recomputes the digest; an inventory attestation whose
+producer-emitted digest disagrees with the recomputed value is classified
+as `INSUFFICIENT_EVIDENCE` (`attestation_inconsistent`) and never produces
+a Stage 2G capability eligibility.
+
+The two surfaces intentionally guard different times: the inventory
+attestation answers "is the currently inventoried target the exact
+qualified execution identity?" before any tool is advertised; the
+per-request reference answers "did the request we just served come from
+that same identity?" immediately before `execute_invoke`.  Neither surface
+advertises a capability or grants Guardian authority; both are bounded
+evidence comparisons.
+
 ## Readiness vs Qualification
 
 Readiness answers whether a runtime can accept and execute work now. A

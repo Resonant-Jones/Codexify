@@ -16,7 +16,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 
-from guardian.providers.whooshd_control_plane import WhooshdRuntimeProvenance
+from guardian.providers.whooshd_control_plane import (
+    WhooshdQualificationInventoryAttestation,
+    WhooshdRuntimeInventoryEvidence,
+    WhooshdRuntimeProvenance,
+)
 
 ATTESTATION_SCHEMA_VERSION = "whooshd.qualification-attestation.v1"
 CANONICALIZATION_PROFILE = "whooshd.qualification-attestation.canonical-json.v1"
@@ -355,6 +359,132 @@ def compare_whooshd_qualification(
                 "target_identity_mismatch",
             )
     if reference.attestation_digest != record.expected_attestation_digest:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "digest_mismatch",
+        )
+    return WhooshdQualificationComparison(
+        WhooshdQualificationOutcome.MATCH,
+        "qualified_identity_match",
+    )
+
+
+# ── Inventory attestation comparison (Stage 2G pre-request surface) ────────
+
+
+def _inventory_attestation_self_consistent(
+    attestation: WhooshdQualificationInventoryAttestation,
+) -> WhooshdQualificationComparison | None:
+    """Return ``None`` if material reproduces the producer-emitted digest.
+
+    Returns a comparison result only when the inventory attestation is
+    structurally invalid: unknown schema/profile/algorithm, material
+    cannot be canonically represented, or the producer-emitted digest
+    does not match what the inventory material canonically produces.
+    A tampered material field paired with the original digest is
+    malformed evidence, not a digest mismatch against the record.
+    """
+
+    if attestation.attestation_schema_version != ATTESTATION_SCHEMA_VERSION:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "schema_unrecognized",
+        )
+    if attestation.canonicalization_profile != CANONICALIZATION_PROFILE:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "canonicalization_profile_unrecognized",
+        )
+    if attestation.digest_algorithm != DIGEST_ALGORITHM:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "digest_algorithm_unrecognized",
+        )
+    try:
+        material = attestation.as_identity_document()
+        canonical = canonicalize_qualification_identity(material)
+    except WhooshdQualificationCanonicalizationError:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "attestation_inconsistent",
+        )
+    computed = f"{DIGEST_ALGORITHM}:{hashlib.sha256(canonical).hexdigest()}"
+    if computed != attestation.attestation_digest:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "attestation_inconsistent",
+        )
+    return None
+
+
+def compare_whooshd_inventory_qualification(
+    record: WhooshdQualificationRecord,
+    inventory: WhooshdRuntimeInventoryEvidence | None,
+) -> WhooshdQualificationComparison:
+    """Compare a parsed inventory entry with the frozen qualification record.
+
+    The function preserves the Stage 2F conceptual classifications and adds
+    one new diagnostic reason — ``attestation_inconsistent`` — for inventory
+    material whose producer-emitted digest does not reproduce under the
+    existing canonicalizer.  Reason strings are internal diagnostics and
+    are not protocol tokens.
+    """
+
+    if inventory is None:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "inventory_missing",
+        )
+    if inventory.invocation_model_id != record.material.invocation_model_id:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if inventory.runtime_kind != record.material.runtime_kind:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if inventory.adapter_name != record.material.adapter_name:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if inventory.qualification_attestation_malformed:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "attestation_malformed",
+        )
+    attestation = inventory.qualification_attestation
+    if attestation is None:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.INSUFFICIENT_EVIDENCE,
+            "attestation_missing",
+        )
+    inconsistent = _inventory_attestation_self_consistent(attestation)
+    if inconsistent is not None:
+        return inconsistent
+    if attestation.invocation_model_id != record.material.invocation_model_id:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if attestation.resolved_model_id != record.material.resolved_model_id:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if attestation.runtime_kind != record.material.runtime_kind:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if attestation.adapter_name != record.material.adapter_name:
+        return WhooshdQualificationComparison(
+            WhooshdQualificationOutcome.MISMATCH,
+            "target_identity_mismatch",
+        )
+    if attestation.attestation_digest != record.expected_attestation_digest:
         return WhooshdQualificationComparison(
             WhooshdQualificationOutcome.MISMATCH,
             "digest_mismatch",
