@@ -34,6 +34,7 @@ from guardian.command_bus.contracts import (
     InvokeRequest,
 )
 from guardian.command_bus.invoke import execute_invoke
+from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
 from guardian.context.context_directive_resolver import (
@@ -76,6 +77,13 @@ from guardian.providers.whooshd_tool_adapter import (
     build_continuation_messages as build_whooshd_structured_continuation_messages,
     is_qualified_transport_candidate,
 )
+from guardian.providers.whooshd_control_plane import (
+    fetch_whooshd_runtime_inventory_entry,
+)
+from guardian.providers.whooshd_tool_capability import (
+    project_whooshd_tool_capability,
+)
+from guardian.tools.chat_exposure import resolve_ordinary_chat_tools
 from guardian.core.candidate_trace_store import store_candidate_trace
 from guardian.core.completion_terminal import (
     CompletionAttemptResult,
@@ -5096,6 +5104,59 @@ def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
     )
 
 
+def _resolve_ordinary_chat_tools(
+    *,
+    provider: str,
+    model: str,
+    settings: Any,
+) -> list[dict[str, Any]] | None:
+    """Resolve the Stage 2I subset after the effective target is known."""
+
+    normalized_provider = str(provider or "").strip().lower()
+    provider_vendor = str(
+        getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+    ).strip().lower()
+    if normalized_provider not in {"deepseek", "local"}:
+        return None
+    if normalized_provider == "local" and provider_vendor != "whooshd":
+        return None
+
+    try:
+        manifest = build_manifest(_command_bus_app())
+    except Exception:
+        logger.warning(
+            "[chat-completion] automatic tool exposure manifest unavailable",
+            exc_info=True,
+        )
+        return None
+
+    whooshd_capability = None
+    if normalized_provider == "local":
+        try:
+            inventory = fetch_whooshd_runtime_inventory_entry(
+                settings,
+                model=model,
+            )
+            whooshd_capability = project_whooshd_tool_capability(
+                inventory=inventory,
+                exposure_allowed=True,
+            )
+        except Exception:
+            logger.warning(
+                "[chat-completion] automatic Whoosh'd tool exposure unavailable",
+                exc_info=True,
+            )
+            return None
+
+    return resolve_ordinary_chat_tools(
+        provider=provider,
+        model=model,
+        provider_vendor=provider_vendor,
+        manifest_commands=manifest.commands,
+        whooshd_capability=whooshd_capability,
+    )
+
+
 def _execute_bounded_tool_turn_completion(
     task: ChatCompletionTask,
     *,
@@ -5614,6 +5675,12 @@ def run_chat_completion_task(
             task.selection_source = "local_vision_env"
 
     settings = get_settings()
+    if task.tools is None:
+        task.tools = _resolve_ordinary_chat_tools(
+            provider=provider,
+            model=model,
+            settings=settings,
+        )
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )

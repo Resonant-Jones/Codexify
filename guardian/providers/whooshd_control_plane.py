@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import urlparse, urlunparse
+
+import requests
 
 WHOOSHD_CONTROL_PLANE_VERSION = "whooshd.control.v1"
 WHOOSHD_CONTROL_VERSION_HEADER = "X-Whooshd-Contract-Version"
@@ -873,3 +876,64 @@ def parse_whooshd_runtime_inventory_entry(
         ),
         resolution_source=resolution_source,
     )
+
+
+def fetch_whooshd_runtime_inventory_entry(
+    settings: Any,
+    *,
+    model: str,
+    timeout_seconds: float = 1.0,
+    request_get: Any = None,
+) -> WhooshdRuntimeInventoryEvidence | None:
+    """Read one current Whoosh'd ``/v1/models`` entry without retaining it.
+
+    Stage 2I needs the full ``ModelInfo`` record because the generic local
+    model discovery seam retains only model names.  This helper is deliberately
+    local-provider scoped, bounded, uncached, and fail-closed.  It returns only
+    the parsed evidence needed by Stage 2G, never the raw payload or endpoint.
+    """
+
+    provider_vendor = str(
+        getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+    ).strip().lower()
+    if provider_vendor != "whooshd":
+        return None
+    requested_model = str(model or "").strip()
+    base_url = str(getattr(settings, "LOCAL_BASE_URL", "") or "").strip()
+    if not requested_model or not base_url:
+        return None
+
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[:-3].rstrip("/")
+    inventory_url = urlunparse(
+        (parsed.scheme, parsed.netloc, f"{path}/v1/models", "", "", "")
+    )
+    try:
+        timeout = max(0.1, min(float(timeout_seconds), 5.0))
+    except (TypeError, ValueError):
+        return None
+    fetch = request_get or requests.get
+    try:
+        response = fetch(
+            inventory_url,
+            timeout=timeout,
+            headers={WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION},
+        )
+        if not 200 <= int(getattr(response, "status_code", 0)) < 300:
+            return None
+        payload = response.json()
+    except (requests.RequestException, TypeError, ValueError):
+        return None
+
+    entries = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return None
+    for raw_entry in entries:
+        evidence = parse_whooshd_runtime_inventory_entry(raw_entry)
+        if evidence is not None and evidence.invocation_model_id == requested_model:
+            return evidence
+    return None

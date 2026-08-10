@@ -136,3 +136,17 @@ The persisted assistant message keeps the same observability fields in `extra_me
 - No multi-tool orchestration.
 - No bypass of the command bus for tool execution.
 - No widening of the supported beta promise to autonomous coding.
+
+## Stage 2I Ordinary Read-Only Exposure
+
+After effective provider/model resolution and before the first provider
+request, ordinary chat whose `task.tools` is `None` may now receive exactly
+one model-visible ToolSpec: `op::health_health_get` (`GET /health`). Its
+model-facing schema is an empty object with `additionalProperties=false` and
+`maxProperties=0`; the model receives no path, query, header, or body input.
+
+The resolved `task.tools` list is still the exact Stage 1 advertised subset.
+Model visibility does not grant execution authority: a normalized command must
+still match that list before `execute_invoke`, and the one-command hard limit
+is unchanged. Explicit non-empty `task.tools` and explicit `task.tools=[]`
+remain untouched and are never merged with automatic exposure.

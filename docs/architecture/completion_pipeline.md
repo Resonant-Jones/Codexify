@@ -222,6 +222,31 @@ provider/model identity, terminal status, visible-output state, explicit-termina
 observation, finish reason when available, clean transport completion, bounded
 failure classification, and whether pre-output retry remains permitted.
 
+## Stage 2I capability exposure seam
+
+For ordinary chat with `task.tools is None`, the pipeline resolves the effective
+provider/model first, then evaluates the narrow Stage 2I exposure policy before
+the first provider inference request:
+
+```text
+effective provider/model resolution
+→ capability exposure
+→ task.tools
+→ provider inference
+→ normalization
+→ Stage 1 advertised-subset authority
+→ Command Bus
+```
+
+The only automatic result is `op::health_health_get`, a zero-argument,
+read-only `GET /health` capability. DeepSeek is eligible through its native
+transport. The exact Whoosh'd target additionally requires current Stage 2G
+eligibility; tool-enabled Whoosh'd turns use the existing strict non-streaming
+transport, while ineligible turns preserve ordinary local streaming. Stage
+2F.1b still validates Whoosh'd response identity before Stage 1. No provider
+error is converted into a capability error, and explicit caller-supplied
+`task.tools` values are preserved.
+
 | Completion path | Accepted terminal evidence |
 | --- | --- |
 | Whoosh'd / OpenAI-compatible local stream | `[DONE]`; a finish reason may be retained but does not replace the required marker |
