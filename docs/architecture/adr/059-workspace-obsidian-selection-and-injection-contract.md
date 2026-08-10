@@ -3,7 +3,18 @@ status: accepted
 date: 2026-05-06
 ---
 
-# ADR-024: Workspace Obsidian Selection and Injection Contract
+# ADR-059: Workspace Obsidian Selection and Injection Contract
+
+## Canonicalization History
+
+This Accepted decision was originally stored as ADR-024, which collided with
+ADR-024 Context Command and Active Connector Semantics. Accepted human Phase 4
+adjudication retained Context Command as ADR-024 and moved Workspace Obsidian
+to ADR-059. This changes Workspace Obsidian's numeric identity and path only;
+it remains an independent Accepted decision with the same architectural
+meaning. Historical references to the former Workspace Obsidian ADR-024 remain
+historical evidence and must not be reinterpreted as references to Context
+Command.
 
 ## Context
 

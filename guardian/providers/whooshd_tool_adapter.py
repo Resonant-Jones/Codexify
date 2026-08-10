@@ -23,7 +23,6 @@ from guardian.providers.whooshd_qualification import (
     WhooshdQualificationOutcome,
     compare_whooshd_qualification,
 )
-
 QUALIFIED_VENDOR = "whooshd"
 QUALIFIED_MODEL_ALIAS = "gemma-4-12b-it-qat-4bit"
 QUALIFIED_RUNTIME_KIND = "mlx_vlm"
@@ -378,8 +377,13 @@ def _provenance_mapping(raw: Any) -> Mapping[str, Any] | None:
 def validate_runtime_provenance(raw: Any) -> None:
     """Require Stage 2E structure and a Stage 2F qualification match.
 
-    This remains a provider-wire validation seam.  It neither advertises a
-    tool nor authorizes the command selected by a validated response.
+    The current contract exposes runtime, adapter, route, and request identities
+    but not the MLX-VLM build, tokenizer, or template fingerprint. Those absent
+    dimensions remain a capability-advertisement limitation rather than a
+    reason to inspect model files from Guardian.
+
+    This remains a provider-wire validation seam. It neither advertises a tool
+    nor authorizes the command selected by a validated response.
     """
 
     provenance = _provenance_mapping(raw)

@@ -341,6 +341,53 @@ def test_whooshd_structured_provenance_mismatch_blocks_before_execute_invoke(
             response,
             runtime_provenance=replace(
                 response.runtime_provenance,
+                resolved_model_id="another-model",
+            ),
+        ),
+    )
+
+    with pytest.raises(WhooshdStructuredTransportError, match="provenance"):
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    assert command_calls == []
+
+
+def test_whooshd_structured_qualification_mismatch_blocks_before_execute_invoke(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_service(
+        monkeypatch,
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_settings",
+        lambda: SimpleNamespace(LOCAL_PROVIDER_VENDOR="whooshd"),
+    )
+    task = _build_task(task_id="task-whooshd-qualification-mismatch")
+    task.provider = "local"
+    task.model = "gemma-4-12b-it-qat-4bit"
+    task.tools = [_whooshd_stage_2e_tool()]
+    command_calls: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *args, **kwargs: command_calls.append((args, kwargs)),
+    )
+    response = _whooshd_stage_2e_response(
+        '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: replace(
+            response,
+            runtime_provenance=replace(
+                response.runtime_provenance,
                 qualification_attestation=replace(
                     response.runtime_provenance.qualification_attestation,
                     attestation_digest="sha256:" + "0" * 64,

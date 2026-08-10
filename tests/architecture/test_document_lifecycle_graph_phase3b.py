@@ -3,6 +3,9 @@
 These tests exercise fixed, illustrative source-selection fixtures only.  They
 do not implement an arbitrary resolver, perform retrieval, start runtime
 services, populate PAO context, or widen release claims.
+
+Phase 3B freezes the generated Phase 3A calibration snapshot and representative
+ARP semantics; it does not freeze later canonical Markdown or DLG node evolution.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime as real_datetime
@@ -530,18 +534,12 @@ def test_representative_arps_have_plaintext_git_attributes_and_are_not_lfs_manag
     assert lfs_paths.isdisjoint(paths)
 
 
-def _assert_files_match_phase3a_blobs(paths: list[Path]) -> None:
+def _assert_snapshot_files_match_phase3a_blobs(paths: list[Path]) -> None:
     for path in paths:
         relative = path.relative_to(REPO_ROOT).as_posix()
         baseline_blob = git("rev-parse", f"{PHASE3A_SHA}:{relative}")
         current_blob = git("hash-object", relative)
         assert current_blob == baseline_blob, relative
-
-
-def test_canonical_nine_node_blobs_remain_unchanged() -> None:
-    paths = sorted((REPO_ROOT / "docs/knowledge-graph/nodes").glob("*.json"))
-    assert len(paths) == 9
-    _assert_files_match_phase3a_blobs(paths)
 
 
 def test_phase3a_six_generated_projection_blobs_remain_unchanged() -> None:
@@ -556,10 +554,49 @@ def test_phase3a_six_generated_projection_blobs_remain_unchanged() -> None:
             "orphans.json",
         )
     ]
-    _assert_files_match_phase3a_blobs(paths)
+    _assert_snapshot_files_match_phase3a_blobs(paths)
 
 
-def test_governed_markdown_source_blobs_remain_unchanged(corpus: arps.Corpus) -> None:
-    paths = [REPO_ROOT / node["path"] for node in corpus.nodes_by_id.values()]
-    assert len(paths) == 9
-    _assert_files_match_phase3a_blobs(paths)
+def _copy_pinned_calibration_input(temp_root: Path, relative_path: Path) -> None:
+    target = temp_root / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO_ROOT / relative_path, target)
+
+
+def test_phase3b_calibration_does_not_require_live_nodes_or_markdown_sources(
+    tmp_path: Path,
+) -> None:
+    for relative_path in (
+        arps.GRAPH_RELATIVE_PATH,
+        arps.STALE_RELATIVE_PATH,
+        arps.SUPERSESSION_RELATIVE_PATH,
+        arps.CONFLICT_RELATIVE_PATH,
+        arps.SCHEMA_RELATIVE_PATH,
+    ):
+        _copy_pinned_calibration_input(tmp_path, relative_path)
+
+    assert not (tmp_path / "docs/knowledge-graph/nodes").exists()
+    assert not (tmp_path / "docs/architecture").exists()
+
+    calibration = arps.load_corpus(tmp_path)
+    assert frozenset(calibration.nodes_by_id) == arps.EXPECTED_DOCUMENT_IDS
+    assert calibration.accepted_edges == frozenset(
+        {
+            (arps.ADR_057, "depends_on", arps.ADR_056),
+            (arps.DLG_CONTRACT, "governed_by", arps.ADR_056),
+            (arps.PRODUCT_LANES, "governed_by", arps.ADR_057),
+            (arps.PRODUCT_LANES, "depends_on", arps.DLG_CONTRACT),
+            (arps.PUBLICATION_PROOF, "evidence_for", arps.ADR_056),
+            (arps.PUBLICATION_PROOF, "evidence_for", arps.DLG_CONTRACT),
+            (arps.PUBLICATION_PROOF, "evidence_for", arps.ADR_057),
+            (arps.PUBLICATION_PROOF, "evidence_for", arps.PRODUCT_LANES),
+        }
+    )
+
+    generated = arps.build_packets(calibration, CREATED_AT)
+    assert set(generated) == set(arps.OUTPUT_FILENAMES)
+    assert all(
+        packet["graph_revision"] == arps.EXPECTED_GRAPH_REVISION
+        and packet["repository_revision"] == arps.EXPECTED_REPOSITORY_REVISION
+        for packet in generated.values()
+    )
