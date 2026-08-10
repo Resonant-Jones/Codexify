@@ -15,7 +15,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T20:00:28Z",
     "verified_commit": "7073a9676467c11d90e79e103ef8b02fb983be04",
     "triggers": [
@@ -23,7 +23,7 @@
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB structural routing at 7073a9676467c11d90e79e103ef8b02fb983be04 and synchronized the node hash to the committed README bytes; release truth remains delegated to Current State."
+    "reason": "The governed architecture ADR corpus changed during Provider Capability canonicalization from ADR-041 to ADR-062; Architecture KB source bytes remain unchanged and committed-revision semantic re-verification is required."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

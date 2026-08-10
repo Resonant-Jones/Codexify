@@ -89,6 +89,7 @@ Use this note as the local map for all ADRs.
 52. [[059-workspace-obsidian-selection-and-injection-contract|ADR-059 Workspace Obsidian Selection and Injection Contract]] — Accepted; renumbered from the duplicate ADR-024 identity during DLG human canonicalization. It remains the contract for truthfully distinguishing workspace-local searchability, broker selection, completion-context injection, and assistant reflection for Obsidian-backed notes.
 53. [[060-workspace-retrieval-source-for-local-knowledge|ADR-060 Workspace Retrieval Source for Local Knowledge]] — Accepted; renumbered from the duplicate ADR-016 identity during DLG human canonicalization. It remains the canonical contract for `retrievalSource="workspace"` as user-bounded, local-first workspace retrieval semantics.
 54. [[061-capability-oriented-mesh-architecture|ADR-061 Capability-Oriented Mesh Architecture]] — Accepted architectural principle; renumbered from the duplicate ADR-039 identity during DLG human canonicalization. Governs capability-oriented trust boundaries, explicit capability authorization, transport abstraction, provider symmetry, and customer isolation.
+55. [[062-provider-capability-model-contract|ADR-062 Provider Capability Model Contract]] — Proposed; renumbered from the duplicate ADR-041 identity during DLG human canonicalization. Defines evidence-backed provider capability domains and evidence levels while keeping provider identity, catalog visibility, health, runtime proof, supported-profile allowance, and release support distinct.
 
 ---
 

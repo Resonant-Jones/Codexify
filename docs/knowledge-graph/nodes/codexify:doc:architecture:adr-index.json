@@ -17,7 +17,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T20:00:28Z",
     "verified_commit": "7073a9676467c11d90e79e103ef8b02fb983be04",
     "triggers": [
@@ -25,7 +25,7 @@
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-verified the ADR corpus and canonical routing through ADR-061 at 7073a9676467c11d90e79e103ef8b02fb983be04; ADR-041, ADR-053, and ADR-055 remain explicitly unresolved collision families."
+    "reason": "ADR Index source and ADR corpus changed during the human-approved Provider Capability canonicalization from ADR-041 to ADR-062 and require committed-revision semantic re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "a31614a46dd79cc2d9b661c130f947537ef72103c88ac75bed8626b8307aef6f",
+  "content_hash": "403f87b41891484dc60d7c5a3293e727537a45a704410c3409b78cfcc97593dc",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
