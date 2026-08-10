@@ -16,14 +16,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-10T14:37:20Z",
-    "verified_commit": "0e6172f051416272123afbda091c5ad16b1a3545",
+    "verified_at": "2026-08-10T15:55:28Z",
+    "verified_commit": "e30d13609ef4538c98b943acd0e318a4ab4a0878"
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified against the committed architecture corpus, ADR-061 routing change, and declared invalidating anchors after Capability-Oriented Mesh canonicalization."
+    "reason": "Re-verified the committed Architecture KB routing against the reconciled architecture corpus and the new provider-tool, Whoosh'd capability, and runtime-qualification entrypoints at e30d13609ef4538c98b943acd0e318a4ab4a0878."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

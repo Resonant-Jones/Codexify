@@ -18,15 +18,15 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-10T13:21:09Z",
-    "verified_commit": "0cf943bd9bda292bc13e8f30f85efb118eed921d",
+    "verified_at": "2026-08-10T15:55:28Z",
+    "verified_commit": "e30d13609ef4538c98b943acd0e318a4ab4a0878"
     "triggers": [
       "the weekly freshness window expires",
       "the supported profile or release interpretation changes",
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "window_days": 7,
-    "reason": "Re-verified against the committed reconciled current-state source and release-truth boundary after rewritten-history anchor normalization."
+    "reason": "Re-verified the committed Current State release/support boundary against the reconciled provider-tool and Whoosh'd implementation, qualification, capability-projection, and proof surfaces at e30d13609ef4538c98b943acd0e318a4ab4a0878; bounded implementation and exact-target evidence do not widen the documented release promise."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
