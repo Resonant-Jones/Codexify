@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
+from guardian.providers.whooshd_control_plane import (
+    parse_whooshd_runtime_provenance,
+)
+from guardian.providers.whooshd_qualification import (
+    STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
+)
 from guardian.providers.whooshd_tool_adapter import (
     QUALIFIED_ADAPTER_NAME,
     QUALIFIED_EXECUTION_MODE,
@@ -34,8 +41,12 @@ def _tool(command_id: str = "op::lookup_widget") -> dict:
     }
 
 
-def _provenance(**overrides) -> dict:
+def _provenance(**overrides):
+    record = STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD
+    material = record.material
     payload = {
+        "schema_version": "whooshd.runtime.v1",
+        "request_id": "req-stage2f",
         "requested_model_id": QUALIFIED_MODEL_ALIAS,
         "advertised_model_id": QUALIFIED_MODEL_ALIAS,
         "resolved_model_id": QUALIFIED_MODEL_ALIAS,
@@ -44,9 +55,23 @@ def _provenance(**overrides) -> dict:
         "resolution_source": QUALIFIED_RESOLUTION_SOURCE,
         "execution_mode": QUALIFIED_EXECUTION_MODE,
         "streaming": False,
+        "queued": False,
+        "batched": False,
+        "qualification_attestation": {
+            "attestation_schema_version": material.attestation_schema_version,
+            "canonicalization_profile": material.canonicalization_profile,
+            "digest_algorithm": record.digest_algorithm,
+            "attestation_digest": record.expected_attestation_digest,
+            "invocation_model_id": material.invocation_model_id,
+            "resolved_model_id": material.resolved_model_id,
+            "runtime_kind": material.runtime_kind,
+            "adapter_name": material.adapter_name,
+        },
     }
     payload.update(overrides)
-    return payload
+    provenance = parse_whooshd_runtime_provenance(payload)
+    assert provenance is not None
+    return provenance
 
 
 def _response(content: str, *, command_id: str = "op::lookup_widget", **overrides):
@@ -217,6 +242,43 @@ def test_tool_decision_fails_closed_on_missing_or_mismatched_runtime_provenance(
                 **overrides,
             )
         )
+
+
+def test_tool_decision_requires_match_but_assistant_remains_compatible_without_it():
+    response = _response(
+        '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
+    )
+    assert response.runtime_provenance is not None
+    assert response.runtime_provenance.qualification_attestation is not None
+
+    mismatched = replace(
+        response,
+        runtime_provenance=replace(
+            response.runtime_provenance,
+            qualification_attestation=replace(
+                response.runtime_provenance.qualification_attestation,
+                attestation_digest="sha256:" + "0" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(WhooshdStructuredTransportError, match="mismatch"):
+        parse_structured_response(mismatched)
+
+    insufficient = replace(
+        response,
+        runtime_provenance=replace(
+            response.runtime_provenance,
+            qualification_attestation=None,
+        ),
+    )
+    with pytest.raises(WhooshdStructuredTransportError, match="insufficient_evidence"):
+        parse_structured_response(insufficient)
+
+    ordinary = replace(
+        insufficient,
+        content='{"kind":"assistant","text":"Hello","command_id":null,"arguments":{}}',
+    )
+    assert parse_structured_response(ordinary).text == "Hello"
 
 
 def test_structured_continuation_contains_only_semantic_decision_and_result():

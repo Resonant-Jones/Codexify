@@ -90,6 +90,34 @@ terminal behavior. Response correlation headers are available before visible
 stream output; the stream body remains unchanged apart from its established
 error event behavior.
 
+## Runtime provenance and qualification attestation
+
+`RuntimeProvenance` is separate from the `whooshd.control.v1` error contract.
+Current `whooshd.runtime.v1` response metadata is bounded, content-free
+request provenance: it identifies the requested/advertised/resolved and
+backend-reported model labels, runtime/adapter/routing mode, operational
+flags/lifecycle, Whoosh'd version, and bounded correlation fields. In the
+current Whoosh'd implementation it is produced from `RuntimeResolution`;
+completed non-streaming responses carry it in their body, and streaming
+responses carry it before visible output in
+`X-Whooshd-Runtime-Provenance` while retaining the OpenAI-compatible stream
+body shape.
+
+It does **not** currently prove the exact artifact revision or quantization,
+runtime or structured-decoder package/build, tokenizer identity, effective
+chat/tool-template fingerprint, parser fingerprint, or strict structured
+protocol identity. It must therefore not be interpreted as a complete runtime
+qualification attestation. The exact producer/consumer boundary, future
+target-scoped attestation reference, comparison semantics, and absent-evidence
+rule are defined by
+[`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md).
+
+That contract is architecture only. No attestation field, digest, parser,
+endpoint, or control-plane version change is implemented by this document.
+An optional future provenance reference can remain additive to
+`whooshd.runtime.v1`; old or absent references are unproven for qualification,
+not an alias/runtime fallback match.
+
 ## Proof boundary
 
 Focused parser and adapter tests prove header/body parsing, code-only

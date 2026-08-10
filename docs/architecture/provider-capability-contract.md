@@ -275,6 +275,23 @@ That boundary is governed by
 Provider capability records under this contract describe ability; they do
 not grant Guardian command authority.
 
+### Provider-specific qualification evidence
+
+An effective capability may consume provider-specific evidence without making
+that evidence a provider-neutral wire requirement. For the identity-pinned
+Whoosh'd strict-structured path, a future effective tool capability requires a
+future qualification record and a current runtime-attestation `MATCH` for the
+exact resolved execution target, in addition to readiness, permitted
+provider/model capability, and Guardian authority. The detailed local-runtime
+attestation boundary is governed by
+[`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md).
+
+That attestation does not itself declare or grant a capability, and it does
+not authorize Guardian commands. It is evidence consumed below this generic
+capability layer. Other providers may use different trustworthy proof and
+lifecycle evidence; they are not required to implement Whoosh'd artifact,
+tokenizer, template, or decoder identity fields.
+
 ### 1. Runtime Discovery Spec
 
 Should define:
@@ -313,6 +330,36 @@ Should define:
 Suggested future name:
 
 - `provider-capability-compatibility-contract.md`
+
+## Implemented Provider-Specific Effective Capability (Stage 2G)
+
+This note remains planning-only for the generic provider capability
+framework. One narrow provider-specific effective capability has been
+implemented and is documented separately at the exact-target level:
+
+- Provider: `whooshd`
+- Target: the exact Stage 2D qualified execution identity
+- Surface: parsed current Whoosh'd runtime inventory
+  (`whooshd.runtime.v1` / `ModelInfo` payload, full bounded attestation
+  when the adapter-loaded path is active)
+- Comparator: `guardian/providers/whooshd_qualification.py`
+  (`compare_whooshd_inventory_qualification`), re-using the existing
+  `whooshd.qualification-attestation.canonical-json.v1` canonicalizer
+- Projection: `guardian/providers/whooshd_tool_capability.py`
+  (`project_whooshd_tool_capability`)
+- Snapshot fields: `outcome`, `invocation_model_id`, `runtime_kind`,
+  `adapter_name`, `qualification_outcome`, `runtime_ready`,
+  `exposure_allowed`, `reason`, `qualification_reason`
+
+This implementation does **not** turn into the generic provider capability
+registry/routing framework implied above. The projection answers only the
+narrow Stage 2G question for one target; a future Stage 2H convergence
+proof and a separate Stage 2I capability advertisement layer would
+generalize any of these decisions. Effective eligibility is
+evidence-aware and distinct from a runtime's `supports_tools` field —
+`supports_tools=True` without matching attestation cannot qualify a
+target, and `supports_tools=False` on the exact qualified target does
+not disqualify it.
 
 ## Non-Goals
 

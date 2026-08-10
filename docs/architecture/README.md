@@ -88,6 +88,14 @@ If you are working on the provider-neutral semantic boundary between provider tr
 
 If you are working on Whoosh'd per-model tool-capability qualification, exact model-target tool transport, or the distinction between provider-level and per-model capability for local inference runtimes, start with [`Whoosh'd Model Tool-Capability Boundary`](./whooshd-model-tool-capability-boundary.md) after [`Provider Tool-Turn Boundary Contract`](./provider-tool-turn-boundary-contract.md) and [`Whoosh'd Model Profiles`](./whooshd-model-profiles.md). That contract defines the evidence-based per-target qualification boundary; it does not implement Whoosh'd tool calling or change any runtime code.
 
+If you are working on whether a currently serving Whoosh'd local target still
+matches a qualified proof identity, read [`Whoosh'd Runtime Qualification
+Attestation Contract`](./whooshd-runtime-qualification-attestation-contract.md)
+after the per-model boundary. It separates historical qualification evidence,
+Whoosh'd-owned live runtime attestation, readiness, capability projection, and
+Guardian authority; it does not implement an attestation, advertise tools, or
+change the runtime.
+
 If you are working on Email provider capabilities, routing and alias distinctions, mailbox projection, cursor and watch semantics, throttling, error translation, or the Google Workspace adapter mapping, start with [ADR-047: Codexify Email User-Owned Routing Identity, Mailbox Governance, and Provider Adapter Contract](./adr/047-codexify-email-routing-identity-mailbox-governance-provider-adapter-contract.md) first, then read [`Codexify Email Provider Capability and Routing Contract`](./codexify-email-provider-capability-routing-contract.md). That contract defines provider capability discovery, alias and label distinctions, cursor and watch semantics, backpressure doctrine, normalized error families, retry safety classifications, and the Google Workspace capability mapping without leaking provider-specific concepts into the core Email domain. It is a proposed architecture contract pending human review and does not implement Email runtime behavior.
 
 If you are working on step-level provider selection, model chains, or cloud escalation policy for workflow execution, start with [`Model Chain Workflows and Cloud Escalation Policy`](./model-chain-workflows-and-cloud-escalation-policy.md). That note defines step-local routing and policy-controlled cloud escalation without claiming runtime support.
@@ -190,6 +198,7 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - [Config and Ops](./config-and-ops.md): env vars, config resolution, supported run paths, health checks, logging, and debugging cues.
 - [Whoosh'd Model Profiles](./whooshd-model-profiles.md): data-only local runtime descriptors for Whoosh'd/MLX-backed local models; this does not change runtime routing or release support by itself.
 - [Whoosh'd Model Tool-Capability Boundary](./whooshd-model-tool-capability-boundary.md): per-model tool-qualification architecture, distinguishing provider identity from runtime engine from exact model-target capability. It does not implement Whoosh'd tool calling or change runtime code.
+- [Whoosh'd Runtime Qualification Attestation Contract](./whooshd-runtime-qualification-attestation-contract.md): docs-only boundary for Whoosh'd-owned, bounded live execution-identity attestation and Codexify's future proof-identity comparison. It does not implement an attestation, capability advertisement, or runtime change.
 - [Modules and Ownership](./modules-and-ownership.md): subsystem map, dependency edges, and blast radius guidance.
 - [Bounded Tool-Augmented Completion Live Proof](./2026-04-20-bounded-tool-augmented-completion-live-proof.md): fresh supported-path live proof for the one-turn command-bus tool slice on the current `main` tip.
 - [Tool Jobs Cleanup Live Proof](./2026-04-28-tool-jobs-cleanup-live-proof.md): supported Compose schema proof that the dedicated `tool_jobs` cleanup migration restores downgrade shape, removes the table again on upgrade, and leaves `command_runs` / `command_run_events` intact.

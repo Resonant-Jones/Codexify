@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-09
+Diagram Review Marker: 2026-08-10 (Stage 2H documentation review; no diagram change)
 
 ## Scope
 

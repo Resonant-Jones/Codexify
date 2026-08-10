@@ -1,5 +1,5 @@
 Purpose: Define the canonical provider-neutral architecture boundary that separates semantic model/tool intent from provider-specific wire representation, so DeepSeek, OpenAI Chat Completions, OpenAI Responses, Whoosh'd/local providers, and future providers can all participate in the same Codexify tool-turn contract without driving different Guardian agent runtimes or tool executors.
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/provider-capability-contract.md
@@ -505,3 +505,30 @@ adapters (such as Whoosh'd local runtime adapters) may reveal a need for a
 more generic opaque provider-state carrier. Such a change requires a separate
 architecture-impact review; it is not authorized by the Stage 2B
 implementation or by this contract.
+
+## 19. Executable Transport Convergence (Stage 2H)
+
+Stage 2H adds an executable, deterministic proof for two implemented
+transports: DeepSeek native tool calls and the exact qualified Whoosh'd
+strict-structured transport. It exercises their real adapter/parser paths into
+`NormalizedCompletionOutput`, then the same bounded Guardian runtime and
+`execute_invoke` seam with one synthetic read-only command.
+
+The common semantic core proven at that boundary is the bounded action kind,
+canonical `command_id`, and structured arguments. DeepSeek provider aliases
+are mapped back to the canonical command before the shared carrier; Whoosh'd
+strict ModelTurn parsing supplies the same canonical identity directly only
+after its post-response qualification match. Both paths use the Stage 1
+advertised-subset gate and the same Command Bus result semantics.
+
+Provider correlation and continuation state deliberately remain different:
+DeepSeek preserves its `tool_call_id`, raw assistant envelope, and
+`reasoning_content`, while Whoosh'd retains qualified runtime provenance and
+uses structured decision/result context without a native tool-call ID. Those
+fields do not grant command authority. The proof is recorded in
+[`2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md`](proofs/2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md).
+
+This proof does not declare every provider transport implemented or qualified,
+does not make loose/free-form JSON a structured transport, and does not change
+ordinary `task.tools`, capability advertisement, Command Bus authority,
+production behavior, or release posture.

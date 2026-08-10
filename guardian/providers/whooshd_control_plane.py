@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
-
 WHOOSHD_CONTROL_PLANE_VERSION = "whooshd.control.v1"
 WHOOSHD_CONTROL_VERSION_HEADER = "X-Whooshd-Contract-Version"
 WHOOSHD_RUNTIME_PROVENANCE_SCHEMA = "whooshd.runtime.v1"
@@ -61,6 +60,9 @@ _SAFE_EXECUTION_MODES = frozenset(
 _SAFE_LIFECYCLE_STATES = frozenset(
     {"unloaded", "warming", "ready", "generating", "degraded", "failed"}
 )
+_SAFE_MODEL_CAPABILITIES = frozenset(
+    {"chat", "streaming", "json", "tools", "embeddings", "reasoning", "vision"}
+)
 _RUNTIME_FIELD_NAMES = (
     "request_id",
     "correlation_id",
@@ -84,6 +86,17 @@ _RUNTIME_FIELD_NAMES = (
 _PRIVATE_OR_URL_RE = re.compile(r"(?:^[/~]|^[A-Za-z]:[\\/]|://|[?&#])")
 _SAFE_RUNTIME_TEXT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _SAFE_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_SAFE_ATTESTATION_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ATTESTATION_REFERENCE_FIELDS = (
+    "attestation_schema_version",
+    "canonicalization_profile",
+    "digest_algorithm",
+    "attestation_digest",
+    "invocation_model_id",
+    "resolved_model_id",
+    "runtime_kind",
+    "adapter_name",
+)
 
 
 class WhooshdContractVersionError(ValueError):
@@ -137,6 +150,32 @@ class WhooshdErrorDiagnostic:
 
 
 @dataclass(frozen=True)
+class WhooshdQualificationAttestationReference:
+    """Bounded target-attestation reference carried by runtime provenance."""
+
+    attestation_schema_version: str
+    canonicalization_profile: str
+    digest_algorithm: str
+    attestation_digest: str
+    invocation_model_id: str
+    resolved_model_id: str
+    runtime_kind: str
+    adapter_name: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "attestation_schema_version": self.attestation_schema_version,
+            "canonicalization_profile": self.canonicalization_profile,
+            "digest_algorithm": self.digest_algorithm,
+            "attestation_digest": self.attestation_digest,
+            "invocation_model_id": self.invocation_model_id,
+            "resolved_model_id": self.resolved_model_id,
+            "runtime_kind": self.runtime_kind,
+            "adapter_name": self.adapter_name,
+        }
+
+
+@dataclass(frozen=True)
 class WhooshdRuntimeProvenance:
     """Content-free runtime evidence accepted from Whoosh'd v1 responses."""
 
@@ -159,6 +198,8 @@ class WhooshdRuntimeProvenance:
     codexify_task_id: str | None = None
     codexify_attempt_id: str | None = None
     whooshd_request_id: str | None = None
+    qualification_attestation: WhooshdQualificationAttestationReference | None = None
+    qualification_attestation_malformed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -183,9 +224,36 @@ class WhooshdRuntimeProvenance:
                 "codexify_task_id": self.codexify_task_id,
                 "codexify_attempt_id": self.codexify_attempt_id,
                 "whooshd_request_id": self.whooshd_request_id,
+                "qualification_attestation": (
+                    self.qualification_attestation.as_dict()
+                    if self.qualification_attestation is not None
+                    else None
+                ),
             }.items()
             if value is not None
         }
+
+
+def _parse_qualification_attestation_reference(
+    raw: Any,
+) -> WhooshdQualificationAttestationReference | None:
+    """Accept one complete, content-free attestation reference shape only."""
+
+    if not isinstance(raw, dict) or set(raw) != set(_ATTESTATION_REFERENCE_FIELDS):
+        return None
+    values: dict[str, str] = {}
+    for field in _ATTESTATION_REFERENCE_FIELDS:
+        value = raw.get(field)
+        if not isinstance(value, str):
+            return None
+        if not value or len(value) > 256 or not _SAFE_RUNTIME_TEXT_RE.fullmatch(value):
+            return None
+        if _PRIVATE_OR_URL_RE.search(value):
+            return None
+        values[field] = value
+    if not _SAFE_ATTESTATION_DIGEST_RE.fullmatch(values["attestation_digest"]):
+        return None
+    return WhooshdQualificationAttestationReference(**values)
 
 
 def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | None:
@@ -255,6 +323,11 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
     for name, value in text_values.items():
         if raw.get(name) is not None and value is None:
             return None
+    raw_attestation = raw.get("qualification_attestation")
+    attestation_present = "qualification_attestation" in raw
+    qualification_attestation = _parse_qualification_attestation_reference(
+        raw_attestation
+    )
     return WhooshdRuntimeProvenance(
         schema_version=WHOOSHD_RUNTIME_PROVENANCE_SCHEMA,
         request_id=text_values["request_id"],
@@ -275,6 +348,10 @@ def parse_whooshd_runtime_provenance(raw: Any) -> WhooshdRuntimeProvenance | Non
         codexify_task_id=text_values["codexify_task_id"],
         codexify_attempt_id=text_values["codexify_attempt_id"],
         whooshd_request_id=text_values["whooshd_request_id"],
+        qualification_attestation=qualification_attestation,
+        qualification_attestation_malformed=(
+            attestation_present and qualification_attestation is None
+        ),
     )
 
 
@@ -441,3 +518,358 @@ def provider_failure_kind(code: str) -> str:
     if code == "model_not_found":
         return "local_model_unavailable"
     return "provider_http_error"
+
+
+# ── Runtime inventory evidence (Stage 2G pre-request surface) ──────────────
+
+
+@dataclass(frozen=True)
+class WhooshdQualificationInventoryAttestation:
+    """Bounded full attestation carried by one runtime inventory entry.
+
+    Codexify only consumes the inventory copy of the material identity and the
+    producer-emitted digest.  It re-canonicalizes the material with the existing
+    Stage 2F.1b canonicalizer and recomputes the digest; an inventory copy that
+    fails either check is rejected as ``attestation_inconsistent``.
+    """
+
+    attestation_schema_version: str
+    canonicalization_profile: str
+    digest_algorithm: str
+    attestation_digest: str
+    invocation_model_id: str
+    resolved_model_id: str
+    artifact_identity_kind: str
+    artifact_identity_value: str
+    quantization: str
+    runtime_kind: str
+    adapter_name: str
+    adapter_semantic_build: str
+    whooshd_build_identity: str
+    serving_runtime_package: str
+    serving_runtime_version: str
+    structured_decoder_package: str
+    structured_decoder_version: str
+    tokenizer_implementation: str
+    tokenizer_identity_fingerprint: str
+    chat_template_fingerprint: str
+    tool_template_parser_relationship: str
+    tool_template_parser_identity_fingerprint: str
+    structured_transport_mode: str
+    structured_transport_protocol_version: str
+    qualification_protocol_version: str
+
+    def as_identity_document(self) -> dict[str, object]:
+        """Return a fresh v1 material document for canonicalization."""
+
+        return {
+            "attestation_schema_version": self.attestation_schema_version,
+            "canonicalization_profile": self.canonicalization_profile,
+            "invocation_model_id": self.invocation_model_id,
+            "resolved_model_id": self.resolved_model_id,
+            "artifact_identity": {
+                "kind": self.artifact_identity_kind,
+                "value": self.artifact_identity_value,
+            },
+            "quantization": self.quantization,
+            "runtime_kind": self.runtime_kind,
+            "adapter": {
+                "name": self.adapter_name,
+                "semantic_build": self.adapter_semantic_build,
+            },
+            "whooshd_build_identity": self.whooshd_build_identity,
+            "serving_runtime": {
+                "package": self.serving_runtime_package,
+                "version": self.serving_runtime_version,
+            },
+            "structured_decoder": {
+                "package": self.structured_decoder_package,
+                "version": self.structured_decoder_version,
+            },
+            "tokenizer": {
+                "implementation": self.tokenizer_implementation,
+                "identity_fingerprint": self.tokenizer_identity_fingerprint,
+            },
+            "chat_template_fingerprint": self.chat_template_fingerprint,
+            "tool_template_parser": {
+                "relationship": self.tool_template_parser_relationship,
+                "identity_fingerprint": (
+                    self.tool_template_parser_identity_fingerprint
+                ),
+            },
+            "structured_transport": {
+                "mode": self.structured_transport_mode,
+                "protocol_version": self.structured_transport_protocol_version,
+            },
+            "qualification_protocol_version": (
+                self.qualification_protocol_version
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class WhooshdRuntimeInventoryEvidence:
+    """Bounded one-row snapshot of the current Whoosh'd runtime inventory.
+
+    This is a pre-request evidence carrier for Stage 2G capability projection.
+    It carries enough identity, readiness, and attestation fields for the
+    Stage 2F.1b comparator and the Stage 2G projection; raw paths, endpoints,
+    PIDs, and arbitrary metadata are deliberately discarded during parsing.
+    """
+
+    invocation_model_id: str
+    runtime_kind: str
+    adapter_name: str
+    loaded: bool
+    model_lifecycle: str | None
+    capabilities: tuple[str, ...]
+    qualification_attestation: WhooshdQualificationInventoryAttestation | None
+    qualification_attestation_malformed: bool = False
+    resolution_source: str | None = None
+
+    def is_ready(self) -> bool:
+        """Return whether current inventory evidence proves admission-ready state.
+
+        Ready means the current inventory entry reports both ``loaded=True``
+        and ``model_lifecycle="ready"``.  Other lifecycle values — including
+        ``generating``, ``warming``, ``degraded``, ``failed``, ``unloaded`` —
+        are not eligible for a new structured-tool request.
+        """
+
+        return self.loaded and self.model_lifecycle == "ready"
+
+
+_INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS = {
+    "artifact_identity": ("kind", "value"),
+    "adapter": ("name", "semantic_build"),
+    "serving_runtime": ("package", "version"),
+    "structured_decoder": ("package", "version"),
+    "tokenizer": ("implementation", "identity_fingerprint"),
+    "tool_template_parser": ("relationship", "identity_fingerprint"),
+    "structured_transport": ("mode", "protocol_version"),
+}
+
+
+def _parse_inventory_text(raw: Any, *, name: str) -> str | None:
+    """Apply the same bounded-text rules the runtime parser uses."""
+
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not value or len(value) > 256 or not _SAFE_RUNTIME_TEXT_RE.fullmatch(value):
+        return None
+    if _PRIVATE_OR_URL_RE.search(value):
+        return None
+    return value
+
+
+def _parse_inventory_sub_object(
+    raw: Any,
+    expected_keys: tuple[str, ...],
+    *,
+    path: str,
+) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    if set(raw) != set(expected_keys):
+        return None
+    bounded: dict[str, str] = {}
+    for key in expected_keys:
+        text = _parse_inventory_text(raw.get(key), name=f"{path}.{key}")
+        if text is None:
+            return None
+        bounded[key] = text
+    return bounded
+
+
+def _parse_inventory_full_attestation(
+    raw: Any,
+) -> WhooshdQualificationInventoryAttestation | None:
+    if not isinstance(raw, dict):
+        return None
+    bounded_text_fields = (
+        "attestation_schema_version",
+        "canonicalization_profile",
+        "invocation_model_id",
+        "resolved_model_id",
+        "quantization",
+        "runtime_kind",
+        "whooshd_build_identity",
+        "chat_template_fingerprint",
+        "qualification_protocol_version",
+    )
+    expected_keys = set(bounded_text_fields).union(
+        {"digest_algorithm", "attestation_digest"},
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS.keys(),
+    )
+    if set(raw) != expected_keys:
+        return None
+    values: dict[str, str] = {}
+    for field in bounded_text_fields:
+        text = _parse_inventory_text(raw.get(field), name=field)
+        if text is None:
+            return None
+        values[field] = text
+    digest_algorithm = _parse_inventory_text(
+        raw.get("digest_algorithm"), name="digest_algorithm"
+    )
+    if digest_algorithm is None:
+        return None
+    attestation_digest = _parse_inventory_text(
+        raw.get("attestation_digest"), name="attestation_digest"
+    )
+    if attestation_digest is None:
+        return None
+    if not _SAFE_ATTESTATION_DIGEST_RE.fullmatch(attestation_digest):
+        return None
+    artifact = _parse_inventory_sub_object(
+        raw.get("artifact_identity"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["artifact_identity"],
+        path="artifact_identity",
+    )
+    adapter = _parse_inventory_sub_object(
+        raw.get("adapter"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["adapter"],
+        path="adapter",
+    )
+    serving = _parse_inventory_sub_object(
+        raw.get("serving_runtime"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["serving_runtime"],
+        path="serving_runtime",
+    )
+    decoder = _parse_inventory_sub_object(
+        raw.get("structured_decoder"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["structured_decoder"],
+        path="structured_decoder",
+    )
+    tokenizer = _parse_inventory_sub_object(
+        raw.get("tokenizer"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["tokenizer"],
+        path="tokenizer",
+    )
+    parser = _parse_inventory_sub_object(
+        raw.get("tool_template_parser"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["tool_template_parser"],
+        path="tool_template_parser",
+    )
+    transport = _parse_inventory_sub_object(
+        raw.get("structured_transport"),
+        _INVENTORY_ATTESTATION_SUB_OBJECT_FIELDS["structured_transport"],
+        path="structured_transport",
+    )
+    if not all(
+        (artifact, adapter, serving, decoder, tokenizer, parser, transport)
+    ):
+        return None
+    assert (
+        artifact and adapter and serving and decoder and tokenizer and parser and transport
+    )
+    return WhooshdQualificationInventoryAttestation(
+        attestation_schema_version=values["attestation_schema_version"],
+        canonicalization_profile=values["canonicalization_profile"],
+        digest_algorithm=digest_algorithm,
+        attestation_digest=attestation_digest,
+        invocation_model_id=values["invocation_model_id"],
+        resolved_model_id=values["resolved_model_id"],
+        artifact_identity_kind=artifact["kind"],
+        artifact_identity_value=artifact["value"],
+        quantization=values["quantization"],
+        runtime_kind=values["runtime_kind"],
+        adapter_name=adapter["name"],
+        adapter_semantic_build=adapter["semantic_build"],
+        whooshd_build_identity=values["whooshd_build_identity"],
+        serving_runtime_package=serving["package"],
+        serving_runtime_version=serving["version"],
+        structured_decoder_package=decoder["package"],
+        structured_decoder_version=decoder["version"],
+        tokenizer_implementation=tokenizer["implementation"],
+        tokenizer_identity_fingerprint=tokenizer["identity_fingerprint"],
+        chat_template_fingerprint=values["chat_template_fingerprint"],
+        tool_template_parser_relationship=parser["relationship"],
+        tool_template_parser_identity_fingerprint=parser["identity_fingerprint"],
+        structured_transport_mode=transport["mode"],
+        structured_transport_protocol_version=transport["protocol_version"],
+        qualification_protocol_version=values["qualification_protocol_version"],
+    )
+
+
+def parse_whooshd_runtime_inventory_entry(
+    raw: Any,
+) -> WhooshdRuntimeInventoryEvidence | None:
+    """Parse one bounded entry from the current Whoosh'd runtime inventory.
+
+    The parser accepts the ``ModelInfo`` payload shape emitted by Whoosh'd
+    ``d08e3261`` from either the adapter-loaded inventory path or any
+    future equivalent that exposes the bounded qualification attestation.
+    Raw paths, endpoints, PIDs, and arbitrary unrelated metadata are not
+    part of the contract and are intentionally dropped.
+    """
+
+    if not isinstance(raw, dict):
+        return None
+    invocation_model_id = _parse_inventory_text(
+        raw.get("id"), name="id"
+    )
+    if invocation_model_id is None:
+        return None
+    loaded = raw.get("loaded")
+    if not isinstance(loaded, bool):
+        return None
+    runtime_provenance_raw = raw.get("runtime_provenance")
+    runtime_kind: str | None = None
+    adapter_name: str | None = None
+    resolution_source: str | None = None
+    if isinstance(runtime_provenance_raw, dict):
+        runtime_kind = _parse_inventory_text(
+            runtime_provenance_raw.get("runtime_kind"),
+            name="runtime_provenance.runtime_kind",
+        )
+        adapter_name = _parse_inventory_text(
+            runtime_provenance_raw.get("adapter_name"),
+            name="runtime_provenance.adapter_name",
+        )
+        resolution_source = _parse_inventory_text(
+            runtime_provenance_raw.get("resolution_source"),
+            name="runtime_provenance.resolution_source",
+        )
+    if runtime_kind is None:
+        runtime_kind = _parse_inventory_text(raw.get("runtime_kind"), name="runtime_kind")
+    if adapter_name is None:
+        adapter_name = _parse_inventory_text(raw.get("adapter_name"), name="adapter_name")
+    if runtime_kind is None or runtime_kind not in _SAFE_RUNTIME_KINDS:
+        return None
+    if adapter_name is None or not adapter_name:
+        return None
+    if (
+        resolution_source is not None
+        and resolution_source not in _SAFE_RESOLUTION_SOURCES
+    ):
+        return None
+    lifecycle = _parse_inventory_text(raw.get("model_lifecycle"), name="model_lifecycle")
+    if lifecycle is not None and lifecycle not in _SAFE_LIFECYCLE_STATES:
+        lifecycle = None
+    capabilities_raw = raw.get("capabilities")
+    bounded_capabilities: list[str] = []
+    if isinstance(capabilities_raw, list):
+        for entry in capabilities_raw:
+            text = _parse_inventory_text(entry, name="capabilities")
+            if text is None or text not in _SAFE_MODEL_CAPABILITIES:
+                return None
+            if text not in bounded_capabilities:
+                bounded_capabilities.append(text)
+    raw_attestation = raw.get("qualification_attestation")
+    attestation_present = "qualification_attestation" in raw
+    attestation = _parse_inventory_full_attestation(raw_attestation)
+    return WhooshdRuntimeInventoryEvidence(
+        invocation_model_id=invocation_model_id,
+        runtime_kind=runtime_kind,
+        adapter_name=adapter_name,
+        loaded=loaded,
+        model_lifecycle=lifecycle,
+        capabilities=tuple(bounded_capabilities),
+        qualification_attestation=attestation,
+        qualification_attestation_malformed=(
+            attestation_present and attestation is None
+        ),
+        resolution_source=resolution_source,
+    )

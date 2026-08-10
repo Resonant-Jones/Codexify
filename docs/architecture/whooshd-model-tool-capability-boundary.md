@@ -6,6 +6,7 @@ Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/whooshd-model-profiles.md
 - docs/architecture/whooshd-control-plane-v1.md
+- docs/architecture/whooshd-runtime-qualification-attestation-contract.md
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
 - docs/architecture/canonical-token-philosophy.md
@@ -600,9 +601,12 @@ settings. It never sends native `tools`, `tool_choice`, or function-call
 fields.
 
 The response parser accepts only one complete JSON ModelTurn object, rejects
-prose, fences, alternate shapes, duplicate fields, and repair attempts, and
-checks a tool decision's returned runtime provenance before the existing Stage
-1 advertised-subset gate can invoke anything. Continuation is ordinary
+prose, fences, alternate shapes, duplicate fields, and repair attempts. For a
+tool decision, it performs the existing structural runtime-provenance checks
+and then requires the Stage 2F.1b live-attestation comparison to be `MATCH`
+before the existing Stage 1 advertised-subset gate can invoke anything.
+`MISMATCH` and `INSUFFICIENT_EVIDENCE` fail closed before that authority seam.
+Continuation is ordinary
 assistant/user context containing the selected command, arguments, and result;
 it carries no provider-native tool-call identifier or new authority. A second
 tool decision remains the existing bounded-loop failure.
@@ -614,3 +618,180 @@ mismatch fail closed; this does not advertise a capability, change
 release claim. This implementation consumes the Stage 2D receipt but does not
 repeat live runtime proof; the runtime contract still cannot attest the pinned
 MLX-VLM package, tokenizer, or template fingerprint per response.
+
+### Stage 2F attestation boundary — 2026-08-09
+
+[`whooshd-runtime-qualification-attestation-contract.md`](./whooshd-runtime-qualification-attestation-contract.md)
+defines the runtime-truth boundary. Stage 2F.1a now originates the bounded
+target reference and Stage 2F.1b now consumes it through one Codexify
+machine-readable qualification record and pure comparator. A record is not a
+live claim: missing or mismatched material evidence fails closed for a Stage
+2E tool decision, and ordinary assistant output requires no attestation.
+
+This does not change `ModelCapability.TOOLS`, `RuntimeModel.supports_tools`,
+`MlxVlmAdapter.supports_tools`, ordinary chat, Guardian authority, or the
+latent/public status of the Stage 2E transport.
+
+### Stage 2F.1a producer status — 2026-08-09
+
+Stage 2F.1a is implemented in Whoosh'd (read-only from Codexify's view) at
+commit `d08e3261d8ed2217b9c258bb783138fc6a06df9f`. The producer now emits a
+target-scoped qualification-attestation reference through the existing
+`RuntimeProvenance` (`whooshd.runtime.v1`) when complete evidence exists;
+incomplete runtimes emit no qualification-grade digest. The producer's
+`tokenizer.identity_fingerprint` is computed from the parsed
+`tokenizer_config.json` via a documented canonical re-serialization
+(sorted keys, compact separators, `ensure_ascii=False`, UTF-8), then
+SHA-256, prefixed `sha256:`.
+
+### Stage 2F.1b qualification-record status — 2026-08-09
+
+The original Stage 2D receipt did not pin the producer-compatible
+`tokenizer.identity_fingerprint` value (it recorded the raw-file SHA only).
+The supplemental reconciliation proof resolved that evidence gap without
+requalifying the model.
+
+The supplemental reconciliation proof
+[`2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md`](proofs/2026-08-09-whooshd-gemma-4-12b-it-qat-4bit-tokenizer-identity-reconciliation-proof.md)
+now provides that canonical tokenizer identity, with byte-exact reproduction
+against the unchanged Stage 2D artifact. The expected
+`tokenizer.identity_fingerprint` for the Stage 2D qualified target is
+`sha256:d9b98aa21582c4a1dcf598a17ffbede72feabe6a46b1a6bb8cf1ed5ab44eb264`.
+
+Stage 2F.1b now consumes both receipts as the audit evidence for one complete,
+immutable exact-target record and independently canonicalizes/computes the
+expected v1 digest. `whooshd.runtime.v1` remains backward compatible: an absent
+or malformed optional reference cannot match. `MATCH`, `MISMATCH`, and
+`INSUFFICIENT_EVIDENCE` are internal comparison results only, and Stage 1 still
+separately authorizes any command after a matching structured decision.
+
+### Stage 2G pre-request tool-capability projection — 2026-08-09
+
+Stage 2G implements the evidence-aware pre-request tool eligibility
+snapshot for exactly one Whoosh'd execution identity. The projection is
+**not** an advertisement and **not** command authority; it answers one
+deliberately narrow question:
+
+> Is the currently inventoried Whoosh'd target the exact qualified
+> execution identity, currently ready, and explicitly permitted by
+> exposure policy to participate in the Codexify structured tool-turn
+> semantic?
+
+#### Surfaces and identity layers
+
+The projection sits below the generic provider capability layer and
+above the Stage 1 advertised-subset authority gate:
+
+```text
+current Whoosh'd runtime inventory (ModelInfo.payload.qualification_attestation)
+        |
+        v
+bounded inventory parser → WhooshdRuntimeInventoryEvidence
+        |
+        v
+inventory qualification comparator (re-uses Stage 2F.1b canonicalizer)
+        |
+        v
+MATCH / MISMATCH / INSUFFICIENT_EVIDENCE
+        |
+        +
+explicit exposure_allowed (caller-supplied; no permissive default)
+        |
+        v
+Stage 2G capability projection → eligible | ineligible
+```
+
+The current runtime inventory surface that exposes the full bounded
+target qualification attestation is the adapter-loaded `ModelInfo` payload
+emitted by Whoosh'd `d08e3261` (`whooshd/runtime/__init__.py`,
+`_models_from_adapters`). Codexify accepts that surface as the pre-request
+evidence and discards everything it does not need: raw model paths,
+endpoint URLs, PIDs, environment, and arbitrary unrelated metadata do not
+enter the parsed evidence or the projection. The Codexify file-backed
+profile registry (`guardian.core.whooshd_model_profiles`) is **not**
+consulted by the projection; it is configuration, not runtime truth.
+
+#### Exact-target containment
+
+The only target that may return `eligible=True` is the exact Stage 2D
+qualification record:
+
+| Field | Value |
+| --- | --- |
+| invocation alias | `gemma-4-12b-it-qat-4bit` |
+| runtime | `mlx_vlm` |
+| adapter | `mlx-vlm` / `MlxVlmAdapter-0.1.0rc1` |
+| expected attestation digest | `sha256:9dd3b803259e5e6e65a6ba08a50dbf387c3907d987d35b327531bf5bf5cc4780` |
+
+No other model, runtime, adapter, or Whoosh'd target may project eligible.
+
+#### Capability equation
+
+```text
+Whoosh'd structured-tool eligibility
+=
+exact qualified target
+∩ current inventory identity
+∩ complete live attestation
+∩ qualification MATCH
+∩ eligible runtime readiness
+∩ explicit exposure permission
+```
+
+`exposure_allowed` has no permissive default; callers must pass it
+explicitly. `exposure_allowed=False` always produces `eligible=False`,
+even when every other element of the equation holds.
+
+Readiness means the current inventory entry reports `loaded=True` and
+`model_lifecycle="ready"`. `unloaded`, `warming`, `starting`, `generating`,
+`degraded`, `failed`, and `offline` are all non-ready for a new request.
+
+The projection is a snapshot; two independent evaluations of distinct
+inventory snapshots never share cached state.
+
+#### Stage 2F.1b post-response defense is unchanged
+
+The Stage 2F.1b post-response qualification comparison in
+`guardian/providers/whooshd_tool_adapter.py` remains the execution-identity
+gate immediately before `execute_invoke`. Stage 2G is a pre-request
+eligibility projection; a stale projection cannot cause a command to
+reach `execute_invoke`, because the post-response check still fails closed
+on `MISMATCH` or `INSUFFICIENT_EVIDENCE` regardless of any pre-request
+signal.
+
+#### Supports-tools distinction
+
+`RuntimeModel.supports_tools` and `ModelCapability.TOOLS` are
+**not** positive evidence for the Stage 2E strict-structured transport
+qualification. `MlxVlmAdapter.supports_tools` remains `False`. A target
+may report `supports_tools=False` and still satisfy the Stage 2G
+capability equation when its evidence, readiness, and exposure permission
+all agree with the Stage 2D qualification record. Conversely, a target
+that reports `supports_tools=True` without a matching attestation remains
+ineligible.
+
+#### Status
+
+No capability has been advertised. No `task.tools` producer exists. The
+projection is exposed only as a pure function and a bounded
+`WhooshdToolCapabilityProjection` value. Stage 1 remains the sole
+command-authority gate, and the one-command invocation limit is
+unchanged.
+
+### Stage 2H transport convergence proof — 2026-08-10
+
+Stage 2H supplies deterministic test proof that the exact qualified Whoosh'd
+strict-structured transport is semantically converged with DeepSeek native
+tool transport at the Codexify boundary. Both normalize to the same bounded
+canonical action (`kind`, `command_id`, and structured arguments), traverse
+the same Stage 1 advertised-subset Guardian authority gate, and use the same
+`execute_invoke` seam and one-command limit. The receipt is
+[`2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md`](proofs/2026-08-10-deepseek-whooshd-tool-turn-convergence-proof.md).
+
+The Stage 2F.1b post-response qualification `MATCH` remains mandatory before a
+Whoosh'd tool proposal reaches Guardian authority. Stage 2G remains separate
+pre-request eligibility evidence, not a capability advertisement or command
+authorization token. `task.tools` still has no ordinary production producer;
+`ModelCapability.TOOLS`, `RuntimeModel.supports_tools`, and
+`MlxVlmAdapter.supports_tools` remain unchanged. No release-support claim or
+canonical runtime token has been added.
