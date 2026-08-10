@@ -1,10 +1,22 @@
-# ADR-039: Capability-Oriented Mesh Architecture
+# ADR-061: Capability-Oriented Mesh Architecture
 
 **Status:** Accepted (Architectural Principle)  
 **Date:** 2026-06-30  
 **Scope:** Architecture, networking, customer isolation, provider routing, transport abstraction
 
 ---
+
+## Canonicalization History
+
+This Accepted architectural principle was originally stored as ADR-039, which
+numerically collided with ADR-039 Operator / User Access Boundary. Accepted
+Phase 4B human adjudication retained Operator / User Access Boundary as ADR-039
+and moved Capability-Oriented Mesh to ADR-061. This changes Capability-Oriented
+Mesh's numeric identity and path only; its Accepted architectural-principle
+posture, `2026-06-30` date, and architecture, networking, customer isolation,
+provider routing, and transport abstraction meaning remain unchanged. Historical
+references to the former Capability Mesh ADR-039 remain historical evidence and
+must not be reinterpreted as references to Operator / User Access Boundary.
 
 ## Context
 

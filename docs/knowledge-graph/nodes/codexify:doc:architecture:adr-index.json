@@ -17,7 +17,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T14:01:23Z",
     "verified_commit": "f44d6610d4abda19c44affe1f093f7a1e538aca7",
     "triggers": [
@@ -25,7 +25,7 @@
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-verified against the committed ADR corpus and canonical ADR-016 / ADR-060 routing after Workspace Retrieval canonicalization."
+    "reason": "ADR Index source and ADR corpus changed during the human-approved ADR-039 to ADR-061 Capability-Oriented Mesh canonicalization and require committed-revision re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "335f804106916224ad157f9cd9632d50d8b61523372b62d7e1e7f30c8fa8e931",
+  "content_hash": "a31614a46dd79cc2d9b661c130f947537ef72103c88ac75bed8626b8307aef6f",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
