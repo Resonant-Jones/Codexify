@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T14:01:23Z",
-    "verified_commit": "f44d6610d4abda19c44affe1f093f7a1e538aca7",
+    "state": "current",
+    "verified_at": "2026-08-10T14:37:20Z",
+    "verified_commit": "0e6172f051416272123afbda091c5ad16b1a3545",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Architecture ADR corpus changed after the recorded verification boundary during ADR-039 to ADR-061 Capability-Oriented Mesh canonicalization; README source bytes remain unchanged and committed-revision semantic re-verification is required."
+    "reason": "Re-verified against the committed architecture corpus, ADR-061 routing change, and declared invalidating anchors after Capability-Oriented Mesh canonicalization."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
