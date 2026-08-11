@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   applyPaperTone,
+  applySurfaceWarmth,
   paperToneLabel,
-  normalizeLegacyWarmth,
+  normalizeSurfaceWarmth,
 } from "@/theme/paperTone";
 
 describe("applyPaperTone", () => {
@@ -133,37 +134,58 @@ describe("paperToneLabel", () => {
   });
 });
 
-describe("normalizeLegacyWarmth", () => {
-  test("passes through already-normalized values", () => {
-    expect(normalizeLegacyWarmth(0)).toBe(0);
-    expect(normalizeLegacyWarmth(50)).toBe(50);
-    expect(normalizeLegacyWarmth(100)).toBe(100);
+describe("applySurfaceWarmth", () => {
+  test("keeps neutral surfaces unchanged in both themes", () => {
+    expect(applySurfaceWarmth("#f1ede8", 0, "light")).toBe("#f1ede8");
+    expect(applySurfaceWarmth("#1b1b1d", 0, "dark")).toBe("#1b1b1d");
   });
 
-  test("clamps above-range legacy positives to 100", () => {
-    // Old max was 100, so >100 was never stored, but be safe.
-    expect(normalizeLegacyWarmth(150)).toBe(100);
+  test("uses the expanded paper curve on the warm side in light mode", () => {
+    expect(applySurfaceWarmth("#f1ede8", 100, "light")).toBe(
+      applyPaperTone("#f1ede8", 100)
+    );
   });
 
-  test("maps legacy negative (cool) values to 0", () => {
-    expect(normalizeLegacyWarmth(-50)).toBe(0);
-    expect(normalizeLegacyWarmth(-100)).toBe(0);
+  test("restores the cool steel shift in light mode", () => {
+    const result = applySurfaceWarmth("#f1ede8", -100, "light");
+    expect(result).not.toBe("#f1ede8");
+    const red = parseInt(result.slice(1, 3), 16);
+    const blue = parseInt(result.slice(5, 7), 16);
+    expect(blue).toBeGreaterThan(red);
   });
 
-  test("maps legacy -1 to 0", () => {
-    // A barely-cool old value should just go to neutral.
-    expect(normalizeLegacyWarmth(-1)).toBe(0);
+  test("restores the original olive interaction on warm dark surfaces", () => {
+    const result = applySurfaceWarmth("#1b1b1d", 100, "dark");
+    expect(result).not.toBe("#1b1b1d");
+    const red = parseInt(result.slice(1, 3), 16);
+    const green = parseInt(result.slice(3, 5), 16);
+    const blue = parseInt(result.slice(5, 7), 16);
+    expect(green).toBeGreaterThan(red);
+    expect(green).toBeGreaterThan(blue);
   });
 
-  test("maps legacy +100 to 100", () => {
-    expect(normalizeLegacyWarmth(100)).toBe(100);
+  test("restores the cool steel shift in dark mode", () => {
+    const result = applySurfaceWarmth("#1b1b1d", -100, "dark");
+    expect(result).not.toBe("#1b1b1d");
+    const red = parseInt(result.slice(1, 3), 16);
+    const blue = parseInt(result.slice(5, 7), 16);
+    expect(blue).toBeGreaterThan(red);
+  });
+});
+
+describe("normalizeSurfaceWarmth", () => {
+  test("preserves the complete bidirectional range", () => {
+    expect(normalizeSurfaceWarmth(-100)).toBe(-100);
+    expect(normalizeSurfaceWarmth(-50)).toBe(-50);
+    expect(normalizeSurfaceWarmth(0)).toBe(0);
+    expect(normalizeSurfaceWarmth(50)).toBe(50);
+    expect(normalizeSurfaceWarmth(100)).toBe(100);
   });
 
-  test("maps legacy midpoint +50 correctly", () => {
-    expect(normalizeLegacyWarmth(50)).toBe(50);
-  });
-
-  test("rounds fractional values", () => {
-    expect(normalizeLegacyWarmth(42.7)).toBe(43);
+  test("clamps, rounds, and safely handles non-finite values", () => {
+    expect(normalizeSurfaceWarmth(-150)).toBe(-100);
+    expect(normalizeSurfaceWarmth(150)).toBe(100);
+    expect(normalizeSurfaceWarmth(42.7)).toBe(43);
+    expect(normalizeSurfaceWarmth(Number.NaN)).toBe(0);
   });
 });

@@ -128,7 +128,11 @@ import {
 import "./AppShell.css";
 
 // TEMPORARY: inject static design tokens until full migration is done.
-import { injectCssVars, applyPaperTone, normalizeLegacyWarmth } from "@/theme";
+import {
+  applySurfaceWarmth,
+  injectCssVars,
+  normalizeSurfaceWarmth,
+} from "@/theme";
 injectCssVars();
 /* ──────────────────────────────────────────────────────────────────────────
    TUNING PRIMER (safe knobs)
@@ -1714,14 +1718,13 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 50;
     return Math.max(0, Math.min(100, Math.round(raw)));
   });
-  // lightPaperTone — canonical light-mode paper-material control (0–100).
-  // Reuses cfy.surfaceWarmth for backward compatibility; legacy values
-  // are normalized deterministically on read.
-  const [lightPaperTone, setLightPaperTone] = useState<number>(() => {
+  // Surface Warmth — restored bidirectional material control (-100–100).
+  // Positive Light-mode values use the expanded cream/yellow paper curve.
+  const [surfaceWarmth, setSurfaceWarmth] = useState<number>(() => {
     if (typeof window === "undefined") return 0;
     const raw = Number(window.localStorage.getItem("cfy.surfaceWarmth"));
     if (!Number.isFinite(raw)) return 0;
-    return normalizeLegacyWarmth(raw);
+    return normalizeSurfaceWarmth(raw);
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1742,9 +1745,9 @@ export default function AppShell({
   }, [surfaceDepth]);
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("cfy.surfaceWarmth", String(lightPaperTone));
+      window.localStorage.setItem("cfy.surfaceWarmth", String(surfaceWarmth));
     }
-  }, [lightPaperTone]);
+  }, [surfaceWarmth]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🌈 SECTION: Color Helpers and Gradient Generators
@@ -1805,7 +1808,8 @@ export default function AppShell({
   /* ─────────────────────────────────────────────────────────────────────────────
      🎚️ SECTION: Surface Tuning Derivation
      Surface Depth is applied via HSL lightness shift to both light and dark.
-     Paper Tone is light-only and uses perceptual OKLCH interpolation.
+     Surface Warmth is bidirectional; positive Light values use the perceptual
+     paper curve while Dark and cool values retain the original color theory.
      ───────────────────────────────────────────────────────────────────────────── */
   function tuneSurfaceDepth(baseHex: string, depthNorm: number): string {
     const { r, g, b } = hexToRgb(baseHex);
@@ -1858,17 +1862,15 @@ export default function AppShell({
   const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
   // Surface Depth (affects both themes equally).
   const depthNorm = (surfaceDepth - 50) / 50;
-  // Paper Tone: light-mode-only material warmth.
-  // In dark mode the stored value is preserved but not applied.
-  const lightPanelSheet = resolved === "light"
-    ? applyPaperTone(panelSheetBase, lightPaperTone)
-    : panelSheetBase;
-  const lightChipBg = resolved === "light"
-    ? applyPaperTone(chipBgBase, lightPaperTone)
-    : chipBgBase;
-  const panelSheet = tuneSurfaceDepth(lightPanelSheet, depthNorm);
+  const warmedPanelSheet = applySurfaceWarmth(
+    panelSheetBase,
+    surfaceWarmth,
+    resolved
+  );
+  const warmedChipBg = applySurfaceWarmth(chipBgBase, surfaceWarmth, resolved);
+  const panelSheet = tuneSurfaceDepth(warmedPanelSheet, depthNorm);
   const panelBg = panelSheet;
-  const chipBg = tuneSurfaceDepth(lightChipBg, depthNorm);
+  const chipBg = tuneSurfaceDepth(warmedChipBg, depthNorm);
   // Global: soften panel border
   const panelBorder = resolved === "dark" ? "rgba(255,255,255,0.10)" : "rgba(17,24,39,0.08)";
   const panelSheetBorder = resolved === "dark" ? "rgba(255,255,255,0.18)" : "rgba(17,24,39,0.14)";
@@ -2009,10 +2011,11 @@ export default function AppShell({
     "--surface-soft": surfaceSoft,
     /* Surface Tuning raw inputs (consumed by AppShell-level derivation). */
     "--surface-depth": String(surfaceDepth),
-    "--light-paper-tone": String(lightPaperTone),
+    "--surface-warmth": String(surfaceWarmth),
     "--surface-sheet": panelSheet,
     "--surface-chip": chipBg,
     "--surface-depth-norm": depthNorm.toFixed(4),
+    "--surface-warmth-norm": (surfaceWarmth / 100).toFixed(4),
     "--text-on-accent": textOnAccent,
     "--info-surface": infoSurface,
     "--info-text": infoText,
@@ -3762,8 +3765,8 @@ export default function AppShell({
                     setDashboardThreadRows={setDashboardThreadRows}
                     surfaceDepth={surfaceDepth}
                     setSurfaceDepth={setSurfaceDepth}
-                    lightPaperTone={lightPaperTone}
-                    setLightPaperTone={setLightPaperTone}
+                    surfaceWarmth={surfaceWarmth}
+                    setSurfaceWarmth={setSurfaceWarmth}
                     ingestionEnabled={ingestionEnabled}
                     setIngestionEnabled={setIngestionEnabled}
                   />
