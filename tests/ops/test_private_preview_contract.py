@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +30,18 @@ EXPECTED_ENV = {
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
 
+SENTINEL_ENV_CONTENT = """\
+DEEPSEEK_API_KEY=inert-deepseek-key
+GUARDIAN_API_KEY=inert-guardian-key
+GUARDIAN_SESSION_SECRET=inert-session-secret
+GUARDIAN_JWT_SECRET=inert-jwt-secret
+"""
 
-def _render_compose() -> dict[str, Any]:
-    environment = {
+
+def _render_compose(
+    runtime_env_file: str | None = None,
+) -> dict[str, Any]:
+    environment: dict[str, str] = {
         **os.environ,
         "GUARDIAN_API_KEY": "inert-guardian-key",
         "GUARDIAN_SESSION_SECRET": "inert-session-secret",
@@ -42,6 +52,8 @@ def _render_compose() -> dict[str, Any]:
         "LOCAL_CHAT_MODEL": "gemma-4-12b-it-qat-4bit",
         "NEO4J_PASS": "inert-neo4j-password",
     }
+    if runtime_env_file is not None:
+        environment["CODEXIFY_RUNTIME_ENV_FILE"] = runtime_env_file
     command = [
         "docker",
         "compose",
@@ -104,6 +116,67 @@ def test_private_preview_compose_keeps_browser_secrets_empty() -> None:
     assert frontend["VITE_GUARDIAN_API_KEY"] == ""
     assert frontend["VITE_GUARDIAN_DEV_API_KEY"] == ""
     assert "DEEPSEEK_API_KEY" not in frontend
+    assert "GUARDIAN_API_KEY" not in frontend
+    assert "GUARDIAN_SESSION_SECRET" not in frontend
+    assert "GUARDIAN_JWT_SECRET" not in frontend
+
+
+def test_private_preview_frontend_env_file_isolation_prevents_server_credential_leak() -> None:
+    """Reproduce the actual env-file inheritance seam.
+
+    When CODEXIFY_RUNTIME_ENV_FILE points at a server-bearing env file,
+    the frontend must not receive server-only credentials even when
+    backend and worker-chat need them.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".env", prefix="codexify_test_runtime_", delete=False
+    ) as tmp:
+        tmp.write(SENTINEL_ENV_CONTENT)
+        tmp_path = tmp.name
+
+    try:
+        os.chmod(tmp_path, 0o600)
+        config = _render_compose(runtime_env_file=tmp_path)
+
+        services = config["services"]
+        backend_env = services["backend"]["environment"]
+        worker_env = services["worker-chat"]["environment"]
+        frontend_env = services["frontend"]["environment"]
+
+        # Backend and worker-chat must receive the credential.
+        assert backend_env.get("DEEPSEEK_API_KEY") == "inert-deepseek-key", (
+            "backend must receive DEEPSEEK_API_KEY from runtime env file"
+        )
+        assert worker_env.get("DEEPSEEK_API_KEY") == "inert-deepseek-key", (
+            "worker-chat must receive DEEPSEEK_API_KEY from runtime env file"
+        )
+
+        # Frontend must not receive any server-only credential.
+        assert "DEEPSEEK_API_KEY" not in frontend_env, (
+            "frontend must not receive DEEPSEEK_API_KEY"
+        )
+        assert "GUARDIAN_API_KEY" not in frontend_env, (
+            "frontend must not receive GUARDIAN_API_KEY"
+        )
+        assert "GUARDIAN_SESSION_SECRET" not in frontend_env, (
+            "frontend must not receive GUARDIAN_SESSION_SECRET"
+        )
+        assert "GUARDIAN_JWT_SECRET" not in frontend_env, (
+            "frontend must not receive GUARDIAN_JWT_SECRET"
+        )
+
+        # Vite Guardian-key isolation.
+        assert frontend_env.get("VITE_GUARDIAN_API_KEY") == "", (
+            "frontend VITE_GUARDIAN_API_KEY must be empty"
+        )
+        assert frontend_env.get("VITE_GUARDIAN_DEV_API_KEY") == "", (
+            "frontend VITE_GUARDIAN_DEV_API_KEY must be empty"
+        )
+
+        # Port isolation unchanged.
+        assert _published_ports(config) == [("127.0.0.1", 8081, 8080)]
+    finally:
+        os.unlink(tmp_path)
 
 
 def test_private_preview_tracked_files_contain_no_secret_literals() -> None:
