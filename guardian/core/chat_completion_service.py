@@ -5255,6 +5255,28 @@ def _resolve_ordinary_chat_tools(
     )
 
 
+def _prepare_chat_tool_exposure(
+    task: ChatCompletionTask,
+    *,
+    provider: str,
+    model: str,
+    settings: Any,
+) -> dict[str, Any]:
+    """Resolve the canonical advertised subset and its bounded evidence."""
+
+    automatic_tool_exposure = task.tools is None
+    if automatic_tool_exposure:
+        task.tools = _resolve_ordinary_chat_tools(
+            provider=provider,
+            model=model,
+            settings=settings,
+        )
+    return _build_tool_exposure_evidence(
+        automatic=automatic_tool_exposure,
+        tools=task.tools,
+    )
+
+
 def _execute_bounded_tool_turn_completion(
     task: ChatCompletionTask,
     *,
@@ -5776,16 +5798,11 @@ def run_chat_completion_task(
             task.selection_source = "local_vision_env"
 
     settings = get_settings()
-    automatic_tool_exposure = task.tools is None
-    if automatic_tool_exposure:
-        task.tools = _resolve_ordinary_chat_tools(
-            provider=provider,
-            model=model,
-            settings=settings,
-        )
-    tool_exposure = _build_tool_exposure_evidence(
-        automatic=automatic_tool_exposure,
-        tools=task.tools,
+    tool_exposure = _prepare_chat_tool_exposure(
+        task,
+        provider=provider,
+        model=model,
+        settings=settings,
     )
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None

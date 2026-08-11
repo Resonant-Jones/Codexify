@@ -7,11 +7,11 @@ tags:
   - execution-ledger
   - proposed
 aliases:
-  - ADR-041
+  - ADR-063
   - Pi Loop Manager Campaign Runner Gate Graph
 ---
 
-# ADR-041: Pi Loop Manager Campaign Runner Gate Graph
+# ADR-063: Pi Loop Manager Campaign Runner Gate Graph
 
 ## Status
 
@@ -20,6 +20,12 @@ Proposed
 ## Date
 
 2026-07-03
+
+## Canonicalization History
+
+This Proposed ADR was originally stored as ADR-041. It was independent from VaultNode Canonical Machine and Audit Authority and Provider Capability Model Contract despite sharing that number. Phase 4B retained VaultNode as canonical ADR-041, and Provider Capability Model was separately canonicalized as ADR-062. Pi Loop Manager is independently allocated ADR-063.
+
+This move changes numeric identity, path, and ADR alias only. Its Proposed posture and 2026-07-03 date remain unchanged. Receipt trust, Campaign Runner ownership, Codexify durable-authority boundaries, provider-adapter doctrine, operator-review requirements, and deferred behaviors remain unchanged. Historical former-ADR-041 Pi Loop references remain historical evidence and must not be reinterpreted as VaultNode or Provider Capability references.
 
 ## Context
 

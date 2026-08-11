@@ -515,6 +515,127 @@ def test_advertised_deepseek_health_capability_does_not_force_tool_use(
     }
 
 
+def test_prepare_chat_tool_exposure_resolves_automatic_deepseek_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    health_tool = {
+        "command_id": HEALTH_COMMAND_ID,
+        "description": "Read health.",
+        "input_schema": {"type": "object"},
+    }
+    resolver_calls: list[dict[str, Any]] = []
+
+    def _resolve(**kwargs: Any) -> list[dict[str, Any]]:
+        resolver_calls.append(kwargs)
+        return [health_tool]
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        _resolve,
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert len(resolver_calls) == 1
+    assert resolver_calls[0]["provider"] == "deepseek"
+    assert resolver_calls[0]["model"] == "deepseek-v4-flash"
+    assert task.tools == [health_tool]
+    assert evidence == {
+        "automatic": True,
+        "advertisedToolCount": 1,
+        "advertisedToolCommandIds": [HEALTH_COMMAND_ID],
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": False,
+    }
+
+
+def test_prepare_chat_tool_exposure_preserves_explicit_empty_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    task.tools = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **_kwargs: pytest.fail("explicit tools must not be resolved"),
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert task.tools == []
+    assert evidence["automatic"] is False
+    assert evidence["advertisedToolCount"] == 0
+    assert evidence["advertisedToolCommandIds"] == []
+
+
+def test_prepare_chat_tool_exposure_preserves_explicit_nonempty_subset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    explicit_tools = [{"command_id": "op::caller_selected"}]
+    task.tools = explicit_tools
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **_kwargs: pytest.fail("explicit tools must not be resolved"),
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert task.tools is explicit_tools
+    assert evidence["automatic"] is False
+    assert evidence["advertisedToolCount"] == 1
+    assert evidence["advertisedToolCommandIds"] == ["op::caller_selected"]
+
+
+def test_prepare_chat_tool_exposure_records_automatic_ineligible_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="groq", model="unqualified-model")
+    resolver_calls: list[dict[str, Any]] = []
+
+    def _resolve(**kwargs: Any) -> None:
+        resolver_calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        _resolve,
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="groq",
+        model="unqualified-model",
+        settings=SimpleNamespace(),
+    )
+
+    assert len(resolver_calls) == 1
+    assert task.tools is None
+    assert evidence["automatic"] is True
+    assert evidence["advertisedToolCount"] == 0
+    assert evidence["advertisedToolCommandIds"] == []
+
+
 def test_explicit_empty_tools_remain_empty_and_are_observed_as_nonautomatic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

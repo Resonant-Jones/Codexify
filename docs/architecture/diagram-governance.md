@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-10 (Stage 2H documentation review; no diagram change)
+Diagram Review Marker: 2026-08-11 (ADR-064 Orthogonal UI identity-routing review; README reference-only change; no runtime diagram change)
 
 ## Scope
 

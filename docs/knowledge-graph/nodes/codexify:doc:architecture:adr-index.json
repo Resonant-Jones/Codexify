@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
-    "verified_at": "2026-08-10T14:37:20Z",
-    "verified_commit": "0e6172f051416272123afbda091c5ad16b1a3545",
+    "state": "stale",
+    "verified_at": "2026-08-11T00:41:16Z",
+    "verified_commit": "99304b68947af4c74f4c3c549f6dad9de8743844",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-verified against the committed ADR corpus and canonical ADR-039 / ADR-061 routing after Capability-Oriented Mesh canonicalization."
+    "reason": "ADR Index source and ADR corpus changed during the human-approved Orthogonal UI canonicalization from ADR-055 to ADR-064 and require committed-revision semantic re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "a31614a46dd79cc2d9b661c130f947537ef72103c88ac75bed8626b8307aef6f",
+  "content_hash": "ab4cee85b3a80ba79079d32da38cad249cac974ad17e12c394fff3bd7f2cfdb3",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
