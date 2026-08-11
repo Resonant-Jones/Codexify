@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
-    "verified_at": "2026-08-10T15:55:28Z",
-    "verified_commit": "e30d13609ef4538c98b943acd0e318a4ab4a0878"
+    "state": "stale",
+    "verified_at": "2026-08-11T13:06:35Z",
+    "verified_commit": "c4787236e48a1791f477d50a863a063f87f3e8b5",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified the committed Architecture KB routing against the reconciled architecture corpus and the new provider-tool, Whoosh'd capability, and runtime-qualification entrypoints at e30d13609ef4538c98b943acd0e318a4ab4a0878."
+    "reason": "Architecture KB source routing and the governed ADR corpus changed during Orthogonal UI canonicalization from ADR-055 to ADR-064 and require committed-revision semantic re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "a03098edf0c3db845c5e472a5190b71d2ea0474fa3b389149b40399f42c33b72",
+  "content_hash": "c04e40f29177c3104b0be180c43c8f0752cce9a350981bac547d12ee21a6d08e",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }

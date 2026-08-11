@@ -1,4 +1,4 @@
-# ADR-055: Orthogonal UI Material Personalization
+# ADR-064: Orthogonal UI Material Personalization
 
 ## Status
 
@@ -7,6 +7,18 @@ Accepted
 ## Date
 
 2026-08-01
+
+## Canonicalization History
+
+This Accepted ADR was originally stored as ADR-055. It is independent from
+ThreadSpace ↔ WhisperMesh despite their shared former number. Phase 4B retained
+ThreadSpace ↔ WhisperMesh as ADR-055 and independently allocated Orthogonal UI
+Material Personalization as ADR-064.
+
+Only the numeric identity and path changed. Accepted posture and the
+2026-08-01 date remain unchanged, as do the material-axis, persistence and
+migration, accessibility, and non-goal doctrine. Former ADR-055 Orthogonal UI
+references remain historical evidence.
 
 ## Scope and evidence posture
 

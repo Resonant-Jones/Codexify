@@ -6,11 +6,11 @@ tags:
 * capabilities
 * operator-surface
   aliases:
-* ADR-041
+* ADR-062
 * Provider Capability Model Contract
 ---
 
-# ADR-041: Provider Capability Model Contract
+# ADR-062: Provider Capability Model Contract
 
 ## Status
 
@@ -19,6 +19,12 @@ Proposed
 ## Date
 
 2026-06-30
+
+## Canonicalization History
+
+This Proposed ADR was originally stored as ADR-041 and numerically collided with ADR-041 VaultNode Canonical Machine and Audit Authority and the separately proposed Pi Loop Manager decision. Phase 4B human adjudication retained VaultNode as ADR-041 and independently allocated this Provider Capability Model Contract ADR-062.
+
+This canonicalization changes only numeric identity, path, and ADR alias. Its Proposed posture and 2026-06-30 date remain unchanged. Capability domains, evidence levels, provider identity doctrine, distinctions among catalog visibility, health, runtime proof, supported-profile allowance, and release support, and relationships to Network Profiles and the Operator/User Boundary remain unchanged. Historical Provider Capability ADR-041 references remain historical evidence and must not be reinterpreted as VaultNode or Pi Loop references.
 
 ## Context
 
