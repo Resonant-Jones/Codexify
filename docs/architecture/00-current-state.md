@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-09
+2026-08-11
 
 ## Interpretation rule
 
@@ -18,15 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `4ba72ec9e`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
+`main` is in local-first beta hardening at `139fe0367`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
 
 ## What changed recently
 
-- Implemented advertised-tool subset enforcement and the provider-neutral tool-turn seam; ordinary chat producers still pass no tools.
-- Added DeepSeek native transport translation/continuation coverage; live DeepSeek execution and release support remain unproven.
-- Added an identity-pinned Whoosh'd structured adapter and a live Stage 2D Gemma qualification; the receipt covers one target/schema identity only.
-- Added a tool-unification plan; it is draft intent and does not prove terminal or Coding Loop support.
-- Canonicalized ADR-058/059 and repaired DLG/knowledge-graph freshness metadata; these are control-plane/documentation changes, not runtime readiness proof.
+- Added the bounded read-only `op::health_health_get` chat capability and advertised-subset authority gate; general tool use remains outside the release promise.
+- Added DeepSeek native transport translation/continuation coverage and a cross-provider semantic convergence proof; both remain non-live provider evidence.
+- Added Whoosh'd capability projection, structured transport, qualification/attestation seams, and exact-target identity reconciliation; the receipt covers one target/schema identity only.
+- Canonicalized ADR-060 through ADR-063 and reverified DLG/knowledge-graph freshness after history corrections; these are control-plane/documentation changes.
+- Added a Doctrine of Legible Responsibility and related tool-loop contract updates; they clarify boundaries without proving runtime readiness.
 
 ## Current supported reality
 
@@ -38,7 +38,7 @@ This file is authoritative for:
 - OpenAI export import, Task Prompt Archive, and owner-scoped retry of failed zero-write import jobs are present on `main`.
 - Linked email aliases are resolved as a fallback to the existing user identity; the username path remains first.
 - Bounded chat tool decisions pass through one advertised-subset authority gate. When `task.tools` is unset, ordinary chat may automatically expose exactly the read-only, zero-argument `op::health_health_get` (`GET /health`) capability to DeepSeek or to the exact Whoosh'd target when its current capability projection is eligible; explicit tool selections remain untouched, command visibility does not bypass execution authority, and this deterministic implementation does not widen release support.
-- The exact `gemma-4-12b-it-qat-4bit` Whoosh'd target has a live strict-structured qualification receipt, but this is not general model or release support.
+- A committed live strict-structured qualification receipt exists for the exact `gemma-4-12b-it-qat-4bit` Whoosh'd target, but this is not general model or release support.
 - Coding Loop route registration, focused tests, worker readiness/guard evidence, and profile enablement are present; they do not prove a successful adapter turn or durable terminal result.
 - Architecture-contract, schema, DLG, and proof-validation tooling is present on `main`; it is not live-service proof.
 
@@ -47,6 +47,7 @@ This file is authoritative for:
 - Do not assume cloud-provider beta support, a packaged desktop runtime, or a current local model without live endpoint and inventory proof.
 - Do not assume the tester dual-provider lane is release-supported; it still needs authenticated, provider-specific persisted turns.
 - Do not assume DeepSeek tool-turn tests or the Whoosh'd Gemma qualification establish supported-provider execution, general tool capability, or release support.
+- Do not assume ADR/DLG canonicalization, freshness re-verification, or architecture contracts establish runtime support or release readiness.
 - Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract proves end-to-end runtime readiness.
 - Do not assume the linked-email migration alone proves upgrade success or authenticated end-to-end behavior on every existing database.
 - Do not assume DLG/PAO documents or fixed ARPs provide corpus migration, arbitrary retrieval/RAG, database projection, assertion resolution, or agent authority.
@@ -58,7 +59,7 @@ This file is authoritative for:
 
 ## Active blockers
 
-- Fresh live Compose proof is still needed at `4ba72ec9e`, including health, model inventory, terminal completion, persisted output, and retrieval.
+- Fresh live Compose proof is still needed at `139fe0367`, including health, model inventory, terminal completion, persisted output, and retrieval.
 - Queue-coupled chat still needs current-tip evidence for Redis, worker, turn-lock, and terminal-event behavior.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
 - The bounded Coding Loop lane lacks current-tip proof of backend route acceptance, provider adapter execution, terminal result persistence, and durable source-thread readback; the prior proof stopped at backend exit code 3.
@@ -67,7 +68,7 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Capture fresh supported-Compose proof at `4ba72ec9e`: health, model inventory, chat, persistence, and retrieval.
+1. Capture fresh supported-Compose proof at `139fe0367`: health, model inventory, chat, persistence, and retrieval.
 2. Verify queue completion, turn locking, migration behavior, and import recovery under the supported profile.
 3. Reconcile or clearly fence canonical-versus-legacy configuration paths.
 4. Re-prove provider/tool-turn and the enabled Coding Loop lanes end to end, or quarantine them until their required proof exists.
