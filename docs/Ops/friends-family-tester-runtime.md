@@ -1,13 +1,13 @@
 # Friends & Family Tester Runtime
 
 > **Classification:** operator runbook
-> **Profile:** `v1-friends-family-web`
-> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040
-> **Last updated:** 2026-07-11
+> **Profile:** `v1-whooshd-deepseek-web`
+> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040, ADR-052
+> **Last updated:** 2026-08-10
 
 ## Purpose
 
-This runbook documents how to run a stable, isolated Codexify instance for invited friends/family testers. The tester instance enables the auth router (register, login, logout) so testers can create real accounts, while keeping the default dev profile (`v1-local-core-web-mcp`) unchanged.
+This runbook documents how to run a stable, isolated Codexify instance for invited friends/family testers. The Tester enables the auth router (register, login, logout) so testers can create real accounts, while keeping the default dev profile (`v1-local-core-web-mcp`) unchanged. Its supported runtime profile is the permanent dual-provider profile from ADR-052: local Whoosh'd/Gemma is the global default and DeepSeek is an allowed, thread-selected cloud egress lane.
 
 It also gives the tester UI a separate Tailscale identity, `codexify-test`. The Docker sidecar and the `frontend` share one network namespace, and Tailscale Serve proxies only the frontend to tailnet-only HTTPS on TCP 443. The sidecar is not VaultNode's host Tailscale identity, does not use host networking, and does not advertise subnets or an exit node.
 
@@ -21,7 +21,7 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 
 ## How This Differs from Dev
 
-| Aspect | Dev (`v1-local-core-web-mcp`) | Tester (`v1-friends-family-web`) |
+| Aspect | Dev (`v1-local-core-web-mcp`) | Tester (`v1-whooshd-deepseek-web`) |
 |---|---|---|
 | Compose project name | `codexify` (default) | `codexify_tester` |
 | Env file | `.env` | `.env.tester` |
@@ -32,12 +32,11 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 | Auth routes enabled | No (quarantined) | Yes |
 | User accounts | N/A (single-user dev) | Register/login/logout |
 | State isolation | Dev Postgres/Redis/Neo4j volumes | Separate volumes via project name |
-| Supported profile | `v1-local-core-web-mcp` | `v1-friends-family-web` |
-| Chat provider | Local runtime | DeepSeek `deepseek-v4-flash` only |
+| Supported profile | `v1-local-core-web-mcp` | `v1-whooshd-deepseek-web` |
+| Default chat provider | Local runtime | Whoosh'd Gemma (`gemma-4-12b-it-qat-4bit`) |
+| Cloud chat provider | Not enabled by this profile | DeepSeek `deepseek-v4-flash`, only when selected in the durable thread configuration |
 
-The friends/family profile sends chat completions to DeepSeek instead of
-Whoosh'd. Its egress allowlist contains only `deepseek`; the API key remains
-local-only in `.env.tester`.
+The Tester keeps `LLM_PROVIDER=local` and the Whoosh'd Gemma model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and `modelId=deepseek-v4-flash` through the ordinary thread configuration API. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`.
 
 ## First-Time Setup
 
@@ -166,7 +165,7 @@ raw Compose command.
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   up -d db redis neo4j
 ```
 
@@ -181,7 +180,7 @@ docker compose --env-file .env.tester -p codexify_tester ps
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   up graph-init
 ```
 
@@ -190,7 +189,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   run --rm migrator
 ```
 
@@ -199,7 +198,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   run --rm model-prep
 ```
 
@@ -208,7 +207,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   up -d backend frontend worker-chat worker-chat-embed worker-document-embed worker-warmup
 ```
 
@@ -222,19 +221,19 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 curl -i http://localhost:8889/health
 ```
 
-Expected: `200 OK`, `"status": "ok"`, `"supported_profile": {"name": "v1-friends-family-web"}`.
+Expected: `200 OK`, `"status": "ok"`, `"supported_profile": {"name": "v1-whooshd-deepseek-web"}`. The global LLM health reports the local Whoosh'd/Gemma default; DeepSeek availability is a separate, thread-selected cloud lane.
 
 ### Tailscale identity and Serve configuration
 
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T tailscale-codexify-test tailscale status --json
 
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T tailscale-codexify-test tailscale serve status --json
 ```
 
@@ -255,12 +254,12 @@ The browser should load Codexify and its same-origin `/api` requests should succ
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   restart tailscale-codexify-test frontend
 
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T tailscale-codexify-test tailscale status --json
 ```
 
@@ -283,7 +282,7 @@ curl -i http://localhost:8889/api/health/llm
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T backend python - <<'PY'
 from guardian.guardian_api import app
 for r in app.routes:
@@ -313,13 +312,13 @@ Both should return `200 OK`. Register returns `{"ok":true,"user_id":"tester1","u
 
 ### Provision or Reset a Tester Account
 
-This section documents the operator command for creating or resetting accounts inside the stabilized `codexify_tester` friends-and-family runtime. It is distinct from the older `python -m guardian.cli.private_preview_provision` command, which belongs to the allowlist-driven `private_preview` exposure contract and must not be run against this runtime.
+This section documents the operator command for creating or resetting accounts inside the stabilized `codexify_tester` dual-provider runtime. It is distinct from the older `python -m guardian.cli.private_preview_provision` command, which belongs to the allowlist-driven `private_preview` exposure contract and must not be run against this runtime.
 
 The command targets only the stabilized tester posture. Before running it, confirm the backend reports:
 
 - `GUARDIAN_AUTH_MODE=remote`
 - `GUARDIAN_EXPOSURE_MODE=local_safe`
-- `CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web`
+- `CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web`
 
 The command refuses to run unless all three are present and exact.
 
@@ -330,19 +329,19 @@ The passphrase is read interactively through a hidden `getpass` prompt. Never pl
 Canonical command shape (run inside the running backend container; the emails below are placeholders, not real identities):
 
 ```bash
-docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com' --role admin
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com' --role admin
 ```
 
 Create or reset a guest tester:
 
 ```bash
-docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'guest@example.com' --role guest
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml exec backend python -m guardian.cli.tester_account_provision --email 'guest@example.com' --role guest
 ```
 
 Reset an existing account while preserving its current role (note the omitted `--role`):
 
 ```bash
-docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com'
+docker compose -p codexify_tester --env-file .env.tester -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml exec backend python -m guardian.cli.tester_account_provision --email 'admin@example.com'
 ```
 
 Do not run the old private-preview provisioner (`python -m guardian.cli.private_preview_provision`) against this runtime. It requires `GUARDIAN_EXPOSURE_MODE=private_preview` and is intentionally isolated to the older allowlist contract.
@@ -354,7 +353,7 @@ This command changes credentials and roles only. It does not prove that login, d
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   down
 ```
 
@@ -367,7 +366,7 @@ This stops containers but preserves volumes (`pg_data`, `neo4j_data`, `codexify_
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   down -v
 ```
 
@@ -380,7 +379,7 @@ This permanently deletes the tester Postgres, Redis, Neo4j, and Chroma volumes. 
 ```bash
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T db pg_dump \
     -U "${POSTGRES_USER:-codexify}" \
     -d "${POSTGRES_DB:-Codexify}" \
@@ -399,7 +398,7 @@ docker compose --env-file .env.tester -p codexify_tester \
 
 COMPOSE_PROJECT_NAME=codexify_tester \
   docker compose --env-file .env.tester \
-  -f docker-compose.yml -f docker-compose.tester.yml \
+  -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
   exec -T db pg_restore \
     -U "${POSTGRES_USER:-codexify}" \
     -d "${POSTGRES_DB:-Codexify}" \
@@ -416,7 +415,7 @@ COMPOSE_PROJECT_NAME=codexify_tester \
    ```bash
    COMPOSE_PROJECT_NAME=codexify_tester \
      docker compose --env-file .env.tester \
-     -f docker-compose.yml -f docker-compose.tester.yml \
+     -f docker-compose.yml -f docker-compose.tester.yml -f docker-compose.whooshd-deepseek.yml \
      run --rm migrator
    ```
 5. **Verify health** endpoints return `200`.
@@ -438,4 +437,5 @@ COMPOSE_PROJECT_NAME=codexify_tester \
 - [00 Current State](../architecture/00-current-state.md) — canonical release truth
 - [Config and Ops](../architecture/config-and-ops.md) — env vars, config resolution, health checks
 - [System Overview](../architecture/system-overview.md) — runtime components and topology
+- [ADR-052](../architecture/adr/ADR-052-whooshd-deepseek-dual-provider-startup-profile.md) — Tester dual-provider startup profile
 - [Account Export + Restore Contract](../architecture/account-export-restore-contract.md) — export/restore guarantees (deferred for tester profile)
