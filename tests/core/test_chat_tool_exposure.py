@@ -454,6 +454,14 @@ def test_ordinary_deepseek_health_tool_executes_once_and_plain_answer_is_optiona
     assert result["payload_summary"]["toolTurnState"] == "completed"
     assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
     assert result["payload_summary"]["commandRunId"] == "run-stage2i-deepseek"
+    assert result["payload_summary"]["toolExposure"] == {
+        "automatic": True,
+        "advertisedToolCount": 1,
+        "advertisedToolCommandIds": [HEALTH_COMMAND_ID],
+        "providerDispatchToolCount": 1,
+        "providerDispatchToolCommandIds": [HEALTH_COMMAND_ID],
+        "commandIdsTruncated": False,
+    }
 
 
 def test_advertised_deepseek_health_capability_does_not_force_tool_use(
@@ -495,6 +503,270 @@ def test_advertised_deepseek_health_capability_does_not_force_tool_use(
     assert executions == []
     assert result["assistant_text"] == "No health check needed."
     assert result["payload_summary"]["toolTurnState"] == "idle"
+    assert result["payload_summary"]["loopStopReason"] == "plain_answer"
+    assert result["payload_summary"]["commandRunId"] is None
+    assert result["payload_summary"]["toolExposure"] == {
+        "automatic": True,
+        "advertisedToolCount": 1,
+        "advertisedToolCommandIds": [HEALTH_COMMAND_ID],
+        "providerDispatchToolCount": 1,
+        "providerDispatchToolCommandIds": [HEALTH_COMMAND_ID],
+        "commandIdsTruncated": False,
+    }
+
+
+def test_prepare_chat_tool_exposure_resolves_automatic_deepseek_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    health_tool = {
+        "command_id": HEALTH_COMMAND_ID,
+        "description": "Read health.",
+        "input_schema": {"type": "object"},
+    }
+    resolver_calls: list[dict[str, Any]] = []
+
+    def _resolve(**kwargs: Any) -> list[dict[str, Any]]:
+        resolver_calls.append(kwargs)
+        return [health_tool]
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        _resolve,
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert len(resolver_calls) == 1
+    assert resolver_calls[0]["provider"] == "deepseek"
+    assert resolver_calls[0]["model"] == "deepseek-v4-flash"
+    assert task.tools == [health_tool]
+    assert evidence == {
+        "automatic": True,
+        "advertisedToolCount": 1,
+        "advertisedToolCommandIds": [HEALTH_COMMAND_ID],
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": False,
+    }
+
+
+def test_prepare_chat_tool_exposure_preserves_explicit_empty_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    task.tools = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **_kwargs: pytest.fail("explicit tools must not be resolved"),
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert task.tools == []
+    assert evidence["automatic"] is False
+    assert evidence["advertisedToolCount"] == 0
+    assert evidence["advertisedToolCommandIds"] == []
+
+
+def test_prepare_chat_tool_exposure_preserves_explicit_nonempty_subset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-v4-flash")
+    explicit_tools = [{"command_id": "op::caller_selected"}]
+    task.tools = explicit_tools
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **_kwargs: pytest.fail("explicit tools must not be resolved"),
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        settings=SimpleNamespace(),
+    )
+
+    assert task.tools is explicit_tools
+    assert evidence["automatic"] is False
+    assert evidence["advertisedToolCount"] == 1
+    assert evidence["advertisedToolCommandIds"] == ["op::caller_selected"]
+
+
+def test_prepare_chat_tool_exposure_records_automatic_ineligible_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="groq", model="unqualified-model")
+    resolver_calls: list[dict[str, Any]] = []
+
+    def _resolve(**kwargs: Any) -> None:
+        resolver_calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        _resolve,
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="groq",
+        model="unqualified-model",
+        settings=SimpleNamespace(),
+    )
+
+    assert len(resolver_calls) == 1
+    assert task.tools is None
+    assert evidence["automatic"] is True
+    assert evidence["advertisedToolCount"] == 0
+    assert evidence["advertisedToolCommandIds"] == []
+
+
+def test_explicit_empty_tools_remain_empty_and_are_observed_as_nonautomatic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion(
+        monkeypatch,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(LOCAL_PROVIDER_VENDOR=None),
+    )
+    task = _task(provider="deepseek", model="deepseek-model")
+    task.tools = []
+    provider_tools: list[Any] = []
+    executions: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda *, payload, **_kwargs: executions.append(payload),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **kwargs: (
+            provider_tools.append(kwargs.get("tools"))
+            or DeepSeekResponse(
+                content="Plain answer.",
+                reasoning_content=None,
+                tool_calls=[],
+                raw_assistant_message={"role": "assistant", "content": "Plain answer."},
+                raw_payload={},
+            )
+        ),
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+
+    assert task.tools == []
+    assert provider_tools == [[]]
+    assert executions == []
+    assert result["payload_summary"]["toolExposure"] == {
+        "automatic": False,
+        "advertisedToolCount": 0,
+        "advertisedToolCommandIds": [],
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": False,
+    }
+
+
+def test_automatic_unsupported_provider_records_no_exposure_or_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_completion(
+        monkeypatch,
+        provider="groq",
+        model="unsupported-model",
+        settings=SimpleNamespace(LOCAL_PROVIDER_VENDOR=None),
+    )
+    task = _task(provider="groq", model="unsupported-model")
+    provider_tools: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **kwargs: provider_tools.append(kwargs.get("tools"))
+        or "Plain answer.",
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+
+    assert task.tools is None
+    assert provider_tools == [None]
+    assert result["payload_summary"]["toolExposure"] == {
+        "automatic": True,
+        "advertisedToolCount": 0,
+        "advertisedToolCommandIds": [],
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": False,
+    }
+
+
+def test_tool_exposure_evidence_is_bounded_and_contains_no_tool_payloads() -> None:
+    tools = [
+        {
+            "command_id": f"op::read_{index:02d}",
+            "description": "private description",
+            "input_schema": {"type": "object", "properties": {"secret": {}}},
+            "arguments": {"secret": "do-not-record"},
+            "messages": ["do-not-record"],
+        }
+        for index in range(17)
+    ]
+    evidence = chat_completion_service._build_tool_exposure_evidence(
+        automatic=True,
+        tools=tools,
+    )
+    chat_completion_service._record_provider_dispatch_tool_exposure(
+        evidence,
+        tools=tools,
+    )
+    payload = chat_completion_service._tool_exposure_payload(evidence)
+
+    assert payload["advertisedToolCount"] == 17
+    assert payload["providerDispatchToolCount"] == 17
+    assert len(payload["advertisedToolCommandIds"]) == 16
+    assert len(payload["providerDispatchToolCommandIds"]) == 16
+    assert payload["commandIdsTruncated"] is True
+    assert set(payload) == {
+        "automatic",
+        "advertisedToolCount",
+        "advertisedToolCommandIds",
+        "providerDispatchToolCount",
+        "providerDispatchToolCommandIds",
+        "commandIdsTruncated",
+    }
+    rendered = repr(payload)
+    for forbidden in (
+        "description",
+        "input_schema",
+        "parameters",
+        "arguments",
+        "messages",
+        "payload",
+        "credential",
+        "reasoning_content",
+        "do-not-record",
+    ):
+        assert forbidden not in rendered
 
 
 def test_eligible_whooshd_executes_once_and_stale_response_identity_blocks(

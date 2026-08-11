@@ -649,6 +649,130 @@ def test_completion_result_includes_execution_metadata_without_fallback(
     }
 
 
+def test_worker_uses_canonical_tool_preparation_and_forwards_its_exact_evidence(
+    monkeypatch,
+):
+    task = ChatCompletionTask(
+        user_id="local",
+        thread_id=1,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        selection_source="explicit",
+    )
+    health_tool = {"command_id": "op::health_health_get"}
+    prepared_tool_exposure = {
+        "automatic": True,
+        "advertisedToolCount": 1,
+        "advertisedToolCommandIds": ["op::health_health_get"],
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": False,
+    }
+    captured: dict[str, object] = {}
+    command_bus_calls: list[object] = []
+
+    async def _build_messages(_task):
+        return (
+            [{"role": "user", "content": "Check health."}],
+            "deepseek",
+            "deepseek-v4-flash",
+            {},
+            {"source_mode": "project", "effective_policy": None},
+        )
+
+    def _prepare(completion_task, *, provider, model, settings):
+        captured["prepare_task"] = completion_task
+        captured["prepare_provider"] = provider
+        captured["prepare_model"] = model
+        captured["prepare_settings"] = settings
+        completion_task.tools = [health_tool]
+        return prepared_tool_exposure
+
+    def _execute(_task, **kwargs):
+        captured["tool_exposure"] = kwargs["tool_exposure"]
+        return {
+            "assistant_text": "Codexify is healthy.",
+            "payload_summary": {
+                "toolExposure": dict(kwargs["tool_exposure"]),
+                "toolTurnState": "idle",
+                "loopStopReason": "plain_answer",
+                "commandRunId": None,
+            },
+            "execution": {
+                "attempted_provider": "deepseek",
+                "attempted_model": "deepseek-v4-flash",
+                "final_provider": "deepseek",
+                "final_model": "deepseek-v4-flash",
+                "fallback_triggered": False,
+                "tool_turn_used": False,
+            },
+            "terminal_evidence": successful_non_stream_terminal(
+                provider="deepseek",
+                model="deepseek-v4-flash",
+            ).as_dict(),
+        }
+
+    monkeypatch.setattr(chat_worker, "_build_messages_for_llm", _build_messages)
+    monkeypatch.setattr(chat_worker, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_prepare_chat_tool_exposure",
+        _prepare,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **_kwargs: pytest.fail(
+            "worker must not resolve ordinary-chat tools directly"
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_execute_bounded_tool_turn_completion",
+        _execute,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "execute_invoke",
+        lambda *_args, **_kwargs: command_bus_calls.append(True),
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "_normalize_completion_image_routing_truth",
+        lambda **_kwargs: (0, "none", "none"),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "require_successful_terminal",
+        lambda _result: successful_non_stream_terminal(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+        ),
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "build_provider_truth",
+        lambda provider, _settings, **kwargs: {"provider": provider, **kwargs},
+    )
+
+    result = chat_worker._run_chat_completion_task_compat(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert captured["prepare_task"] is task
+    assert captured["prepare_provider"] == "deepseek"
+    assert captured["prepare_model"] == "deepseek-v4-flash"
+    assert task.tools == [health_tool]
+    assert captured["tool_exposure"] is prepared_tool_exposure
+    assert result["assistant_text"] == "Codexify is healthy."
+    assert result["payload_summary"]["toolExposure"] == prepared_tool_exposure
+    assert result["payload_summary"]["toolTurnState"] == "idle"
+    assert result["payload_summary"]["loopStopReason"] == "plain_answer"
+    assert result["payload_summary"]["commandRunId"] is None
+    assert command_bus_calls == []
+
+
 def test_runtime_provenance_persists_after_successful_completion(monkeypatch):
     mock_db = MagicMock()
     mock_db.create_message.return_value = 323
