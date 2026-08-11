@@ -8,7 +8,7 @@ Source anchors:
 
 # Module Diagram Coverage Matrix
 
-Diagram Review Marker: 2026-08-09
+Diagram Review Marker: 2026-08-11 (Stage 2J-R5D canonical chat capability-preparation seam review; no diagram coverage change)
 
 ## Scope
 
