@@ -1145,6 +1145,7 @@ def _execute_completion_attempt(
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    tool_exposure: dict[str, Any] | None = None,
 ) -> CompletionAttemptResult:
     request_id, _ = normalize_request_id(getattr(task, "request_id", None))
     task.request_id = request_id
@@ -1289,6 +1290,15 @@ def _execute_completion_attempt(
             ),
         )
 
+    provider_tools = (
+        getattr(task, "tools", None) if provider in {"deepseek", "local"} else None
+    )
+    if tool_exposure is not None:
+        _record_provider_dispatch_tool_exposure(
+            tool_exposure,
+            tools=provider_tools,
+        )
+
     try:
         output = chat_with_ai(
             messages_for_llm,
@@ -1299,9 +1309,7 @@ def _execute_completion_attempt(
                     "provider": provider,
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
-                    "tools": getattr(task, "tools", None)
-                    if provider in {"deepseek", "local"}
-                    else None,
+                    "tools": provider_tools,
                     "settings": settings,
                     "prompt_meta": (
                         (bundle or {}).get("_prompt_meta")
@@ -5092,6 +5100,96 @@ async def build_messages_for_llm(
     return messages_for_llm, provider, model, bundle, trace
 
 
+_TOOL_EXPOSURE_COMMAND_ID_CAP = 16
+_TOOL_EXPOSURE_COMMAND_ID_MAX_LENGTH = 256
+_TOOL_EXPOSURE_COMMAND_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]*")
+
+
+def _bounded_tool_exposure_command_ids(
+    tools: Any,
+) -> tuple[int, list[str], bool]:
+    """Return canonical command IDs suitable for durable observability only."""
+
+    if not isinstance(tools, list):
+        return 0, [], False
+
+    command_ids: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        command_id = str(tool.get("command_id") or "").strip()
+        if (
+            not command_id
+            or len(command_id) > _TOOL_EXPOSURE_COMMAND_ID_MAX_LENGTH
+            or _TOOL_EXPOSURE_COMMAND_ID_RE.fullmatch(command_id) is None
+        ):
+            continue
+        command_ids.add(command_id)
+
+    ordered_command_ids = sorted(command_ids)
+    return (
+        len(ordered_command_ids),
+        ordered_command_ids[:_TOOL_EXPOSURE_COMMAND_ID_CAP],
+        len(ordered_command_ids) > _TOOL_EXPOSURE_COMMAND_ID_CAP,
+    )
+
+
+def _build_tool_exposure_evidence(
+    *,
+    automatic: bool,
+    tools: Any,
+) -> dict[str, Any]:
+    """Build the bounded, provider-neutral Stage 2I exposure observation."""
+
+    count, command_ids, command_ids_truncated = _bounded_tool_exposure_command_ids(
+        tools
+    )
+    return {
+        "automatic": bool(automatic),
+        "advertisedToolCount": count,
+        "advertisedToolCommandIds": command_ids,
+        "providerDispatchToolCount": 0,
+        "providerDispatchToolCommandIds": [],
+        "commandIdsTruncated": command_ids_truncated,
+    }
+
+
+def _record_provider_dispatch_tool_exposure(
+    tool_exposure: dict[str, Any],
+    *,
+    tools: Any,
+) -> None:
+    """Snapshot the canonical list supplied to the initial provider dispatch."""
+
+    count, command_ids, command_ids_truncated = _bounded_tool_exposure_command_ids(
+        tools
+    )
+    tool_exposure["providerDispatchToolCount"] = count
+    tool_exposure["providerDispatchToolCommandIds"] = command_ids
+    tool_exposure["commandIdsTruncated"] = bool(
+        tool_exposure.get("commandIdsTruncated") or command_ids_truncated
+    )
+
+
+def _tool_exposure_payload(tool_exposure: dict[str, Any]) -> dict[str, Any]:
+    """Copy only the bounded evidence fields into durable payload summaries."""
+
+    return {
+        "automatic": bool(tool_exposure.get("automatic")),
+        "advertisedToolCount": int(tool_exposure.get("advertisedToolCount") or 0),
+        "advertisedToolCommandIds": list(
+            tool_exposure.get("advertisedToolCommandIds") or []
+        ),
+        "providerDispatchToolCount": int(
+            tool_exposure.get("providerDispatchToolCount") or 0
+        ),
+        "providerDispatchToolCommandIds": list(
+            tool_exposure.get("providerDispatchToolCommandIds") or []
+        ),
+        "commandIdsTruncated": bool(tool_exposure.get("commandIdsTruncated")),
+    }
+
+
 def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
     tools = getattr(task, "tools", None)
     if not isinstance(tools, list):
@@ -5166,6 +5264,7 @@ def _execute_bounded_tool_turn_completion(
     bundle: dict[str, Any] | None,
     trace: dict[str, Any] | None,
     base_payload_summary: dict[str, Any],
+    tool_exposure: dict[str, Any],
     token_callback: Callable[[str], None] | None = None,
     chunk_callback: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
@@ -5213,6 +5312,7 @@ def _execute_bounded_tool_turn_completion(
         response_correlation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload_summary = dict(base_payload_summary or {})
+        payload_summary["toolExposure"] = _tool_exposure_payload(tool_exposure)
         payload_summary.update(
             build_sanitized_payload_summary(
                 current_messages,
@@ -5326,6 +5426,7 @@ def _execute_bounded_tool_turn_completion(
         token_callback=token_callback,
         chunk_callback=chunk_callback,
         cancel_check=cancel_check,
+        tool_exposure=tool_exposure,
     )
     normalized_first_output = normalize_completion_output(first_attempt.output)
     if normalized_first_output.kind != "tool_decision":
@@ -5675,12 +5776,17 @@ def run_chat_completion_task(
             task.selection_source = "local_vision_env"
 
     settings = get_settings()
-    if task.tools is None:
+    automatic_tool_exposure = task.tools is None
+    if automatic_tool_exposure:
         task.tools = _resolve_ordinary_chat_tools(
             provider=provider,
             model=model,
             settings=settings,
         )
+    tool_exposure = _build_tool_exposure_evidence(
+        automatic=automatic_tool_exposure,
+        tools=task.tools,
+    )
     requested_source_mode = (
         str(getattr(task, "requested_source_mode", "") or "").strip() or None
     )
@@ -5813,6 +5919,7 @@ def run_chat_completion_task(
             ),
         }
     )
+    payload_summary["toolExposure"] = _tool_exposure_payload(tool_exposure)
     payload_summary.update(routing_debug_metadata)
     if isinstance(trace, dict):
         trace = dict(trace)
@@ -5933,6 +6040,7 @@ def run_chat_completion_task(
         bundle=bundle,
         trace=trace,
         base_payload_summary=payload_summary,
+        tool_exposure=tool_exposure,
         token_callback=token_callback,
         chunk_callback=chunk_callback,
         cancel_check=cancel_check,
