@@ -46,7 +46,12 @@ const BASE_VARS: CSSVarMap = {
   '--cfy-transition-rolodex': '140ms',
 }
 
-export { applyPaperTone, paperToneLabel, normalizeLegacyWarmth } from './paperTone';
+export {
+  applyPaperTone,
+  applySurfaceWarmth,
+  normalizeSurfaceWarmth,
+  paperToneLabel,
+} from './paperTone';
 
 let alreadyInjected = false
 
