@@ -74,8 +74,16 @@ frontend = services.get("frontend", {}).get("environment", {})
 for key in ("VITE_GUARDIAN_API_KEY", "VITE_GUARDIAN_DEV_API_KEY"):
     if str(frontend.get(key) or ""):
         raise SystemExit(f"frontend.{key} must remain empty")
-if "DEEPSEEK_API_KEY" in frontend:
-    raise SystemExit("frontend must not receive DEEPSEEK_API_KEY")
+for server_field in (
+    "DEEPSEEK_API_KEY",
+    "GUARDIAN_API_KEY",
+    "GUARDIAN_SESSION_SECRET",
+    "GUARDIAN_JWT_SECRET",
+):
+    if server_field in frontend:
+        raise SystemExit(
+            f"frontend must not receive server-only credential field: {server_field}"
+        )
 
 ports = []
 for service_name, service in services.items():

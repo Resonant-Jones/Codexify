@@ -60,6 +60,7 @@ services:
 
   frontend:
     ports: !reset []
+    env_file: !reset []
     environment:
       VITE_GUARDIAN_API_BASE: ""
       VITE_GUARDIAN_AUTH_MODE: "remote"
