@@ -17,7 +17,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T21:47:43Z",
     "verified_commit": "d598ae2e984b865337b678f72cbb62f575d645d8",
     "triggers": [
@@ -25,7 +25,7 @@
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "Re-verified the committed ADR corpus and Reading Order at d598ae2e984b865337b678f72cbb62f575d645d8 after Provider Capability Model canonicalization as ADR-062; VaultNode remains ADR-041 and the remaining collision cleanup stays separately scoped."
+    "reason": "ADR Index source and ADR corpus changed during the human-approved Pi Loop Manager canonicalization from proposed ADR-041 to ADR-063 and require committed-revision semantic re-verification."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "403f87b41891484dc60d7c5a3293e727537a45a704410c3409b78cfcc97593dc",
+  "content_hash": "33acbe3b845ffd1aaaac73183c2783f887277b5d8dd32ff4eb682ac6407acca9",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }

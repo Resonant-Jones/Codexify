@@ -15,7 +15,7 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "current",
+    "state": "stale",
     "verified_at": "2026-08-10T21:47:43Z",
     "verified_commit": "d598ae2e984b865337b678f72cbb62f575d645d8",
     "triggers": [
@@ -23,7 +23,7 @@
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Re-verified Architecture KB structural routing against the committed ADR-062 canonicalization at d598ae2e984b865337b678f72cbb62f575d645d8; README source bytes remain unchanged and release truth remains delegated to Current State."
+    "reason": "The governed architecture ADR corpus changed during Pi Loop Manager canonicalization from proposed ADR-041 to ADR-063; Architecture KB source bytes remain unchanged and committed-revision semantic re-verification is required."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

@@ -2,14 +2,14 @@
 
 ## Status
 
-Docs-only compatibility audit for proposed ADR-041 and the Pi Loop Manager adoption contract.
+Docs-only compatibility audit for proposed ADR-063 and the Pi Loop Manager adoption contract.
 
 ## Source set and audit limits
 
 Audited in this repository revision:
 
 - `docs/specs/campaign-runner/PI_LOOP_MANAGER_ADOPTION_CONTRACT.md`
-- `docs/architecture/adr/proposed/041-pi-loop-manager-campaign-runner-gate-graph.md`
+- `docs/architecture/adr/proposed/063-pi-loop-manager-campaign-runner-gate-graph.md`
 
 Expected Campaign Runner source inputs named by the task were searched for but are not present at the requested paths in this checkout:
 
@@ -19,7 +19,7 @@ Expected Campaign Runner source inputs named by the task were searched for but a
 - `examples/example-loop-task.yaml`
 - representative `.pi/runs/<run_id>/receipt.json`
 
-Because the concrete v0 schema files and representative receipt artifact are absent from this checkout, this audit classifies the v0 receipt shape described by the adoption contract and proposed ADR-041. Any future ingestion task must re-run this matrix against the concrete Campaign Runner schema before accepting durable evidence.
+Because the concrete v0 schema files and representative receipt artifact are absent from this checkout, this audit classifies the v0 receipt shape described by the adoption contract and proposed ADR-063. Any future ingestion task must re-run this matrix against the concrete Campaign Runner schema before accepting durable evidence.
 
 ## 1. Executive summary
 
@@ -214,4 +214,4 @@ This audit does not implement or authorize:
 
 ## ADR impact
 
-This audit is aligned with proposed ADR-041 and the Pi Loop Manager adoption contract. It does not promote ADR-041 to accepted status, alter accepted ADRs, or change runtime behavior. It preserves the governing invariant: **receipt is evidence, not truth**.
+This audit is aligned with proposed ADR-063 and the Pi Loop Manager adoption contract. It does not promote ADR-063 to accepted status, alter accepted ADRs, or change runtime behavior. It preserves the governing invariant: **receipt is evidence, not truth**.
