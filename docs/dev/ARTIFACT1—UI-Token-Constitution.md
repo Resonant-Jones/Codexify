@@ -268,7 +268,7 @@ Material contrast must remain theme-aware and token-derived. Do not introduce ha
 
 ### Orthogonal Material Personalization
 
-The governing decision is [ADR-055: Orthogonal UI Material Personalization](../architecture/adr/055-orthogonal-ui-material-personalization.md).
+The governing decision is [ADR-064: Orthogonal UI Material Personalization](../architecture/adr/064-orthogonal-ui-material-personalization.md).
 
 - Material axes must have stable, non-overlapping responsibilities.
 - Surface Depth, Surface Temperature, and Paper Tone are distinct.

@@ -171,7 +171,7 @@ Use this when deciding:
 * why it should not regress into a settings page
 * why module grammar needs a first-party exemplar
 
-### ADR-055: Orthogonal UI Material Personalization
+### ADR-064: Orthogonal UI Material Personalization
 
 **Role:** decision authority for UI material axes, theme-independent
 personalization semantics, control single-responsibility, and user-configurable
