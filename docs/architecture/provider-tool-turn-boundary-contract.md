@@ -553,3 +553,23 @@ command authority. Whoosh'd Stage 2F.1b still verifies actual response
 provenance before the shared Stage 1 gate, so a stale pre-request eligibility
 snapshot cannot cause an invocation. This is code/test evidence only and adds
 no release-support claim.
+
+## 21. Advertisement and Selection Boundary (Stage 2J-R5)
+
+Provider tool advertisement means that a bounded capability is available for a
+model to select. It does not require selection. The initial provider-router
+handoff records only its bounded canonical command-ID subset in `toolExposure`;
+that record is not a raw provider request, a provider payload capture, or
+authority.
+
+Current DeepSeek behavior is equivalent to provider-managed automatic
+selection: DeepSeek may select an advertised native function or may return a
+plain answer. Codexify has not defined canonical `auto`, `required`, or
+`none` selection modes, and provider-specific `tool_choice` syntax is not a
+provider-neutral Codexify semantic contract.
+
+If a future product requirement needs required capability use, it must begin
+with a separate architecture-impact task that defines provider-neutral
+selection semantics before mapping that policy to DeepSeek, OpenAI, Whoosh'd,
+or another provider transport. This R5 evidence surface does not add such a
+policy and does not alter adapter behavior.

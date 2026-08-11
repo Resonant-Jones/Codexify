@@ -231,8 +231,10 @@ the first provider inference request:
 ```text
 effective provider/model resolution
 → capability exposure
+   → bounded `toolExposure` advertisement evidence
 → task.tools
 → provider inference
+   → bounded `toolExposure` provider-dispatch evidence
 → normalization
 → Stage 1 advertised-subset authority
 → Command Bus
@@ -246,6 +248,18 @@ transport, while ineligible turns preserve ordinary local streaming. Stage
 2F.1b still validates Whoosh'd response identity before Stage 1. No provider
 error is converted into a capability error, and explicit caller-supplied
 `task.tools` values are preserved.
+
+`toolExposure` records only whether automatic resolution was attempted and the
+bounded canonical command-ID subset observed after resolution and at the exact
+initial `chat_with_ai` / provider-router handoff. The dispatch evidence is not
+a captured raw HTTP request. It deliberately excludes tool schemas,
+descriptions, arguments, messages, prompts, credentials, provider payloads,
+and provider-private continuation state.
+
+Availability and selection remain separate concepts. A provider may receive an
+advertised capability and validly return a plain assistant answer. This pipeline
+does not introduce `tool_choice`, forced tool use, or provider-neutral
+selection-mode semantics.
 
 | Completion path | Accepted terminal evidence |
 | --- | --- |

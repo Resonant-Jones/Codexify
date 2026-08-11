@@ -65,6 +65,40 @@ The bounded slice records these runtime fields at the backend seam, on task even
 
 These fields are surfaced as explicit observability data, not hidden in prose or inline literals.
 
+## Stage 2J-R5 Exposure Observability
+
+The completion payload summary, persisted assistant metadata, and terminal
+completion evidence may carry one nested `toolExposure` object for the initial
+provider attempt:
+
+```json
+{
+  "automatic": true,
+  "advertisedToolCount": 1,
+  "advertisedToolCommandIds": ["op::health_health_get"],
+  "providerDispatchToolCount": 1,
+  "providerDispatchToolCommandIds": ["op::health_health_get"],
+  "commandIdsTruncated": false
+}
+```
+
+`automatic` is true only when `task.tools` was unset before ordinary-chat
+exposure resolution. Explicit lists, including `[]`, remain authoritative and
+record `automatic=false`. The two ID arrays contain sorted canonical command
+identities only, are capped at 16 entries, and are accompanied by the real
+count; `commandIdsTruncated` is true when either bounded array was truncated.
+
+`toolExposure` is bounded observability, not an authority token. It contains no
+tool schema, description, arguments, provider payload, prompt, credentials, or
+provider-private continuation state. Stage 1 remains the authority gate: an
+advertised capability still requires a matching normalized canonical command
+before execution.
+
+Advertisement makes a capability available to a model. It does not require the
+model to select it. Under the current contract, an advertised capability and a
+plain assistant answer are both valid; no tool-selection policy is introduced
+by this evidence surface.
+
 ## Canonical Token Domains
 
 Tool-turn states are canonical tokens in `guardian/protocol_tokens.py`:

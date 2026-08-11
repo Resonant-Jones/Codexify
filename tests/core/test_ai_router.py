@@ -240,6 +240,64 @@ def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
     }
 
 
+def test_deepseek_health_capability_uses_an_opaque_native_alias_without_tool_choice(
+    monkeypatch,
+):
+    _disable_supported_profile(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def _mock_post(url: str, *, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        _ = (headers, timeout)
+        return _MockResponse(
+            {"choices": [{"message": {"content": "Plain answer."}}]}
+        )
+
+    monkeypatch.setattr(ai_router.requests, "post", _mock_post)
+    settings = Settings(
+        LLM_PROVIDER="deepseek",
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        DEEPSEEK_API_KEY="test-deepseek-key",
+        DEEPSEEK_BASE_URL="https://api.deepseek.com",
+        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+    )
+    health_tool = {
+        "command_id": "op::health_health_get",
+        "description": "Read the current Guardian health status (GET /health).",
+        "input_schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "maxProperties": 0,
+        },
+    }
+
+    result = chat_with_ai(
+        [{"role": "user", "content": "Ping"}],
+        provider="deepseek",
+        settings=settings,
+        tools=[health_tool],
+    )
+
+    assert result == "Plain answer."
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    assert payload["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "codexify_tool_0",
+                "description": health_tool["description"],
+                "parameters": health_tool["input_schema"],
+            },
+        }
+    ]
+    assert "op::health_health_get" not in repr(payload["tools"])
+    assert "tool_choice" not in payload
+
+
 def test_chat_with_ai_local_falls_back_to_host_bridge_on_loopback_failure(
     monkeypatch,
 ):
