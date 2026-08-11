@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T21:47:43Z",
-    "verified_commit": "d598ae2e984b865337b678f72cbb62f575d645d8",
+    "state": "current",
+    "verified_at": "2026-08-11T00:41:16Z",
+    "verified_commit": "99304b68947af4c74f4c3c549f6dad9de8743844",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "The governed architecture ADR corpus changed during Pi Loop Manager canonicalization from proposed ADR-041 to ADR-063; Architecture KB source bytes remain unchanged and committed-revision semantic re-verification is required."
+    "reason": "Re-verified Architecture KB structural routing against the committed proposed ADR-063 Pi Loop Manager canonicalization at 99304b68947af4c74f4c3c549f6dad9de8743844; README source bytes remain unchanged and release truth remains delegated to Current State."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",

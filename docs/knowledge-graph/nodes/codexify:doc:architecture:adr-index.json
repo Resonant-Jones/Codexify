@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-10T21:47:43Z",
-    "verified_commit": "d598ae2e984b865337b678f72cbb62f575d645d8",
+    "state": "current",
+    "verified_at": "2026-08-11T00:41:16Z",
+    "verified_commit": "99304b68947af4c74f4c3c549f6dad9de8743844",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "ADR Index source and ADR corpus changed during the human-approved Pi Loop Manager canonicalization from proposed ADR-041 to ADR-063 and require committed-revision semantic re-verification."
+    "reason": "Re-verified the committed ADR corpus and Reading Order at 99304b68947af4c74f4c3c549f6dad9de8743844 after Pi Loop Manager canonicalization as proposed ADR-063; VaultNode remains ADR-041, Provider Capability remains proposed ADR-062, and ADR-053/ADR-055 remain separately scoped collision work."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
