@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -36,6 +36,13 @@ from guardian.core.repository_import import (
     RepositoryBindingOwnedByAnotherAccount,
     RepositoryImportError,
     import_explicit_repository_candidate,
+)
+from guardian.core.repository_search import (
+    InvalidRepositorySearchQuery,
+    RepositorySearchEnumerationFailed,
+    RepositorySearchError,
+    RepositorySearchUnavailable,
+    search_project_repository,
 )
 
 logger = logging.getLogger(__name__)
@@ -465,6 +472,114 @@ def import_repository_candidate_route(
         "reused_existing": result.reused_existing,
         "source_class": result.source_class,
     }
+
+
+def _repository_search_error_response(exc: Exception) -> HTTPException:
+    if isinstance(exc, InvalidRepositorySearchQuery):
+        return HTTPException(
+            status_code=400,
+            detail={
+                "code": "repository_search_invalid_query",
+                "message": "Repository search query is invalid.",
+            },
+        )
+    if isinstance(exc, AccountProjectMismatch):
+        return HTTPException(
+            status_code=403,
+            detail={
+                "code": "repository_search_forbidden",
+                "message": "Repository search is not authorized for this account.",
+            },
+        )
+    if isinstance(exc, ProjectNotFound):
+        return HTTPException(
+            status_code=404,
+            detail={
+                "code": "repository_search_project_not_found",
+                "message": "Project was not found.",
+            },
+        )
+    if isinstance(
+        exc,
+        (
+            RepositorySearchUnavailable,
+            RepositorySearchEnumerationFailed,
+        ),
+    ):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "repository_search_unavailable",
+                "message": "Repository search is unavailable.",
+            },
+        )
+    if isinstance(exc, RepositorySearchError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "repository_search_unavailable",
+                "message": "Repository search is unavailable.",
+            },
+        )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "code": "repository_search_internal_error",
+            "message": "Repository search could not be completed.",
+        },
+    )
+
+
+@api_router.get(
+    "/{project_id}/repository/search",
+    operation_id="repository.search",
+)
+def search_project_repository_route(
+    project_id: int,
+    q: str = Query(..., min_length=1, max_length=256),
+    limit: int = Query(20, ge=1, le=20),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Search only the authenticated Project's resolved repository binding."""
+    account_id = _request_account_id(request_user_scope)
+    if chatlog_db is None or not hasattr(chatlog_db, "get_session"):
+        raise _repository_search_error_response(
+            RuntimeError("database unavailable")
+        )
+
+    try:
+        with chatlog_db.get_session() as session:
+            try:
+                result = search_project_repository(
+                    session,
+                    authenticated_account_id=account_id,
+                    project_id=project_id,
+                    query=q,
+                    result_limit=limit,
+                )
+            except (
+                InvalidRepositorySearchQuery,
+                AccountProjectMismatch,
+                ProjectNotFound,
+                RepositorySearchUnavailable,
+                RepositorySearchEnumerationFailed,
+                RepositorySearchError,
+            ) as exc:
+                raise _repository_search_error_response(exc) from None
+            except Exception:
+                logger.error("[projects] repository search failed")
+                raise _repository_search_error_response(
+                    RuntimeError("repository search failed")
+                ) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("[projects] repository search session failed")
+        raise _repository_search_error_response(
+            RuntimeError("repository search session failed")
+        ) from None
+
+    return {"ok": True, **result.to_payload()}
 
 
 @router.patch("/{project_id}")
