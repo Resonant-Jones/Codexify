@@ -20,6 +20,23 @@ from guardian.core.default_project import (
     is_default_project_name,
     normalize_projects_for_listing,
 )
+from guardian.core.repository_authority import (
+    ActiveBindingAlreadyExists,
+    AccountProjectMismatch,
+    ProjectNotFound,
+)
+from guardian.core.repository_discovery import RepositoryDiscoveryError
+from guardian.core.repository_import import (
+    CandidateActorMismatch,
+    CandidateNotFound,
+    CandidateRevalidationFailed,
+    InvalidImportTarget,
+    RepositoryAlreadyLinked,
+    RepositoryBindingAmbiguous,
+    RepositoryBindingOwnedByAnotherAccount,
+    RepositoryImportError,
+    import_explicit_repository_candidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +101,18 @@ class ProjectCreate(BaseModel):
     user_id: Optional[str] = None
 
     model_config = ConfigDict(extra="ignore")
+
+
+class RepositoryCandidateImportRequest(BaseModel):
+    """Authenticated human/API import request; never a model tool schema."""
+
+    discovery_root: str
+    candidate_relative_path: str
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    project_description: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 _PROJECT_OWNER_SENTINEL = "__codexify_project_owner__"
@@ -314,6 +343,128 @@ def create_project(
         return JSONResponse(
             status_code=400, content={"ok": False, "error": str(e)}
         )
+
+
+def _repository_import_error_response(exc: Exception) -> HTTPException:
+    if isinstance(exc, (InvalidImportTarget, RepositoryDiscoveryError)):
+        return HTTPException(
+            status_code=400,
+            detail={
+                "code": "repository_import_invalid_request",
+                "message": "Repository import request is invalid.",
+            },
+        )
+    if isinstance(exc, (AccountProjectMismatch, CandidateActorMismatch)):
+        return HTTPException(
+            status_code=403,
+            detail={
+                "code": "repository_import_forbidden",
+                "message": "Repository import is not authorized for this account.",
+            },
+        )
+    if isinstance(exc, (CandidateNotFound, ProjectNotFound)):
+        return HTTPException(
+            status_code=404,
+            detail={
+                "code": "repository_import_candidate_not_found",
+                "message": "Selected repository candidate was not found.",
+            },
+        )
+    if isinstance(
+        exc,
+        (
+            CandidateRevalidationFailed,
+            RepositoryAlreadyLinked,
+            RepositoryBindingAmbiguous,
+            RepositoryBindingOwnedByAnotherAccount,
+            ActiveBindingAlreadyExists,
+        ),
+    ):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "repository_import_conflict",
+                "message": "Repository import conflicts with current authority.",
+            },
+        )
+    if isinstance(exc, RepositoryImportError):
+        return HTTPException(
+            status_code=400,
+            detail={
+                "code": "repository_import_invalid_request",
+                "message": "Repository import request is invalid.",
+            },
+        )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "code": "repository_import_internal_error",
+            "message": "Repository import could not be completed.",
+        },
+    )
+
+
+@api_router.post("/repository-import")
+def import_repository_candidate_route(
+    body: RepositoryCandidateImportRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """Explicit authenticated candidate import; route owns commit or rollback."""
+    account_id = _request_account_id(request_user_scope)
+    if chatlog_db is None or not hasattr(chatlog_db, "get_session"):
+        raise _repository_import_error_response(RuntimeError("database unavailable"))
+
+    try:
+        with chatlog_db.get_session() as session:
+            try:
+                result = import_explicit_repository_candidate(
+                    session,
+                    authenticated_account_id=account_id,
+                    discovery_root=body.discovery_root,
+                    candidate_relative_path=body.candidate_relative_path,
+                    project_id=body.project_id,
+                    project_name=body.project_name,
+                    project_description=body.project_description,
+                )
+                session.commit()
+            except (
+                InvalidImportTarget,
+                RepositoryDiscoveryError,
+                AccountProjectMismatch,
+                ProjectNotFound,
+                CandidateActorMismatch,
+                CandidateNotFound,
+                CandidateRevalidationFailed,
+                RepositoryAlreadyLinked,
+                RepositoryBindingAmbiguous,
+                RepositoryBindingOwnedByAnotherAccount,
+                ActiveBindingAlreadyExists,
+                RepositoryImportError,
+            ) as exc:
+                session.rollback()
+                raise _repository_import_error_response(exc) from None
+            except Exception:
+                session.rollback()
+                logger.error("[projects] repository import failed")
+                raise _repository_import_error_response(
+                    RuntimeError("repository import failed")
+                ) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("[projects] repository import session failed")
+        raise _repository_import_error_response(
+            RuntimeError("repository import session failed")
+        ) from None
+
+    return {
+        "ok": True,
+        "project_id": result.project_id,
+        "binding_id": result.binding_id,
+        "created_project": result.created_project,
+        "reused_existing": result.reused_existing,
+        "source_class": result.source_class,
+    }
 
 
 @router.patch("/{project_id}")
