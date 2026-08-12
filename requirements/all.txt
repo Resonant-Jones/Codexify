@@ -310,16 +310,18 @@ mccabe==0.7.0
     # via flake8
 mdurl==0.1.2
     # via markdown-it-py
-mlx==0.29.3
+mlx==0.30.0
     # via
     #   -r requirements/ai.in
     #   mlx-lm
     #   mlx-vlm
+mlx-cpu==0.30.0; sys_platform == "linux"
+    # via mlx
 mlx-lm==0.28.3
     # via
     #   -r requirements/ai.in
     #   mlx-vlm
-mlx-metal==0.29.3
+mlx-metal==0.30.0; sys_platform == "darwin"
     # via mlx
 mlx-vlm==0.3.4
     # via -r requirements/ai.in
