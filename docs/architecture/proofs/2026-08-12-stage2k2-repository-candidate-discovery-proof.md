@@ -6,16 +6,15 @@
 
 ## Verdict
 
-`PROVEN-TEST` for the bounded internal discovery seam on the task-start
-baseline. Final current-main acceptance is `NEXT-PROOF-NEEDED`: an unrelated
-current-main documentation refresh has stale DLG node content hashes and makes
-the required architecture suite fail outside this task's authorized scope.
-This slice does not establish import, Project, binding, Workspace, tool,
-model, provider, or supported-runtime behavior.
+`PASS` — the bounded internal discovery seam and its final current-main
+architecture validation are complete. The unrelated DLG source-hash drift was
+repaired as metadata integrity only; no discovery, authority, runtime, or
+release semantics changed. This slice does not establish import, Project,
+binding, Workspace, tool, model, provider, or supported-runtime behavior.
 
 ## Diagnostic Outcome
 
-`NEXT-PROOF-NEEDED - ADDITIONAL_SCOPE_EXPANSION_REQUIRED`
+`STAGE2K2_ARCHITECTURE_VALIDATION_CLOSED`
 
 ## Base Commit
 
@@ -229,21 +228,26 @@ Before and after this no-schema slice:
 On the task-start baseline, `pytest -v tests/architecture` — `394 passed`.
 
 After the unrelated documentation-only `origin/main` advancement and required
-rebase, the final run reported `2 failed, 392 passed`. Both failures are
-pre-existing-to-this-slice DLG `content_hash_mismatch` errors for
+rebase, the original final run reported `2 failed, 392 passed`. Both failures
+were DLG `content_hash_mismatch` errors for
 `docs/architecture/00-current-state.md` and `docs/architecture/README.md`.
-The advancement changed those sources without updating their canonical node
-records. Repair requires at least these unapproved tracked files:
+The advancement changed those sources without synchronizing their canonical
+node records:
 
 - `docs/knowledge-graph/nodes/codexify:doc:architecture:current-state.json`
 - `docs/knowledge-graph/nodes/codexify:doc:architecture:kb-entrypoint.json`
 
-They are outside the exact three-file Stage 2K.2 scope, so no repair was made
-here. The Stage 2K.2 implementation itself is not named by either failure.
+Stage 2K.2A synchronized only each node's `content_hash` from the exact
+governed source bytes. All freshness metadata—including current-state
+verification metadata and the KB-entrypoint's existing `stale` state—remained
+unchanged. The focused DLG suite then passed `38 passed`, and the final full
+architecture suite passed `394 passed`.
 
 ## Docs Validation
 
 `python3 scripts/validate_docs.py` — passed.
+
+`make docs PYTHON=python3` — passed, including diagram freshness.
 
 ## What Was Proven
 
@@ -256,6 +260,12 @@ here. The Stage 2K.2 implementation itself is not named by either failure.
 - Candidate, depth, time, symlink, and no-descent boundaries are unit-proven.
 - The task-start architecture suite passed before the unrelated documentation
   refresh changed the DLG-governed source hashes.
+- The two canonical DLG hashes now equal the exact SHA-256 bytes of their
+  governed sources, with all non-hash node metadata unchanged.
+- Guardian can now perform bounded read-only discovery of Git working-tree
+  candidates beneath explicitly authorized or separately evidence-backed roots,
+  while discovery candidates remain non-authorizing, ephemeral observations
+  with no Project, RepositoryBinding, tool, or model authority.
 
 ## What Was Not Proven
 
@@ -275,8 +285,9 @@ here. The Stage 2K.2 implementation itself is not named by either failure.
 This proof receipt is the authorized documentation follow-through. ADR-065,
 the repository-onboarding authority contract, `00-current-state.md`, database
 models, migrations, and runtime configuration were intentionally unchanged.
-The two stale DLG node records above are explicitly deferred to separately
-authorized scope expansion.
+Stage 2K.2A repaired only the two canonical node source hashes; it did not
+re-verify freshness, hand-edit generated DLG projections, or change any
+architecture semantics.
 
 ## Final File Scope
 
@@ -284,7 +295,17 @@ authorized scope expansion.
 - `tests/core/test_repository_discovery.py`
 - `docs/architecture/proofs/2026-08-12-stage2k2-repository-candidate-discovery-proof.md`
 
+## Stage 2K.2A Closure File Scope
+
+- `docs/knowledge-graph/nodes/codexify:doc:architecture:current-state.json`
+- `docs/knowledge-graph/nodes/codexify:doc:architecture:kb-entrypoint.json`
+- `docs/architecture/proofs/2026-08-12-stage2k2-repository-candidate-discovery-proof.md`
+
 ## Commit
 
-The single task commit is recorded in Git history and the task closeout after
-all required checks; this receipt does not self-reference a mutable commit ID.
+Stage 2K.2 implementation commit:
+`2c045379a84c68852b7f0595a824e753d0f721e4`.
+
+The Stage 2K.2A integrity-repair commit is recorded in Git history and the
+task closeout after all required checks; this receipt does not self-reference a
+mutable commit ID.
