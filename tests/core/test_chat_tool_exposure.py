@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -10,6 +12,13 @@ from fastapi import FastAPI
 from guardian.command_bus.manifest import build_manifest
 from guardian.core import chat_completion_service
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.repository_chat_capability import (
+    RepositoryChatCapabilityContext,
+)
+from guardian.core.repository_search import (
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+)
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.providers.deepseek_adapter import DeepSeekResponse
 from guardian.providers.whooshd_control_plane import (
@@ -24,12 +33,16 @@ from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
-from guardian.routes import health
+from guardian.routes import health, projects
 from guardian.tasks.types import ChatCompletionTask
 from guardian.tools.chat_exposure import (
     HEALTH_COMMAND_ID,
+    REPOSITORY_SEARCH_COMMAND_ID,
     resolve_ordinary_chat_tools,
 )
+
+
+_USE_ADVERTISED_CONTEXT = object()
 
 
 def _command_bus_app() -> FastAPI:
@@ -49,6 +62,32 @@ def _health_command() -> Any:
         command
         for command in _manifest_commands()
         if command.command_id == HEALTH_COMMAND_ID
+    )
+
+
+def _repository_manifest_app() -> FastAPI:
+    app = _command_bus_app()
+    app.include_router(projects.api_router)
+    return app
+
+
+def _repository_manifest_commands() -> list[Any]:
+    return build_manifest(_repository_manifest_app()).commands
+
+
+def _repository_model_tool() -> dict[str, Any]:
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=_repository_manifest_commands(),
+        repository_search_eligible=True,
+    )
+    assert tools is not None
+    return next(
+        dict(tool)
+        for tool in tools
+        if tool["command_id"] == REPOSITORY_SEARCH_COMMAND_ID
     )
 
 
@@ -310,6 +349,112 @@ def test_other_providers_and_local_runtimes_receive_no_automatic_tools(
     )
 
 
+def test_repository_search_manifest_projection_is_exact_and_authority_free() -> None:
+    commands = _repository_manifest_commands()
+    repository_command = next(
+        command
+        for command in commands
+        if command.command_id == REPOSITORY_SEARCH_COMMAND_ID
+    )
+
+    assert repository_command.method == "GET"
+    assert repository_command.path_template == "/api/projects/{project_id}/repository/search"
+    assert repository_command.operation_id == "repository.search"
+    assert repository_command.effect == "read"
+    assert repository_command.risk == "read_only"
+    assert repository_command.idempotency == "safe"
+    assert repository_command.approval_mode == "none"
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        repository_search_eligible=True,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [
+        HEALTH_COMMAND_ID,
+        REPOSITORY_SEARCH_COMMAND_ID,
+    ]
+    projection = tools[1]
+    assert projection["description"] == (
+        "Search the current Project's authorized repository for literal text. "
+        "Guardian selects the Project and repository."
+    )
+    assert projection["input_schema"] == {
+        "type": "object",
+        "properties": {
+            "q": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_QUERY_CHARACTERS,
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": MAX_RETURNED_MATCHES,
+            },
+        },
+        "required": ["q"],
+        "additionalProperties": False,
+    }
+    rendered = repr(projection)
+    for forbidden in (
+        "project_id",
+        "projectId",
+        "path_params",
+        "binding_id",
+        "canonical_root",
+        "repository_root",
+        "repoPath",
+        "cwd",
+        "mount",
+        "account_id",
+        "user_id",
+        "headers",
+        "body",
+    ):
+        assert forbidden not in rendered
+
+
+def test_unsafe_repository_manifest_is_suppressed_without_disabling_health() -> None:
+    commands = _repository_manifest_commands()
+    repository_command = next(
+        command
+        for command in commands
+        if command.command_id == REPOSITORY_SEARCH_COMMAND_ID
+    )
+    unsafe_repository_command = repository_command.model_copy(
+        update={"risk": "mutating", "effect": "write"}
+    )
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=[_health_command(), unsafe_repository_command],
+        repository_search_eligible=True,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+
+
+def test_repository_search_stays_provider_qualified() -> None:
+    commands = _repository_manifest_commands()
+    for provider, vendor in (("openai", None), ("groq", None), ("local", "other")):
+        assert (
+            resolve_ordinary_chat_tools(
+                provider=provider,
+                model="model",
+                provider_vendor=vendor,
+                manifest_commands=commands,
+                repository_search_eligible=True,
+            )
+            is None
+        )
+
+
 def test_whooshd_exposure_requires_real_stage_2g_eligibility() -> None:
     inventory = parse_whooshd_runtime_inventory_entry(_inventory_entry())
     assert inventory is not None
@@ -327,6 +472,20 @@ def test_whooshd_exposure_requires_real_stage_2g_eligibility() -> None:
     )
     assert tools is not None
     assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+
+    repository_tools = resolve_ordinary_chat_tools(
+        provider="local",
+        model="gemma-4-12b-it-qat-4bit",
+        provider_vendor="whooshd",
+        manifest_commands=_repository_manifest_commands(),
+        whooshd_capability=eligible,
+        repository_search_eligible=True,
+    )
+    assert repository_tools is not None
+    assert [tool["command_id"] for tool in repository_tools] == [
+        HEALTH_COMMAND_ID,
+        REPOSITORY_SEARCH_COMMAND_ID,
+    ]
 
     for ineligible in (
         project_whooshd_tool_capability(inventory=None, exposure_allowed=True),
@@ -464,6 +623,248 @@ def test_ordinary_deepseek_health_tool_executes_once_and_plain_answer_is_optiona
     }
 
 
+def _run_repository_search_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    model_arguments: Any,
+    current_context: RepositoryChatCapabilityContext | None | object = _USE_ADVERTISED_CONTEXT,
+    api_key: str | None = "sentinel-local-api-key",
+) -> tuple[ChatCompletionTask, list[dict[str, Any]], list[dict[str, Any]], Any]:
+    _seed_completion(
+        monkeypatch,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(LOCAL_PROVIDER_VENDOR=None),
+    )
+    task = _task(provider="deepseek", model="deepseek-model")
+    advertised_context = RepositoryChatCapabilityContext(project_id=42)
+    repository_tool = _repository_model_tool()
+    provider_calls: list[dict[str, Any]] = []
+    invocations: list[dict[str, Any]] = []
+
+    def _prepare(
+        prepared_task: ChatCompletionTask,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        prepared_task.tools = [
+            {
+                "command_id": HEALTH_COMMAND_ID,
+                "description": "Read health.",
+                "input_schema": {"type": "object"},
+            },
+            repository_tool,
+        ]
+        evidence = chat_completion_service._build_tool_exposure_evidence(
+            automatic=True,
+            tools=prepared_task.tools,
+        )
+        evidence["_repository_chat_context"] = advertised_context
+        return evidence
+
+    monkeypatch.setattr(chat_completion_service, "_prepare_chat_tool_exposure", _prepare)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_repository_search_local_transport_eligible",
+        lambda _task: True,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: (
+            advertised_context
+            if current_context is _USE_ADVERTISED_CONTEXT
+            else current_context
+        ),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_repository_search_local_api_key",
+        lambda: api_key,
+    )
+
+    def _invoke(**kwargs: Any) -> dict[str, Any]:
+        invocations.append(kwargs)
+        return {
+            "run_id": "run-stage2k5-repository-search",
+            "status": "completed",
+            "inline_result": {
+                "status_code": 200,
+                "body": {
+                    "ok": True,
+                    "matches": [
+                        {
+                            "path": "guardian/core/chat_completion_service.py",
+                            "line": 1,
+                            "snippet": "bounded result",
+                        }
+                    ],
+                },
+            },
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _invoke)
+
+    def _chat(messages: list[dict[str, Any]], **kwargs: Any) -> DeepSeekResponse:
+        provider_calls.append({"messages": messages, "tools": kwargs.get("tools")})
+        if len(provider_calls) == 1:
+            return DeepSeekResponse(
+                content="",
+                reasoning_content=None,
+                tool_calls=[
+                    {
+                        "command_id": REPOSITORY_SEARCH_COMMAND_ID,
+                        "tool_call_id": "call-repository-search",
+                        "arguments": model_arguments,
+                    }
+                ],
+                raw_assistant_message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call-repository-search",
+                            "type": "function",
+                            "function": {
+                                "name": REPOSITORY_SEARCH_COMMAND_ID,
+                                "arguments": json.dumps(model_arguments),
+                            },
+                        }
+                    ],
+                },
+                raw_payload={},
+            )
+        return DeepSeekResponse(
+            content="The bounded repository result is ready.",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={
+                "role": "assistant",
+                "content": "The bounded repository result is ready.",
+            },
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat)
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+    return task, invocations, provider_calls, result
+
+
+def test_repository_search_tool_turn_revalidates_and_hydrates_guardian_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = "sentinel-local-api-key"
+    raw_arguments = {"q": "_prepare_chat_tool_exposure", "limit": 5}
+    task, invocations, provider_calls, result = _run_repository_search_turn(
+        monkeypatch,
+        model_arguments=raw_arguments,
+        api_key=sentinel,
+    )
+
+    assert len(invocations) == 1
+    invocation = invocations[0]
+    payload = invocation["payload"]
+    assert payload.command_id == REPOSITORY_SEARCH_COMMAND_ID
+    assert payload.arguments.model_dump() == {
+        "path_params": {"project_id": 42},
+        "query": {"q": "_prepare_chat_tool_exposure", "limit": 5},
+        "headers": {},
+        "body": None,
+    }
+    assert payload.actor.kind == "system"
+    assert payload.actor.delegated_by == task.user_id
+    assert invocation["auth_subject"] == task.user_id
+    assert invocation["inbound_headers"] == {"X-API-Key": sentinel}
+    assert payload.provenance_json == {}
+    assert sentinel not in repr(payload.arguments.model_dump())
+    assert sentinel not in str(payload.idempotency_key)
+    assert raw_arguments == {"q": "_prepare_chat_tool_exposure", "limit": 5}
+    assert len(provider_calls) == 2
+    assert [tool["command_id"] for tool in provider_calls[0]["tools"]] == [
+        HEALTH_COMMAND_ID,
+        REPOSITORY_SEARCH_COMMAND_ID,
+    ]
+    rendered_provider_data = repr(provider_calls)
+    for forbidden in ("project_id", "canonical_root", "binding_id", sentinel):
+        assert forbidden not in rendered_provider_data
+    assert "project_id" not in repr(
+        result["payload_summary"]["toolExposure"]
+    )
+    assert sentinel not in repr(asdict(task))
+    assert sentinel not in repr(result)
+    assert result["assistant_text"] == "The bounded repository result is ready."
+    assert result["payload_summary"]["toolTurnState"] == "completed"
+    assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
+    assert result["payload_summary"]["commandRunId"] == "run-stage2k5-repository-search"
+
+
+@pytest.mark.parametrize(
+    "model_arguments",
+    [
+        {"project_id": 42, "q": "needle"},
+        {"path_params": {"project_id": 42}, "q": "needle"},
+        {"headers": {"X-API-Key": "nope"}, "q": "needle"},
+        {"body": {"q": "needle"}, "q": "needle"},
+        {"query": {"q": "needle"}, "q": "needle"},
+        {"q": "needle", "unknown": True},
+        {"q": "   "},
+        {"q": "needle\n"},
+        {"q": "x" * (MAX_QUERY_CHARACTERS + 1)},
+        {"q": "needle", "limit": True},
+        {"q": "needle", "limit": 0},
+        {"q": "needle", "limit": MAX_RETURNED_MATCHES + 1},
+    ],
+)
+def test_invalid_repository_model_arguments_block_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    model_arguments: dict[str, Any],
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ) as exc_info:
+        _run_repository_search_turn(
+            monkeypatch,
+            model_arguments=model_arguments,
+        )
+
+    assert exc_info.value.metadata["loopStopReason"] == "tool_command_blocked"
+
+
+@pytest.mark.parametrize(
+    "current_context",
+    [None, RepositoryChatCapabilityContext(project_id=99)],
+)
+def test_missing_or_moved_repository_authority_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    current_context: RepositoryChatCapabilityContext | None,
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_repository_search_turn(
+            monkeypatch,
+            model_arguments={"q": "needle"},
+            current_context=current_context,
+        )
+
+
+def test_disappearing_local_api_key_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_repository_search_turn(
+            monkeypatch,
+            model_arguments={"q": "needle"},
+            api_key=None,
+        )
+
+
 def test_advertised_deepseek_health_capability_does_not_force_tool_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -555,6 +956,186 @@ def test_prepare_chat_tool_exposure_resolves_automatic_deepseek_health(
         "providerDispatchToolCommandIds": [],
         "commandIdsTruncated": False,
     }
+
+
+def _patch_local_repository_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    private_preview: bool = False,
+    auth_mode: str = "local",
+    multi_user: bool = False,
+    single_user_id: str = "local",
+    api_key: str | None = "sentinel-local-api-key",
+) -> None:
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "is_private_preview",
+        lambda: private_preview,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "_auth_mode",
+        lambda: auth_mode,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "_multi_user_mode_enabled",
+        lambda: multi_user,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "get_single_user_id",
+        lambda: single_user_id,
+    )
+    monkeypatch.setattr(
+        chat_completion_service.dependencies,
+        "get_settings",
+        lambda: SimpleNamespace(GUARDIAN_API_KEY=api_key, GUARDIAN_API_KEYS=None),
+    )
+    monkeypatch.delenv("GUARDIAN_API_KEY", raising=False)
+
+
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda task: setattr(task, "hosted_room_invocation", object()),
+        lambda task: setattr(task, "origin", "api:voice.complete"),
+        lambda task: setattr(task, "thread_id", 0),
+        lambda task: setattr(task, "user_id", ""),
+    ],
+)
+def test_nonordinary_task_classification_suppresses_repository_search(
+    monkeypatch: pytest.MonkeyPatch,
+    configure: Any,
+) -> None:
+    _patch_local_repository_auth(monkeypatch)
+    task = _task(provider="deepseek", model="deepseek-model")
+    configure(task)
+
+    assert not chat_completion_service._is_ordinary_repository_chat_task(task)
+    assert not chat_completion_service._repository_search_local_transport_eligible(task)
+
+
+@pytest.mark.parametrize(
+    "auth_kwargs",
+    [
+        {"private_preview": True},
+        {"auth_mode": "remote"},
+        {"multi_user": True},
+        {"single_user_id": "someone-else"},
+        {"api_key": None},
+    ],
+)
+def test_nonlocal_or_missing_credential_postures_suppress_repository_search(
+    monkeypatch: pytest.MonkeyPatch,
+    auth_kwargs: dict[str, Any],
+) -> None:
+    _patch_local_repository_auth(monkeypatch, **auth_kwargs)
+    task = _task(provider="deepseek", model="deepseek-model")
+
+    assert not chat_completion_service._repository_search_local_transport_eligible(task)
+
+
+def test_prepare_attaches_private_context_only_for_automatic_advertisement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_local_repository_auth(monkeypatch)
+    task = _task(provider="deepseek", model="deepseek-model")
+    context = RepositoryChatCapabilityContext(project_id=42)
+    resolver_calls: list[dict[str, Any]] = []
+
+    def _resolve_tools(**kwargs: Any) -> list[dict[str, Any]]:
+        resolver_calls.append(kwargs)
+        tools = [
+            {
+                "command_id": HEALTH_COMMAND_ID,
+                "description": "Read health.",
+                "input_schema": {"type": "object"},
+            }
+        ]
+        if kwargs["repository_search_eligible"]:
+            tools.append(_repository_model_tool())
+        return tools
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: context,
+    )
+    monkeypatch.setattr(chat_completion_service, "_resolve_ordinary_chat_tools", _resolve_tools)
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(),
+    )
+
+    assert resolver_calls[0]["repository_search_eligible"] is True
+    assert evidence["_repository_chat_context"] == context
+    assert [tool["command_id"] for tool in task.tools or []] == [
+        HEALTH_COMMAND_ID,
+        REPOSITORY_SEARCH_COMMAND_ID,
+    ]
+    payload = chat_completion_service._tool_exposure_payload(evidence)
+    assert "_repository_chat_context" not in payload
+    assert "project_id" not in repr(payload)
+
+
+def test_repository_capability_failure_leaves_health_automatically_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_local_repository_auth(monkeypatch)
+    task = _task(provider="deepseek", model="deepseek-model")
+    resolver_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_resolve_ordinary_chat_tools",
+        lambda **kwargs: resolver_calls.append(kwargs)
+        or [{"command_id": HEALTH_COMMAND_ID}],
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(),
+    )
+
+    assert resolver_calls[0]["repository_search_eligible"] is False
+    assert task.tools == [{"command_id": HEALTH_COMMAND_ID}]
+    assert "_repository_chat_context" not in evidence
+
+
+def test_manual_repository_search_cannot_bypass_capability_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _task(provider="deepseek", model="deepseek-model")
+    unrelated = {"command_id": "op::caller_selected"}
+    task.tools = [_repository_model_tool(), unrelated]
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: pytest.fail("manual tools must not resolve authority"),
+    )
+
+    evidence = chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(),
+    )
+
+    assert task.tools == [unrelated]
+    assert evidence["automatic"] is False
+    assert evidence["advertisedToolCommandIds"] == ["op::caller_selected"]
+    assert "_repository_chat_context" not in evidence
 
 
 def test_prepare_chat_tool_exposure_preserves_explicit_empty_tools(
