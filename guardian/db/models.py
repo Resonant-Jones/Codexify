@@ -431,6 +431,89 @@ class Project(Base):
 
 
 # =========================
+# Repository Bindings (Stage 2K.1 / ADR-065)
+# =========================
+
+
+REPOSITORY_BINDING_SOURCE_CLASS_GUARDIAN_MANAGED = "guardian_managed"
+REPOSITORY_BINDING_SOURCE_CLASS_EXTERNAL_LINKED = "external_linked"
+REPOSITORY_BINDING_SOURCE_CLASSES_SQL = (
+    f"'{REPOSITORY_BINDING_SOURCE_CLASS_GUARDIAN_MANAGED}',"
+    f"'{REPOSITORY_BINDING_SOURCE_CLASS_EXTERNAL_LINKED}'"
+)
+REPOSITORY_BINDING_SOURCE_CLASS_CHECK = (
+    f"source_class IN ({REPOSITORY_BINDING_SOURCE_CLASSES_SQL})"
+)
+
+
+class RepositoryBinding(Base):
+    """Stage 2K.1 (ADR-065) durable Project-to-Git-working-tree authority.
+
+    A repository is available to Guardian only through an explicit,
+    account/project-owned ``RepositoryBinding``. Cardinality is one active
+    binding per Project; inactive historical bindings may coexist. The
+    binding resolves one authorized working-tree root and is Guardian-owned
+    durable authority state, never model input or conversational context.
+
+    Discovery candidates (``discovery_candidate``) are NOT stored here —
+    they are not bindings and never gain tool eligibility. Existing
+    Projects receive no automatic binding; ``General`` receives no implicit
+    binding.
+    """
+
+    __tablename__ = "repository_bindings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_class: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
+    canonical_root: Mapped[str] = mapped_column(
+        String(4096), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    provenance: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project] = relationship("Project")
+
+    __table_args__ = (
+        CheckConstraint(
+            REPOSITORY_BINDING_SOURCE_CLASS_CHECK,
+            name="ck_repository_bindings_source_class",
+        ),
+        Index(
+            "ix_repository_bindings_project_id",
+            "project_id",
+        ),
+        Index(
+            "uq_repository_bindings_one_active_per_project",
+            "project_id",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Capability Grants
 # =========================
 
