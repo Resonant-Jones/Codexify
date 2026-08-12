@@ -365,8 +365,8 @@ vi.mock("@/components/ShareButton", () => ({
 
 vi.mock("@/theme", () => ({
   injectCssVars: vi.fn(),
-  applyPaperTone: vi.fn((base: string) => base),
-  normalizeLegacyWarmth: vi.fn((value: number) => value),
+  applySurfaceWarmth: vi.fn((base: string) => base),
+  normalizeSurfaceWarmth: vi.fn((value: number) => value),
 }));
 
 describe("AppShell runtime health banner", () => {

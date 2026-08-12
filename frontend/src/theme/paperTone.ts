@@ -1,20 +1,16 @@
 /**
- * Paper Tone — Light-mode-only material mapping for Codexify.
+ * Surface Warmth — bidirectional material mapping for Codexify.
  *
- * Converts a scalar in [0, 100] to a perceptually smooth paper-color
- * progression using OKLCH interpolation:
+ * The shared control spans [-100, 100]. Negative values retain the original
+ * graphite/steel HSL shift in both themes. Positive values retain the original
+ * warm/olive shift in dark mode, while light mode uses a perceptually smooth
+ * paper-color progression via OKLCH interpolation:
  *
  *   neutral white → ivory → cream → parchment → pale legal-pad yellow
  *
- * Dark-mode surfaces MUST NOT consume this mapping.  Callers in AppShell
- * gate on `resolved === "light"` before calling applyPaperTone.
- *
- * Semantics:
- *   0   Neutral       (current light appearance, no shift)
- *   25  Ivory         (barely perceptible warmth)
- *   50  Cream         (warm off-white, still reads as paper)
- *   75  Parchment     (visible warm tone, old-paper association)
- *   100 Legal         (pale legal-pad yellow, restrained, not saturated)
+ * This keeps the dynamic dark-mode color interactions from the original
+ * Surface Warmth control and makes the light-mode warm endpoint reach cream,
+ * parchment, and pale yellow instead of replacing the cool half of the range.
  */
 
 // ---------------------------------------------------------------------------
@@ -29,6 +25,82 @@ function srgbToLinear(c: number): number {
 function linearToSrgb(v: number): number {
   const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
   return Math.round(Math.max(0, Math.min(1, c)) * 255);
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace("#", "");
+  const value = parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function rgbToHsl(r: number, g: number, b: number) {
+  const red = r / 255;
+  const green = g / 255;
+  const blue = b / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  let hue = 0;
+  let saturation = 0;
+
+  if (max !== min) {
+    const delta = max - min;
+    saturation =
+      lightness > 0.5
+        ? delta / (2 - max - min)
+        : delta / (max + min);
+    if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
+    if (max === green) hue = (blue - red) / delta + 2;
+    if (max === blue) hue = (red - green) / delta + 4;
+    hue /= 6;
+  }
+
+  return {
+    h: hue * 360,
+    s: saturation * 100,
+    l: lightness * 100,
+  };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const saturation = s / 100;
+  const lightness = l / 100;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const intermediate = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+  const offset = lightness - chroma / 2;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  if (h < 60) {
+    red = chroma;
+    green = intermediate;
+  } else if (h < 120) {
+    red = intermediate;
+    green = chroma;
+  } else if (h < 180) {
+    green = chroma;
+    blue = intermediate;
+  } else if (h < 240) {
+    green = intermediate;
+    blue = chroma;
+  } else if (h < 300) {
+    red = intermediate;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = intermediate;
+  }
+
+  const toHex = (channel: number) =>
+    Math.round((channel + offset) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +231,33 @@ export function applyPaperTone(baseHex: string, tone: number): string {
 }
 
 /**
+ * Apply the restored bidirectional Surface Warmth control to a neutral surface.
+ *
+ * Light + warm uses the expanded paper curve. Every other combination uses the
+ * original subtle HSL hue pull, including the olive interaction in dark mode.
+ */
+export function applySurfaceWarmth(
+  baseHex: string,
+  warmth: number,
+  mode: "light" | "dark"
+): string {
+  const clampedWarmth = normalizeSurfaceWarmth(warmth);
+  if (clampedWarmth === 0) return baseHex;
+  if (mode === "light" && clampedWarmth > 0) {
+    return applyPaperTone(baseHex, clampedWarmth);
+  }
+
+  const warmthNorm = clampedWarmth / 100;
+  const { r, g, b } = hexToRgb(baseHex);
+  const { h, s, l } = rgbToHsl(r, g, b);
+  const targetHue = warmthNorm > 0 ? 35 : 210;
+  const pull = Math.abs(warmthNorm) * 0.7;
+  const hue = ((h + (targetHue - h) * pull) % 360 + 360) % 360;
+  const saturation = Math.min(22, s + Math.abs(warmthNorm) * 10);
+  return hslToHex(hue, saturation, l);
+}
+
+/**
  * Return a short human-readable descriptor for the current paper tone.
  */
 export function paperToneLabel(tone: number): string {
@@ -171,23 +270,9 @@ export function paperToneLabel(tone: number): string {
 }
 
 /**
- * Map a legacy surfaceWarmth value from the old [-100, 100] range
- * to the new [0, 100] paper-tone range.
- *
- * - Old 0 (neutral) → new 0 (Neutral)
- * - Old +100 (warmest) → new 100 (Legal)
- * - Old -100 (coolest) is clamped to 0 (Neutral) — we don't support cool paper
- *
- * If the stored value is already in [0, 100], it's returned as-is.
+ * Normalize persisted Surface Warmth without discarding the restored cool range.
  */
-export function normalizeLegacyWarmth(value: number): number {
-  // Detect already-normalized: 0-100 with no negative.
-  // We distinguish by checking if it's already >= 0 and <= 100.
-  if (value >= 0 && value <= 100) return Math.round(value);
-
-  // Old range [-100, 100]. Negative values → 0 (no "cool paper").
-  if (value < 0) return 0;
-
-  // Old positive values: linearly map [0, 100] → [0, 100] (already aligned)
-  return Math.round(Math.max(0, Math.min(100, value)));
+export function normalizeSurfaceWarmth(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(Math.max(-100, Math.min(100, value)));
 }

@@ -19,7 +19,6 @@ import {
   SETTINGS_DENSITY,
   getSettingsHeadingRowStyle,
 } from "./settingsDensityContract";
-import { paperToneLabel } from "@/theme";
 import {
   ChatGPTImportModal,
   type MigrationStats,
@@ -353,8 +352,8 @@ export function SettingsView({
   setDashboardThreadRows,
   surfaceDepth,
   setSurfaceDepth,
-  lightPaperTone,
-  setLightPaperTone,
+  surfaceWarmth,
+  setSurfaceWarmth,
 }: {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
@@ -383,8 +382,8 @@ export function SettingsView({
   setDashboardThreadRows: (n: number) => void;
   surfaceDepth: number;
   setSurfaceDepth: (n: number) => void;
-  lightPaperTone: number;
-  setLightPaperTone: (n: number) => void;
+  surfaceWarmth: number;
+  setSurfaceWarmth: (n: number) => void;
 }) {
   const desktopMode = isTauriRuntime();
   const [tab, setTab] = useState<SettingsTab>(() => {
@@ -1408,39 +1407,38 @@ export function SettingsView({
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
                 <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
                   <label
-                    htmlFor="light-paper-tone-slider"
+                    htmlFor="surface-warmth-slider"
                     className="text-sm font-medium"
-                    id="light-paper-tone-label"
+                    id="surface-warmth-label"
                     style={SETTINGS_DENSITY.sectionTitle}
                   >
-                    Paper tone
+                    Surface Warmth
                   </label>
                   <span
                     aria-live="polite"
                     className="text-xs font-semibold tabular-nums"
                     style={{ color: "var(--text)" }}
                   >
-                    {paperToneLabel(lightPaperTone)}
+                    {surfaceWarmth > 0 ? `+${surfaceWarmth}` : surfaceWarmth}
                   </span>
                 </div>
                 <SettingsRangeControl
-                  id="light-paper-tone-slider"
-                  data-testid="light-paper-tone-slider"
-                  min={0}
+                  id="surface-warmth-slider"
+                  data-testid="surface-warmth-slider"
+                  min={-100}
                   max={100}
                   step={1}
-                  value={lightPaperTone}
-                  disabled={resolved === "dark"}
-                  aria-labelledby="light-paper-tone-label"
-                  aria-valuemin={0}
+                  value={surfaceWarmth}
+                  aria-labelledby="surface-warmth-label"
+                  aria-valuemin={-100}
                   aria-valuemax={100}
-                  aria-valuenow={lightPaperTone}
-                  aria-valuetext={paperToneLabel(lightPaperTone)}
-                  onChange={(e) => setLightPaperTone(Number(e.target.value))}
+                  aria-valuenow={surfaceWarmth}
+                  onChange={(e) => setSurfaceWarmth(Number(e.target.value))}
                 />
                 <p className="text-xs" style={{ color: "var(--muted)" }}>
-                  Neutral white through cream, parchment, and pale legal-pad yellow.
-                  {resolved === "dark" && <>{" "}Light mode only.</>}
+                  Cooler shifts toward graphite and steel. Warmer restores the
+                  ivory / olive interaction and reaches cream through pale yellow
+                  in Light mode.
                 </p>
               </div>
             </div>
