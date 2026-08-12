@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from urllib.parse import unquote
 
 from fastapi import HTTPException
@@ -83,7 +83,11 @@ from guardian.providers.whooshd_control_plane import (
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
-from guardian.tools.chat_exposure import resolve_ordinary_chat_tools
+from guardian.tools.chat_exposure import (
+    REPOSITORY_SEARCH_COMMAND_ID,
+    repository_search_is_advertised,
+    resolve_ordinary_chat_tools,
+)
 from guardian.core.candidate_trace_store import store_candidate_trace
 from guardian.core.completion_terminal import (
     CompletionAttemptResult,
@@ -107,6 +111,14 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.llm_catalog import first_enabled_provider
+from guardian.core.repository_chat_capability import (
+    RepositoryChatCapabilityContext,
+    resolve_repository_chat_capability,
+)
+from guardian.core.repository_search import (
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+)
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_model_id,
@@ -5202,11 +5214,134 @@ def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
     )
 
 
+def _is_ordinary_repository_chat_task(task: ChatCompletionTask) -> bool:
+    """Classify the ordinary lane without deriving repository authority."""
+
+    thread_id = getattr(task, "thread_id", None)
+    if (
+        getattr(task, "hosted_room_invocation", None) is not None
+        or not isinstance(thread_id, int)
+        or isinstance(thread_id, bool)
+        or thread_id <= 0
+        or not str(getattr(task, "user_id", "") or "").strip()
+    ):
+        return False
+    origin = str(getattr(task, "origin", "") or "")
+    return origin.split("|", 1)[0] == "api:chat.complete"
+
+
+def _repository_search_local_api_key() -> str | None:
+    """Resolve one accepted local key using the verifier's configured order."""
+
+    allowed: list[str] = []
+    try:
+        settings = dependencies.get_settings()
+        primary = getattr(settings, "GUARDIAN_API_KEY", None)
+        if isinstance(primary, str) and primary.strip():
+            allowed.append(primary.strip())
+        raw_multi = getattr(settings, "GUARDIAN_API_KEYS", None)
+        if isinstance(raw_multi, str) and raw_multi.strip():
+            allowed.extend(
+                candidate.strip()
+                for candidate in raw_multi.replace(";", ",").split(",")
+                if candidate.strip()
+            )
+    except Exception:
+        allowed = []
+    if allowed:
+        return allowed[0]
+    fallback = (os.getenv("GUARDIAN_API_KEY") or "").strip()
+    return fallback or None
+
+
+def _repository_search_local_transport_eligible(
+    task: ChatCompletionTask,
+) -> bool:
+    """Allow queued repository replay only in the accepted local posture."""
+
+    if not _is_ordinary_repository_chat_task(task):
+        return False
+    try:
+        if dependencies.is_private_preview():
+            return False
+        if dependencies._auth_mode() != "local":
+            return False
+        if dependencies._multi_user_mode_enabled():
+            return False
+        if str(task.user_id or "") != dependencies.get_single_user_id():
+            return False
+    except Exception:
+        return False
+    return _repository_search_local_api_key() is not None
+
+
+def _hydrate_repository_search_arguments(
+    raw_arguments: Any,
+    *,
+    project_id: int,
+) -> InvokeArguments:
+    """Validate model q/limit and inject only Guardian-derived path authority."""
+
+    if (
+        not isinstance(project_id, int)
+        or isinstance(project_id, bool)
+        or project_id <= 0
+        or not isinstance(raw_arguments, Mapping)
+    ):
+        raise ValueError("repository_search_arguments_invalid")
+    arguments = dict(raw_arguments)
+    if set(arguments) - {"q", "limit"}:
+        raise ValueError("repository_search_arguments_invalid")
+    raw_query = arguments.get("q")
+    if not isinstance(raw_query, str):
+        raise ValueError("repository_search_arguments_invalid")
+    if "\x00" in raw_query or "\r" in raw_query or "\n" in raw_query:
+        raise ValueError("repository_search_arguments_invalid")
+    query = raw_query.strip()
+    if (
+        not query
+        or len(query) > MAX_QUERY_CHARACTERS
+    ):
+        raise ValueError("repository_search_arguments_invalid")
+    raw_limit = arguments.get("limit", MAX_RETURNED_MATCHES)
+    if (
+        not isinstance(raw_limit, int)
+        or isinstance(raw_limit, bool)
+        or not 1 <= raw_limit <= MAX_RETURNED_MATCHES
+    ):
+        raise ValueError("repository_search_arguments_invalid")
+    return InvokeArguments(
+        path_params={"project_id": project_id},
+        query={"q": query, "limit": raw_limit},
+        headers={},
+        body=None,
+    )
+
+
+def _repository_search_blocked_error(
+    *,
+    task: ChatCompletionTask,
+    tool_turn_id: str,
+) -> ToolLoopExecutionError:
+    return ToolLoopExecutionError(
+        ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+        metadata=_tool_loop_identity_fields(
+            task=task,
+            tool_turn_id=tool_turn_id,
+            tool_turn_state=ToolTurnState.FAILED.value,
+            loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            command_run_id=None,
+        )
+        | {"command_id": REPOSITORY_SEARCH_COMMAND_ID},
+    )
+
+
 def _resolve_ordinary_chat_tools(
     *,
     provider: str,
     model: str,
     settings: Any,
+    repository_search_eligible: bool = False,
 ) -> list[dict[str, Any]] | None:
     """Resolve the Stage 2I subset after the effective target is known."""
 
@@ -5252,6 +5387,7 @@ def _resolve_ordinary_chat_tools(
         provider_vendor=provider_vendor,
         manifest_commands=manifest.commands,
         whooshd_capability=whooshd_capability,
+        repository_search_eligible=repository_search_eligible,
     )
 
 
@@ -5265,16 +5401,45 @@ def _prepare_chat_tool_exposure(
     """Resolve the canonical advertised subset and its bounded evidence."""
 
     automatic_tool_exposure = task.tools is None
+    repository_context: RepositoryChatCapabilityContext | None = None
     if automatic_tool_exposure:
+        if _repository_search_local_transport_eligible(task):
+            repository_context = resolve_repository_chat_capability(
+                getattr(dependencies, "chatlog_db", None),
+                authenticated_account_id=task.user_id,
+                thread_id=task.thread_id,
+            )
         task.tools = _resolve_ordinary_chat_tools(
             provider=provider,
             model=model,
             settings=settings,
+            repository_search_eligible=repository_context is not None,
         )
-    return _build_tool_exposure_evidence(
+    else:
+        supplied_tools = task.tools
+        if isinstance(supplied_tools, list) and any(
+            isinstance(tool, dict)
+            and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+            for tool in supplied_tools
+        ):
+            task.tools = [
+                tool
+                for tool in supplied_tools
+                if not (
+                    isinstance(tool, dict)
+                    and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+                )
+            ]
+    evidence = _build_tool_exposure_evidence(
         automatic=automatic_tool_exposure,
         tools=task.tools,
     )
+    if (
+        repository_context is not None
+        and repository_search_is_advertised(task.tools)
+    ):
+        evidence["_repository_chat_context"] = repository_context
+    return evidence
 
 
 def _execute_bounded_tool_turn_completion(
@@ -5523,18 +5688,74 @@ def _execute_bounded_tool_turn_completion(
         )
 
     tool_turn_state = ToolTurnState.DECISION_RECEIVED.value
-    invocation = BoundedToolTurnInvocation(
-        tool_turn_id=tool_turn_id,
-        request_id=request_id or tool_turn_id,
-        command_id=normalized_first_output.command_id,
-        actor=ActorSpec(
+    command_id = normalized_first_output.command_id
+    arguments = _tool_turn_invoke_arguments(normalized_first_output.arguments or {})
+    actor = ActorSpec(
+        kind="system",
+        id=request_id or tool_turn_id,
+        session_id=tool_turn_id,
+    )
+    auth_subject = actor.id
+    inbound_headers: dict[str, str] = {}
+
+    if command_id == REPOSITORY_SEARCH_COMMAND_ID:
+        advertised_context = tool_exposure.get("_repository_chat_context")
+        if not isinstance(advertised_context, RepositoryChatCapabilityContext):
+            raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        if not _repository_search_local_transport_eligible(task):
+            raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        current_context = resolve_repository_chat_capability(
+            getattr(dependencies, "chatlog_db", None),
+            authenticated_account_id=task.user_id,
+            thread_id=task.thread_id,
+        )
+        if (
+            current_context is None
+            or current_context.project_id != advertised_context.project_id
+        ):
+            raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        try:
+            arguments = _hydrate_repository_search_arguments(
+                normalized_first_output.arguments,
+                project_id=current_context.project_id,
+            )
+        except ValueError as exc:
+            raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            ) from exc
+        local_api_key = _repository_search_local_api_key()
+        if local_api_key is None:
+            raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        actor = ActorSpec(
             kind="system",
             id=request_id or tool_turn_id,
             session_id=tool_turn_id,
-        ),
-        arguments=_tool_turn_invoke_arguments(normalized_first_output.arguments or {}),
+            delegated_by=task.user_id,
+        )
+        auth_subject = task.user_id
+        inbound_headers = {"X-API-Key": local_api_key}
+
+    invocation = BoundedToolTurnInvocation(
+        tool_turn_id=tool_turn_id,
+        request_id=request_id or tool_turn_id,
+        command_id=command_id,
+        actor=actor,
+        arguments=arguments,
         idempotency_key=(
-            f"{request_id or tool_turn_id}:{tool_turn_id}:{normalized_first_output.command_id}"
+            f"{request_id or tool_turn_id}:{tool_turn_id}:{command_id}"
         ),
     )
     invoke_request = InvokeRequest(
@@ -5549,8 +5770,8 @@ def _execute_bounded_tool_turn_completion(
     try:
         invoke_result = execute_invoke(
             payload=invoke_request,
-            auth_subject=invocation.actor.id,
-            inbound_headers={},
+            auth_subject=auth_subject,
+            inbound_headers=inbound_headers,
             store=command_bus_routes._store,
             app=_command_bus_app(),
             execution_lane="tools",

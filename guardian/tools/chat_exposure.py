@@ -11,11 +11,16 @@ from collections.abc import Iterable
 from typing import Any
 
 from guardian.command_bus.contracts import CommandSpec
+from guardian.core.repository_search import (
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+)
 from guardian.providers.whooshd_tool_capability import (
     WhooshdToolCapabilityProjection,
 )
 
 HEALTH_COMMAND_ID = "op::health_health_get"
+REPOSITORY_SEARCH_COMMAND_ID = "op::repository.search"
 _WHOOSHD_VENDOR = "whooshd"
 _EMPTY_MODEL_INPUT_SCHEMA = {
     "type": "object",
@@ -30,15 +35,17 @@ def _normalized(value: str | None) -> str:
 
 def _find_command(
     commands: Iterable[CommandSpec | dict[str, Any]],
+    *,
+    expected_command_id: str,
 ) -> CommandSpec | dict[str, Any] | None:
     for command in commands:
         if isinstance(command, CommandSpec):
-            command_id = command.command_id
+            candidate_command_id = command.command_id
         elif isinstance(command, dict):
-            command_id = str(command.get("command_id") or "")
+            candidate_command_id = str(command.get("command_id") or "")
         else:
             continue
-        if command_id == HEALTH_COMMAND_ID:
+        if candidate_command_id == expected_command_id:
             return command
     return None
 
@@ -80,7 +87,7 @@ def _is_safe_health_command(command: CommandSpec | dict[str, Any]) -> bool:
     )
 
 
-def _model_tool(command: CommandSpec | dict[str, Any]) -> dict[str, Any]:
+def _health_model_tool(command: CommandSpec | dict[str, Any]) -> dict[str, Any]:
     method = str(_command_value(command, "method") or "GET")
     path_template = str(_command_value(command, "path_template") or "/health")
     return {
@@ -92,6 +99,86 @@ def _model_tool(command: CommandSpec | dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _has_exact_repository_search_input_schema(
+    command: CommandSpec | dict[str, Any],
+) -> bool:
+    input_schema = _command_value(command, "input_schema")
+    if not isinstance(input_schema, dict):
+        return False
+    path_params = input_schema.get("path_params")
+    query = input_schema.get("query")
+    if not isinstance(path_params, dict) or not isinstance(query, dict):
+        return False
+    path_properties = path_params.get("properties")
+    query_properties = query.get("properties")
+    if not isinstance(path_properties, dict) or not isinstance(query_properties, dict):
+        return False
+    q_schema = query_properties.get("q")
+    limit_schema = query_properties.get("limit")
+    return (
+        path_params.get("required") == ["project_id"]
+        and set(path_properties) == {"project_id"}
+        and query.get("required") == ["q"]
+        and set(query_properties) == {"q", "limit"}
+        and isinstance(q_schema, dict)
+        and q_schema.get("type") == "string"
+        and q_schema.get("minLength") == 1
+        and q_schema.get("maxLength") == MAX_QUERY_CHARACTERS
+        and isinstance(limit_schema, dict)
+        and limit_schema.get("type") == "integer"
+        and limit_schema.get("minimum") == 1
+        and limit_schema.get("maximum") == MAX_RETURNED_MATCHES
+    )
+
+
+def _is_safe_repository_search_command(
+    command: CommandSpec | dict[str, Any],
+) -> bool:
+    """Allow only the fixed Stage 2K.4 raw command projection."""
+
+    return (
+        _command_value(command, "command_id") == REPOSITORY_SEARCH_COMMAND_ID
+        and _command_value(command, "method") == "GET"
+        and _command_value(command, "path_template")
+        == "/api/projects/{project_id}/repository/search"
+        and _command_value(command, "operation_id") == "repository.search"
+        and _command_value(command, "effect") == "read"
+        and _command_value(command, "risk") == "read_only"
+        and _command_value(command, "idempotency") == "safe"
+        and _command_value(command, "approval_mode") == "none"
+        and _has_exact_repository_search_input_schema(command)
+    )
+
+
+def _repository_search_model_tool() -> dict[str, Any]:
+    """Return the fixed model projection; authority fields never cross it."""
+
+    return {
+        "command_id": REPOSITORY_SEARCH_COMMAND_ID,
+        "description": (
+            "Search the current Project's authorized repository for literal text. "
+            "Guardian selects the Project and repository."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_QUERY_CHARACTERS,
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_RETURNED_MATCHES,
+                },
+            },
+            "required": ["q"],
+            "additionalProperties": False,
+        },
+    }
+
+
 def resolve_ordinary_chat_tools(
     *,
     provider: str | None,
@@ -99,29 +186,57 @@ def resolve_ordinary_chat_tools(
     provider_vendor: str | None,
     manifest_commands: Iterable[CommandSpec | dict[str, Any]],
     whooshd_capability: WhooshdToolCapabilityProjection | None = None,
+    repository_search_eligible: bool = False,
 ) -> list[dict[str, Any]] | None:
-    """Return the one Stage 2I tool or no automatic ordinary-chat tools.
+    """Return the fixed ordinary-chat subset or no automatic tools.
 
     The manifest supplies the canonical command identity and safety facts.  A
     matching Whoosh'd Stage 2G projection is eligibility evidence only; the
     returned list is still the exact subset Stage 1 checks later.
     """
 
-    command = _find_command(manifest_commands)
-    if command is None or not _is_safe_health_command(command):
+    commands = list(manifest_commands)
+    health_command = _find_command(
+        commands,
+        expected_command_id=HEALTH_COMMAND_ID,
+    )
+    if health_command is None or not _is_safe_health_command(health_command):
         return None
 
     normalized_provider = _normalized(provider)
-    if normalized_provider == "deepseek":
-        return [_model_tool(command)]
+    provider_eligible = normalized_provider == "deepseek"
+    if not provider_eligible:
+        provider_eligible = (
+            normalized_provider == "local"
+            and _normalized(provider_vendor) == _WHOOSHD_VENDOR
+            and whooshd_capability is not None
+            and whooshd_capability.outcome == "eligible"
+            and whooshd_capability.invocation_model_id
+            == str(model or "").strip()
+        )
+    if not provider_eligible:
+        return None
 
-    if (
-        normalized_provider == "local"
-        and _normalized(provider_vendor) == _WHOOSHD_VENDOR
-        and whooshd_capability is not None
-        and whooshd_capability.outcome == "eligible"
-        and whooshd_capability.invocation_model_id == str(model or "").strip()
+    tools = [_health_model_tool(health_command)]
+    if not repository_search_eligible:
+        return tools
+
+    repository_command = _find_command(
+        commands,
+        expected_command_id=REPOSITORY_SEARCH_COMMAND_ID,
+    )
+    if repository_command is not None and _is_safe_repository_search_command(
+        repository_command
     ):
-        return [_model_tool(command)]
+        tools.append(_repository_search_model_tool())
+    return tools
 
-    return None
+
+def repository_search_is_advertised(tools: Any) -> bool:
+    """Return whether the fixed search command is in an automatic subset."""
+
+    return isinstance(tools, list) and any(
+        isinstance(tool, dict)
+        and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+        for tool in tools
+    )
