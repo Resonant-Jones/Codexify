@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-11
+2026-08-12
 
 ## Interpretation rule
 
@@ -18,11 +18,12 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `139fe0367`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
+`main` is in local-first beta hardening at `c4787236e`. No additional product or release-scope commits landed on local `main` after the 2026-08-11 audit. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
 
 ## What changed recently
 
 - Added the bounded read-only `op::health_health_get` chat capability and advertised-subset authority gate; general tool use remains outside the release promise.
+- No additional product or release-scope commits landed on local `main` after the 2026-08-11 audit; release posture and blockers remain unchanged.
 - Added DeepSeek native transport translation/continuation coverage and a cross-provider semantic convergence proof; both remain non-live provider evidence.
 - Added Whoosh'd capability projection, structured transport, qualification/attestation seams, and exact-target identity reconciliation; the receipt covers one target/schema identity only.
 - Canonicalized ADR-060 through ADR-063 and reverified DLG/knowledge-graph freshness after history corrections; these are control-plane/documentation changes.
@@ -59,7 +60,7 @@ This file is authoritative for:
 
 ## Active blockers
 
-- Fresh live Compose proof is still needed at `139fe0367`, including health, model inventory, terminal completion, persisted output, and retrieval.
+- Fresh live Compose proof is still needed at `c4787236e`, including health, model inventory, terminal completion, persisted output, and retrieval.
 - Queue-coupled chat still needs current-tip evidence for Redis, worker, turn-lock, and terminal-event behavior.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
 - The bounded Coding Loop lane lacks current-tip proof of backend route acceptance, provider adapter execution, terminal result persistence, and durable source-thread readback; the prior proof stopped at backend exit code 3.
@@ -68,7 +69,7 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Capture fresh supported-Compose proof at `139fe0367`: health, model inventory, chat, persistence, and retrieval.
+1. Capture fresh supported-Compose proof at `c4787236e`: health, model inventory, chat, persistence, and retrieval.
 2. Verify queue completion, turn locking, migration behavior, and import recovery under the supported profile.
 3. Reconcile or clearly fence canonical-versus-legacy configuration paths.
 4. Re-prove provider/tool-turn and the enabled Coding Loop lanes end to end, or quarantine them until their required proof exists.
