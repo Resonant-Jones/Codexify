@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-04
+2026-08-05
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `50721d0f5`. The supported path remains the local Docker Compose stack with local-only provider posture. Mainline has narrowed the accepted release surface by pruning unmerged forge and UI-personalization artifacts; private-preview and browser work remain bounded opt-in or documentation surfaces.
+`main` is in local-first beta hardening at `c03ce771f`. The supported path remains the local Docker Compose stack with local-only provider posture. Mainline has narrowed the accepted release surface by pruning unmerged forge and UI-personalization artifacts; private-preview and browser work remain bounded opt-in or documentation surfaces. Local `main` is reconciled with `origin/main` at this commit (ahead/behind 0/0).
 
 ## What changed recently
 
@@ -33,6 +33,7 @@ This file is authoritative for:
 - Added a second GuardianEvidencePacket fixture for local validation-toolchain coverage; this demonstrates packet schema coverage only and does not implement runtime reducer behavior.
 - Added a Guardian Evidence Packet future runtime reducer design contract; it defines future reducer boundaries and allowed handoffs only and does not implement runtime reducer behavior.
 - Added a Guardian Evidence Packet static validator contract; it defines future packet shape and guardrail validation only and does not implement runtime validator or reducer behavior.
+- Reconciled local `main` with `origin/main` at `c03ce771f`; expanded the canonical audit evidence contract and added the `scripts/audit/generate_canonical_evidence_manifest.py` producer with its test suite. This is deterministic tooling, not live runtime proof; see the prior audit bullet for the live-proof handoff boundary.
 
 ## Current supported reality
 
@@ -57,7 +58,6 @@ This file is authoritative for:
 
 ## Active blockers
 
-- Local `main` trails `origin/main` by two commits; reconcile the audited tip before using remote state as release evidence.
 - Fresh live Compose proof is still needed at the audited `main` tip, including terminal completion and persisted output.
 - Queue-coupled chat still requires healthy Redis, worker, turn-lock, and terminal-event behavior on the supported path.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
@@ -66,18 +66,17 @@ This file is authoritative for:
 
 ## This week's priorities
 
-1. Reconcile the intended audited `main` tip, then rerun release checks from that commit.
-2. Capture live proof for health, model inventory, chat, upload/readback, workspace retrieval, queue completion, and import recovery.
-3. Reduce or clearly fence canonical-versus-legacy configuration drift.
-4. Complete private-preview prerequisites and provider-specific proof, or keep that lane quarantined.
-5. Keep browser, Hosted Room, federation, and other planning surfaces out of release claims.
+1. Capture live proof for health, model inventory, chat, upload/readback, workspace retrieval, queue completion, and import recovery.
+2. Reduce or clearly fence canonical-versus-legacy configuration drift.
+3. Complete private-preview prerequisites and provider-specific proof, or keep that lane quarantined.
+4. Keep browser, Hosted Room, federation, and other planning surfaces out of release claims.
 
 ## Release definition right now
 
 - [x] The supported profile and local-only flags define the beta posture.
 - [x] Whoosh'd local runtime and core chat/upload/retrieval paths are represented on `main`.
 - [x] Architecture-contract validation is defined on `main`.
-- [ ] The audited `main` tip is reconciled with the intended release commit.
+- [x] The audited `main` tip is reconciled with the intended release commit.
 - [ ] Fresh live Compose evidence confirms terminal completion and persisted output.
 - [ ] Queue, configuration, migration, and recovery behavior are green for the supported install path.
 - [ ] Any claimed private-preview lane has authenticated, provider-specific persisted-turn proof.
