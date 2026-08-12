@@ -64,6 +64,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     browser_audit = script.get_revision("c3d4e5f6a7b8")
     delegation = script.get_revision("d4e5f6a7b8c9")
     email_login_alias = script.get_revision("c1a2b3c4d5e6")
+    repository_bindings = script.get_revision("6e2b9c4a7d1f")
 
     hosted_foundation = script.get_revision("b2c3d4e5f6a8")
 
@@ -87,8 +88,12 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     ]["down_revision"] == ("4c9d1e2f3a5b", "d4e5f6a7b8c9")
     assert email_login_alias.down_revision == "d0e1f2a3b4c6"
 
+    assert repository_bindings is not None
+    assert repository_bindings.down_revision == "c1a2b3c4d5e6"
+    assert isinstance(repository_bindings.down_revision, str)
+
     heads = script.get_heads()
-    assert heads == ["c1a2b3c4d5e6"]
+    assert heads == ["6e2b9c4a7d1f"]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",

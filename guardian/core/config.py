@@ -476,6 +476,18 @@ class Settings(BaseSettings):
         default=None,
         description="Primary Postgres connection URL for Guardian chatlog DB.",
     )
+    CODEXIFY_GUARDIAN_PROJECTS_DIR: str | None = Field(
+        default=None,
+        description=(
+            "Stage 2K.1 (ADR-065): explicit operator/instance setting for the "
+            "Guardian Projects Directory that hosts guardian_managed "
+            "RepositoryBindings. When unset, repository-backed Project "
+            "creation is unavailable with needs_configuration; no cwd, source "
+            "checkout, home, or container fallback is permitted. Canonical "
+            "filesystem resolution occurs in repository_authority.py and does "
+            "not create directories at Settings import time."
+        ),
+    )
     DATA_STORAGE_PATH: str = Field(
         default="./data", description="Path for MemoryOS data storage."
     )
