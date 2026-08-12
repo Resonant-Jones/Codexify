@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:architecture:adr-index",
+  "path": "docs/architecture/adr/adr-index.md",
+  "title": "ADR Index",
+  "kind": "runtime_map",
+  "summary": "Structural routing index for the Architecture Decision Record set, its reading order, and its recorded ADR graph.",
+  "aliases": [
+    "Architecture Decision Record Index"
+  ],
+  "authority_class": "structural_authority",
+  "authority_scopes": [
+    "ADR discovery and routing",
+    "ADR reading order",
+    "ADR graph navigation"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "stale",
+    "verified_at": "2026-08-11T00:41:16Z",
+    "verified_commit": "99304b68947af4c74f4c3c549f6dad9de8743844",
+    "triggers": [
+      "an ADR is added, removed, renumbered, or retitled",
+      "an indexed ADR review posture changes",
+      "the documented ADR graph or reading order changes"
+    ],
+    "reason": "ADR Index source and ADR corpus changed during the human-approved Orthogonal UI canonicalization from ADR-055 to ADR-064 and require committed-revision semantic re-verification."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/adr/adr-index.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/adr/*.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "locating an applicable Architecture Decision Record",
+    "reviewing the ADR reading order or documented ADR graph",
+    "checking which decision document should be read directly"
+  ],
+  "must_not_prove": [
+    "acceptance or decision authority independently of the indexed ADR",
+    "runtime implementation of an indexed decision",
+    "release support for capabilities mentioned by indexed ADRs"
+  ],
+  "retrieval_policy": {
+    "default_policy": "conditional",
+    "applicable_intents": [
+      "adr_discovery",
+      "architecture_decision",
+      "historical_provenance"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof",
+      "release_support"
+    ],
+    "priority": "supporting",
+    "section_hints": [
+      "Purpose",
+      "Reading Order",
+      "ADR Graph"
+    ],
+    "maximum_chunk_budget": 5
+  },
+  "temporal": {
+    "created_at": "2026-04-14T20:56:05Z",
+    "effective_from": "2026-04-14T20:56:05Z"
+  },
+  "content_hash": "ab4cee85b3a80ba79079d32da38cad249cac974ad17e12c394fff3bd7f2cfdb3",
+  "relations": [],
+  "governing_adr_posture": "not_applicable"
+}

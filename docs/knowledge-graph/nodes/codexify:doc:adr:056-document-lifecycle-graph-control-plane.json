@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+  "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md",
+  "title": "ADR-056: Document Lifecycle Graph Control Plane",
+  "kind": "adr",
+  "summary": "Accepted decision establishing the Git-backed DLG control-plane architecture, stable document identity, orthogonal metadata, and phased migration boundaries.",
+  "aliases": [],
+  "authority_class": "accepted_adr",
+  "authority_scopes": [
+    "Document Lifecycle Graph architecture and governance",
+    "Git-canonical document identity and metadata persistence",
+    "DLG rollout and human-review boundaries"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "the decision is superseded or contradicted",
+      "the accepted DLG scope or canonical persistence doctrine materially changes",
+      "the normative DLG contract materially diverges from the decision"
+    ],
+    "reason": "The accepted decision and its normative contract were reviewed at the Phase 1 base."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/document-lifecycle-graph-contract.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "making or reviewing a DLG architecture decision",
+    "interpreting DLG authority, persistence, or human-review boundaries",
+    "planning a separately approved DLG rollout phase"
+  ],
+  "must_not_prove": [
+    "DLG corpus migration or automatic document classification",
+    "resolver, retrieval, graph projection, or database implementation",
+    "runtime behavior or release support"
+  ],
+  "retrieval_policy": {
+    "default_policy": "include",
+    "applicable_intents": [
+      "architecture_decision",
+      "dlg_classification",
+      "document_retrieval"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Decision",
+      "Authority and truth boundary",
+      "Rollout posture",
+      "Non-goals"
+    ],
+    "maximum_chunk_budget": 6
+  },
+  "temporal": {
+    "created_at": "2026-08-07T11:46:16Z",
+    "effective_from": "2026-08-07T00:00:00Z"
+  },
+  "content_hash": "3cd9e3e3ec9e86adc41f55e1fb439451f3667ef6ce447894a0cecb639894f9aa",
+  "relations": [],
+  "governing_adr_posture": "accepted"
+}

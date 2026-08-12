@@ -1,0 +1,145 @@
+{
+  "authority_profile": "historical_and_provenance",
+  "conflicts": [],
+  "created_at": "2026-08-08T14:27:29-04:00",
+  "excluded_sources": [
+    {
+      "document_id": "codexify:doc:architecture:adr-index",
+      "exclusion_reason": "Structural ADR routing is unnecessary because the bounded proof has direct reviewed evidence_for paths to all interpretation targets."
+    },
+    {
+      "document_id": "codexify:doc:architecture:current-state",
+      "exclusion_reason": "Current release/support authority is outside this dated publication-history question and is not required for provenance resolution."
+    },
+    {
+      "document_id": "codexify:doc:architecture:kb-entrypoint",
+      "exclusion_reason": "Structural architecture routing is unnecessary for the bounded direct historical evidence traversal."
+    },
+    {
+      "document_id": "codexify:doc:axis-node:readme",
+      "exclusion_reason": "Structural Axis orientation is unrelated to the recorded DLG/PAO publication-history evidence chain."
+    }
+  ],
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "human_decisions_required": [],
+  "illustrative": true,
+  "notice": "Representative DLG Phase 3B calibration fixture; generated and reconstructable from the pinned Phase 3A graph. It is not a runtime retrieval receipt, not execution authorization, not architecture approval, and not proof beyond the selected sources' evidence boundaries.",
+  "packet_id": "codexify:arp:representative-dlg-pao-publication-history",
+  "proof_gaps": [],
+  "question_or_intent": "What evidence records the canonical publication history of the DLG and PAO architecture artifacts?",
+  "reading_budget": {
+    "maximum_hops": 1,
+    "maximum_sections_per_source": 6,
+    "maximum_sources": 5,
+    "maximum_total_chunks": 30
+  },
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "resolved_pointers": [],
+  "schema_version": "1.0.0",
+  "selected_sources": [
+    {
+      "authority_class": "evidence_only",
+      "authority_scope": "canonical Git ancestry of the recorded DLG and pre-acceptance PAO milestones",
+      "document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+      "evidence_class": "proven-test",
+      "freshness_state": "not_applicable",
+      "graph_path": [],
+      "path": "docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md",
+      "required_sections": [
+        "Pre-reconciliation state",
+        "Reconciliation",
+        "Post-rebase milestone SHAs",
+        "Publication status"
+      ],
+      "retrieval_priority": "historical",
+      "selection_reason": "Required historical/provenance root. It records bounded publication, ancestry, and validation evidence at its stated revisions while remaining evidence-only."
+    },
+    {
+      "authority_class": "accepted_adr",
+      "authority_scope": "Document Lifecycle Graph architecture and governance",
+      "document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [
+        {
+          "from_document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+          "relation_type": "evidence_for",
+          "to_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane"
+        }
+      ],
+      "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md",
+      "required_sections": [
+        "Decision",
+        "Authority and truth boundary"
+      ],
+      "retrieval_priority": "primary",
+      "selection_reason": "Current accepted DLG interpretation target of the proof's direct reviewed evidence_for edge; the evidence edge does not transfer architecture authority to the proof."
+    },
+    {
+      "authority_class": "accepted_adr",
+      "authority_scope": "Product Architecture Ontology integration with the DLG",
+      "document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [
+        {
+          "from_document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+          "relation_type": "evidence_for",
+          "to_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration"
+        }
+      ],
+      "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md",
+      "required_sections": [
+        "Decision",
+        "Governing ADRs and alignment"
+      ],
+      "retrieval_priority": "primary",
+      "selection_reason": "Current accepted PAO interpretation target of a direct reviewed evidence_for edge; the proof is explicitly pre-acceptance and does not independently prove later ADR-057 acceptance."
+    },
+    {
+      "authority_class": "normative_contract",
+      "authority_scope": "Agent Reading Packet and staged migration doctrine",
+      "document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [
+        {
+          "from_document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+          "relation_type": "evidence_for",
+          "to_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract"
+        }
+      ],
+      "path": "docs/architecture/document-lifecycle-graph-contract.md",
+      "required_sections": [
+        "Graph invariants",
+        "Staged corpus migration"
+      ],
+      "retrieval_priority": "primary",
+      "selection_reason": "Current normative DLG interpretation target reached by the proof's direct reviewed evidence_for edge; publication evidence does not prove every substantive contract claim."
+    },
+    {
+      "authority_class": "normative_contract",
+      "authority_scope": "Product Architecture Ontology vocabulary",
+      "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "evidence_class": "documented-contract",
+      "freshness_state": "current",
+      "graph_path": [
+        {
+          "from_document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+          "relation_type": "evidence_for",
+          "to_document_id": "codexify:doc:architecture:product-lanes-and-boundaries"
+        }
+      ],
+      "path": "docs/architecture/product-lanes-and-boundaries.md",
+      "required_sections": [
+        "Relationship to the DLG",
+        "Product Architecture Assertions"
+      ],
+      "retrieval_priority": "primary",
+      "selection_reason": "Current normative PAO interpretation target reached by the proof's direct reviewed evidence_for edge; the historical proof does not upgrade into current relationship or runtime authority."
+    }
+  ],
+  "stale_warnings": [],
+  "supersession_chains": [],
+  "unavailable_sources": []
+}

@@ -95,3 +95,160 @@ def test_supported_profile_mounts_obsidian_routes_without_widening_quarantine(
 
         assert client.get("/api/tools/manifest", headers=headers).status_code == 404
         assert client.get("/api/connectors", headers=headers).status_code == 404
+
+
+def test_coding_loop_execute_route_mounted_in_local_profile(
+    monkeypatch,
+) -> None:
+    """Prove POST /api/agents/coding/execute is reachable in the
+    supported local operator profile."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        response = client.post(
+            "/api/agents/coding/execute",
+            headers=headers,
+            json={
+                "coding_task_id": "proof-task-001",
+                "thread_id": "1",
+                "source_message_id": "1",
+                "attempt_id": "attempt-1",
+                "user_id": "local",
+                "project_id": None,
+                "adapter_kind": "pi_codex_runner",
+                "instructions": "echo proof",
+                "repo_root": "/tmp",
+                "context_summary": None,
+                "permission_policy": {
+                    "allow_shell": True,
+                    "allow_network": False,
+                    "allow_write": False,
+                    "allowed_paths": [],
+                    "max_runtime_seconds": 30,
+                },
+            },
+        )
+
+        # Route must accept the request (not 404).
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
+        body = response.json()
+        assert body.get("ok") is True
+        assert body.get("status") == "accepted"
+        assert "run_id" in body
+
+
+def test_coding_loop_execute_rejects_unauthenticated(
+    monkeypatch,
+) -> None:
+    """Prove Coding Loop execute route enforces authentication.
+    Requests without a valid API key must be rejected."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        # Send a deliberately wrong API key; the route must reject it.
+        response = client.post(
+            "/api/agents/coding/execute",
+            headers={"X-API-Key": "wrong-key"},
+            json={
+                "coding_task_id": "noauth-task",
+                "thread_id": "1",
+                "source_message_id": "1",
+                "attempt_id": "attempt-1",
+                "user_id": "local",
+                "project_id": None,
+                "adapter_kind": "pi_codex_runner",
+                "instructions": "echo noauth",
+                "repo_root": "/tmp",
+                "context_summary": None,
+                "permission_policy": {
+                    "allow_shell": True,
+                    "allow_network": False,
+                    "allow_write": False,
+                    "allowed_paths": [],
+                    "max_runtime_seconds": 30,
+                },
+            },
+        )
+        assert response.status_code in {401, 403}
+
+
+def test_coding_loop_route_visible_in_openapi(
+    monkeypatch,
+) -> None:
+    """Prove Coding Loop execute route is visible in OpenAPI."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        openapi = client.get("/openapi.json").json()
+        paths = openapi.get("paths", {})
+        assert "/api/agents/coding/execute" in paths
+        assert "/api/agents/runs/{run_id}/coding" in paths
+        assert "/api/chat/{thread_id}/coding-runs" in paths
+
+
+def test_unrelated_quarantined_routes_remain_unavailable(
+    monkeypatch,
+) -> None:
+    """Prove quarantined routes (tools, connectors, etc.) still return 404
+    even after Coding Loop routes are enabled."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        assert client.get("/api/tools/manifest", headers=headers).status_code == 404
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+        assert client.get("/api/federation/ping", headers=headers).status_code == 404
+
+
+def test_agent_orchestration_chat_readback_enforced(
+    monkeypatch,
+) -> None:
+    """Prove thread-level coding-run projection route is mounted
+    and enforces authentication for invalid keys."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        authenticated = client.get("/api/chat/1/coding-runs", headers=headers)
+        # Expect 200 (empty list) not 404.
+        assert authenticated.status_code == 200
+
+        # Wrong key must be rejected.
+        wrong_key_response = client.get(
+            "/api/chat/1/coding-runs",
+            headers={"X-API-Key": "wrong-key"},
+        )
+        assert wrong_key_response.status_code in {401, 403}
+
+
+def test_missing_route_does_not_regress_to_unclassified_404(
+    monkeypatch,
+) -> None:
+    """Prove that a nonexistent endpoint still returns 404, but the
+    Coding Loop execute route returns 200 acceptance."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        # A genuinely unknown path must still 404.
+        assert client.get("/api/nonexistent/endpoint", headers=headers).status_code == 404
+
+        # The Coding Loop execute route must 200.
+        response = client.post(
+            "/api/agents/coding/execute",
+            headers=headers,
+            json={
+                "coding_task_id": "regression-check",
+                "thread_id": "1",
+                "source_message_id": "1",
+                "attempt_id": "attempt-1",
+                "user_id": "local",
+                "project_id": None,
+                "adapter_kind": "pi_codex_runner",
+                "instructions": "echo regression check",
+                "repo_root": "/tmp",
+                "context_summary": None,
+                "permission_policy": {
+                    "allow_shell": True,
+                    "allow_network": False,
+                    "allow_write": False,
+                    "allowed_paths": [],
+                    "max_runtime_seconds": 30,
+                },
+            },
+        )
+        assert response.status_code == 200

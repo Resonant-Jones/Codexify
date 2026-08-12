@@ -31,7 +31,6 @@ FIXTURE = (
     / "guardian-evidence-packet.codex-runner-bridge-proof-chain.v1.json"
 )
 README = ARCH / "README.md"
-CURRENT_STATE = ARCH / "00-current-state.md"
 
 ALLOWED_REVIEW_DEPTHS = {"light", "medium", "high", "xhigh"}
 ALLOWED_CLAIM_STATUSES = {"supported", "unsupported", "blocked", "inferred", "not_evaluated"}
@@ -275,11 +274,6 @@ def test_evidence_contract_links_validator() -> None:
 def test_readme_links_validator() -> None:
     text = README.read_text()
     assert "guardian-evidence-packet-static-validator-contract.md" in text
-
-
-def test_current_state_names_validator() -> None:
-    text = CURRENT_STATE.read_text()
-    assert "static validator contract" in text
 
 
 # ---------------------------------------------------------------------------

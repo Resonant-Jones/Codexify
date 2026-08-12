@@ -50,4 +50,16 @@ describe("Guardian Composer thread-creation identity constant", () => {
     //   ...(runtimeConfig.authMode === "remote" ? {} : { user_id: ... })
     expect(sourceText).toMatch(/authMode\s*===\s*"remote"\s*\?\s*\{\}/);
   });
+
+  it("imports getRuntimeConfigSync from the canonical runtime-config module", () => {
+    // Regression: runtimeConfig was undefined because getRuntimeConfigSync
+    // was not imported after a refactor removed the import line.
+    expect(sourceText).toMatch(/import\s*\{[^}]*getRuntimeConfigSync[^}]*\}\s*from\s*"@\/lib\/runtimeConfig"/);
+  });
+
+  it("calls getRuntimeConfigSync before the thread-creation payload", () => {
+    // Regression: runtimeConfig.authMode caused ReferenceError because
+    // the local const runtimeConfig was never assigned.
+    expect(sourceText).toMatch(/const\s+runtimeConfig\s*=\s*getRuntimeConfigSync\(\)/);
+  });
 });

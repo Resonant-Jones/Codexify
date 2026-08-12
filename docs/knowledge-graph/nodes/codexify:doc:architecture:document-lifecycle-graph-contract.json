@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+  "path": "docs/architecture/document-lifecycle-graph-contract.md",
+  "title": "Document Lifecycle Graph Contract",
+  "kind": "architecture_contract",
+  "summary": "Accepted normative contract for DLG document metadata, relation semantics, freshness, retrieval, Agent Reading Packets, and staged migration.",
+  "aliases": [],
+  "authority_class": "normative_contract",
+  "authority_scopes": [
+    "DLG document-node metadata semantics",
+    "DLG relationship and graph invariants",
+    "DLG freshness and retrieval policy",
+    "Agent Reading Packet and staged migration doctrine"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "ADR-056 is superseded or its accepted scope changes",
+      "the DLG node or packet schemas change",
+      "DLG phase sequencing or graph-invariant doctrine changes"
+    ],
+    "reason": "Verified after the canonical Phase 1 and Phase 2 sequencing repair."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/document-lifecycle-graph-contract.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/adr/056-document-lifecycle-graph-control-plane.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "schemas/knowledge/document-lifecycle-graph.schema.json",
+      "anchor_type": "schema",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "tests/architecture/test_document_lifecycle_graph_phase_sequencing.py",
+      "anchor_type": "test",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "creating or reviewing DLG node records",
+    "interpreting DLG authority, lifecycle, freshness, evidence, or retrieval fields",
+    "planning DLG relationships, semantic validation, or Agent Reading Packets"
+  ],
+  "must_not_prove": [
+    "a migrated or relation-complete DLG corpus",
+    "automatic retrieval, resolver, generator, or graph projection behavior",
+    "runtime implementation, agent authority, or release support"
+  ],
+  "retrieval_policy": {
+    "default_policy": "include",
+    "applicable_intents": [
+      "architecture_decision",
+      "dlg_classification",
+      "document_retrieval"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Canonical token domains and orthogonal axes",
+      "Document node record",
+      "Graph invariants",
+      "Freshness and invalidation",
+      "Staged corpus migration"
+    ],
+    "maximum_chunk_budget": 10
+  },
+  "temporal": {
+    "created_at": "2026-08-07T11:46:16Z",
+    "effective_from": "2026-08-07T00:00:00Z"
+  },
+  "content_hash": "b568b35f1907fff910042790460c39c79f74cb38df8abc6147bd95f56f1d0b16",
+  "relations": [
+    {
+      "relation_type": "governed_by",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "DLG document metadata, relationships, freshness, retrieval, and staged-migration doctrine",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "ADR-056 adopts the DLG and names this contract as its normative design."
+    }
+  ],
+  "governing_adr_posture": "accepted"
+}

@@ -1,0 +1,551 @@
+{
+  "schema_version": "1.0.0",
+  "ontology_id": "codexify:ontology:product-architecture:v1",
+  "title": "Codexify Product Architecture Ontology v1",
+  "status": "accepted",
+  "governing_adr_document_id": "codexify:doc:adr:057-product-architecture-ontology",
+  "programs": [
+    {
+      "id": "codexify:program:digital-cognitive-workspace",
+      "type": "program",
+      "title": "Digital Cognitive Workspace",
+      "description": "User-owned cognitive workspace for conversations, threads, documents, memory, projects, intentions, tasks, personalization, semantic search and retrieval. The core product program that users interact with directly.",
+      "program_class": "product",
+      "concerns": [
+        "conversations",
+        "threads",
+        "documents",
+        "memory",
+        "projects",
+        "intentions",
+        "tasks",
+        "personalization",
+        "semantic search and retrieval",
+        "user-owned cognitive workspace behavior"
+      ]
+    },
+    {
+      "id": "codexify:program:node-runtime",
+      "type": "program",
+      "title": "Node Runtime",
+      "description": "Backend platform providing API, durable storage, workers, queues, provider mediation, jobs, tool execution, health and diagnostics, runtime lifecycle, and synchronization support.",
+      "program_class": "platform",
+      "concerns": [
+        "API",
+        "durable storage",
+        "workers",
+        "queues",
+        "provider mediation",
+        "jobs",
+        "tool execution",
+        "health and diagnostics",
+        "runtime lifecycle",
+        "synchronization support"
+      ]
+    },
+    {
+      "id": "codexify:program:threadspace",
+      "type": "program",
+      "title": "ThreadSpace",
+      "description": "Node identity, operator identity, user identity, device identity, invitations, trust, membership, social graph ownership, presence, federation, relay and coordination protocols, replication and synchronization.",
+      "program_class": "product_and_network",
+      "concerns": [
+        "node identity",
+        "operator identity",
+        "user identity",
+        "device identity",
+        "invitations",
+        "trust",
+        "membership",
+        "social graph ownership",
+        "presence",
+        "federation",
+        "relay and coordination protocols",
+        "replication and synchronization"
+      ]
+    },
+    {
+      "id": "codexify:program:home-presence",
+      "type": "program",
+      "title": "Home Presence",
+      "description": "Cameras, microphones, speakers, local perception, household identity recognition, environmental and household memory, presence events, privacy and consent policies.",
+      "program_class": "product_and_physical_interface",
+      "concerns": [
+        "cameras",
+        "microphones",
+        "speakers",
+        "local perception",
+        "household identity recognition",
+        "environmental and household memory",
+        "presence events",
+        "privacy and consent policies"
+      ]
+    },
+    {
+      "id": "codexify:program:infrastructure-services",
+      "type": "program",
+      "title": "Infrastructure Services",
+      "description": "Hosted semantic spaces, remote compute, backups, coordination relays, connectivity assistance, hosted inference, recovery services, and optional federation support.",
+      "program_class": "infrastructure",
+      "concerns": [
+        "hosted semantic spaces",
+        "remote compute",
+        "backups",
+        "coordination relays",
+        "connectivity assistance",
+        "hosted inference",
+        "recovery services",
+        "optional federation support"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "codexify:capability:identity",
+      "type": "capability",
+      "title": "Identity",
+      "description": "Codexify-native user, operator, node, and device identity. Distinct from provider authorization. Provides identity primitives consumed by product, platform, and network programs.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:authorization-policy",
+      "type": "capability",
+      "title": "Authorization and Policy",
+      "description": "Policy evaluation, access control, consent management, and authorization enforcement across product and platform boundaries.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:context-retrieval-assembly",
+      "type": "capability",
+      "title": "Context Retrieval and Assembly",
+      "description": "Multi-source context assembly from messages, semantic retrieval, document context, workspace notes, memory, and optional graph/federated sources.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:continuity",
+      "type": "capability",
+      "title": "Continuity",
+      "description": "User-governed continuity layer above thread-first chat, with working-set decay, provenance, and scope control.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:semantic-spaces",
+      "type": "capability",
+      "title": "Semantic Spaces",
+      "description": "Vector-backed semantic indexing, search, and retrieval across documents, messages, and workspace content.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:delegation-coordination",
+      "type": "capability",
+      "title": "Delegation and Coordination",
+      "description": "Guardian-mediated task delegation, coding-agent execution coordination, command bus invocation, and execution receipt management.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:persistence",
+      "type": "capability",
+      "title": "Persistence",
+      "description": "Durable storage, migration, backup, export, and restore capabilities across Postgres, Redis, and optional stores.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:runtime-lifecycle",
+      "type": "capability",
+      "title": "Runtime Lifecycle",
+      "description": "Process startup, health monitoring, configuration management, graceful shutdown, and runtime state management.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:events-receipts-observability",
+      "type": "capability",
+      "title": "Events, Receipts, and Observability",
+      "description": "Domain events, audit receipts, task event streams, health endpoints, and operator-visible diagnostics.",
+      "vendor_neutral": true
+    },
+    {
+      "id": "codexify:capability:provider-tool-adapter-interfaces",
+      "type": "capability",
+      "title": "Provider and Tool Adapter Interfaces",
+      "description": "Provider routing, model catalog, tool adapter boundaries, and external integration contracts.",
+      "vendor_neutral": true
+    }
+  ],
+  "client_surfaces": [
+    {
+      "id": "codexify:client:web",
+      "type": "client_surface",
+      "title": "Web Client",
+      "description": "Browser-based React frontend served as the standalone webUI bundle on the supported local Compose path.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Holds bounded local/session state under existing contracts."
+    },
+    {
+      "id": "codexify:client:desktop",
+      "type": "client_surface",
+      "title": "Desktop Client",
+      "description": "Tauri-shell desktop application wrapping the web frontend on macOS, with optional runtime-config injection.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Holds bounded local/session state under existing contracts."
+    },
+    {
+      "id": "codexify:client:browser-extension",
+      "type": "client_surface",
+      "title": "Browser Extension",
+      "description": "Tier 0 browser extension for browser context capture and action surfaces, governed by the Browser Host topology.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Holds bounded local/session state under existing contracts."
+    },
+    {
+      "id": "codexify:client:browser-host",
+      "type": "client_surface",
+      "title": "Browser Host",
+      "description": "Electron/bundled-Chromium Browser Host application under ADR-054, providing browser context capture, Guardian attachment, and workspace integration.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Guardian owns the Browser Context Envelope and attachment authority."
+    },
+    {
+      "id": "codexify:client:mobile",
+      "type": "client_surface",
+      "title": "Mobile Client",
+      "description": "Future iOS Scout and mobile surfaces for lightweight access, governed by the iOS Scout contract.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Holds bounded local/session state under existing contracts."
+    },
+    {
+      "id": "codexify:client:home-device",
+      "type": "client_surface",
+      "title": "Home Device Client",
+      "description": "Future home-presence device surfaces for cameras, microphones, speakers, and local perception.",
+      "authority_boundary": "Does not own Codexify user identity, canonical persistence, or policy authority. Holds bounded local/session state under existing contracts."
+    }
+  ],
+  "adapter_families": [
+    {
+      "id": "codexify:adapter:openai-compatible-inference",
+      "type": "adapter_family",
+      "title": "OpenAI-Compatible Inference",
+      "description": "Adapter for OpenAI-compatible inference providers. Interoperability boundary; does not imply vendor lock-in.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions. Provider authentication remains separate from Codexify identity."
+    },
+    {
+      "id": "codexify:adapter:codex-execution",
+      "type": "adapter_family",
+      "title": "Codex Execution",
+      "description": "Adapter or execution lane for Codex CLI-based coding agents. An optional execution channel, not a mandatory product dependency.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions. Execution remains subordinate to Guardian, policy, lineage, identity, and transcript boundaries."
+    },
+    {
+      "id": "codexify:adapter:claude-compatible-inference",
+      "type": "adapter_family",
+      "title": "Claude-Compatible Inference",
+      "description": "Adapter for Claude-compatible inference providers. Peer execution channel under Guardian delegation topology (ADR-048).",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions. Provider authentication remains separate from Codexify identity."
+    },
+    {
+      "id": "codexify:adapter:local-inference",
+      "type": "adapter_family",
+      "title": "Local Inference",
+      "description": "Adapter for locally-hosted inference runtimes including whooshd-mlx and other local presets.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    },
+    {
+      "id": "codexify:adapter:deepseek",
+      "type": "adapter_family",
+      "title": "DeepSeek",
+      "description": "Adapter for DeepSeek inference providers. Egress-allowlisted lane under ADR-052.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    },
+    {
+      "id": "codexify:adapter:whooshd",
+      "type": "adapter_family",
+      "title": "Whoosh'd",
+      "description": "Adapter for local Gemma serving via whooshd. Exclusive local inference under ADR-052.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    },
+    {
+      "id": "codexify:adapter:external-agent-runtime",
+      "type": "adapter_family",
+      "title": "External Agent Runtime",
+      "description": "Adapter for external coding-agent runtimes such as Pi SDK integrations. Governed by ADR-020 and the Pi Invocation Boundary Contract.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions. External harnesses remain subordinate to Guardian."
+    },
+    {
+      "id": "codexify:adapter:external-tool",
+      "type": "adapter_family",
+      "title": "External Tool",
+      "description": "Adapter for external tool integrations including MCP connectors and command-bus-mediated tools.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    },
+    {
+      "id": "codexify:adapter:storage",
+      "type": "adapter_family",
+      "title": "Storage",
+      "description": "Adapter for storage backends including Postgres, Redis, optional Neo4j, and media storage.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    },
+    {
+      "id": "codexify:adapter:networking",
+      "type": "adapter_family",
+      "title": "Networking",
+      "description": "Adapter for network connectivity, relay, peer discovery, and federation transport.",
+      "authority_boundary": "Must not own Codexify identity authority, user ownership, or policy decisions."
+    }
+  ],
+  "source_subsystem_contract": {
+    "id_pattern": "codexify:source:{domain}:{slug}",
+    "description": "A source subsystem is a bounded implementation surface such as a backend package, frontend feature directory, client application, adapter implementation, worker family, storage subsystem, deployment profile, or test/proof harness. It identifies where implementation lives without claiming product ownership or runtime support from repository presence alone.",
+    "required_semantics": [
+      "Use repository-relative paths; support multiple paths where a subsystem legitimately spans files",
+      "Identify owning programs and capabilities through typed relationship assertions",
+      "Identify governing documents through DLG document IDs",
+      "Separate runtime participation from repository presence",
+      "Preserve unknown or entangled boundaries honestly",
+      "Avoid assigning an entire broad namespace to one lane merely because some descendants participate in it"
+    ],
+    "current_inventory_status": "no_inventory_exists"
+  },
+  "relation_types": [
+    {
+      "predicate": "participates_in",
+      "description": "A source subsystem, DLG document, or capability participates in a product or platform program.",
+      "allowed_subject_types": ["source_subsystem", "dlg_document", "capability"],
+      "allowed_object_types": ["program"],
+      "direction_constraint": "Subject participates in object program. Does not prove support or runtime activation.",
+      "does_not_prove": ["support posture", "runtime activation", "release qualification"]
+    },
+    {
+      "predicate": "provides_capability",
+      "description": "A platform program or source subsystem provides a shared capability.",
+      "allowed_subject_types": ["program", "source_subsystem"],
+      "allowed_object_types": ["capability"],
+      "direction_constraint": "Subject provides the capability to consuming programs.",
+      "does_not_prove": ["runtime health", "correct implementation"]
+    },
+    {
+      "predicate": "depends_on_capability",
+      "description": "A product or platform program depends on a shared capability.",
+      "allowed_subject_types": ["program"],
+      "allowed_object_types": ["capability"],
+      "direction_constraint": "Dependency flows from subject to object capability. Capability must not depend on product-specific UI.",
+      "does_not_prove": ["runtime activation", "correct integration"]
+    },
+    {
+      "predicate": "presented_through",
+      "description": "A program is presented through a client surface.",
+      "allowed_subject_types": ["program"],
+      "allowed_object_types": ["client_surface"],
+      "direction_constraint": "Program uses client for presentation. Client does not become authoritative.",
+      "does_not_prove": ["client ownership of identity", "client as persistence or policy authority"]
+    },
+    {
+      "predicate": "integrates_via",
+      "description": "A capability or program integrates with external systems through an adapter family.",
+      "allowed_subject_types": ["capability", "program"],
+      "allowed_object_types": ["adapter_family"],
+      "direction_constraint": "Internal concept uses adapter for external integration. Adapter must not own identity or policy.",
+      "does_not_prove": ["adapter identity authority", "vendor lock-in"]
+    },
+    {
+      "predicate": "implemented_by",
+      "description": "An architecture concept is implemented by a source subsystem.",
+      "allowed_subject_types": ["program", "capability", "client_surface", "adapter_family"],
+      "allowed_object_types": ["source_subsystem"],
+      "direction_constraint": "Concept is realized by source code. Does not prove runtime activation or support.",
+      "does_not_prove": ["runtime activation", "live support"]
+    },
+    {
+      "predicate": "bounded_by",
+      "description": "An architecture concept or source subsystem is bounded by a governing DLG document.",
+      "allowed_subject_types": ["program", "capability", "client_surface", "adapter_family", "source_subsystem"],
+      "allowed_object_types": ["dlg_document"],
+      "direction_constraint": "Subject is governed by the referenced DLG document. ADRs use their DLG document identity.",
+      "does_not_prove": ["document acceptance", "document authority scope"]
+    },
+    {
+      "predicate": "supports_program",
+      "description": "A capability, platform program, or infrastructure program supports a product program.",
+      "allowed_subject_types": ["capability", "program"],
+      "allowed_object_types": ["program"],
+      "direction_constraint": "Subject supports the object program. Does not make optional infrastructure mandatory.",
+      "does_not_prove": ["mandatory dependency", "current release support"]
+    },
+    {
+      "predicate": "classified_by",
+      "description": "A DLG document or source subsystem is classified by a Product Architecture Assertion.",
+      "allowed_subject_types": ["dlg_document", "source_subsystem"],
+      "allowed_object_types": ["assertion"],
+      "direction_constraint": "Subject classification is recorded by this assertion.",
+      "does_not_prove": ["assertion acceptance", "assertion authority"]
+    }
+  ],
+  "allowed_dependency_directions": [
+    {
+      "from_type": "client_surface",
+      "to_type": "program_contract",
+      "description": "Client surfaces may depend on product or platform program contracts.",
+      "condition": "Through approved program interfaces only."
+    },
+    {
+      "from_type": "product_program",
+      "to_type": "capability_contract",
+      "description": "Product programs may depend on shared capability contracts.",
+      "condition": "Capability must remain vendor-neutral."
+    },
+    {
+      "from_type": "platform_program",
+      "to_type": "capability_implementation",
+      "description": "Platform programs may depend on shared capability implementations.",
+      "condition": "Implementation must conform to capability contracts."
+    },
+    {
+      "from_type": "shared_capability",
+      "to_type": "adapter_interface",
+      "description": "Shared capabilities may depend on adapter interfaces for external integration.",
+      "condition": "Adapter must not own identity or policy."
+    },
+    {
+      "from_type": "adapter_implementation",
+      "to_type": "external_system",
+      "description": "Adapter implementations may depend on external providers, tools, services, or networks.",
+      "condition": "External dependency must not become identity authority."
+    },
+    {
+      "from_type": "infrastructure_program",
+      "to_type": "support_contract",
+      "description": "Infrastructure programs may depend on bounded support contracts for product or platform programs.",
+      "condition": "Infrastructure remains optional; programs must not hard-depend on it."
+    },
+    {
+      "from_type": "source_subsystem",
+      "to_type": "governing_documents",
+      "description": "Source subsystems must depend on governing DLG contracts and accepted ADR documents.",
+      "condition": "Through explicit bounded_by relationship assertions."
+    }
+  ],
+  "forbidden_dependency_directions": [
+    {
+      "from_type": "shared_capability",
+      "to_type": "product-specific UI implementation",
+      "rationale": "Shared capabilities must remain reusable across programs and cannot depend on one product's UI."
+    },
+    {
+      "from_type": "shared_capability",
+      "to_type": "client-owned identity or policy",
+      "rationale": "Clients do not own identity or policy; capabilities cannot depend on client-owned authority."
+    },
+    {
+      "from_type": "adapter_implementation",
+      "to_type": "Codexify identity authority",
+      "rationale": "Provider adapters are integration boundaries, not identity authorities."
+    },
+    {
+      "from_type": "provider_account",
+      "to_type": "Codexify user identity",
+      "rationale": "A Codex account is not a Codexify identity prerequisite."
+    },
+    {
+      "from_type": "client_surface",
+      "to_type": "canonical persistence authority",
+      "rationale": "Clients hold bounded local/session state; they are not canonical persistence authorities."
+    },
+    {
+      "from_type": "client_surface",
+      "to_type": "canonical policy authority",
+      "rationale": "Policy authority remains with Guardian, not client surfaces."
+    },
+    {
+      "from_type": "optional hosted service",
+      "to_type": "hidden central authority for ThreadSpace",
+      "rationale": "ThreadSpace authority must not silently centralize in hosted services."
+    },
+    {
+      "from_type": "product_program",
+      "to_type": "provider-specific implementation when adapter boundary exists",
+      "rationale": "Programs must go through adapter boundaries rather than depending on specific provider implementations."
+    },
+    {
+      "from_type": "strategic_program",
+      "to_type": "current-core status without current release authority and evidence",
+      "rationale": "Strategic programs require explicit human selection and evidence before becoming current-core."
+    },
+    {
+      "from_type": "experiment",
+      "to_type": "supported product claim without promotion evidence",
+      "rationale": "Experimental material must not be treated as supported without promotion evidence."
+    },
+    {
+      "from_type": "repository path presence",
+      "to_type": "product support claim",
+      "rationale": "Repository presence does not imply support."
+    },
+    {
+      "from_type": "repository path proximity",
+      "to_type": "ownership claim",
+      "rationale": "Path proximity does not imply ownership."
+    },
+    {
+      "from_type": "vector similarity",
+      "to_type": "canonical architecture relation",
+      "rationale": "Vector similarity must never manufacture a canonical relationship."
+    },
+    {
+      "from_type": "generated projection",
+      "to_type": "canonical source mutation",
+      "rationale": "Generated projections are derived, not canonical sources."
+    },
+    {
+      "from_type": "architecture ontology",
+      "to_type": "runtime implementation proof",
+      "rationale": "Ontology membership does not prove runtime behavior."
+    }
+  ],
+  "derived_projection_rules": {
+    "description": "Flat projection labels are deterministic derived outputs from posture assertions, not canonical source assertions. They must never be hand-maintained or used as architecture authority.",
+    "flat_labels": [
+      {
+        "label": "current_core",
+        "definition": "Subject is a product program or product-owned source subsystem with support posture 'supported', runtime participation 'required', and current release authority support.",
+        "derivation_rule": "Requires: (1) subject is product program or product-owned source subsystem, (2) support_posture='supported', (3) runtime_participation='required', (4) current release authority assertion supports the classification."
+      },
+      {
+        "label": "current_support",
+        "definition": "Subject is a platform program, shared capability, or supporting source subsystem with support posture 'supported', runtime participation 'supporting', and a current accepted relationship assertion showing it supports at least one current-core program.",
+        "derivation_rule": "Requires: (1) subject is platform program, shared capability, or supporting source subsystem, (2) support_posture='supported', (3) runtime_participation='supporting', (4) current accepted relationship assertion supports_program or participates_in linking to at least one current_core subject."
+      },
+      {
+        "label": "active_optional",
+        "definition": "Subject has support posture 'optional' or 'internal', runtime participation 'optional', and is not required by the canonical supported path.",
+        "derivation_rule": "Requires: (1) support_posture in ['optional','internal'], (2) runtime_participation='optional', (3) no current-core program requires it."
+      },
+      {
+        "label": "strategic_parked",
+        "definition": "Subject has support posture 'strategic', strategy state 'parked' or 'observatory', and runtime participation 'inactive' or 'unknown'.",
+        "derivation_rule": "Requires: (1) support_posture='strategic', (2) strategy_state in ['parked','observatory'], (3) runtime_participation in ['inactive','unknown']."
+      },
+      {
+        "label": "experimental",
+        "definition": "Subject has support posture 'experimental' and integration state 'prototype', 'partial', or 'unknown'.",
+        "derivation_rule": "Requires: (1) support_posture='experimental', (2) integration_state in ['prototype','partial','unknown']."
+      },
+      {
+        "label": "historical",
+        "definition": "Subject has support posture 'historical' or the relevant DLG lifecycle/disposition indicates retired historical material.",
+        "derivation_rule": "Requires: (1) support_posture='historical' OR (2) DLG lifecycle_state in ['retired','tombstoned']."
+      }
+    ],
+    "generation_requirements": [
+      "Generated projection must include schema version",
+      "Generated projection must include generation time and repository revision",
+      "Generated projection must include DLG revision",
+      "Generated projection must include ontology revision",
+      "Generated projection must include assertion-set revision",
+      "Generated projection must include authority inputs",
+      "Generated projection must declare it is generated and must not be edited directly",
+      "Generated projection must expose unresolved mappings, ownership warnings, stale assertions, conflicting assertions, and dependency violations"
+    ]
+  },
+  "identity_patterns": {
+    "program": "codexify:program:{slug}",
+    "capability": "codexify:capability:{slug}",
+    "client": "codexify:client:{slug}",
+    "adapter": "codexify:adapter:{slug}",
+    "source_subsystem": "codexify:source:{domain}:{slug}",
+    "assertion": "codexify:assertion:product-architecture:{stable-id}"
+  }
+}

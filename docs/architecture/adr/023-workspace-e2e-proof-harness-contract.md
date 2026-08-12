@@ -7,7 +7,7 @@ date: 2026-05-05
 
 ## Context
 
-ADR-016 introduced `retrievalSource="workspace"` as a live backend meaning for user-bounded local knowledge, including Obsidian-backed notes. The completion service and broker now treat it as a real retrieval posture and emit canonical trace evidence for the final completion attempt.
+ADR-060 introduced `retrievalSource="workspace"` as a live backend meaning for user-bounded local knowledge, including Obsidian-backed notes. The completion service and broker now treat it as a real retrieval posture and emit canonical trace evidence for the final completion attempt.
 
 The current-truth anchor in `00-current-state.md` confirms that `workspace` is live on `main` and that the completion worker emits canonical retrieval-posture snapshots for supported source modes. What was missing was a canonical live-proof harness that operators could run end-to-end to produce attachable evidence for release signoff.
 
@@ -99,7 +99,7 @@ The harness waits for terminal state because an honest E2E validator must check 
 ## Consequences
 
 - Operators can now run a single command to produce attachable release evidence for the workspace retrieval seam
-- The harness validates the exact runtime contract defined in ADR-016 (retrievalSource as a live backend meaning, not a label)
+- The harness validates the exact runtime contract defined in ADR-060 (retrievalSource as a live backend meaning, not a label)
 - The contract test suite (`tests/proofs/test_workspace_obsidian_e2e_contract.py`) validates harness behavior without requiring a live stack
 - The harness README provides clear usage instructions and failure class documentation
 - The ADR documents the seam, evidence sources, and explicit out-of-scope items
@@ -115,7 +115,7 @@ The harness waits for terminal state because an honest E2E validator must check 
 ## Related ADRs
 
 - [ADR-001: Queue-Based Completion Acceptance Model](./001-queue-based-completion-acceptance-model.md)
-- [ADR-016: Workspace Retrieval Source for Local Knowledge](./016-workspace-retrieval-source-for-local-knowledge.md)
+- [ADR-060: Workspace Retrieval Source for Local Knowledge](./060-workspace-retrieval-source-for-local-knowledge.md)
 - [ADR-012: Post-Completion Eval Spine](./012-post-completion-eval-spine.md)
 
 ## Related Docs
@@ -123,7 +123,7 @@ The harness waits for terminal state because an honest E2E validator must check 
 - [Current State](../00-current-state.md)
 - [Critical Flows](../flows.md)
 - [Config and Ops](../config-and-ops.md)
-ADR-016 made `retrievalSource="workspace"` a live backend meaning for local, user-bounded knowledge. That contract needed a canonical live proof surface so operators could validate the real end-to-end seam on the supported local Compose path, not just acceptance of the enqueue request.
+ADR-060 made `retrievalSource="workspace"` a live backend meaning for local, user-bounded knowledge. That contract needed a canonical live proof surface so operators could validate the real end-to-end seam on the supported local Compose path, not just acceptance of the enqueue request.
 
 The risk is overclaiming. If the harness is not explicit about what it proves, operators could mistake queue acceptance, document ingest, or a dev-only trace snapshot for proof of the actual live completion path.
 
@@ -177,7 +177,7 @@ The harness reads evidence from:
 
 ## Governing Contracts
 
-- [ADR-016: Workspace Retrieval Source for Local Knowledge](./016-workspace-retrieval-source-for-local-knowledge.md)
+- [ADR-060: Workspace Retrieval Source for Local Knowledge](./060-workspace-retrieval-source-for-local-knowledge.md)
 - [Critical Flows](../flows.md)
 - [System Overview](../system-overview.md)
 - [Config and Ops](../config-and-ops.md)

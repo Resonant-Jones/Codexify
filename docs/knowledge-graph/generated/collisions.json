@@ -1,0 +1,68 @@
+{
+  "active_path_collisions": [],
+  "adr_number_collisions": [
+    {
+      "adr_number": "005",
+      "paths": [
+        "docs/architecture/adr/005-imprint-ui-deprecation-and-identity-ownership.md",
+        "docs/architecture/adr/005-runtime-mode-and-account-boundary-invariants.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "016",
+      "paths": [
+        "docs/architecture/adr/016-continuity-governance-surface-contract.md",
+        "docs/architecture/adr/016-workspace-retrieval-source-for-local-knowledge.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "024",
+      "paths": [
+        "docs/architecture/adr/024-context-command-active-connector-semantics.md",
+        "docs/architecture/adr/024-workspace-obsidian-selection-and-injection-contract.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "039",
+      "paths": [
+        "docs/architecture/adr/039-capability-oriented-mesh-architecture.md",
+        "docs/architecture/adr/039-operator-user-access-boundary.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "041",
+      "paths": [
+        "docs/architecture/adr/041-provider-capability-model-contract.md",
+        "docs/architecture/adr/041-vaultnode-canonical-machine-and-audit-authority.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "053",
+      "paths": [
+        "docs/architecture/adr/053-node-hosted-room-access-boundary.md",
+        "docs/architecture/adr/053-threadspace-whispermesh-managed-service-boundary.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    },
+    {
+      "adr_number": "055",
+      "paths": [
+        "docs/architecture/adr/055-orthogonal-ui-material-personalization.md",
+        "docs/architecture/adr/055-threadspace-whispermesh-managed-service-boundary.md"
+      ],
+      "reason": "multiple tracked ADR paths share the numeric prefix"
+    }
+  ],
+  "document_id_collisions": [],
+  "generated_at": "2026-08-08T12:25:50-04:00",
+  "graph_revision": "5fd8431fa3bac6cc9b2939bcdf24784562738404137bedb4b315c77706f30db3",
+  "notice": "Generated derived projection. Reconstructable from canonical Git-backed DLG inputs; non-authoritative; do not hand edit.",
+  "record_type": "collision_report",
+  "repository_revision": "1c51187427d843af88bc7fbd2dc7cea58c892fd3",
+  "schema_version": "1.0.0"
+}

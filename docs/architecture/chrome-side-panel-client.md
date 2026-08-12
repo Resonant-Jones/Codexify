@@ -137,7 +137,7 @@ The extension changes no routes and uses these current contracts directly:
 - `GET /api/user/profile` and `PATCH /api/user/profile` for the account-scoped accent colour preference.
 - `GET /api/chat/threads` and `POST /api/chat/threads` for persisted thread listing/creation.
 - `GET /api/chat/{threadId}/messages` and `POST /api/chat/{threadId}/messages` for authoritative transcript reads and user-message persistence.
-- `POST /api/chat/{threadId}/complete` with a generated `turn_id` and `X-Request-ID` for completion acceptance.
+- `POST /api/chat/{threadId}/complete` with a generated `turn_id`, `X-Request-ID`, and an optional `browser_context` payload carrying explicitly captured selection evidence for exactly that one completion attempt. The backend treats `browser_context` as untrusted, turn-scoped context that is never persisted, embedded, or written into message metadata, memory, retrieval, or identity stores; it is absent for normal web clients.
 - `GET /api/tasks/{taskId}/events` with the selected local API-key or remote Bearer credential for attempt lifecycle observation.
 - Completion receipt fields `task_id`, `thread_id`, `turn_id`, `acceptance_status`, `acceptance_warnings`, `messages_url`, and `trace_url`.
 

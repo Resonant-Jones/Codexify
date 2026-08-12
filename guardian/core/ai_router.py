@@ -63,6 +63,12 @@ from guardian.providers.whooshd_control_plane import (
 from guardian.providers.whooshd_control_plane import (
     provider_failure_kind as whooshd_provider_failure_kind,
 )
+from guardian.providers.whooshd_tool_adapter import (
+    WhooshdStructuredResponse,
+    WhooshdStructuredTransportError,
+    parse_structured_response as parse_whooshd_structured_response,
+    prepare_structured_transport,
+)
 from guardian.utils.log_safety import install_safe_logging
 
 install_safe_logging()
@@ -609,6 +615,19 @@ def normalize_completion_output(
     output: Any,
 ) -> NormalizedCompletionOutput:
     """Normalize assistant output into a plain-answer or tool-decision result."""
+
+    if isinstance(output, WhooshdStructuredResponse):
+        parsed = parse_whooshd_structured_response(output)
+        return NormalizedCompletionOutput(
+            kind=parsed.kind,
+            text=parsed.text,
+            command_id=parsed.command_id,
+            arguments=parsed.arguments,
+            raw_payload=output.raw_payload,
+            provider="whooshd",
+            tool_call_count=1 if parsed.kind == "tool_decision" else 0,
+            runtime_provenance=output.runtime_provenance,
+        )
 
     if isinstance(output, DeepSeekResponse):
         calls = normalize_deepseek_tool_calls(output)
@@ -1896,6 +1915,7 @@ def chat_with_ai(
                 {
                     "reasoning_mode": reasoning_mode,
                     "temperature": temperature,
+                    "tools": tools,
                     "settings": settings,
                     "request_id": request_id,
                     "task_id": task_id,
@@ -2466,6 +2486,7 @@ def call_local(
     settings: Optional[Settings] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    tools: list[dict[str, Any]] | None = None,
     timeout: Optional[float] = None,
     log_exceptions: bool = True,
     request_id: str | None = None,
@@ -2483,6 +2504,14 @@ def call_local(
             detail=local_model_resolution.error_detail(),
         )
     model = local_model_resolution.model or model
+    try:
+        structured_transport = prepare_structured_transport(
+            provider_vendor=getattr(settings, "LOCAL_PROVIDER_VENDOR", None),
+            model=model,
+            tools=tools,
+        )
+    except WhooshdStructuredTransportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     runtime_policy = resolve_local_runtime_policy(
         model, settings=settings, timeout=timeout
     )
@@ -2492,6 +2521,8 @@ def call_local(
         reasoning_mode=reasoning_mode,
         settings=settings,
     )
+    if structured_transport is not None:
+        adapted_messages = structured_transport.inject_messages(adapted_messages)
     api_key = settings.LOCAL_API_KEY or "local"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -2509,6 +2540,16 @@ def call_local(
         "messages": adapted_messages,
         "temperature": 0.7 if temperature is None else float(temperature),
     }
+    if structured_transport is not None:
+        payload.update(
+            {
+                "temperature": 0,
+                "stream": False,
+                "seed": 20260809,
+                "enable_thinking": False,
+                "response_format": structured_transport.response_format,
+            }
+        )
     # Cap output tokens so whooshd/mlx-vlm can't silently truncate with their
     # own default (typically 512-1024). Caller's explicit `max_tokens` wins;
     # otherwise use LOCAL_MAX_TOKENS setting, else a generous default.
@@ -2567,6 +2608,11 @@ def call_local(
             allow_generate=True,
         )
         for kind, url in attempt_urls:
+            if structured_transport is not None and kind != "openai":
+                attempt_failures.append(
+                    f"{url} (strict structured transport requires OpenAI-compatible endpoint)"
+                )
+                continue
             try:
                 logger.info(
                     "chat.inference.request.built",
@@ -2706,6 +2752,15 @@ def call_local(
             if isinstance(choices, list) and choices:
                 message = choices[0].get("message")
                 if isinstance(message, dict) and "content" in message:
+                    if structured_transport is not None:
+                        return WhooshdStructuredResponse(
+                            content=message.get("content"),
+                            raw_payload=data,
+                            runtime_provenance=runtime_provenance,
+                            response_correlation=response_correlation,
+                            command_id=structured_transport.command_id,
+                            argument_schema=structured_transport.argument_schema,
+                        )
                     return ProviderResponse(
                         message.get("content") or "",
                         raw_payload=data,

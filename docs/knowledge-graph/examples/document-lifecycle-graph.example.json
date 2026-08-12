@@ -1,0 +1,358 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_graph",
+  "graph_id": "codexify:graph:document-lifecycle-example",
+  "generated_at": "2026-08-07T12:00:00Z",
+  "repository_revision": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+  "graph_revision": "4df417541e5c0ae9c2f4b973c73ba59b5b8920ae5553d7b36e8b51c8e5d84e9f",
+  "illustrative": true,
+  "notice": "Illustrative contract fixture only. It is not a migrated canonical graph, current runtime proof, release claim, or accepted authority decision. Relationships mirror explicit repository statements where present.",
+  "nodes": [
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:architecture:current-state",
+      "path": "docs/architecture/00-current-state.md",
+      "title": "Codexify Current State",
+      "kind": "current_state",
+      "summary": "Canonical short-horizon authority for release readiness, supported paths, blockers, and current priorities.",
+      "aliases": ["00-current-state", "current release truth"],
+      "authority_class": "release_authority",
+      "authority_scopes": ["release readiness", "supported install path", "current blockers", "short-horizon priorities"],
+      "lifecycle_state": "active",
+      "freshness": {
+        "state": "stale",
+        "verified_at": "2026-08-04T00:00:00Z",
+        "verified_commit": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+        "triggers": ["freshness window expires", "supported profile changes", "audited release commit changes"],
+        "window_days": 2,
+        "reason": "The illustrative two-day hot-document window has expired; staleness is a warning, not falsification."
+      },
+      "disposition": "accepted",
+      "evidence_class": "documented-contract",
+      "owners": ["Codexify release maintainers"],
+      "source_anchors": [
+        {
+          "path": "docs/architecture/00-current-state.md",
+          "anchor_type": "document",
+          "invalidates_freshness": true
+        }
+      ],
+      "read_when": ["answering release or support questions", "checking current blockers"],
+      "must_not_prove": ["live runtime health", "implementation beyond its declared release scope"],
+      "retrieval_policy": {
+        "default_policy": "include",
+        "applicable_intents": ["release_support", "architecture_decision"],
+        "excluded_intents": [],
+        "priority": "required",
+        "section_hints": ["Current supported reality", "Not yet true / do not assume", "Active blockers"],
+        "maximum_chunk_budget": 6
+      },
+      "temporal": {
+        "created_at": "2026-03-11T13:30:22Z",
+        "effective_from": "2026-08-04T00:00:00Z"
+      },
+      "content_hash": "ec822ec0cd5ece547917e35d3b1036fdf7837ba0b7cae20d2d7ba111be01f8c4",
+      "relations": [],
+      "governing_adr_posture": "not_applicable",
+      "architecture_scope": {
+        "program_ids": ["codexify:program:digital-cognitive-workspace"],
+        "capability_ids": ["codexify:capability:runtime-lifecycle"],
+        "client_surface_ids": ["codexify:client:web"]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:architecture:chat-runtime-contract",
+      "path": "docs/architecture/chat-runtime-contract.md",
+      "title": "Chat Runtime Contract",
+      "kind": "architecture_contract",
+      "summary": "Normative chat runtime vocabulary and ownership boundaries for provider, request, transport, replay, and transcript semantics.",
+      "aliases": ["chat runtime contract"],
+      "authority_class": "normative_contract",
+      "authority_scopes": ["chat runtime semantics", "completion acceptance ownership", "transport visibility"],
+      "lifecycle_state": "active",
+      "freshness": {
+        "state": "current",
+        "verified_at": "2026-08-07T12:00:00Z",
+        "verified_commit": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+        "triggers": ["chat route changes", "completion service changes", "chat worker changes", "governing ADR changes"]
+      },
+      "disposition": "accepted",
+      "evidence_class": "documented-contract",
+      "owners": ["Codexify architecture maintainers"],
+      "source_anchors": [
+        {
+          "path": "guardian/routes/chat.py",
+          "anchor_type": "code",
+          "invalidates_freshness": true
+        },
+        {
+          "path": "guardian/core/chat_completion_service.py",
+          "anchor_type": "code",
+          "invalidates_freshness": true
+        },
+        {
+          "path": "guardian/workers/chat_worker.py",
+          "anchor_type": "code",
+          "invalidates_freshness": true
+        }
+      ],
+      "read_when": ["interpreting chat completion flow", "distinguishing acceptance from completion"],
+      "must_not_prove": ["current supported release posture", "live provider or queue health"],
+      "retrieval_policy": {
+        "default_policy": "include",
+        "applicable_intents": ["release_support", "architecture_decision", "implementation_behavior"],
+        "excluded_intents": [],
+        "priority": "primary",
+        "section_hints": ["Completion Acceptance Ownership", "Canonical Request States", "Minimal State Transition Rules"],
+        "maximum_chunk_budget": 8
+      },
+      "temporal": {
+        "created_at": "2026-03-29T13:54:43Z",
+        "effective_from": "2026-06-30T00:00:00Z"
+      },
+      "content_hash": "b60c037707db03450dfe408a65bf955d9417382f0cb62602b732b29eb36bc2f7",
+      "relations": [
+        {
+          "relation_type": "governed_by",
+          "target_document_id": "codexify:doc:adr:038-chat-transport-visibility",
+          "authority_scope": "transport visibility and adaptive stream recovery",
+          "canonicality": "canonical",
+          "review_status": "accepted",
+          "rationale": "The contract names accepted ADR-038 as a source anchor for the transport visibility plane."
+        }
+      ],
+      "governing_adr_posture": "accepted",
+      "architecture_scope": {
+        "program_ids": ["codexify:program:digital-cognitive-workspace"],
+        "capability_ids": [
+          "codexify:capability:provider-tool-adapter-interfaces",
+          "codexify:capability:events-receipts-observability"
+        ],
+        "client_surface_ids": ["codexify:client:web"],
+        "relation_refs": ["codexify:assertion:product-architecture:example-dcw-depends-identity-v1"]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:architecture:chat-runtime-state-pointer",
+      "path": "docs/architecture/chat-runtime-state-contract.md",
+      "title": "Chat Runtime State Contract Compatibility Pointer",
+      "kind": "compatibility_pointer",
+      "summary": "Compatibility pointer directing readers to the normative Chat Runtime Contract without duplicating it.",
+      "aliases": ["chat runtime state contract"],
+      "authority_class": "pointer",
+      "authority_scopes": ["legacy chat runtime state path resolution"],
+      "lifecycle_state": "active",
+      "freshness": {
+        "state": "current",
+        "verified_at": "2026-08-07T12:00:00Z",
+        "verified_commit": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+        "triggers": ["pointer target moves", "pointer target is superseded"]
+      },
+      "disposition": "accepted",
+      "evidence_class": "documented-contract",
+      "owners": ["Codexify architecture maintainers"],
+      "source_anchors": [
+        {
+          "path": "docs/architecture/chat-runtime-contract.md",
+          "anchor_type": "document",
+          "invalidates_freshness": true
+        }
+      ],
+      "read_when": ["resolving the historical chat-runtime-state-contract path"],
+      "must_not_prove": ["independent normative authority", "runtime behavior"],
+      "retrieval_policy": {
+        "default_policy": "conditional",
+        "applicable_intents": ["alias_resolution", "historical_provenance"],
+        "excluded_intents": ["ordinary_retrieval"],
+        "priority": "supporting",
+        "maximum_chunk_budget": 1
+      },
+      "temporal": {
+        "created_at": "2026-07-12T14:39:47Z",
+        "effective_from": "2026-07-12T14:39:47Z"
+      },
+      "content_hash": "e945f182f8934f5b01dc5056d3f86cef22f10d09881d71e420d0eed80998ae28",
+      "relations": [
+        {
+          "relation_type": "pointer_to",
+          "target_document_id": "codexify:doc:architecture:chat-runtime-contract",
+          "authority_scope": "legacy chat runtime state path resolution",
+          "canonicality": "canonical",
+          "review_status": "accepted",
+          "rationale": "The file explicitly states that the normative document is chat-runtime-contract.md."
+        }
+      ],
+      "governing_adr_posture": "not_applicable"
+    },
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:proof:2026-04-04-clean-start-migration",
+      "path": "docs/architecture/2026-04-04-migration-upgrade-proof.md",
+      "title": "Migration / Upgrade Proof: Clean-Start on Current HEAD",
+      "kind": "proof",
+      "summary": "Frozen dated evidence for a clean-start migration and bounded chat, upload, and retrieval observations at its recorded commit.",
+      "aliases": ["2026-04-04 clean-start migration proof"],
+      "authority_class": "evidence_only",
+      "authority_scopes": ["clean-start migration at commit 65520918483e194da808115d94ebde9078a42886", "dated chat completion persistence observation"],
+      "lifecycle_state": "frozen",
+      "freshness": {
+        "state": "not_applicable",
+        "verified_at": "2026-04-04T05:42:02Z",
+        "verified_commit": "65520918483e194da808115d94ebde9078a42886",
+        "triggers": ["historical artifact correction requires a linked replacement"],
+        "reason": "The record is immutable historical evidence; it does not claim current-head coverage."
+      },
+      "disposition": "accepted",
+      "evidence_class": "proven-live-runtime",
+      "owners": ["Codexify proof maintainers"],
+      "source_anchors": [
+        {
+          "path": "docs/architecture/2026-04-04-migration-upgrade-proof.md",
+          "anchor_type": "proof",
+          "invalidates_freshness": false
+        }
+      ],
+      "read_when": ["answering historical migration questions", "inspecting dated chat persistence evidence"],
+      "must_not_prove": ["current-head runtime support", "existing-instance upgrade", "universal upgrade compatibility"],
+      "retrieval_policy": {
+        "default_policy": "conditional",
+        "applicable_intents": ["historical_provenance", "proof_history"],
+        "excluded_intents": ["current_head_proof"],
+        "priority": "historical",
+        "section_hints": ["Scope", "Observed Runtime Results After Migration"],
+        "maximum_chunk_budget": 5
+      },
+      "temporal": {
+        "created_at": "2026-04-04T05:31:47Z",
+        "effective_from": "2026-04-04T05:31:47Z",
+        "effective_until": "2026-04-04T05:42:02Z"
+      },
+      "content_hash": "0b8d30b22eed05da006e7b4ac6cb8e36064e3fdc1b5cb78aaabfdcb7ddde59a5",
+      "relations": [
+        {
+          "relation_type": "evidence_for",
+          "target_document_id": "codexify:doc:architecture:chat-runtime-contract",
+          "authority_scope": "assistant persistence observed at commit 65520918483e194da808115d94ebde9078a42886",
+          "canonicality": "canonical",
+          "review_status": "accepted",
+          "rationale": "The proof records completion acceptance followed by worker persistence, but only inside its dated artifact window."
+        }
+      ],
+      "governing_adr_posture": "not_applicable"
+    },
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:report:2026-08-03-axis-brief",
+      "path": "docs/guardian/work-briefs/2026-08-03/axis-brief.md",
+      "title": "Guardian Work Brief - Axis Brief - 2026-08-03",
+      "kind": "generated_report",
+      "summary": "Dated generated operator-orientation material retained as session and branch context, excluded from ordinary retrieval.",
+      "aliases": ["2026-08-03 Guardian Axis brief"],
+      "authority_class": "supplementary",
+      "authority_scopes": ["2026-08-03 generated work-brief context"],
+      "lifecycle_state": "frozen",
+      "freshness": {
+        "state": "not_applicable",
+        "verified_at": "2026-08-07T12:00:00Z",
+        "verified_commit": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+        "triggers": ["regenerate rather than editing when a new briefing is needed"],
+        "reason": "The dated report is historical session context, not current authority."
+      },
+      "disposition": "unreviewed",
+      "evidence_class": "unknown",
+      "owners": ["Codexify operator tooling maintainers"],
+      "source_anchors": [
+        {
+          "path": "docs/architecture/00-current-state.md",
+          "anchor_type": "document",
+          "invalidates_freshness": false
+        },
+        {
+          "path": "docs/guardian/work-briefs/2026-08-03/axis-brief.md",
+          "anchor_type": "document",
+          "invalidates_freshness": false
+        }
+      ],
+      "read_when": ["the 2026-08-03 branch or generated work-brief session is explicitly requested"],
+      "must_not_prove": ["architecture authority", "runtime proof", "release readiness", "current repository state"],
+      "retrieval_policy": {
+        "default_policy": "exclude",
+        "applicable_intents": ["historical_provenance", "session_specific"],
+        "excluded_intents": ["ordinary_retrieval", "release_support"],
+        "priority": "historical",
+        "maximum_chunk_budget": 2
+      },
+      "temporal": {
+        "created_at": "2026-08-03T00:00:00Z",
+        "effective_from": "2026-08-03T00:00:00Z",
+        "effective_until": "2026-08-04T00:00:00Z"
+      },
+      "content_hash": "04548cc97b64a9b8614a7de5a6901453c47ee122edbcc1b801c2f1f2978a3363",
+      "relations": [
+        {
+          "relation_type": "generated_from",
+          "target_document_id": "codexify:doc:architecture:current-state",
+          "authority_scope": "release-truth context copied into the dated briefing family",
+          "canonicality": "canonical",
+          "review_status": "accepted",
+          "rationale": "The Guardian Work Brief contract states that generated packets record current-state release-truth context."
+        }
+      ],
+      "governing_adr_posture": "not_applicable"
+    },
+    {
+      "schema_version": "1.0.0",
+      "record_type": "document_node",
+      "document_id": "codexify:doc:adr:038-chat-transport-visibility",
+      "path": "docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md",
+      "title": "ADR-038: Chat Transport Visibility and Adaptive Stream Recovery Contract",
+      "kind": "adr",
+      "summary": "Accepted decision defining transport visibility as a state plane distinct from provider runtime and request execution.",
+      "aliases": ["ADR-038", "chat transport visibility ADR"],
+      "authority_class": "accepted_adr",
+      "authority_scopes": ["chat transport visibility", "adaptive observation recovery"],
+      "lifecycle_state": "active",
+      "freshness": {
+        "state": "current",
+        "verified_at": "2026-08-07T12:00:00Z",
+        "verified_commit": "60b5dd9d7b0c4f6b342bd7209af57a130a7a97b5",
+        "triggers": ["decision is superseded", "chat transport contract changes"]
+      },
+      "disposition": "accepted",
+      "evidence_class": "documented-contract",
+      "owners": ["Codexify architecture maintainers"],
+      "source_anchors": [
+        {
+          "path": "docs/architecture/adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md",
+          "anchor_type": "document",
+          "invalidates_freshness": true
+        }
+      ],
+      "read_when": ["deciding transport visibility semantics", "reviewing adaptive stream recovery"],
+      "must_not_prove": ["runtime implementation", "live stream recovery", "release support"],
+      "retrieval_policy": {
+        "default_policy": "include",
+        "applicable_intents": ["architecture_decision", "implementation_behavior"],
+        "excluded_intents": [],
+        "priority": "primary",
+        "section_hints": ["Decision", "Recovery Meaning"],
+        "maximum_chunk_budget": 5
+      },
+      "temporal": {
+        "created_at": "2026-06-30T20:56:15Z",
+        "effective_from": "2026-06-30T00:00:00Z"
+      },
+      "content_hash": "a80af791c8929fdb870d9f07938b5733e6f2920082618f1a087baae2f47a536b",
+      "relations": [],
+      "governing_adr_posture": "accepted"
+    }
+  ],
+  "supersession_set": []
+}

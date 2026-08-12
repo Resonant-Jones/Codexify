@@ -1643,6 +1643,12 @@ def _run_chat_completion_task_compat(
             },
         )
     settings = get_settings()
+    tool_exposure = _chat_completion_service._prepare_chat_tool_exposure(
+        task,
+        provider=provider,
+        model=model,
+        settings=settings,
+    )
     turn_id = _extract_turn_id(task)
     requested_provider = _normalize_provider_override(
         getattr(task, "requested_provider", None)
@@ -1737,6 +1743,7 @@ def _run_chat_completion_task_compat(
                 bundle=bundle,
                 trace=trace,
                 base_payload_summary=payload_summary,
+                tool_exposure=tool_exposure,
                 token_callback=_token_bridge,
                 chunk_callback=_chunk_bridge,
                 cancel_check=cancel_check,

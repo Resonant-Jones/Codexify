@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+  "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md",
+  "title": "ADR-057: Product Architecture Ontology as a Document Lifecycle Graph Extension",
+  "kind": "adr",
+  "summary": "Accepted decision establishing the Product Architecture Ontology as a DLG extension with stable concepts, typed relationships, temporal assertions, and dependency-direction doctrine.",
+  "aliases": [],
+  "authority_class": "accepted_adr",
+  "authority_scopes": [
+    "Product Architecture Ontology integration with the DLG",
+    "stable product-architecture concept identity",
+    "product-architecture assertion and relationship doctrine",
+    "product-architecture dependency directions"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "the decision is superseded or contradicted",
+      "the accepted ontology identity or assertion model materially changes",
+      "the Product Lanes contract or canonical ontology diverges from the decision"
+    ],
+    "reason": "The accepted decision, contract, and ontology status were reviewed at the Phase 1 base."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/product-lanes-and-boundaries.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json",
+      "anchor_type": "schema",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "making or reviewing a Product Architecture Ontology decision",
+    "classifying product programs, capabilities, clients, adapters, or source subsystems",
+    "interpreting product-architecture assertion or dependency-direction boundaries"
+  ],
+  "must_not_prove": [
+    "a current product-architecture relationship or posture assertion corpus",
+    "source-subsystem classification or repository restructuring",
+    "runtime implementation, current support posture, or release qualification"
+  ],
+  "retrieval_policy": {
+    "default_policy": "include",
+    "applicable_intents": [
+      "architecture_decision",
+      "product_architecture",
+      "task_classification"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Decision",
+      "Governing ADRs and alignment",
+      "Explicitly deferred work",
+      "Non-goals"
+    ],
+    "maximum_chunk_budget": 7
+  },
+  "temporal": {
+    "created_at": "2026-08-07T16:00:01Z",
+    "effective_from": "2026-08-07T00:00:00Z"
+  },
+  "content_hash": "c555995be833d45cffd739892f84afce512a230f21e896900a29106538303d12",
+  "relations": [
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "Product Architecture Ontology integration with the accepted DLG control plane",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "ADR-057 extends the accepted DLG and preserves DLG document identity as the sole ADR and contract identity domain."
+    }
+  ],
+  "governing_adr_posture": "accepted"
+}

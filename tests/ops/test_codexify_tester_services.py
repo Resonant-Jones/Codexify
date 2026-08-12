@@ -147,7 +147,18 @@ def test_tester_compose_files_reference_canonical_root() -> None:
     # Both compose files must reference the resolved REPO_ROOT, not a relative path
     assert '-f "$REPO_ROOT/docker-compose.yml"' in script
     assert '-f "$REPO_ROOT/docker-compose.tester.yml"' in script
+    assert '-f "$REPO_ROOT/docker-compose.whooshd-deepseek.yml"' in script
     assert '--project-directory "$REPO_ROOT"' in script
+
+
+def test_tester_lifecycle_is_pinned_to_dual_provider_profile() -> None:
+    script = LIFECYCLE.read_text(encoding="utf-8")
+    env_template = (ROOT / ".env.tester.example").read_text(encoding="utf-8")
+
+    assert "dual-provider" in script
+    assert "v1-whooshd-deepseek-web" in env_template
+    assert "LOCAL_CHAT_MODEL=gemma-4-12b-it-qat-4bit" in env_template
+    assert "DEEPSEEK_CHAT_MODEL=deepseek-v4-flash" in env_template
 
 
 def test_tester_status_accepts_a_running_account_import_worker(tmp_path: Path) -> None:

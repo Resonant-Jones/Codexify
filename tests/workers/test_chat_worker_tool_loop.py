@@ -44,6 +44,7 @@ def _build_task(
     )
     task.turn_id = TURN_ID
     task.turn_lock_owner = task_id
+    task.request_id = task_id
     task.latest_turn_message_id = 2
     return task
 
@@ -232,6 +233,7 @@ def test_worker_surfaces_tool_loop_metadata_on_completion(
         persisted_meta=persisted_meta,
     )
     task = _build_task(task_id="task-worker-tool-success")
+    task.tools = [{"command_id": "op::echo"}]
 
     command_calls: list[dict[str, Any]] = []
 
@@ -297,6 +299,7 @@ def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
 ):
     published = _prepare_worker_harness(monkeypatch)
     task = _build_task(task_id="task-worker-tool-failure")
+    task.tools = [{"command_id": "op::echo"}]
 
     command_calls: list[dict[str, Any]] = []
 

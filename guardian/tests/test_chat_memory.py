@@ -298,6 +298,147 @@ def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
     assert second.json().get("detail") == "turn_in_flight"
 
 
+def test_chat_complete_carries_browser_context_only_for_submitted_attempt(
+    monkeypatch,
+):
+    from guardian.core.chat_completion_service import (
+        AcceptanceStatus,
+        ChatCompletionEnqueueResult,
+        ChatCompletionTaskCreatedEventResult,
+    )
+    from guardian.routes import chat as chat_routes
+
+    class _StubChatlogDB:
+        def get_chat_thread(self, thread_id: int):
+            return {"id": thread_id, "project_id": None}
+
+        def list_messages(self, _thread_id: int, limit: int, offset: int):
+            _ = (limit, offset)
+            return [{"id": 1, "role": "user", "content": "seed context"}]
+
+    async def fake_doc_context_override(**_kwargs):
+        return None
+
+    enqueued: list[object] = []
+
+    def fake_enqueue_chat_completion(task, **kwargs):
+        _ = kwargs
+        enqueued.append(task)
+        return ChatCompletionEnqueueResult(
+            task=task,
+            task_id=str(task.task_id or "task-1"),
+            acceptance_status=AcceptanceStatus.ACCEPTED.value,
+            acceptance_warnings=(),
+            queue_accepted=True,
+            degraded=False,
+            turn_lock_acquired=True,
+            turn_lock={},
+            task_created_event=ChatCompletionTaskCreatedEventResult(
+                ok=True,
+                task_id=str(task.task_id or "task-1"),
+                event_type="task.created",
+                event_id="event-1",
+                visibility_scope="task_creator",
+                terminal_visibility=False,
+                execution_continued=True,
+            ),
+        )
+
+    monkeypatch.setattr(chat_routes, "chatlog_db", _StubChatlogDB())
+    monkeypatch.setattr(
+        chat_routes, "_build_doc_context_override", fake_doc_context_override
+    )
+    monkeypatch.setattr(
+        chat_routes, "enqueue_chat_completion", fake_enqueue_chat_completion
+    )
+    monkeypatch.setattr(
+        chat_routes, "_persist_thread_latest_task_id", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        chat_routes.task_events, "publish", lambda *_a, **_k: None
+    )
+
+    browser_context = {
+        "captureKind": "selected_text",
+        "sourceKind": "selection",
+        "sourceUrl": "https://example.com/article",
+        "content": "selected evidence sentence",
+    }
+
+    with_context = client.post(
+        "/api/chat/559/complete", json={"browser_context": browser_context}
+    )
+    assert with_context.status_code == 200
+    assert len(enqueued) == 1
+    assert enqueued[0].browser_context == browser_context
+
+    without_context = client.post("/api/chat/560/complete", json={})
+    assert without_context.status_code == 200
+    assert len(enqueued) == 2
+    assert enqueued[1].browser_context is None
+
+
+def test_message_write_never_persists_browser_context(monkeypatch):
+    from guardian.routes import chat as chat_routes
+
+    captured: dict[str, object] = {}
+
+    def fake_persist_message_to_thread(
+        *,
+        thread_id: int,
+        role: str,
+        content: str,
+        owner: str,
+        message_metadata: dict[str, object] | None = None,
+    ):
+        captured["thread_id"] = thread_id
+        captured["metadata"] = message_metadata
+        return {
+            "message": {
+                "id": 1,
+                "thread_id": thread_id,
+                "role": role,
+                "content": content,
+            },
+            "thread": {
+                "id": thread_id,
+                "project_id": None,
+            },
+        }
+
+    monkeypatch.setattr(
+        chat_routes, "_persist_message_to_thread", fake_persist_message_to_thread
+    )
+
+    response = client.post(
+        "/api/chat/561/messages",
+        json={
+            "role": "user",
+            "content": "hello",
+            "metadata": {"tag": "x"},
+            "browser_context": {"content": "secret selection"},
+        },
+    )
+    assert response.status_code == 200
+    assert captured["thread_id"] == 561
+    assert captured["metadata"] == {"tag": "x", "contextSource": "project"}
+    assert "browser_context" not in captured["metadata"]
+
+
+def test_chat_message_create_request_drops_unknown_browser_context_field():
+    from guardian.routes.chat import ChatMessageCreateRequest
+
+    payload = {
+        "role": "user",
+        "content": "hello",
+        "metadata": {"tag": "x"},
+        "browser_context": {"content": "secret selection"},
+    }
+    request = ChatMessageCreateRequest(**payload)
+    assert request.metadata == {"tag": "x"}
+    assert request.model_dump(exclude_none=True).get("browser_context") is None
+
+
 def test_memory_crud_and_health():
     # Add longterm entry
     r = client.post(

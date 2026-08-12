@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:proof:2026-08-07-dlg-pao-canonical-history-publication",
+  "path": "docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md",
+  "title": "DLG / PAO Canonical History Publication Proof",
+  "kind": "proof",
+  "summary": "Frozen receipt for canonical Git publication of specified pre-acceptance DLG and PAO history and its recorded validation results.",
+  "aliases": [],
+  "authority_class": "evidence_only",
+  "authority_scopes": [
+    "canonical Git ancestry of the recorded DLG and pre-acceptance PAO milestones",
+    "recorded DLG and PAO validation results at the documented revisions",
+    "non-force publication of the reconciled architecture history"
+  ],
+  "lifecycle_state": "frozen",
+  "freshness": {
+    "state": "not_applicable",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "a correction requires a frozen replacement record with explicit lineage"
+    ],
+    "reason": "This immutable receipt proves bounded historical publication and validation, not current-head coverage."
+  },
+  "disposition": "accepted",
+  "evidence_class": "proven-test",
+  "owners": [
+    "Codexify proof maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/proofs/2026-08-07-dlg-pao-canonical-history-publication-proof.md",
+      "anchor_type": "proof",
+      "invalidates_freshness": false
+    }
+  ],
+  "read_when": [
+    "checking canonical publication of the recorded DLG and pre-acceptance PAO history",
+    "reviewing the recorded rebase, ancestry, and validation evidence",
+    "answering historical provenance questions about the listed architecture milestones"
+  ],
+  "must_not_prove": [
+    "ADR-057 acceptance, which occurred after this receipt's stated pre-acceptance scope",
+    "current-head runtime behavior or release readiness",
+    "DLG or PAO runtime implementation, retrieval, projection, or current relationship instances"
+  ],
+  "retrieval_policy": {
+    "default_policy": "conditional",
+    "applicable_intents": [
+      "historical_provenance",
+      "proof_history",
+      "repository_history"
+    ],
+    "excluded_intents": [
+      "current_head_proof",
+      "live_runtime_proof",
+      "release_support"
+    ],
+    "priority": "historical",
+    "section_hints": [
+      "Pre-reconciliation state",
+      "Reconciliation",
+      "Post-rebase milestone SHAs",
+      "Publication status"
+    ],
+    "maximum_chunk_budget": 6
+  },
+  "temporal": {
+    "created_at": "2026-08-07T20:13:17Z",
+    "effective_from": "2026-08-07T20:14:56Z"
+  },
+  "content_hash": "a7a21363992ec0bbdba7e56e954682882c8f844e9b678e079fc3253591fc45b2",
+  "relations": [
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:adr:056-document-lifecycle-graph-control-plane",
+      "authority_scope": "canonical publication and ancestry of ADR-056 definition and acceptance milestones on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt records the DLG definition and acceptance milestones and verifies their canonical origin/main ancestry."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "authority_scope": "canonical publication and bounded validation of the DLG contract history recorded on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies canonical ancestry for the DLG definition and acceptance history and records bounded architecture validation at those revisions."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "authority_scope": "pre-acceptance canonical publication and validation of ADR-057 proposal history on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies the PAO proposal and relationship-semantic repair before ADR-057 acceptance; it does not prove acceptance."
+    },
+    {
+      "relation_type": "evidence_for",
+      "target_document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+      "authority_scope": "pre-acceptance canonical publication and validation of the Product Architecture Ontology contract history on 2026-08-07",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "The receipt verifies the PAO proposal and semantic-repair history and records bounded ontology validation; it does not prove later acceptance."
+    }
+  ],
+  "governing_adr_posture": "not_applicable"
+}

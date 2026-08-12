@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.core.passwords import verify_password
+from guardian.core.passwords import hash_password, verify_password
 from guardian.core.user_manager import get_or_create_default_user
 from guardian.db.models import User
 
@@ -118,6 +118,58 @@ def test_login_and_authenticated_request(monkeypatch):
             mock_chatlog_db.create_project.call_args.kwargs["user_id"]
             == expected_user_id
         )
+
+
+def test_login_accepts_linked_email_without_mutating_canonical_identity(
+    monkeypatch,
+):
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "auth-flow-session-secret")
+    monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
+
+    auth_db = _AuthDb()
+    canonical_user_id = "legacy-account-id"
+    legacy_username = "legacy-username"
+    linked_email = "linked@example.com"
+    password = "saved-password"
+    password_hash = hash_password(password)
+
+    with auth_db.get_session() as session:
+        session.add(
+            User(
+                id=canonical_user_id,
+                username=legacy_username,
+                email=linked_email,
+                password_hash=password_hash,
+            )
+        )
+        session.commit()
+
+    from guardian.routes import auth as auth_routes
+
+    with patch.object(
+        auth_routes, "load_guardian_db_from_env", return_value=auth_db
+    ):
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        response = TestClient(app).post(
+            "/auth/login",
+            json={
+                "username": "  Linked@Example.COM  ",
+                "password": password,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == canonical_user_id
+
+    with auth_db.get_session() as session:
+        user = session.get(User, canonical_user_id)
+        assert user is not None
+        assert user.username == legacy_username
+        assert user.email == linked_email
+        assert user.password_hash == password_hash
 
 
 def test_default_user_bootstrap_does_not_seed_known_password(monkeypatch):

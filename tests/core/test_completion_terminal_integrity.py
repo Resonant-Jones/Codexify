@@ -294,6 +294,14 @@ def test_tool_loop_obeys_terminal_gate(monkeypatch):
             bundle={},
             trace={},
             base_payload_summary={},
+            tool_exposure={
+                "automatic": False,
+                "advertisedToolCount": 0,
+                "advertisedToolCommandIds": [],
+                "providerDispatchToolCount": 0,
+                "providerDispatchToolCommandIds": [],
+                "commandIdsTruncated": False,
+            },
         )
 
 

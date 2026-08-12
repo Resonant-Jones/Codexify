@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -138,3 +139,52 @@ def normalize_tool_calls(
             }
         )
     return normalized
+
+
+def build_continuation_messages(
+    messages: list[dict[str, Any]],
+    *,
+    raw_assistant_message: Mapping[str, Any] | None,
+    tool_call_id: str,
+    command_result: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Translate the canonical tool result into the DeepSeek continuation shape.
+
+    Continuation semantics follow the DeepSeek Chat Completions API guide and
+    the Thinking Mode guide (see
+    ``docs/architecture/provider-tool-turn-boundary-contract.md``). The adapter
+    owns the wire translation; the caller (the generic Guardian tool-loop
+    runtime) only provides:
+
+    - The semantic raw assistant message envelope (the router already captured
+      it from the provider response; it is opaque at this seam).
+    - The provider-side tool-call correlation identity (``tool_call_id``).
+    - The Command Bus execution result (semantic, ``command_result``).
+
+    The adapter:
+
+    - Replays the assistant message including any provider-private continuation
+      material such as ``reasoning_content`` inside the message envelope. The
+      generic runtime never inspects that field.
+    - Appends a ``role: tool`` continuation message with the correct
+      ``tool_call_id`` so the provider can correlate the result back to the
+      original native tool call.
+
+    The function does not decide authority, does not execute anything, and does
+    not parse the command_result. It is a pure translation.
+    """
+    next_messages = [
+        dict(message) for message in messages if isinstance(message, dict)
+    ]
+    if raw_assistant_message is not None:
+        next_messages.append(dict(raw_assistant_message))
+    next_messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": str(tool_call_id or ""),
+            "content": json.dumps(
+                dict(command_result or {}), ensure_ascii=False, default=str
+            ),
+        }
+    )
+    return next_messages

@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-05
+2026-08-11
 
 ## Interpretation rule
 
@@ -18,68 +18,72 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first beta hardening at `c03ce771f`. The supported path remains the local Docker Compose stack with local-only provider posture. Mainline has narrowed the accepted release surface by pruning unmerged forge and UI-personalization artifacts; private-preview and browser work remain bounded opt-in or documentation surfaces. Local `main` is reconciled with `origin/main` at this commit (ahead/behind 0/0).
+`main` is in local-first beta hardening at `139fe0367`. The current release interpretation remains the local Docker Compose path and local-only provider posture. Recent tool-turn, provider, Whoosh'd, and DLG/ADR work is merged code, evidence, or contract/test surface; it does not widen the release promise without matching supported-path runtime proof.
 
 ## What changed recently
 
-- Added static/test-proven configuration and provider-specific proof tooling for the opt-in `v1-whooshd-deepseek-web` preview lane.
-- Repaired private-preview startup health, single-origin proxying, and backend re-resolution after container replacement.
-- Added thread-refresh backoff and retry guards, idempotent migration changes, and private-preview configuration updates.
-- Clarified trusted-remote/private-preview email sign-in behavior.
-- Recorded the latest dual-provider preview proof as `next-proof-needed`: missing DeepSeek credential and authenticated session prevented runtime turns.
-- Added a Codexify Browser campaign and extension inventory as documentation; this is not shipped browser support.
-- Guardian Evidence Packet authoring template and guide are static authoring aids only; they do not implement runtime reducer behavior or widen release support.
-- Restored the bounded canonical live-proof receipt handoff in the audit tooling: one qualifying `PASS` receipt can support a deterministic `CURRENT_LIVE_PROOF` manifest, with mandatory fresh runtime comparison and fail-closed receipt lineage.
-- Added a second GuardianEvidencePacket fixture for local validation-toolchain coverage; this demonstrates packet schema coverage only and does not implement runtime reducer behavior.
-- Added a Guardian Evidence Packet future runtime reducer design contract; it defines future reducer boundaries and allowed handoffs only and does not implement runtime reducer behavior.
-- Added a Guardian Evidence Packet static validator contract; it defines future packet shape and guardrail validation only and does not implement runtime validator or reducer behavior.
-- Reconciled local `main` with `origin/main` at `c03ce771f`; expanded the canonical audit evidence contract and added the `scripts/audit/generate_canonical_evidence_manifest.py` producer with its test suite. This is deterministic tooling, not live runtime proof; see the prior audit bullet for the live-proof handoff boundary.
+- Added the bounded read-only `op::health_health_get` chat capability and advertised-subset authority gate; general tool use remains outside the release promise.
+- Added DeepSeek native transport translation/continuation coverage and a cross-provider semantic convergence proof; both remain non-live provider evidence.
+- Added Whoosh'd capability projection, structured transport, qualification/attestation seams, and exact-target identity reconciliation; the receipt covers one target/schema identity only.
+- Canonicalized ADR-060 through ADR-063 and reverified DLG/knowledge-graph freshness after history corrections; these are control-plane/documentation changes.
+- Added a Doctrine of Legible Responsibility and related tool-loop contract updates; they clarify boundaries without proving runtime readiness.
 
 ## Current supported reality
 
 - Local Docker Compose is the supported install path.
-- The supported posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, and `LLM_PROVIDER=local`.
+- The supported beta posture is local-only: `CODEXIFY_LOCAL_ONLY_MODE=true`, `ALLOW_CLOUD_PROVIDERS=false`, and `LLM_PROVIDER=local`.
 - `whooshd-mlx` is the supported Apple Silicon local runtime preset; other local presets require explicit configuration.
-- Chat completion, upload -> embed -> readback, and workspace-local retrieval are the supported beta paths.
+- Chat completion, upload -> embed -> readback, and workspace-local retrieval are the supported beta paths represented on `main`; current-tip release qualification remains open.
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` are the primary operator checks.
 - OpenAI export import, Task Prompt Archive, and owner-scoped retry of failed zero-write import jobs are present on `main`.
-- Architecture-contract validation is defined on `main`; it does not prove live service behavior or release readiness.
+- Linked email aliases are resolved as a fallback to the existing user identity; the username path remains first.
+- Bounded chat tool decisions pass through one advertised-subset authority gate. When `task.tools` is unset, ordinary chat may automatically expose exactly the read-only, zero-argument `op::health_health_get` (`GET /health`) capability to DeepSeek or to the exact Whoosh'd target when its current capability projection is eligible; explicit tool selections remain untouched, command visibility does not bypass execution authority, and this deterministic implementation does not widen release support.
+- A committed live strict-structured qualification receipt exists for the exact `gemma-4-12b-it-qat-4bit` Whoosh'd target, but this is not general model or release support.
+- Coding Loop route registration, focused tests, worker readiness/guard evidence, and profile enablement are present; they do not prove a successful adapter turn or durable terminal result.
+- Architecture-contract, schema, DLG, and proof-validation tooling is present on `main`; it is not live-service proof.
 
 ## Not yet true / do not assume
 
-- Do not assume cloud-provider beta support, packaged-desktop replacement of Compose, or a current local runtime without live endpoint and model-inventory proof.
-- Do not assume the private-preview lane is operational from static proof; it still needs authenticated, persisted Whoosh'd and DeepSeek V4 Flash turns.
-- Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract is end-to-end runtime or release proof by itself.
-- Do not treat a validator-passing `CURRENT_LIVE_PROOF` manifest as storage, promotion, trusted `latest`, release approval, or proof of the current live Compose runtime without the separately required live execution evidence.
-- Do not assume Hosted Room automatic responses, Luna invocation, ambient presence, cross-node rooms, or release qualification.
-- Do not treat browser, email, federation, graph writes, Continuity/Project Pulse, thread lenses, or P2P video documents as shipped beta behavior.
-- Do not assume failed account-import jobs retry automatically, repair partial writes, deduplicate payloads, or reconstruct missing historical staging.
-- Do not count local branches, unmerged work, draft plans, obsolete worktrees, origin-only commits, or local commits not present on `main` as shipped reality.
+- Do not assume cloud-provider beta support, a packaged desktop runtime, or a current local model without live endpoint and inventory proof.
+- Do not assume the tester dual-provider lane is release-supported; it still needs authenticated, provider-specific persisted turns.
+- Do not assume DeepSeek tool-turn tests or the Whoosh'd Gemma qualification establish supported-provider execution, general tool capability, or release support.
+- Do not assume ADR/DLG canonicalization, freshness re-verification, or architecture contracts establish runtime support or release readiness.
+- Do not assume a green health check, route acceptance, unit test, proof receipt, or docs contract proves end-to-end runtime readiness.
+- Do not assume the linked-email migration alone proves upgrade success or authenticated end-to-end behavior on every existing database.
+- Do not assume DLG/PAO documents or fixed ARPs provide corpus migration, arbitrary retrieval/RAG, database projection, assertion resolution, or agent authority.
+- Do not assume Campaign Engine schemas provide scheduling, delegation, overnight execution, auto-merge, or auto-push.
+- Do not assume the tool-unification plan provides implementation approval, terminal execution, or Coding Loop completion.
+- Do not assume Browser Host, Chrome extension, Hosted Room, email, federation, graph writes, Continuity/Project Pulse, or P2P video are shipped beta behavior.
+- Do not assume tool-boundary tests or the Coding Loop proof packet establish provider execution, terminal persistence, or durable source-thread readback.
+- Do not count local branches, unmerged work, draft plans, origin-only commits, or proof from another checkout as shipped reality.
 
 ## Active blockers
 
-- Fresh live Compose proof is still needed at the audited `main` tip, including terminal completion and persisted output.
-- Queue-coupled chat still requires healthy Redis, worker, turn-lock, and terminal-event behavior on the supported path.
+- Fresh live Compose proof is still needed at `139fe0367`, including health, model inventory, terminal completion, persisted output, and retrieval.
+- Queue-coupled chat still needs current-tip evidence for Redis, worker, turn-lock, and terminal-event behavior.
 - Canonical and legacy configuration paths coexist, creating startup and operator-state drift risk.
+- The bounded Coding Loop lane lacks current-tip proof of backend route acceptance, provider adapter execution, terminal result persistence, and durable source-thread readback; the prior proof stopped at backend exit code 3.
+- Provider/tool-turn integration lacks current supported-profile proof for capability exposure, adapter execution, continuation, and durable completion; the exact Whoosh'd receipt does not close that gate.
 - The private-preview lane lacks its required DeepSeek credential and authenticated session-token prerequisite.
-- Hosted Room end-to-end Guardian execution and broader federation/delegation remain outside release qualification.
 
 ## This week's priorities
 
-1. Capture live proof for health, model inventory, chat, upload/readback, workspace retrieval, queue completion, and import recovery.
-2. Reduce or clearly fence canonical-versus-legacy configuration drift.
-3. Complete private-preview prerequisites and provider-specific proof, or keep that lane quarantined.
-4. Keep browser, Hosted Room, federation, and other planning surfaces out of release claims.
+1. Capture fresh supported-Compose proof at `139fe0367`: health, model inventory, chat, persistence, and retrieval.
+2. Verify queue completion, turn locking, migration behavior, and import recovery under the supported profile.
+3. Reconcile or clearly fence canonical-versus-legacy configuration paths.
+4. Re-prove provider/tool-turn and the enabled Coding Loop lanes end to end, or quarantine them until their required proof exists.
+5. Keep DLG/PAO, Campaign Engine, Browser Host, Hosted Room, and provider-preview work outside release claims until their required proof exists.
 
 ## Release definition right now
 
 - [x] The supported profile and local-only flags define the beta posture.
 - [x] Whoosh'd local runtime and core chat/upload/retrieval paths are represented on `main`.
-- [x] Architecture-contract validation is defined on `main`.
-- [x] The audited `main` tip is reconciled with the intended release commit.
-- [ ] Fresh live Compose evidence confirms terminal completion and persisted output.
+- [x] Relevant architecture and schema validation is defined on `main`.
+- [ ] Fresh live Compose evidence confirms terminal completion and persisted output at the audited tip.
 - [ ] Queue, configuration, migration, and recovery behavior are green for the supported install path.
-- [ ] Any claimed private-preview lane has authenticated, provider-specific persisted-turn proof.
+- [ ] Enabled Coding Loop routes have backend, authenticated adapter, terminal, and durable readback proof, or are quarantined.
+- [ ] Any tool-enabled path has exact-target capability, authority, provider, continuation, terminal, and persistence proof on the supported profile.
+- [ ] Any claimed preview or alternate surface has provider- or surface-specific runtime proof.
 - [ ] Every release claim is merged to `main` and backed by evidence at the claimed proof level.
 
 ## How to read the rest of the KB

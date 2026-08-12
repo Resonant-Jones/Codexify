@@ -1,0 +1,525 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexify.dev/schemas/knowledge/document-lifecycle-graph.schema.json",
+  "title": "Codexify Document Lifecycle Graph",
+  "description": "Strict v1 schema for a canonical document node or a generated aggregate Document Lifecycle Graph.",
+  "oneOf": [
+    { "$ref": "#/$defs/documentNode" },
+    { "$ref": "#/$defs/documentGraph" }
+  ],
+  "$defs": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Version of this document lifecycle graph contract."
+    },
+    "documentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "Stable repository-wide document identity independent of path."
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000]+$",
+      "description": "Repository-relative path or glob. Absolute paths, traversal, and backslashes are forbidden."
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full lowercase Git commit SHA."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase SHA-256 digest."
+    },
+    "authorityClass": {
+      "type": "string",
+      "enum": [
+        "release_authority",
+        "accepted_adr",
+        "normative_contract",
+        "structural_authority",
+        "operator_authority",
+        "design_canon",
+        "supplementary",
+        "evidence_only",
+        "working",
+        "pointer",
+        "archive"
+      ],
+      "description": "Scoped authority class; never a universal truth score."
+    },
+    "lifecycleState": {
+      "type": "string",
+      "enum": ["draft", "proposed", "active", "frozen", "retired", "tombstoned"],
+      "description": "Lifecycle state, independent of freshness and disposition."
+    },
+    "freshnessState": {
+      "type": "string",
+      "enum": ["current", "stale", "unknown", "not_applicable"],
+      "description": "Coverage freshness derived from governing inputs, not modification time alone."
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["accepted", "superseded", "contradicted", "quarantined", "unreviewed"],
+      "description": "Review disposition relative to other records."
+    },
+    "evidenceClass": {
+      "type": "string",
+      "enum": [
+        "proven-live-runtime",
+        "proven-test",
+        "proven-code-path",
+        "documented-contract",
+        "working-theory",
+        "aspirational",
+        "unknown"
+      ],
+      "description": "Evidence level represented by the document."
+    },
+    "documentKind": {
+      "type": "string",
+      "enum": [
+        "current_state",
+        "adr",
+        "architecture_contract",
+        "runtime_map",
+        "design_canon",
+        "product_spec",
+        "operator_runbook",
+        "proof",
+        "inspection",
+        "generated_report",
+        "campaign",
+        "task",
+        "compatibility_pointer",
+        "historical_archive"
+      ],
+      "description": "Bounded v1 document kind."
+    },
+    "relationType": {
+      "type": "string",
+      "enum": [
+        "governed_by",
+        "implements",
+        "evidence_for",
+        "derived_from",
+        "generated_from",
+        "supersedes",
+        "contradicts",
+        "pointer_to",
+        "depends_on",
+        "applies_to",
+        "related_to"
+      ],
+      "description": "Canonical directed edge type."
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "verified_at", "verified_commit", "triggers"],
+      "properties": {
+        "state": { "$ref": "#/$defs/freshnessState" },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 time of the last approved verification."
+        },
+        "verified_commit": { "$ref": "#/$defs/gitCommit" },
+        "triggers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 },
+          "description": "Events or anchor changes that require freshness review."
+        },
+        "window_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "Optional explicit freshness window."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Bounded explanation for the current freshness state."
+        }
+      }
+    },
+    "sourceAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "anchor_type", "invalidates_freshness"],
+      "properties": {
+        "path": { "$ref": "#/$defs/repositoryPath" },
+        "anchor_type": {
+          "type": "string",
+          "enum": ["document", "code", "test", "config", "schema", "proof"],
+          "description": "Kind of governed input."
+        },
+        "invalidates_freshness": {
+          "type": "boolean",
+          "description": "Whether a change to this anchor requires freshness review."
+        }
+      }
+    },
+    "retrievalPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_policy", "applicable_intents", "excluded_intents", "priority"],
+      "properties": {
+        "default_policy": {
+          "type": "string",
+          "enum": ["include", "conditional", "exclude"],
+          "description": "Default resolver posture."
+        },
+        "applicable_intents": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "description": "Intent tokens for which the source is eligible."
+        },
+        "excluded_intents": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "description": "Intent tokens for which the source is excluded."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["required", "primary", "supporting", "historical"],
+          "description": "Purpose-specific retrieval priority."
+        },
+        "section_hints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "description": "Optional headings to prefer during bounded reading."
+        },
+        "maximum_chunk_budget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Maximum chunks from this document in one packet."
+        }
+      }
+    },
+    "temporal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_at", "effective_from"],
+      "properties": {
+        "created_at": { "type": "string", "format": "date-time" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_until": { "type": "string", "format": "date-time" }
+      },
+      "description": "RFC 3339 validity interval; absence of effective_until means open-ended."
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_type",
+        "target_document_id",
+        "authority_scope",
+        "canonicality",
+        "review_status",
+        "rationale"
+      ],
+      "properties": {
+        "relation_type": { "$ref": "#/$defs/relationType" },
+        "target_document_id": { "$ref": "#/$defs/documentId" },
+        "authority_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Scope inside which the edge is meaningful."
+        },
+        "canonicality": {
+          "type": "string",
+          "enum": ["canonical", "advisory"],
+          "description": "Whether the reviewed graph accepts the edge or only records advice."
+        },
+        "review_status": {
+          "type": "string",
+          "enum": ["proposed", "accepted"],
+          "description": "Human review posture of the edge."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Bounded, inspectable reason for the relationship."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "relation_type": { "const": "related_to" } },
+            "required": ["relation_type"]
+          },
+          "then": {
+            "properties": { "canonicality": { "const": "advisory" } }
+          }
+        }
+      ]
+    },
+    "documentNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "document_id",
+        "path",
+        "title",
+        "kind",
+        "summary",
+        "aliases",
+        "authority_class",
+        "authority_scopes",
+        "lifecycle_state",
+        "freshness",
+        "disposition",
+        "evidence_class",
+        "owners",
+        "source_anchors",
+        "read_when",
+        "must_not_prove",
+        "retrieval_policy",
+        "temporal",
+        "content_hash",
+        "relations",
+        "governing_adr_posture"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/schemaVersion" },
+        "record_type": {
+          "type": "string",
+          "const": "document_node",
+          "description": "Identifies one canonical per-document record."
+        },
+        "document_id": { "$ref": "#/$defs/documentId" },
+        "path": { "$ref": "#/$defs/repositoryPath" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "kind": { "$ref": "#/$defs/documentKind" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+        },
+        "authority_class": { "$ref": "#/$defs/authorityClass" },
+        "authority_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "lifecycle_state": { "$ref": "#/$defs/lifecycleState" },
+        "freshness": { "$ref": "#/$defs/freshness" },
+        "disposition": { "$ref": "#/$defs/disposition" },
+        "evidence_class": { "$ref": "#/$defs/evidenceClass" },
+        "owners": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,119}$" },
+          "description": "Repository roles, teams, or approved public handles only."
+        },
+        "source_anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sourceAnchor" }
+        },
+        "read_when": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+        },
+        "must_not_prove": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+        },
+        "retrieval_policy": { "$ref": "#/$defs/retrievalPolicy" },
+        "temporal": { "$ref": "#/$defs/temporal" },
+        "content_hash": { "$ref": "#/$defs/sha256" },
+        "relations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/relation" },
+          "description": "Present on every node. May be empty during Phase 1 classification; reviewed relations are added during Phase 2, and cross-record relation completeness belongs to later semantic validation."
+        },
+        "governing_adr_posture": {
+          "type": "string",
+          "enum": ["not_applicable", "proposed", "accepted", "missing_required"],
+          "description": "Explicit architecture-governance posture for validation."
+        },
+        "architecture_scope": { "$ref": "#/$defs/architectureScope" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "compatibility_pointer" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "authority_class": { "const": "pointer" },
+              "relations": {
+                "contains": {
+                  "type": "object",
+                  "properties": { "relation_type": { "const": "pointer_to" } },
+                  "required": ["relation_type"]
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "generated_report" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "authority_class": { "enum": ["supplementary", "working", "archive"] },
+              "retrieval_policy": {
+                "type": "object",
+                "properties": {
+                  "default_policy": { "enum": ["conditional", "exclude"] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "proof" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "authority_class": { "const": "evidence_only" },
+              "lifecycle_state": { "const": "frozen" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "const": "architecture_contract" },
+              "disposition": { "const": "accepted" }
+            },
+            "required": ["kind", "disposition"]
+          },
+          "then": {
+            "properties": {
+              "governing_adr_posture": { "const": "accepted" }
+            }
+          }
+        }
+      ]
+    },
+    "architectureScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bounded product-architecture extension referencing ontology and assertion IDs. Does not duplicate ontology definitions or override DLG authority, freshness, lifecycle, evidence, disposition, supersession, or retrieval fields.",
+      "properties": {
+        "program_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable product or platform program identities."
+        },
+        "capability_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable shared capability identities."
+        },
+        "client_surface_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable client surface identities."
+        },
+        "adapter_family_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$" },
+          "description": "Stable adapter family identities."
+        },
+        "source_subsystem_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:source:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$" },
+          "description": "Future source subsystem identities."
+        },
+        "assertion_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$" },
+          "description": "Product Architecture Assertion identities."
+        },
+        "relation_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$" },
+          "description": "References to relationship assertion identities. Does not embed mutable current relationship truth as anonymous static edge objects."
+        }
+      }
+    },
+    "supersessionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["newer_document_id", "older_document_id"],
+      "properties": {
+        "newer_document_id": { "$ref": "#/$defs/documentId" },
+        "older_document_id": { "$ref": "#/$defs/documentId" }
+      },
+      "description": "Generated index entry mirroring a reviewed supersedes edge."
+    },
+    "documentGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "graph_id",
+        "generated_at",
+        "repository_revision",
+        "graph_revision",
+        "illustrative",
+        "notice",
+        "nodes",
+        "supersession_set"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/schemaVersion" },
+        "record_type": { "type": "string", "const": "document_graph" },
+        "graph_id": {
+          "type": "string",
+          "pattern": "^codexify:graph:[a-z0-9][a-z0-9-]*$",
+          "description": "Identity of this generated aggregate family."
+        },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "repository_revision": { "$ref": "#/$defs/gitCommit" },
+        "graph_revision": { "$ref": "#/$defs/sha256" },
+        "illustrative": {
+          "type": "boolean",
+          "description": "True only for noncanonical examples."
+        },
+        "notice": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/documentNode" }
+        },
+        "supersession_set": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/supersessionEntry" },
+          "description": "Generated supersession index; may be empty when no truthful example exists."
+        }
+      }
+    }
+  }
+}

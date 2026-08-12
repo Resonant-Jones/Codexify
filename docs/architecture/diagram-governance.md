@@ -1,5 +1,5 @@
 Purpose: Define how Codexify creates and maintains runtime architecture diagrams without drift, duplication, or low-signal documentation sprawl.
-Last updated: 2026-05-11
+Last updated: 2026-08-09
 Source anchors:
 - docs/architecture/kb-validity-matrix.md
 - docs/architecture/runtime-diagrams-v1.md
@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-05-11
+Diagram Review Marker: 2026-08-11 (ADR-064 Orthogonal UI identity-routing review; README reference-only change; no runtime diagram change)
 
 ## Scope
 

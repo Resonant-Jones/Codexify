@@ -39,6 +39,26 @@ htmlcov/
 .AppleDouble
 .LSOverride
 
+# --- Root-level artifacts (session dumps, scratch, stale reports) ---
+pi-session*.html
+codexify_space*.html
+Scratchfile.md
+moondream.tar
+tts_out.wav
+test.jpg
+test.txt
+dead_code_report.*
+Codexify_Schema_Review_For_Claude.pdf
+records.json
+my_records.json
+task_result.json
+test_chatgpt_export.json
+manifest.json
+codemap.json
+FILE_STRUCTURE_MAP.txt
+API_AUDIT_REPORT.md
+AUDIT_REPORT_*.md
+
 # --- Databases / local runtime ---
 *.sqlite3
 *.db
@@ -248,3 +268,5 @@ codex_runner.zip
 RESEARCH:CODE
 .playwright-mcp/
 .build/
+package-lock.json
+requirements.txt

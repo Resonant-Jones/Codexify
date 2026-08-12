@@ -85,3 +85,14 @@ Later tasks may add live smoke proof, profile selection UI, catalog exposure, or
 additional model profiles. Those changes must be separate tasks because each one
 changes a different proof surface and may affect provider governance or release
 posture.
+
+## Relationship to Tool-Capability Qualification
+
+A model profile is a data-only local runtime descriptor. It does not itself
+claim that the described model is tool-capable. Per-model tool qualification,
+including evidence requirements, transport-mode classification, and Guardian
+consumption boundaries, is governed by
+[`whooshd-model-tool-capability-boundary.md`](./whooshd-model-tool-capability-boundary.md).
+Profile metadata (model repo, format, runtime hint) is evidence that can
+inform qualification but does not independently authorize Guardian tool
+advertisement.

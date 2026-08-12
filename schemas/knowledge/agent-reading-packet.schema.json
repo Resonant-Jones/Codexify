@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexify.dev/schemas/knowledge/agent-reading-packet.schema.json",
+  "title": "Codexify Agent Reading Packet",
+  "description": "Strict v1 source-selection receipt for one bounded graph-aware question or task.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packet_id",
+    "created_at",
+    "repository_revision",
+    "graph_revision",
+    "question_or_intent",
+    "authority_profile",
+    "reading_budget",
+    "selected_sources",
+    "resolved_pointers",
+    "supersession_chains",
+    "excluded_sources",
+    "conflicts",
+    "stale_warnings",
+    "proof_gaps",
+    "unavailable_sources",
+    "human_decisions_required",
+    "illustrative",
+    "notice"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Version of the Agent Reading Packet contract."
+    },
+    "packet_id": {
+      "type": "string",
+      "pattern": "^codexify:arp:[a-z0-9][a-z0-9-]*$",
+      "description": "Stable identity of this source-selection receipt."
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "repository_revision": { "$ref": "#/$defs/gitCommit" },
+    "graph_revision": { "$ref": "#/$defs/sha256" },
+    "question_or_intent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "The exact bounded question or task used for source selection."
+    },
+    "authority_profile": {
+      "type": "string",
+      "enum": [
+        "release_and_support",
+        "architecture_decision",
+        "implementation_behavior",
+        "ui_and_design",
+        "historical_and_provenance"
+      ],
+      "description": "Query-specific source ordering, not a global hierarchy."
+    },
+    "reading_budget": { "$ref": "#/$defs/readingBudget" },
+    "selected_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/selectedSource" },
+      "description": "Ordered source list after graph resolution."
+    },
+    "resolved_pointers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resolvedPointer" }
+    },
+    "supersession_chains": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/supersessionChain" }
+    },
+    "excluded_sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/excludedSource" }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/conflict" }
+    },
+    "stale_warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/staleWarning" }
+    },
+    "proof_gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/proofGap" }
+    },
+    "unavailable_sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unavailableSource" }
+    },
+    "human_decisions_required": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "description": "Decisions the resolver is not authorized to make."
+    },
+    "architecture_context": { "$ref": "#/$defs/architectureContext" },
+    "illustrative": {
+      "type": "boolean",
+      "description": "True only for a noncanonical example packet."
+    },
+    "notice": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "Bounded limitations and non-proof statement."
+    }
+  },
+  "$defs": {
+    "documentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$"
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000]+$",
+      "description": "Repository-relative path only."
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "authorityClass": {
+      "type": "string",
+      "enum": [
+        "release_authority",
+        "accepted_adr",
+        "normative_contract",
+        "structural_authority",
+        "operator_authority",
+        "design_canon",
+        "supplementary",
+        "evidence_only",
+        "working",
+        "pointer",
+        "archive"
+      ]
+    },
+    "freshnessState": {
+      "type": "string",
+      "enum": ["current", "stale", "unknown", "not_applicable"]
+    },
+    "evidenceClass": {
+      "type": "string",
+      "enum": [
+        "proven-live-runtime",
+        "proven-test",
+        "proven-code-path",
+        "documented-contract",
+        "working-theory",
+        "aspirational",
+        "unknown"
+      ]
+    },
+    "retrievalPriority": {
+      "type": "string",
+      "enum": ["required", "primary", "supporting", "historical"]
+    },
+    "relationType": {
+      "type": "string",
+      "enum": [
+        "governed_by",
+        "implements",
+        "evidence_for",
+        "derived_from",
+        "generated_from",
+        "supersedes",
+        "contradicts",
+        "pointer_to",
+        "depends_on",
+        "applies_to",
+        "related_to"
+      ]
+    },
+    "readingBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_sources", "maximum_hops", "maximum_total_chunks", "maximum_sections_per_source"],
+      "properties": {
+        "maximum_sources": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "maximum_hops": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "maximum_total_chunks": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "maximum_sections_per_source": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "description": "Hard bounds applied before corpus ingestion."
+    },
+    "graphPathStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_document_id", "relation_type", "to_document_id"],
+      "properties": {
+        "from_document_id": { "$ref": "#/$defs/documentId" },
+        "relation_type": { "$ref": "#/$defs/relationType" },
+        "to_document_id": { "$ref": "#/$defs/documentId" }
+      }
+    },
+    "selectedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_id",
+        "path",
+        "selection_reason",
+        "authority_scope",
+        "authority_class",
+        "freshness_state",
+        "evidence_class",
+        "retrieval_priority",
+        "graph_path"
+      ],
+      "properties": {
+        "document_id": { "$ref": "#/$defs/documentId" },
+        "path": { "$ref": "#/$defs/repositoryPath" },
+        "selection_reason": { "type": "string", "minLength": 1, "maxLength": 700 },
+        "authority_scope": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "authority_class": { "$ref": "#/$defs/authorityClass" },
+        "freshness_state": { "$ref": "#/$defs/freshnessState" },
+        "evidence_class": { "$ref": "#/$defs/evidenceClass" },
+        "retrieval_priority": { "$ref": "#/$defs/retrievalPriority" },
+        "required_sections": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "graph_path": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graphPathStep" },
+          "description": "Empty for a required root; otherwise records every traversal step."
+        }
+      }
+    },
+    "resolvedPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pointer_document_id", "pointer_path", "target_document_id", "target_path", "reason"],
+      "properties": {
+        "pointer_document_id": { "$ref": "#/$defs/documentId" },
+        "pointer_path": { "$ref": "#/$defs/repositoryPath" },
+        "target_document_id": { "$ref": "#/$defs/documentId" },
+        "target_path": { "$ref": "#/$defs/repositoryPath" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "supersessionChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_document_id", "ordered_document_ids", "resolution"],
+      "properties": {
+        "requested_document_id": { "$ref": "#/$defs/documentId" },
+        "ordered_document_ids": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/documentId" }
+        },
+        "resolution": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "excludedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclusion_reason"],
+      "properties": {
+        "document_id": { "$ref": "#/$defs/documentId" },
+        "unresolved_path": { "$ref": "#/$defs/repositoryPath" },
+        "exclusion_reason": { "type": "string", "minLength": 1, "maxLength": 700 }
+      },
+      "anyOf": [
+        { "required": ["document_id"] },
+        { "required": ["unresolved_path"] }
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_ids", "authority_scope", "description", "resolution_status"],
+      "properties": {
+        "document_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/documentId" }
+        },
+        "authority_scope": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 700 },
+        "resolution_status": { "type": "string", "enum": ["unresolved", "human_reviewed", "resolved_by_evidence"] }
+      }
+    },
+    "staleWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "freshness_state", "reason", "changed_anchors"],
+      "properties": {
+        "document_id": { "$ref": "#/$defs/documentId" },
+        "freshness_state": { "type": "string", "const": "stale" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 700 },
+        "changed_anchors": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repositoryPath" }
+        }
+      }
+    },
+    "proofGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority_scope", "required_evidence_class", "reason"],
+      "properties": {
+        "authority_scope": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "required_evidence_class": { "$ref": "#/$defs/evidenceClass" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 700 }
+      }
+    },
+    "unavailableSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "document_id": { "$ref": "#/$defs/documentId" },
+        "path": { "$ref": "#/$defs/repositoryPath" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 700 }
+      },
+      "anyOf": [
+        { "required": ["document_id"] },
+        { "required": ["path"] }
+      ]
+    },
+    "architectureContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bounded architecture context providing product-architecture orientation for the packet. Does not grant execution permission or architecture approval.",
+      "properties": {
+        "programs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Product or platform programs relevant to this question."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Shared capabilities relevant to this question."
+        },
+        "client_surfaces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Client surfaces relevant to this question."
+        },
+        "adapter_families": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Adapter families relevant to this question."
+        },
+        "source_subsystems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureConceptRef" },
+          "description": "Source subsystems relevant to this question."
+        },
+        "dependency_boundaries": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Dependency boundary descriptions relevant to this question."
+        },
+        "posture_assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureAssertionRef" },
+          "description": "Relevant posture assertions with effective periods and authority."
+        },
+        "relationship_assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureAssertionRef" },
+          "description": "Relevant relationship assertions with subject, predicate, object, effective period, and authority."
+        },
+        "ownership_warnings": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Ownership warnings (unowned, entangled) encountered during resolution."
+        },
+        "mapping_gaps": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Unresolved mapping gaps encountered."
+        },
+        "architecture_graph_paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/architectureGraphPath" },
+          "description": "Query-specific relational trails assembled by the resolver. Not filesystem paths."
+        }
+      }
+    },
+    "architectureConceptRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["concept_id", "concept_type", "title", "selection_reason", "graph_path"],
+      "properties": {
+        "concept_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$",
+          "description": "Stable concept identity."
+        },
+        "concept_type": {
+          "type": "string",
+          "enum": ["program", "capability", "client_surface", "adapter_family", "source_subsystem"],
+          "description": "Architecture concept type."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "selection_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Why this concept is relevant to the question."
+        },
+        "graph_path": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "Relational trail explaining why this concept was selected."
+        }
+      }
+    },
+    "architectureAssertionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion_id", "effective_from", "authority_document_ids", "evidence_class"],
+      "properties": {
+        "assertion_id": {
+          "type": "string",
+          "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$"
+        },
+        "assertion_kind": {
+          "type": "string",
+          "enum": ["posture", "relationship"]
+        },
+        "subject_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$"
+        },
+        "predicate": {
+          "type": "string",
+          "description": "Relation predicate when assertion_kind is relationship."
+        },
+        "object_id": {
+          "type": "string",
+          "pattern": "^codexify:(program|capability|client|adapter|source):[a-z0-9][a-z0-9-]*$"
+        },
+        "asserted_dimensions": {
+          "type": "object",
+          "description": "Posture dimensions when assertion_kind is posture.",
+          "properties": {
+            "support_posture": { "type": "string" },
+            "runtime_participation": { "type": "string" },
+            "ownership_state": { "type": "string" },
+            "strategy_state": { "type": "string" },
+            "integration_state": { "type": "string" }
+          }
+        },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_until": { "type": "string", "format": "date-time" },
+        "authority_document_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/documentId" }
+        },
+        "evidence_class": { "$ref": "#/$defs/evidenceClass" },
+        "stale": {
+          "type": "boolean",
+          "description": "Whether the assertion is stale relative to current repository revision."
+        },
+        "conflicting": {
+          "type": "boolean",
+          "description": "Whether another current assertion conflicts with this one."
+        },
+        "inferred": {
+          "type": "boolean",
+          "description": "Whether this assertion is inferred rather than reviewed."
+        },
+        "unresolved": {
+          "type": "boolean",
+          "description": "Whether the assertion is unresolved."
+        }
+      }
+    },
+    "architectureGraphPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "traversal_steps"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-readable explanation of the relational trail."
+        },
+        "traversal_steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graphPathStep" },
+          "description": "Ordered traversal steps through DLG and product-architecture relations."
+        }
+      }
+    }
+  }
+}

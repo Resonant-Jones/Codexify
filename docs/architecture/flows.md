@@ -1,5 +1,5 @@
 Purpose: Document Codexify's highest-value runtime flows in trigger-to-output form so PMs and senior engineers can reason about latency, failure propagation, and change impact without re-deriving the call graph.
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 Source anchors:
 - guardian/routes/
 - guardian/core/
@@ -151,6 +151,7 @@ Trigger:
 Sequence:
 1. `frontend/src/features/chat/GuardianChat.tsx` creates a durable source thread when needed, then persists the authored user message through `POST /api/chat/{thread_id}/messages`. The returned message id is required before dispatch.
 2. The Composer calls the existing `POST /api/agents/coding/execute` route with source thread/message, attempt, project, adapter, instructions, and a bounded permission policy. The frontend does not launch a process or call an adapter directly.
+   - **Supported-profile boundary**: In `v1-local-core-web-mcp`, the `agent_orchestration` and `agent_orchestration_chat` labels are now `enabled`. This exposes the bounded Coding Loop route family (`POST /api/agents/coding/execute`, `GET /api/agents/runs/{run_id}/coding`, `GET /api/chat/{thread_id}/coding-runs`) to the local operator. Unrelated orchestration routes (`agent`, `delegation`, federation, etc.) remain quarantined. Authentication and owner scoping are mandatory on every route.
 3. Guardian authenticates the request, persists an `AgentDeployment` and queued `AgentRun`, emits the existing agent/task lifecycle event, and enqueues the existing `CodingExecutionTask` for `CodingWorker`.
 4. The immediate response is an acceptance receipt (`status=accepted`, `run_id`, and source lineage). Acceptance is not worker execution or completion.
 5. The Composer observes existing task events and reads the canonical projections `GET /api/chat/{thread_id}/coding-runs` and `GET /api/agents/runs/{run_id}/coding`. Active runs are bounded-polled until a terminal state so event delivery is an acceleration path, not the persistence boundary.

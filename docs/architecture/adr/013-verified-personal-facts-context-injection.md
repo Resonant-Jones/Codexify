@@ -46,7 +46,7 @@ The broker is the authoritative read seam for eligible facts. Prompt assembly co
 ## Governing Contracts
 
 - [Retrieval Policy as Control Plane](./004-retrieval-policy-as-control-plane.md)
-- [Imprint UI Deprecation and Identity Ownership](./005-imprint-ui-deprecation-and-identity-ownership.md)
+- [Imprint UI Deprecation and Identity Ownership](./058-imprint-ui-deprecation-and-identity-ownership.md)
 - [Chat Runtime Contract](../chat-runtime-contract.md)
 - [Data and Storage](../data-and-storage.md)
 

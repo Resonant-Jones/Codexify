@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:architecture:product-lanes-and-boundaries",
+  "path": "docs/architecture/product-lanes-and-boundaries.md",
+  "title": "Product Lanes and Boundaries",
+  "kind": "architecture_contract",
+  "summary": "Accepted normative Product Architecture Ontology contract for programs, capabilities, clients, adapters, assertions, relationship vocabulary, and dependency boundaries.",
+  "aliases": [],
+  "authority_class": "normative_contract",
+  "authority_scopes": [
+    "Product Architecture Ontology vocabulary",
+    "product-architecture assertion semantics",
+    "product-architecture relationship vocabulary",
+    "product-architecture dependency and projection doctrine"
+  ],
+  "lifecycle_state": "active",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-08T13:54:04Z",
+    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "triggers": [
+      "ADR-057 is superseded or its accepted scope changes",
+      "the canonical ontology concepts or relationship vocabulary change",
+      "the Product Architecture Assertion schemas or dependency doctrine change"
+    ],
+    "reason": "Verified against accepted ADR-057, the canonical ontology, and assertion schema at the Phase 1 base."
+  },
+  "disposition": "accepted",
+  "evidence_class": "documented-contract",
+  "owners": [
+    "Codexify architecture maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/product-lanes-and-boundaries.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/architecture/adr/057-product-architecture-ontology-dlg-integration.md",
+      "anchor_type": "document",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "docs/knowledge-graph/ontologies/product-architecture-ontology.v1.json",
+      "anchor_type": "schema",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "schemas/knowledge/product-architecture-ontology.schema.json",
+      "anchor_type": "schema",
+      "invalidates_freshness": true
+    },
+    {
+      "path": "schemas/knowledge/product-architecture-assertion.schema.json",
+      "anchor_type": "schema",
+      "invalidates_freshness": true
+    }
+  ],
+  "read_when": [
+    "classifying stable product programs, capabilities, clients, adapters, or source subsystems",
+    "reviewing Product Architecture Assertion or relationship semantics",
+    "checking dependency directions, projection rules, or product-lane boundaries"
+  ],
+  "must_not_prove": [
+    "current support, runtime participation, ownership, strategy, or integration posture",
+    "current product-architecture relationship instances or source-subsystem mappings",
+    "runtime implementation, repository restructuring, or release support"
+  ],
+  "retrieval_policy": {
+    "default_policy": "include",
+    "applicable_intents": [
+      "architecture_decision",
+      "product_architecture",
+      "task_classification"
+    ],
+    "excluded_intents": [
+      "live_runtime_proof"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Relationship to the DLG",
+      "Stable product-program identities",
+      "Product Architecture Assertions",
+      "Product Architecture relationship vocabulary",
+      "Allowed dependency directions",
+      "Non-goals"
+    ],
+    "maximum_chunk_budget": 10
+  },
+  "temporal": {
+    "created_at": "2026-08-07T16:00:01Z",
+    "effective_from": "2026-08-07T00:00:00Z"
+  },
+  "content_hash": "12ce5c58ed63efcad55363695344fc92a2f3f2a0b278e9212209dc785b21a8e2",
+  "relations": [
+    {
+      "relation_type": "governed_by",
+      "target_document_id": "codexify:doc:adr:057-product-architecture-ontology-dlg-integration",
+      "authority_scope": "Product Architecture Ontology vocabulary, assertions, relationships, and dependency doctrine",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "Accepted ADR-057 establishes this Product Architecture Ontology contract and its bounded doctrine."
+    },
+    {
+      "relation_type": "depends_on",
+      "target_document_id": "codexify:doc:architecture:document-lifecycle-graph-contract",
+      "authority_scope": "Product Architecture Ontology integration with DLG identity, authority, lifecycle, evidence, and retrieval semantics",
+      "canonicality": "canonical",
+      "review_status": "accepted",
+      "rationale": "Product Lanes extends the DLG and relies on it for document identity, authority, lifecycle, evidence, and retrieval semantics."
+    }
+  ],
+  "governing_adr_posture": "accepted"
+}

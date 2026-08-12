@@ -9,6 +9,18 @@ Source anchors:
 - guardian/protocol_tokens.py
 - docs/architecture/chat-runtime-contract.md
 - docs/architecture/runtime-protocol-token-contract.md
+- docs/architecture/provider-tool-turn-boundary-contract.md
+
+## Adjacent Governing Contract
+
+Provider wire translation is governed by
+[`provider-tool-turn-boundary-contract.md`](./provider-tool-turn-boundary-contract.md).
+That contract defines the canonical semantic seam between provider transport
+and Codexify model/tool-turn semantics. The bounded runtime described in this
+file consumes provider-normalized semantic outcomes; it does not consume
+provider wire formats directly. The Stage 1 advertised-subset authorization
+gate remains the pre-execution authority seam, and the one-tool-turn runtime
+contract in this file is unchanged.
 
 ## Scope
 
@@ -29,11 +41,14 @@ If the provider returns plain output, the existing completion path continues.
 If the provider returns a structured tool decision:
 
 1. The runtime generates a `toolTurnId`.
-2. The runtime executes exactly one command through the command bus.
-3. The resulting `commandRunId` is captured.
-4. The command result is re-injected into the completion messages as bounded context.
-5. The runtime requests one final assistant answer.
-6. The runtime hard-stops after that final answer.
+2. The runtime derives the canonical command IDs from the nonempty tool set authorized and advertised through `ChatCompletionTask.tools` for that request.
+3. The selected canonical `command_id` must belong to that exact set; missing or nonmatching advertised authority stops with `tool_command_blocked` before `execute_invoke`, with `toolTurnState=failed` and no `commandRunId`.
+4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
+5. The runtime executes exactly one authorized command through the command bus.
+6. The resulting `commandRunId` is captured.
+7. The command result is re-injected into the completion messages as bounded context.
+8. The runtime requests one final assistant answer.
+9. The runtime hard-stops after that final answer.
 
 No recursive retry choreography, planner loop, or second tool turn is part of this slice.
 
@@ -49,6 +64,40 @@ The bounded slice records these runtime fields at the backend seam, on task even
 - `commandRunId`
 
 These fields are surfaced as explicit observability data, not hidden in prose or inline literals.
+
+## Stage 2J-R5 Exposure Observability
+
+The completion payload summary, persisted assistant metadata, and terminal
+completion evidence may carry one nested `toolExposure` object for the initial
+provider attempt:
+
+```json
+{
+  "automatic": true,
+  "advertisedToolCount": 1,
+  "advertisedToolCommandIds": ["op::health_health_get"],
+  "providerDispatchToolCount": 1,
+  "providerDispatchToolCommandIds": ["op::health_health_get"],
+  "commandIdsTruncated": false
+}
+```
+
+`automatic` is true only when `task.tools` was unset before ordinary-chat
+exposure resolution. Explicit lists, including `[]`, remain authoritative and
+record `automatic=false`. The two ID arrays contain sorted canonical command
+identities only, are capped at 16 entries, and are accompanied by the real
+count; `commandIdsTruncated` is true when either bounded array was truncated.
+
+`toolExposure` is bounded observability, not an authority token. It contains no
+tool schema, description, arguments, provider payload, prompt, credentials, or
+provider-private continuation state. Stage 1 remains the authority gate: an
+advertised capability still requires a matching normalized canonical command
+before execution.
+
+Advertisement makes a capability available to a model. It does not require the
+model to select it. Under the current contract, an advertised capability and a
+plain assistant answer are both valid; no tool-selection policy is introduced
+by this evidence surface.
 
 ## Canonical Token Domains
 
@@ -121,3 +170,17 @@ The persisted assistant message keeps the same observability fields in `extra_me
 - No multi-tool orchestration.
 - No bypass of the command bus for tool execution.
 - No widening of the supported beta promise to autonomous coding.
+
+## Stage 2I Ordinary Read-Only Exposure
+
+After effective provider/model resolution and before the first provider
+request, ordinary chat whose `task.tools` is `None` may now receive exactly
+one model-visible ToolSpec: `op::health_health_get` (`GET /health`). Its
+model-facing schema is an empty object with `additionalProperties=false` and
+`maxProperties=0`; the model receives no path, query, header, or body input.
+
+The resolved `task.tools` list is still the exact Stage 1 advertised subset.
+Model visibility does not grant execution authority: a normalized command must
+still match that list before `execute_invoke`, and the one-command hard limit
+is unchanged. Explicit non-empty `task.tools` and explicit `task.tools=[]`
+remain untouched and are never merged with automatic exposure.

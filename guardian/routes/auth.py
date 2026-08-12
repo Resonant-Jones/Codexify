@@ -83,6 +83,29 @@ def _get_user_by_username(session: Any, username: str) -> User | None:
     return session.scalar(select(User).where(User.username == username))
 
 
+def _get_user_by_email(session: Any, email: str) -> User | None:
+    return session.scalar(select(User).where(User.email == email))
+
+
+def _get_user_by_login_identifier(
+    session: Any, identifier: str
+) -> User | None:
+    """Resolve a login identifier without changing canonical ownership.
+
+    Username lookup remains first for backward compatibility. When the
+    identifier is email-shaped, a normalized email lookup provides the
+    remote-login alias while the returned ``User.id`` remains authoritative.
+    """
+    user = _get_user_by_username(session, identifier)
+    if user is not None or "@" not in identifier:
+        return user
+
+    email = normalize_preview_email(identifier)
+    if not email:
+        return None
+    return _get_user_by_email(session, email)
+
+
 def _resolve_token_from_request(
     authorization: str | None,
     gc_session: str | None,
@@ -217,7 +240,7 @@ def login_user(body: AuthLoginRequest) -> dict[str, Any]:
 
     db = _auth_db()
     with db.get_session() as session:
-        user = _get_user_by_username(session, username)
+        user = _get_user_by_login_identifier(session, username)
         if user is None or not verify_password(password, user.password_hash):
             raise HTTPException(
                 status_code=401,

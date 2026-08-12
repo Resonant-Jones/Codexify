@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexify.dev/schemas/knowledge/product-architecture-assertion.schema.json",
+  "title": "Codexify Product Architecture Assertion Schema",
+  "description": "Schema for evidence-backed Product Architecture Assertions representing temporal posture claims, architecture relationship claims, and their provenance. Assertions are temporal and evidence-backed; they are not intrinsic stable concept properties.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assertion_id",
+    "assertion_kind",
+    "subject_id",
+    "assertion_scope",
+    "effective_from",
+    "authority_document_ids",
+    "evidence_document_ids",
+    "governing_adr_document_ids",
+    "repository_revision",
+    "evidence_class",
+    "notes",
+    "record_purpose"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "assertion_id": {
+      "type": "string",
+      "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$",
+      "description": "Stable assertion identity."
+    },
+    "assertion_kind": {
+      "type": "string",
+      "enum": ["posture", "relationship"],
+      "description": "Discriminator: 'posture' for orthogonal dimension claims, 'relationship' for typed architectural edges."
+    },
+    "subject_id": {
+      "$ref": "#/$defs/relationshipEndpointId",
+      "description": "Assertion subject identity. Posture assertions restrict this to stable architecture concepts; relationship assertions apply predicate-specific endpoint rules."
+    },
+    "assertion_scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Bounded scope inside which this assertion is meaningful."
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 start of assertion validity."
+    },
+    "effective_until": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Optional RFC 3339 end of assertion validity. Absence means open-ended."
+    },
+    "authority_document_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dlgDocumentId" },
+      "description": "DLG document identities of the authority sources supporting this assertion."
+    },
+    "evidence_document_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dlgDocumentId" },
+      "description": "DLG document identities of evidence supporting this assertion."
+    },
+    "governing_adr_document_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/governingAdrDocumentId" },
+      "description": "DLG ADR document identities. Future graph validation must also prove that each referenced ADR node exists."
+    },
+    "repository_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full Git commit SHA at which this assertion was recorded."
+    },
+    "evidence_class": {
+      "type": "string",
+      "enum": [
+        "proven-live-runtime",
+        "proven-test",
+        "proven-code-path",
+        "documented-contract",
+        "working-theory",
+        "aspirational",
+        "unknown"
+      ],
+      "description": "Evidence level supporting this assertion."
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Bounded human-readable notes."
+    },
+    "record_purpose": {
+      "type": "string",
+      "enum": ["canonical_assertion", "example_only"],
+      "description": "Whether this is a canonical assertion or an example fixture."
+    },
+    "posture": {
+      "$ref": "#/$defs/postureDimensions",
+      "description": "Required when assertion_kind is 'posture'."
+    },
+    "predicate": {
+      "$ref": "#/$defs/relationPredicate",
+      "description": "Required when assertion_kind is 'relationship'."
+    },
+    "object_id": {
+      "$ref": "#/$defs/relationshipEndpointId",
+      "description": "Required when assertion_kind is 'relationship'. Predicate-specific rules constrain the permitted endpoint category."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "assertion_kind": { "const": "posture" } },
+        "required": ["assertion_kind"]
+      },
+      "then": {
+        "required": ["posture"],
+        "properties": {
+          "subject_id": { "$ref": "#/$defs/architectureConceptId" },
+          "predicate": false,
+          "object_id": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "assertion_kind": { "const": "relationship" } },
+        "required": ["assertion_kind"]
+      },
+      "then": {
+        "required": ["predicate", "object_id"],
+        "properties": {
+          "posture": false
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "predicate": { "const": "participates_in" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "oneOf": [{ "$ref": "#/$defs/sourceSubsystemId" }, { "$ref": "#/$defs/dlgDocumentId" }, { "$ref": "#/$defs/capabilityId" }] },
+                "object_id": { "$ref": "#/$defs/programId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "provides_capability" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "oneOf": [{ "$ref": "#/$defs/programId" }, { "$ref": "#/$defs/sourceSubsystemId" }] },
+                "object_id": { "$ref": "#/$defs/capabilityId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "depends_on_capability" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "$ref": "#/$defs/programId" },
+                "object_id": { "$ref": "#/$defs/capabilityId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "presented_through" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "$ref": "#/$defs/programId" },
+                "object_id": { "$ref": "#/$defs/clientSurfaceId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "integrates_via" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "oneOf": [{ "$ref": "#/$defs/capabilityId" }, { "$ref": "#/$defs/programId" }] },
+                "object_id": { "$ref": "#/$defs/adapterFamilyId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "implemented_by" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "$ref": "#/$defs/implementationConceptId" },
+                "object_id": { "$ref": "#/$defs/sourceSubsystemId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "bounded_by" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "$ref": "#/$defs/architectureConceptId" },
+                "object_id": { "$ref": "#/$defs/dlgDocumentId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "supports_program" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "oneOf": [{ "$ref": "#/$defs/capabilityId" }, { "$ref": "#/$defs/programId" }] },
+                "object_id": { "$ref": "#/$defs/programId" }
+              }
+            }
+          },
+          {
+            "if": { "properties": { "predicate": { "const": "classified_by" } }, "required": ["predicate"] },
+            "then": {
+              "properties": {
+                "subject_id": { "oneOf": [{ "$ref": "#/$defs/dlgDocumentId" }, { "$ref": "#/$defs/sourceSubsystemId" }] },
+                "object_id": { "$ref": "#/$defs/productArchitectureAssertionId" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "programId": {
+      "type": "string",
+      "pattern": "^codexify:program:[a-z0-9][a-z0-9-]*$"
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^codexify:capability:[a-z0-9][a-z0-9-]*$"
+    },
+    "clientSurfaceId": {
+      "type": "string",
+      "pattern": "^codexify:client:[a-z0-9][a-z0-9-]*$"
+    },
+    "adapterFamilyId": {
+      "type": "string",
+      "pattern": "^codexify:adapter:[a-z0-9][a-z0-9-]*$"
+    },
+    "sourceSubsystemId": {
+      "type": "string",
+      "pattern": "^codexify:source:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "Path-independent source-subsystem identity with separate domain and slug segments."
+    },
+    "productArchitectureAssertionId": {
+      "type": "string",
+      "pattern": "^codexify:assertion:product-architecture:[a-z0-9][a-z0-9-]*$"
+    },
+    "dlgDocumentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+      "description": "DLG document identity. All ADR, contract, proof, and authority references use this namespace."
+    },
+    "governingAdrDocumentId": {
+      "type": "string",
+      "pattern": "^codexify:doc:adr:[a-z0-9][a-z0-9-]*$",
+      "description": "DLG document identity in the ADR domain."
+    },
+    "implementationConceptId": {
+      "oneOf": [
+        { "$ref": "#/$defs/programId" },
+        { "$ref": "#/$defs/capabilityId" },
+        { "$ref": "#/$defs/clientSurfaceId" },
+        { "$ref": "#/$defs/adapterFamilyId" }
+      ]
+    },
+    "architectureConceptId": {
+      "oneOf": [
+        { "$ref": "#/$defs/programId" },
+        { "$ref": "#/$defs/capabilityId" },
+        { "$ref": "#/$defs/clientSurfaceId" },
+        { "$ref": "#/$defs/adapterFamilyId" },
+        { "$ref": "#/$defs/sourceSubsystemId" }
+      ]
+    },
+    "relationshipEndpointId": {
+      "oneOf": [
+        { "$ref": "#/$defs/programId" },
+        { "$ref": "#/$defs/capabilityId" },
+        { "$ref": "#/$defs/clientSurfaceId" },
+        { "$ref": "#/$defs/adapterFamilyId" },
+        { "$ref": "#/$defs/sourceSubsystemId" },
+        { "$ref": "#/$defs/dlgDocumentId" },
+        { "$ref": "#/$defs/productArchitectureAssertionId" }
+      ]
+    },
+    "relationPredicate": {
+      "type": "string",
+      "enum": [
+        "participates_in",
+        "provides_capability",
+        "depends_on_capability",
+        "presented_through",
+        "integrates_via",
+        "implemented_by",
+        "bounded_by",
+        "supports_program",
+        "classified_by"
+      ],
+      "description": "Canonical Product Architecture relation predicate."
+    },
+    "postureDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "support_posture": {
+          "type": "string",
+          "enum": ["supported", "internal", "optional", "strategic", "experimental", "historical", "unknown"],
+          "description": "Current support posture. Never intrinsic to stable concept identity."
+        },
+        "runtime_participation": {
+          "type": "string",
+          "enum": ["required", "supporting", "optional", "inactive", "unknown"],
+          "description": "Current runtime participation posture."
+        },
+        "ownership_state": {
+          "type": "string",
+          "enum": ["owned", "unowned", "entangled", "unknown"],
+          "description": "Current ownership state. 'unowned' and 'entangled' are ownership warnings, not maturity statuses."
+        },
+        "strategy_state": {
+          "type": "string",
+          "enum": ["now", "next", "observatory", "parked", "unknown"],
+          "description": "Current strategic posture."
+        },
+        "integration_state": {
+          "type": "string",
+          "enum": ["integrated", "partial", "contract_only", "prototype", "absent", "unknown"],
+          "description": "Current integration state."
+        }
+      },
+      "description": "Orthogonal posture dimensions. At least one dimension must be asserted."
+    }
+  }
+}
