@@ -209,6 +209,9 @@ chatgpt-conversation.json
 .codex/
 .codexify/coding-artifacts/
 
+# Local Git worktrees
+.worktrees/
+
 # Local/vendor checkouts
 MiniMax-MCP-main/
 
