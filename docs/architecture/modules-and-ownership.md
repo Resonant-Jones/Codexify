@@ -71,6 +71,20 @@ These files are the fastest way to change system behavior and the fastest way to
 
 This repo does not declare formal team ownership in code, so the grouping below is a recommendation derived from coupling:
 
+### Chat capability preparation (Stage 2J-R5D)
+
+`guardian/core/chat_completion_service.py` owns ordinary-completion capability
+preparation after effective provider/model resolution: preserving explicit
+`task.tools`, resolving automatic Stage 2I exposure when tools are unset, and
+constructing bounded `toolExposure` evidence before bounded execution.
+
+`guardian/workers/chat_worker.py` owns queued task and lifecycle orchestration.
+It consumes the completion service's prepared exposure result and must not own
+capability-exposure policy, independent command-manifest projection, or a
+parallel `toolExposure` truth surface. Provider adapters remain downstream
+transport translators; Stage 1 and the Command Bus retain authority and
+execution responsibilities respectively.
+
 - Core loop cluster:
   - chat routes
   - completion service and chat worker

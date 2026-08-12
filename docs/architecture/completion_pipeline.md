@@ -222,17 +222,21 @@ provider/model identity, terminal status, visible-output state, explicit-termina
 observation, finish reason when available, clean transport completion, bounded
 failure classification, and whether pre-output retry remains permitted.
 
-## Stage 2I capability exposure seam
+## Canonical chat capability-preparation seam (Stage 2I / R5D)
 
-For ordinary chat with `task.tools is None`, the pipeline resolves the effective
-provider/model first, then evaluates the narrow Stage 2I exposure policy before
-the first provider inference request:
+For ordinary chat, the pipeline resolves the effective provider/model first,
+then both direct/shared and queued-worker execution enter the same
+`chat_completion_service._prepare_chat_tool_exposure` seam before bounded
+completion execution. The service-owned seam preserves explicit `task.tools`,
+resolves the narrow Stage 2I exposure policy only when `task.tools is None`,
+and constructs the bounded R5 `toolExposure` observation:
 
 ```text
 effective provider/model resolution
-→ capability exposure
+→ shared capability preparation
+   → preserve explicit task.tools
+   → resolve automatic Stage 2I exposure when task.tools is None
    → bounded `toolExposure` advertisement evidence
-→ task.tools
 → provider inference
    → bounded `toolExposure` provider-dispatch evidence
 → normalization
@@ -255,6 +259,13 @@ initial `chat_with_ai` / provider-router handoff. The dispatch evidence is not
 a captured raw HTTP request. It deliberately excludes tool schemas,
 descriptions, arguments, messages, prompts, credentials, provider payloads,
 and provider-private continuation state.
+
+Workers consume this service-owned preparation result; they do not derive
+capability exposure, project manifests, or construct an independent
+`toolExposure` object. Provider adapters remain downstream translation layers.
+The preparation seam neither grants authority nor executes a command: Stage 1
+still checks the exact advertised subset, and the Command Bus remains the only
+execution seam.
 
 Availability and selection remain separate concepts. A provider may receive an
 advertised capability and validly return a plain assistant answer. This pipeline

@@ -15,7 +15,8 @@ langchain-text-splitters
 # Inference Adapters
 openai
 groq
-mlx
+mlx==0.30.0; sys_platform == "darwin"
+mlx[cpu]==0.30.0; sys_platform == "linux"
 mlx-lm
 mlx-vlm
 torch
