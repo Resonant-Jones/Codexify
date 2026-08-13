@@ -6,7 +6,13 @@
 # is the only cloud provider admitted by the egress allowlist.
 #
 # Governing ADRs: ADR-005 (runtime mode and account boundary invariants),
-# ADR-052 (Whoosh'd Gemma and approved DeepSeek startup profile).
+# ADR-052 (Whoosh'd Gemma and approved DeepSeek startup profile),
+# ADR-053 (node-hosted Room access boundary; tester-only route posture).
+#
+# Route posture: this canonical friends/family tester profile mounts the
+# existing Hosted Room owner/guest route families for private-preview
+# collaboration qualification only. This does not widen the default beta
+# promise, and it does not qualify Hosted Rooms for release.
 
 name: v1-whooshd-deepseek-web
 version: 1
@@ -46,6 +52,8 @@ route_posture:
     - embeddings
     - obsidian
     - auth
+    - hosted_rooms
+    - hosted_room_guest
   internal_only:
     - coding_work_orders
     - command_bus

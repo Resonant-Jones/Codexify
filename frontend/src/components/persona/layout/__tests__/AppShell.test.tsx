@@ -86,6 +86,7 @@ const routeCapabilityState = {
 const listCodexEntriesSpy = vi.hoisted(() => vi.fn(async () => []));
 const guardianShellPropsSpy = vi.hoisted(() => vi.fn());
 const documentsSidebarPropsSpy = vi.hoisted(() => vi.fn());
+const roomModePropsSpy = vi.hoisted(() => vi.fn());
 const authTestState = vi.hoisted(() => ({
   auth: { ready: true, status: "authenticated" as const, token: "test-token" },
   gateAllowed: true,
@@ -412,6 +413,19 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
             {destination.label}
           </button>
         ))}
+      </div>
+    );
+  },
+}));
+
+vi.mock("@/features/rooms/RoomMode", () => ({
+  default: (props: { roomId: string; onLeave: () => void }) => {
+    roomModePropsSpy(props);
+    return (
+      <div data-testid="room-mode-mock" data-room-id={props.roomId}>
+        <button type="button" onClick={props.onLeave}>
+          Leave Room
+        </button>
       </div>
     );
   },
@@ -2030,5 +2044,43 @@ describe("AppShell documents sidebar posture", () => {
     expect(screen.queryAllByTestId("documents-shared-sidebar-pane")).toHaveLength(0);
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("documents-scope-rail")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppShell Room route", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    roomModePropsSpy.mockClear();
+    setRoutePath("/rooms/room-owner-1");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("enters Room Mode inside AppShell and leaves through normal Guardian navigation", async () => {
+    render(<AppShell />);
+
+    const roomMode = await screen.findByTestId("room-mode-mock");
+    expect(roomMode).toHaveAttribute("data-room-id", "room-owner-1");
+    expect(roomModePropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId: "room-owner-1" })
+    );
+    expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-chat-with-sidebar-mock")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave Room" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat");
+    });
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
 });

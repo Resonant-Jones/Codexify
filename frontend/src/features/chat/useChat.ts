@@ -46,6 +46,10 @@ export type ChatMessage = {
   audio_mime_type?: string | null;
   audio_duration_ms?: number | null;
   audio_error?: string | null;
+  sender?: {
+    participant_id: string;
+    display_name: string | null;
+  } | null;
 };
 
 export type CompletionState = {
