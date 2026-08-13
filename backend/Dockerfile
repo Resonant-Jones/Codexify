@@ -7,23 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /tmp
 
-# Copy requirements and install dependencies
-COPY requirements/ backend/requirements.txt* ./
+# The backend manifest is the sole canonical runtime dependency source.
+COPY backend/requirements.txt /tmp/backend/requirements.txt
 
 RUN python - <<'PY'
 import os, sys, subprocess
-candidates = [
-    "./backend/requirements.txt",
-    "./all.txt",
-]
-req_file = None
-for p in candidates:
-    if os.path.exists(p):
-        req_file = p
-        break
-
-if not req_file:
-    sys.exit(1)
+req_file = "/tmp/backend/requirements.txt"
+if not os.path.isfile(req_file):
+    raise SystemExit(f"canonical backend requirements missing: {req_file}")
 
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'])
 subprocess.check_call(['pip', 'install', '-r', req_file])
