@@ -125,6 +125,8 @@ import {
   getFlowBuilderPath,
   type FlowBuilderMode,
 } from "@/features/flowBuilder/flowBuilderRoute";
+import RoomMode from "@/features/rooms/RoomMode";
+import { parseHostedRoomRoute } from "@/features/rooms/roomRoute";
 import "./AppShell.css";
 
 // TEMPORARY: inject static design tokens until full migration is done.
@@ -1215,7 +1217,12 @@ export default function AppShell({
 
     return "dashboard";
   });
-  const workspaceShellEnabled = isWorkspaceShellView(view);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return parseHostedRoomRoute(window.location.pathname)?.roomId ?? null;
+  });
+  const workspaceShellEnabled =
+    activeRoomId == null && isWorkspaceShellView(view);
   const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
     ? view
     : "dashboard";
@@ -1301,6 +1308,14 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = () => {
+      const roomRoute = parseHostedRoomRoute(window.location.pathname);
+      if (roomRoute) {
+        setActiveRoomId(roomRoute.roomId);
+        setActiveRouteThreadId(null);
+        return;
+      }
+
+      setActiveRoomId(null);
       const routeView = resolveViewFromPathname(window.location.pathname);
       const routeThreadId = readRouteThreadId();
       if (routeThreadId != null) {
@@ -1451,6 +1466,7 @@ export default function AppShell({
         seedDocumentsScopeFromGuardian();
         documentsEntrySeededRef.current = true;
       }
+      setActiveRoomId(null);
       setView(nextView);
       if (typeof window === "undefined") return;
 
@@ -1465,6 +1481,7 @@ export default function AppShell({
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
 
+    setActiveRoomId(null);
     const nextPath =
       lastGuardianPathRef.current ?? resolvePathForView("guardian", activeRouteThreadId);
     if (window.location.pathname !== nextPath) {
@@ -1473,6 +1490,7 @@ export default function AppShell({
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, [activeRouteThreadId]);
   const navigateToThread = useCallback((threadId: string | number | null) => {
+    setActiveRoomId(null);
     setView("guardian");
     if (typeof window === "undefined") return;
 
@@ -1912,6 +1930,7 @@ export default function AppShell({
     isPhoneShell
   );
   const isNarrowGuardianFrameShell =
+    activeRoomId == null &&
     appShellPresentationProfile === "guardian_frame_first";
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
@@ -1945,8 +1964,11 @@ export default function AppShell({
   const mobileInteractionContext = useMobileNavFeedbackContext(isPhoneShell);
   const getMobileNavPillStyle = useCallback(
     (navView: AppShellView) =>
-      getMobileNavPillSelectionStyle(mobileInteractionContext, view === navView),
-    [mobileInteractionContext, view]
+      getMobileNavPillSelectionStyle(
+        mobileInteractionContext,
+        activeRoomId == null && view === navView
+      ),
+    [activeRoomId, mobileInteractionContext, view]
   );
 
   /* ─────────────────────────────────────────────────────────────────────────────
@@ -2829,7 +2851,7 @@ export default function AppShell({
       isPhoneShell={isPhoneShell}
       className="pill-tab h-9 w-9 shrink-0 p-0"
       square
-      data-state={view === "settings" ? "active" : "inactive"}
+      data-state={activeRoomId == null && view === "settings" ? "active" : "inactive"}
       data-testid="settings-utility-toggle"
       aria-label="Settings"
       title="Settings"
@@ -2863,7 +2885,7 @@ export default function AppShell({
       }}
     />
   ) : null;
-  const documentsSidebarToggle = view === "documents" ? (
+  const documentsSidebarToggle = activeRoomId == null && view === "documents" ? (
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
@@ -3240,8 +3262,8 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "guardian" ? "active" : "inactive"}
-                aria-current={view === "guardian" ? "page" : undefined}
+                data-state={activeRoomId == null && view === "guardian" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "guardian" ? "page" : undefined}
                 onClick={() => navigateToView("guardian")}
                 style={getMobileNavPillStyle("guardian")}
               >
@@ -3250,8 +3272,8 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "dashboard" ? "active" : "inactive"}
-                aria-current={view === "dashboard" ? "page" : undefined}
+                data-state={activeRoomId == null && view === "dashboard" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "dashboard" ? "page" : undefined}
                 onClick={() => navigateToView("dashboard")}
                 style={getMobileNavPillStyle("dashboard")}
               >
@@ -3260,8 +3282,8 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "documents" ? "active" : "inactive"}
-                aria-current={view === "documents" ? "page" : undefined}
+                data-state={activeRoomId == null && view === "documents" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
                 style={getMobileNavPillStyle("documents")}
               >
@@ -3270,8 +3292,8 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "gallery" ? "active" : "inactive"}
-                aria-current={view === "gallery" ? "page" : undefined}
+                data-state={activeRoomId == null && view === "gallery" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "gallery" ? "page" : undefined}
                 onClick={() => navigateToView("gallery")}
                 style={getMobileNavPillStyle("gallery")}
               >
@@ -3280,8 +3302,8 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={view === "personaStudio" ? "active" : "inactive"}
-                aria-current={view === "personaStudio" ? "page" : undefined}
+                data-state={activeRoomId == null && view === "personaStudio" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "personaStudio" ? "page" : undefined}
                 onClick={() => navigateToView("personaStudio")}
                 style={getMobileNavPillStyle("personaStudio")}
               >
@@ -3354,7 +3376,13 @@ export default function AppShell({
               />
             </FrameCard>
           )}
-          {!startupLocked && view === "documents" && (
+          {!startupLocked && activeRoomId != null && (
+            <RoomMode
+              roomId={activeRoomId}
+              onLeave={() => navigateToView("guardian")}
+            />
+          )}
+          {!startupLocked && activeRoomId == null && view === "documents" && (
             <div
               className="h-full w-full isolate"
               data-active-view="documents"
@@ -3545,7 +3573,7 @@ export default function AppShell({
               </div>
             </div>
           )}
-          {!startupLocked && view === "gallery" && (
+          {!startupLocked && activeRoomId == null && view === "gallery" && (
             <>
               <FrameCard
                 fill
@@ -3609,7 +3637,7 @@ export default function AppShell({
               <ImageGenModal open={showImgGenGallery} onOpenChange={setShowImgGenGallery} />
             </>
           )}
-          {!startupLocked && view === "guardian" && (
+          {!startupLocked && activeRoomId == null && view === "guardian" && (
             <div
               className="h-full w-full isolate"
               data-active-view="guardian"
@@ -3684,7 +3712,7 @@ export default function AppShell({
               </div>
             </div>
           )}
-          {!startupLocked && view === "dashboard" && (
+          {!startupLocked && activeRoomId == null && view === "dashboard" && (
             <div
               className="h-full w-full isolate"
               data-active-view="dashboard"
@@ -3727,7 +3755,7 @@ export default function AppShell({
               </div>
             </div>
           )}
-          {!startupLocked && view === "settings" && (
+          {!startupLocked && activeRoomId == null && view === "settings" && (
             <FrameCard
               refractiveFallback
               shimmerMode="subtle"
@@ -3774,7 +3802,7 @@ export default function AppShell({
               </div>
             </FrameCard>
           )}
-          {!startupLocked && view === "flowBuilder" && (
+          {!startupLocked && activeRoomId == null && view === "flowBuilder" && (
             <div
               className="h-full w-full isolate"
               data-active-view="flowBuilder"
@@ -3792,7 +3820,7 @@ export default function AppShell({
               </FrameCard>
             </div>
           )}
-          {!startupLocked && view === "personaStudio" && (
+          {!startupLocked && activeRoomId == null && view === "personaStudio" && (
             <div
               className="h-full w-full isolate"
               data-active-view="personaStudio"
