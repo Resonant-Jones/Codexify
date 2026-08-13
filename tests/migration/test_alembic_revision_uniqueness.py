@@ -93,7 +93,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert isinstance(repository_bindings.down_revision, str)
 
     heads = script.get_heads()
-    assert heads == ["6e2b9c4a7d1f"]
+    assert heads == ["9d4c2a7e1b6f"]
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
