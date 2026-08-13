@@ -28,6 +28,7 @@ This file is authoritative for:
 - Added Whoosh'd capability projection, structured transport, qualification/attestation seams, and exact-target identity reconciliation; the receipt covers one target/schema identity only.
 - Canonicalized ADR-060 through ADR-063 and reverified DLG/knowledge-graph freshness after history corrections; these are control-plane/documentation changes.
 - Added a Doctrine of Legible Responsibility and related tool-loop contract updates; they clarify boundaries without proving runtime readiness.
+- Repaired the historical `d6f7a8b9c0d1` ThreadSpace migration lineage and the `b2c3d4e5f6a7` account-observability migration-content drift: `b2c3d4e5f6a7` was restored to its original applied body and a forward normalization migration (`9d4c2a7e1b6f`) converges clean, already-canonical, and backup-derived tester schemas onto one canonical ADR-049 shape at a single Alembic head. The preserved tester source remains unmodified and still requires a separate live upgrade/startup task; the canonical migrator psycopg driver compatibility remains a separate blocker until independently landed/proven; Hosted Room runtime proof remains pending; no release promise was widened.
 
 ## Current supported reality
 
