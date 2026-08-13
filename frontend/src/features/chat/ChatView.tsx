@@ -250,6 +250,7 @@ export function ChatView({
   onCodexDraftDismiss,
   codingLoopRuns = [],
   codingLoopDispatchErrors = [],
+  showHumanAuthorNames = false,
 }: {
   threadId: number;
   guardianName?: string;
@@ -281,6 +282,7 @@ export function ChatView({
   onCodexDraftDismiss?: () => void;
   codingLoopRuns?: CodingLoopRun[];
   codingLoopDispatchErrors?: CodingLoopDispatchFailure[];
+  showHumanAuthorNames?: boolean;
 }) {
   const { containerRef, endRef } = useChatAutoScroll(messages.length);
   const initialScrollRef = useRef(true);
@@ -947,6 +949,11 @@ export function ChatView({
             </div>
           ) : null}
           {messages.map((message, index) => {
+            const senderDisplayName = message.sender?.display_name?.trim() || null;
+            const humanAuthorName =
+              senderDisplayName ?? (showHumanAuthorNames ? "Room participant" : "You");
+            const assistantAuthorName =
+              senderDisplayName ?? guardianName ?? "Guardian";
             const audioState = resolveMessageAudioState(message);
             const messageId = audioState.messageId;
             const canPlay = message.role !== "user" && Number.isFinite(messageId);
@@ -986,12 +993,23 @@ export function ChatView({
                     setMenu({ x: event.clientX, y: event.clientY, text: content });
                   }}
                 >
+                {showHumanAuthorNames && message.role === "user" ? (
+                  <div
+                    className="mb-1 flex justify-end pr-1 text-xs font-medium opacity-70"
+                    style={{ color: "var(--text)" }}
+                    data-testid="chat-message-author"
+                  >
+                    {humanAuthorName}
+                  </div>
+                ) : null}
                 <ChatBubble
                   message={{
                     id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
                     authorId: message.role === "user" ? "me" : "bot",
                     authorName:
-                      message.role === "user" ? "You" : guardianName || "Guardian",
+                      message.role === "user"
+                        ? humanAuthorName
+                        : assistantAuthorName,
                     content: message.content ?? "",
                     createdAt: normalizeMessageTimestamp(message.created_at),
                     attachments: message.attachments?.map((attachment) => ({

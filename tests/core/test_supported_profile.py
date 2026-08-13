@@ -69,12 +69,19 @@ def test_tester_profile_hosted_room_routes_enabled() -> None:
     assert manifest.route_status("hosted_room_guest") == "enabled"
 
 
-def test_hosted_room_routes_remain_quarantined_outside_tester_profile() -> None:
+def test_hosted_room_routes_remain_quarantined_outside_room_enabled_profiles() -> None:
     profiles_dir = Path("config/supported_profiles")
 
+    # The only profiles permitted to enable the Hosted Room route families
+    # are the two explicit tester/private-preview profiles below. Every other
+    # supported profile must leave both labels quarantined.
+    room_enabled_profiles = {
+        "v1-friends-family-web",
+        "v1-whooshd-deepseek-web",
+    }
     for profile_path in profiles_dir.glob("*.yaml"):
         manifest = load_supported_profile(profile_path.stem)
-        if manifest.name == "v1-friends-family-web":
+        if manifest.name in room_enabled_profiles:
             continue
         assert manifest.route_status("hosted_rooms") == "quarantined"
         assert manifest.route_status("hosted_room_guest") == "quarantined"
@@ -142,6 +149,16 @@ def test_whooshd_deepseek_profile_enables_bounded_preview_routes() -> None:
         assert manifest.route_status(route) == "enabled"
 
 
+def test_whooshd_deepseek_profile_enables_hosted_room_routes() -> None:
+    """The canonical friends/family tester profile explicitly admits the
+    existing Hosted Room owner/guest route families for private-preview
+    collaboration qualification."""
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+
+    assert manifest.route_status("hosted_rooms") == "enabled"
+    assert manifest.route_status("hosted_room_guest") == "enabled"
+
+
 def test_whooshd_deepseek_profile_quarantines_high_blast_routes() -> None:
     manifest = load_supported_profile("v1-whooshd-deepseek-web")
 
@@ -158,8 +175,6 @@ def test_whooshd_deepseek_profile_quarantines_high_blast_routes() -> None:
         "agent",
         "agent_orchestration",
         "agent_orchestration_chat",
-        "hosted_rooms",
-        "hosted_room_guest",
         "user_profile",
     }:
         assert manifest.route_status(route) == "quarantined"

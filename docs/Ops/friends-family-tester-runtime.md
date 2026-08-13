@@ -2,8 +2,8 @@
 
 > **Classification:** operator runbook
 > **Profile:** `v1-whooshd-deepseek-web`
-> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040, ADR-052
-> **Last updated:** 2026-08-10
+> **ADR alignment:** ADR-005 (Runtime Mode and Account Boundary Invariants), ADR-039, ADR-040, ADR-052, ADR-053 (Node-Hosted Room Access Boundary)
+> **Last updated:** 2026-08-12
 
 ## Purpose
 
@@ -37,6 +37,36 @@ It also gives the tester UI a separate Tailscale identity, `codexify-test`. The 
 | Cloud chat provider | Not enabled by this profile | DeepSeek `deepseek-v4-flash`, only when selected in the durable thread configuration |
 
 The Tester keeps `LLM_PROVIDER=local` and the Whoosh'd Gemma model as the global default. Its egress allowlist permits `deepseek`; a thread can explicitly select `providerId=deepseek` and `modelId=deepseek-v4-flash` through the ordinary thread configuration API. That selection does not change the global local default. Cloud credentials remain local-only in `.env.tester`.
+
+## Hosted Room Route Posture (Private Preview)
+
+The canonical tester profile (`v1-whooshd-deepseek-web`) explicitly enables
+the existing `hosted_rooms` and `hosted_room_guest` route labels for private
+collaboration qualification. At backend startup this mounts the
+already-implemented owner router (`/api/hosted-rooms` family, including the
+existing Guardian invocation route) and the guest router
+(`/api/hosted-room-invitations/exchange` and `/api/hosted-room-session`
+families, including the existing guest Guardian invocation route).
+
+Posture boundary:
+
+- This is a **tester/private-preview** route-profile activation. It does not
+  qualify Hosted Rooms for production support.
+- It does **not** widen the default beta promise. The default
+  `v1-local-core-web-mcp` profile and unrelated supported profiles still
+  leave both labels quarantined.
+- It does **not** establish live qualification by itself. An owner + invited
+  guest canonical-transcript live proof at the current tip is still required
+  before any Room collaboration claim.
+- Federation, cross-node Room behavior, and unrelated collaboration surfaces
+  remain quarantined.
+- OpenAPI route visibility proves router registration only; it does not prove
+  live Room invocation, worker execution, Guardian provenance, or release
+  support.
+
+Because the profile manifest is mounted read-only and loaded at backend
+startup, this route posture takes effect after restarting the tester
+`backend` service. It does not require a frontend restart.
 
 ## First-Time Setup
 
