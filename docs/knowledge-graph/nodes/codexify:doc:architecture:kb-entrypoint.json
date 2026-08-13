@@ -15,15 +15,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-11T13:06:35Z",
-    "verified_commit": "c4787236e48a1791f477d50a863a063f87f3e8b5",
+    "state": "current",
+    "verified_at": "2026-08-13T17:37:52Z",
+    "verified_commit": "c40295871ff2263dd45ad47137e106b47e3e1b91",
     "triggers": [
       "architecture entrypoints or validity guidance change",
       "listed subsystem ownership or change-location paths change",
       "the current-state routing boundary changes"
     ],
-    "reason": "Architecture KB source routing and the governed ADR corpus changed during Orthogonal UI canonicalization from ADR-055 to ADR-064 and require committed-revision semantic re-verification."
+    "reason": "Re-verified Architecture KB source routing against committed source revision c40295871ff2263dd45ad47137e106b47e3e1b91 (PR #702 head) after the account-observability migration-history repair and the prior ADR-055 to ADR-064 canonicalization; entrypoint, routing, and change-location guidance remain current."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -95,7 +95,7 @@
     "created_at": "2026-02-17T16:32:37Z",
     "effective_from": "2026-02-17T16:32:37Z"
   },
-  "content_hash": "75e7976f8656d17a2d57bc33e794afe2cf4a8db3afadc3c8a4e79a213c2fb9b3",
+  "content_hash": "8686b19fa8d92aed516750aa02f99e4afed22e6b388f9c4f171e1666eefaa3a1",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }
