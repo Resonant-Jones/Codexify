@@ -8,6 +8,24 @@ import { ThemeMode, ExtColors } from "@/types/ui";
 import { ImagePlus } from "lucide-react";
 import { useConnectors } from "@/features/connectors/useConnectors";
 import { ConnectorCard } from "@/features/connectors/ConnectorCard";
+import {
+  ConnectionConfigModal,
+} from "@/features/connectors/ConnectorConfigModal";
+import {
+  AUTH_METHOD_LABELS,
+  canLaunchSetup,
+  CATEGORY_LABELS,
+  ConnectionCategory,
+  ConnectionEntry,
+  IMPLEMENTATION_STATE_LABELS,
+  matchesSearch,
+  SETUP_STATE_LABELS,
+  useConnections,
+} from "@/features/connectors/connectionCatalog";
+import {
+  getConnectionLogo,
+  getConnectionMonogram,
+} from "@/features/connectors/connectorLogos";
 import ImprintReviewPanel from "@/features/settings/components/ImprintReviewPanel";
 import PersonalFactsPanel from "@/features/settings/components/PersonalFactsPanel";
 import SystemPromptInspector from "@/features/settings/components/SystemPromptInspector";
@@ -1557,8 +1575,38 @@ export function SettingsView({
                 Checking connector availability…
               </div>
             )}
-            {loading && <div className="text-sm" style={{ color: "var(--muted)" }}>Loading connectors…</div>}
-            {error && <div className="text-sm" style={{ color: "var(--danger-text)" }}>{error}</div>}
+            {runtimeCapabilitiesReady &&
+              connectorsCapability !== "unavailable" && (
+                <ConnectionsBay
+                  ready={runtimeCapabilitiesReady}
+                  unavailable={connectorsCapability === "unavailable"}
+                />
+              )}
+            <div>
+              <div
+                className="text-sm font-semibold"
+                style={SETTINGS_DENSITY.sectionTitle}
+              >
+                Sync connectors
+              </div>
+              <p
+                className="text-xs leading-relaxed"
+                style={{ color: "var(--muted)" }}
+              >
+                Repository and document sync connectors (GitHub) remain on
+                their existing configuration surface.
+              </p>
+            </div>
+            {loading && (
+              <div className="text-sm" style={{ color: "var(--muted)" }}>
+                Loading connectors…
+              </div>
+            )}
+            {error && (
+              <div className="text-sm" style={{ color: "var(--danger-text)" }}>
+                {error}
+              </div>
+            )}
             {runtimeCapabilitiesReady &&
             connectorsCapability !== "unavailable" &&
             Array.isArray(connectors) &&
@@ -1578,7 +1626,9 @@ export function SettingsView({
               connectorsCapability !== "unavailable" &&
               !loading &&
               !error && (
-                <div className="text-sm" style={{ color: "var(--muted)" }}>No connectors available</div>
+                <div className="text-sm" style={{ color: "var(--muted)" }}>
+                  No sync connectors configured
+                </div>
               )
             )}
           </SettingsSectionCard>
@@ -1934,6 +1984,359 @@ export function SettingsView({
           </div>
         </div>
       </SettingsPanelShell>
+    </div>
+  );
+}
+
+type ConnectionStatusChipProps = {
+  label: string;
+  value: string;
+  tone: "positive" | "neutral" | "warning" | "danger";
+};
+
+function connectionStatusChipTone(tone: ConnectionStatusChipProps["tone"]) {
+  switch (tone) {
+    case "positive":
+      return "text-emerald-500";
+    case "warning":
+      return "text-amber-400";
+    case "danger":
+      return "text-red-500";
+    default:
+      return "opacity-70";
+  }
+}
+
+function ConnectionStatusChip({ label, value, tone }: ConnectionStatusChipProps) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-[color:var(--panel-border)] px-2 py-0.5 text-[11px]"
+      style={{ color: "var(--muted)" }}
+    >
+      <span className="font-medium">{label}</span>
+      <span className={connectionStatusChipTone(tone)}>{value}</span>
+    </span>
+  );
+}
+
+function implementationChipTone(state: ConnectionEntry["implementation_state"]) {
+  switch (state) {
+    case "implemented":
+      return "positive" as const;
+    case "experimental":
+    case "partial":
+      return "warning" as const;
+    default:
+      return "neutral" as const;
+  }
+}
+
+function setupChipTone(state: ConnectionEntry["setup_state"]) {
+  switch (state) {
+    case "connected":
+    case "configured":
+      return "positive" as const;
+    case "degraded":
+    case "authenticating":
+      return "warning" as const;
+    case "error":
+      return "danger" as const;
+    default:
+      return "neutral" as const;
+  }
+}
+
+function authorizationChip(entry: ConnectionEntry) {
+  const authorization = entry.authorization;
+  if (!authorization) return null;
+  if (!authorization.registered) {
+    return (
+      <ConnectionStatusChip
+        label="Registry"
+        value="not listed"
+        tone="neutral"
+      />
+    );
+  }
+  if (authorization.enabled) {
+    return (
+      <ConnectionStatusChip
+        label="Registry"
+        value="authorized"
+        tone="positive"
+      />
+    );
+  }
+  if (authorization.authorized && !authorization.available) {
+    return (
+      <ConnectionStatusChip label="Registry" value="blocked" tone="danger" />
+    );
+  }
+  return (
+    <ConnectionStatusChip
+      label="Registry"
+      value="not authorized"
+      tone="neutral"
+    />
+  );
+}
+
+/**
+ * The Settings Connections bay.
+ *
+ * Projects the canonical backend catalog (`GET /api/connections`) into
+ * category navigation, search, truthful status signals, and a metadata-driven
+ * setup flow. It deliberately never merges implementation, setup, and
+ * authorization into a single status dot.
+ */
+function ConnectionsBay({
+  ready,
+  unavailable,
+}: {
+  ready: boolean;
+  unavailable: boolean;
+}) {
+  const { connections, categories, loading, error, refresh } = useConnections({
+    enabled: ready && !unavailable,
+  });
+  const [activeCategory, setActiveCategory] = useState<
+    ConnectionCategory | "all"
+  >("all");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [configOpenId, setConfigOpenId] = useState<string | null>(null);
+
+  const selectableCategories: Array<ConnectionCategory | "all"> = [
+    "all",
+    ...categories,
+  ];
+  const filtered = connections.filter(
+    (entry) =>
+      (activeCategory === "all" || entry.category === activeCategory) &&
+      matchesSearch(entry, query)
+  );
+  const selected = connections.find((entry) => entry.id === selectedId) ?? null;
+  const configEntry =
+    connections.find((entry) => entry.id === configOpenId) ?? null;
+
+  return (
+    <div
+      data-testid="connections-bay"
+      className="space-y-[var(--shell-gap)] rounded-[var(--tile-radius,19px)] border border-[color:var(--panel-border)] p-[var(--card-pad)]"
+    >
+      <div>
+        <div className="text-sm font-semibold" style={SETTINGS_DENSITY.sectionTitle}>
+          Connections
+        </div>
+        <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+          Messaging channels, web providers, and inference providers share one
+          catalog. An entry being listed never means an adapter exists,
+          credentials are configured, or the provider is authorized to run.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-[var(--radius-micro)]">
+        {selectableCategories.map((category) => (
+          <Button
+            key={category}
+            type="button"
+            size="sm"
+            variant={activeCategory === category ? "default" : "ghost"}
+            className="rounded-xl"
+            data-testid={`connections-category-${category}`}
+            onClick={() => {
+              setActiveCategory(category);
+              setSelectedId(null);
+            }}
+          >
+            {category === "all" ? "All" : CATEGORY_LABELS[category]}
+          </Button>
+        ))}
+        <Input
+          type="search"
+          placeholder="Search connections"
+          aria-label="Search connections"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="ml-auto w-full max-w-[16rem]"
+        />
+      </div>
+
+      {loading && (
+        <div className="text-sm" style={{ color: "var(--muted)" }}>
+          Loading connections…
+        </div>
+      )}
+      {error && (
+        <div className="text-sm" style={{ color: "var(--danger-text)" }}>
+          {error}
+        </div>
+      )}
+      {!loading && !error && filtered.length === 0 && (
+        <div className="text-sm" style={{ color: "var(--muted)" }}>
+          No connections match
+        </div>
+      )}
+
+      <div className="space-y-[var(--radius-micro)]">
+        {filtered.map((entry) => {
+          const logo = getConnectionLogo(entry.id);
+          const launchable = canLaunchSetup(entry);
+          return (
+            <div
+              key={entry.id}
+              data-testid={`connection-row-${entry.id}`}
+              className="flex items-center gap-3 rounded-[var(--tile-radius,19px)] border border-[color:var(--panel-border)] p-3"
+              style={{ background: "var(--panel-bg)", color: "var(--text)" }}
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                aria-label={`Show ${entry.display_name} details`}
+                onClick={() =>
+                  setSelectedId((current) =>
+                    current === entry.id ? null : entry.id
+                  )
+                }
+              >
+                {logo ? (
+                  <img
+                    src={logo}
+                    alt={`${entry.display_name} logo`}
+                    className="h-8 w-8 shrink-0"
+                  />
+                ) : (
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[color:var(--panel-border)] text-sm font-semibold"
+                    style={{ background: "var(--panel-bg)" }}
+                  >
+                    {getConnectionMonogram(entry.id)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">
+                    {entry.display_name}
+                  </div>
+                  <div className="text-[11px] opacity-60">
+                    {CATEGORY_LABELS[entry.category]}
+                  </div>
+                </div>
+              </button>
+              <div className="flex flex-wrap items-center gap-1">
+                <ConnectionStatusChip
+                  label="Adapter"
+                  value={IMPLEMENTATION_STATE_LABELS[entry.implementation_state]}
+                  tone={implementationChipTone(entry.implementation_state)}
+                />
+                <ConnectionStatusChip
+                  label="Setup"
+                  value={SETUP_STATE_LABELS[entry.setup_state]}
+                  tone={setupChipTone(entry.setup_state)}
+                />
+                {authorizationChip(entry)}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                disabled={!launchable}
+                aria-disabled={!launchable}
+                onClick={() => setConfigOpenId(entry.id)}
+              >
+                Configure
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div
+          data-testid="connection-detail"
+          className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[color:var(--panel-border)] p-[var(--card-pad)]"
+        >
+          <div className="text-sm font-semibold">{selected.display_name}</div>
+          <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+            {selected.description}
+          </p>
+          <div className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+            {selected.setup_help}
+          </div>
+          <div className="flex flex-wrap items-center gap-1 text-[11px]">
+            <ConnectionStatusChip
+              label="Adapter"
+              value={IMPLEMENTATION_STATE_LABELS[selected.implementation_state]}
+              tone={implementationChipTone(selected.implementation_state)}
+            />
+            <ConnectionStatusChip
+              label="Setup"
+              value={SETUP_STATE_LABELS[selected.setup_state]}
+              tone={setupChipTone(selected.setup_state)}
+            />
+            {authorizationChip(selected)}
+          </div>
+          {selected.capabilities.length > 0 && (
+            <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+              Capabilities: {selected.capabilities.join(", ")}
+            </div>
+          )}
+          {selected.auth_methods.length > 0 && (
+            <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+              Authentication:{" "}
+              {selected.auth_methods
+                .map((method) => AUTH_METHOD_LABELS[method])
+                .join(", ")}
+            </div>
+          )}
+          {selected.runtime_binding.adapter && (
+            <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+              Runtime adapter: {selected.runtime_binding.adapter}
+            </div>
+          )}
+          {selected.oauth?.connection && (
+            <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+              Persisted OAuth state: {selected.oauth.connection.status}
+              {selected.oauth.connection.expires_at
+                ? ` · expires ${selected.oauth.connection.expires_at}`
+                : ""}
+            </div>
+          )}
+          {selected.authorization?.registered &&
+            selected.authorization.disabled_reason && (
+              <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+                Registry note: {selected.authorization.disabled_reason}
+              </div>
+            )}
+          {!canLaunchSetup(selected) && (
+            <div
+              className="text-xs"
+              style={{ color: "var(--danger-text)" }}
+              data-testid="connection-setup-unavailable"
+            >
+              Setup is not yet available for this connection.
+            </div>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-xl"
+            disabled={!canLaunchSetup(selected)}
+            aria-disabled={!canLaunchSetup(selected)}
+            onClick={() => setConfigOpenId(selected.id)}
+          >
+            Configure
+          </Button>
+        </div>
+      )}
+
+      {configEntry && (
+        <ConnectionConfigModal
+          connection={configEntry}
+          open
+          onClose={() => setConfigOpenId(null)}
+          onChanged={refresh}
+        />
+      )}
     </div>
   );
 }
