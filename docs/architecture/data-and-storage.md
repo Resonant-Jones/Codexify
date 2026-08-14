@@ -35,6 +35,10 @@ Source anchors:
 | Browser local/session storage | Auth tokens, runtime overrides, shell state, drafts, UI preferences, cached session spine | `frontend/src/lib/api.ts`, `frontend/src/lib/runtimeConfig.ts`, `frontend/src/state/session/SessionSpine.ts` |
 | In-process buses | Fallback event fanout and the lightweight sync subscription bus | `guardian/core/event_bus.py`, `guardian/sync/bus.py` |
 
+### Vector store authority and derived-state retirement
+
+The vector store is a derived retrieval/index artefact, not canonical application authority: Postgres remains the sole source of truth, and semantic retrieval corpus state is never promoted to authority. When a persisted Chroma index cannot be consumed by the supported `chromadb==1.0.15` runtime, [[adr/067-operator-approved-derived-chroma-retirement|ADR-067]] governs the operator-approved preserve-retire-rebuild handling: the historical bytes must be preserved as evidence before the active index is retired, a fresh store is initialised exclusively through the canonical runtime, no records are copied from the retired store into the fresh one, and restoration of the historical store requires a separate ADR-gated task.
+
 ## Key Entities and Collections
 
 ### Core chat and knowledge entities
