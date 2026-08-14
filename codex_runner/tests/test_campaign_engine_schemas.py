@@ -365,7 +365,7 @@ def _validate_single_entity(entity: str, payload: dict, label: str) -> list:
 
 
 # ---------------------------------------------------------------------------
-# ADR-067 live-role-execution schema proofs.
+# ADR-068 live-role-execution schema proofs.
 # ---------------------------------------------------------------------------
 
 

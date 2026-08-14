@@ -118,11 +118,11 @@ The Pi Invocation Boundary enforces these invariants:
 | `7. Result return path` | Guardian validated result for continuation. | result return metadata including source thread/message, request/attempt identity, invocation id, harness id, provider lane (if relevant), artifact reference. | Controlled reinjection/reentry through existing or explicitly future-compatible path. | Collapsing authored-turn identity into execution-attempt identity; bypassing transcript semantics. | Return status is visible without requiring harness-internal logs. |
 | `8. Lineage preservation` | Result return phase completed. | end-to-end lineage references from authored turn through invocation and return. | Persist bounded lineage metadata where contract-governed state exists. | Orphaning invocation records from export/restore lineage obligations. | Auditability shows no autonomous recursion and preserves ownership chain. |
 
-## Campaign Engine Integration (ADR-067)
+## Campaign Engine Integration (ADR-068)
 
 The Pi Invocation Boundary supplies the canonical envelope, permission, receipt, and result-return identities (`PiInvocationEnvelope.invocation_id`, `PiInvocationPolicyDecision.policy_decision_id`, `PiInvocationReceipt.receipt_id`, `PiHarnessResult.harness_result_id`). Campaign Engine schemas reference these identities by string.
 
-ADR-067 (Campaign Engine Live Role Execution Contract, accepted 2026-08-14) explicitly permits Guardian-mediated live Pi use **only when** an accepted architecture path supplies the required authorization, permissions, bounded target, provider identity, receipt, and result validation. This is the canonical authorization path; no other use of Pi as a Campaign Engine live execution harness is admitted.
+ADR-068 (Campaign Engine Live Role Execution Contract, accepted 2026-08-14) explicitly permits Guardian-mediated live Pi use **only when** an accepted architecture path supplies the required authorization, permissions, bounded target, provider identity, receipt, and result validation. This is the canonical authorization path; no other use of Pi as a Campaign Engine live execution harness is admitted.
 
 The Campaign Engine live path does not bypass any invariant already enforced by this contract. In particular:
 

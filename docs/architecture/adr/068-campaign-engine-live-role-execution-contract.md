@@ -9,11 +9,11 @@ tags:
   - coding-loop
   - provider-capability
 aliases:
-  - ADR-067
+  - ADR-068
   - Campaign Engine Live Role Execution Contract
 ---
 
-# ADR-067: Campaign Engine Live Role Execution Contract
+# ADR-068: Campaign Engine Live Role Execution Contract
 
 ## Status
 
@@ -30,7 +30,7 @@ Accepted.
 
 ## Canonicalization History
 
-This ADR is newly allocated ADR-067, the next valid number after ADR-066 in the current ADR Index. It supersedes no numeric identity. Historical Campaign Engine ADR numbers from abandoned or unpushed branches are not authoritative and must not be cited as this decision.
+This ADR is newly allocated ADR-068, the next valid number after ADR-066 in the current ADR Index and after the canonical Operator-Approved Derived Chroma Retirement decision that already owns ADR-067 on `main`. It supersedes no numeric identity. Historical Campaign Engine ADR numbers from abandoned or unpushed branches are not authoritative and must not be cited as this decision.
 
 ## Context
 
@@ -79,7 +79,7 @@ This ADR creates the smallest accepted architecture surface required for one sub
 
 ## Decision
 
-ADR-067 authorizes exactly one bounded live Campaign Engine lifecycle:
+ADR-068 authorizes exactly one bounded live Campaign Engine lifecycle:
 
 ```text
 predefined Campaign + Task
@@ -435,7 +435,7 @@ This proof does not establish: production readiness; release support; autonomous
 ## Authority and truth boundary
 
 - `docs/architecture/00-current-state.md` retains short-horizon release-truth authority; this ADR does not modify it.
-- ADR-066 retains Campaign Engine placement authority; this ADR (ADR-067) adds the live-role-execution overlay inside that placement.
+- ADR-066 retains Campaign Engine placement authority; this ADR (ADR-068) adds the live-role-execution overlay inside that placement.
 - DLG metadata and ARPs remain evidence for source selection, not executable instructions and not authority grants.
 - Guardian remains the authority/policy boundary for any live execution.
 - Current code, focused tests, and live proof retain implementation-evidence roles.
@@ -445,7 +445,7 @@ This proof does not establish: production readiness; release support; autonomous
 
 | Surface | Role in the live-role-execution placement | What it is not |
 |---|---|---|
-| Campaign Engine (ADR-066, ADR-067) | Campaign/task/role orchestration; bounded live-role invocation request | Self-authorizing execution; release proof |
+| Campaign Engine (ADR-066, ADR-068) | Campaign/task/role orchestration; bounded live-role invocation request | Self-authorizing execution; release proof |
 | Guardian (ADR-020, ADR-048) | Permission resolution; live-execution authorization; result validation and return | The execution harness |
 | Pi Invocation Boundary + ADR-063 | Bounded harness invocation transport; envelope, receipt, result-return identities | Autonomous dispatch; durable control-plane truth |
 | Coding Loop substrate | Governed coding-execution rail when mutation is required | Auto-merge; auto-push; release approval |
@@ -496,9 +496,9 @@ This ADR does not:
 
 This change:
 
-- registers ADR-067 in `docs/architecture/adr/adr-index.md` (Reading Order and ADR Graph);
-- aligns `docs/architecture/campaign-engine-contract.md` with ADR-067 (provider-free vs authorized-live distinction);
-- aligns `docs/architecture/pi-invocation-boundary-contract.md` with ADR-067 (explicit permission to use Pi as a Campaign Engine live-execution harness under Guardian-mediated authorization);
+- registers ADR-068 in `docs/architecture/adr/adr-index.md` (Reading Order and ADR Graph);
+- aligns `docs/architecture/campaign-engine-contract.md` with ADR-068 (provider-free vs authorized-live distinction);
+- aligns `docs/architecture/pi-invocation-boundary-contract.md` with ADR-068 (explicit permission to use Pi as a Campaign Engine live-execution harness under Guardian-mediated authorization);
 - extends the four affected Campaign Engine schemas (RoleBinding, Attempt, Evaluation, Receipt) with backward-compatible conditional live-mode branches;
 - extends `codex_runner/tests/test_campaign_engine_schemas.py` with the 33 acceptance proofs enumerated in the task brief;
 - syncs the adr-index DLG node record `content_hash` to the updated index bytes, following the established ADR-add convention.
@@ -515,11 +515,11 @@ Deferred (separately approved tasks with their own proof surface):
 - multi-task scheduling, queue, worker, API, UI;
 - database persistence;
 - release-truth update after live proof;
-- README entry for ADR-067 (deferred to a follow-up task).
+- README entry for ADR-068 (deferred to a follow-up task).
 
 ## Acceptance record
 
-Resonant Jones accepts ADR-067 on 2026-08-14 through the operator-owned merge gate on this change. Acceptance approves the live-role-execution contract overlay; provider-free runtime presence, schema additions, validation coverage, or this accepted ADR still does not constitute live execution, release support, or runtime proof.
+Resonant Jones accepts ADR-068 on 2026-08-14 through the operator-owned merge gate on this change. Acceptance approves the live-role-execution contract overlay; provider-free runtime presence, schema additions, validation coverage, or this accepted ADR still does not constitute live execution, release support, or runtime proof.
 
 ## Related Documents
 
