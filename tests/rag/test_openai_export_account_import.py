@@ -774,3 +774,48 @@ def test_retry_non_failed_status_rejected(account_import_service):
             job_id=job["job_id"], user_id="account-a"
         )
     assert exc_info.value.code == "account_import_not_failed"
+
+
+# ---------------------------------------------------------------------------
+# Source-system allow-list (Anthropic adapter support)
+# ---------------------------------------------------------------------------
+
+
+def test_create_job_accepts_anthropic_source_system(account_import_service):
+    """The intake must accept ``anthropic`` as a supported source system
+    while preserving the existing OpenAI default and rejection semantics for
+    other systems."""
+
+    service, _sessions, _trace, _staging, _media = account_import_service
+
+    job = service.create_job(
+        user_id="account-a",
+        total_file_count=1,
+        total_byte_count=1,
+        source_system="anthropic",
+    )
+    assert job["source_system"] == "anthropic"
+    assert job["status"] == "receiving"
+
+
+def test_create_job_rejects_unknown_source_system(account_import_service):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    with pytest.raises(AccountImportError) as exc_info:
+        service.create_job(
+            user_id="account-a",
+            total_file_count=1,
+            total_byte_count=1,
+            source_system="not-a-real-source",
+        )
+    assert exc_info.value.code == "unsupported_source_system"
+
+
+def test_create_job_preserves_openai_default(account_import_service):
+    """Existing OpenAI callers must remain on the ``openai`` source-system
+    token. This is a regression guard for the Anthropic allow-list addition."""
+
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=1
+    )
+    assert job["source_system"] == "openai"

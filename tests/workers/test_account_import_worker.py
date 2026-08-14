@@ -314,3 +314,227 @@ def test_zip_traversal_is_rejected_before_extraction(tmp_path: Path):
 
     assert exc_info.value.code == "path_traversal_rejected"
     assert not (tmp_path / "escape.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Anthropic dispatch (source-system branch)
+# ---------------------------------------------------------------------------
+
+
+class FakeAnthropicService(FakeWorkerService):
+    """Worker service stub whose ``materialize_staged_export`` reports the
+    ``source_system`` we want the dispatch to read."""
+
+    def __init__(self, *, source_system: str) -> None:
+        super().__init__()
+        self._source_system = source_system
+
+    def materialize_staged_export(self, **kwargs):  # type: ignore[override]
+        self.calls.append(("materialize", kwargs))
+        if self.raise_materialize:
+            raise self.raise_materialize
+        return {
+            "checkpoint": {
+                "conversation_ids": [],
+                "media_paths": [],
+            },
+            "source_system": self._source_system,
+        }
+
+
+def test_worker_dispatches_anthropic_source_to_anthropic_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeAnthropicService(source_system="anthropic")
+    observed: dict[str, object] = {}
+
+    def _import_anthropic(root, **kwargs):
+        observed["root"] = root
+        observed["user_id"] = kwargs["user_id"]
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=2,
+            conversations_imported=2,
+            conversations_failed=0,
+        )
+
+    # Guard against any OpenAI-specific imports leaking into the Anthropic
+    # dispatch path.
+    def _openai_guard(*_args, **_kwargs):
+        raise AssertionError(
+            "Anthropic dispatch must not invoke OpenAI-specific imports."
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_anthropic_export_conversations",
+        _import_anthropic,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        _openai_guard,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        _openai_guard,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "build_openai_export_image_evidence_index",
+        _openai_guard,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "resolve_openai_export_image_evidence",
+        _openai_guard,
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {
+            "type": TASK_TYPE,
+            "job_id": "job-anthropic",
+            "user_id": "account-a",
+        },
+        service=service,
+    )
+
+    assert result is True
+    assert observed["user_id"] == "account-a"
+    # The Anthropic branch records its source summary and completes the job
+    # without going through the OpenAI image path.
+    assert any(
+        name == "source-summary" and payload["conversations_discovered"] == 2
+        for name, payload in service.calls
+    )
+    assert any(name == "complete" for name, _ in service.calls)
+    # Crucially: the OpenAI-only helpers were never called.
+    assert not any(
+        name in {"conversation-batch", "media-batch"} for name, _ in service.calls
+    )
+
+
+def test_worker_keeps_openai_dispatch_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The Anthropic allow-list must NOT regress OpenAI dispatch behavior."""
+
+    service = FakeAnthropicService(source_system="openai")
+    inventory = OpenAIExportInventory(
+        root_path="/worker-fixture",
+        files=[],
+        legacy_detected=True,
+        sharded_detected=False,
+        detected_format="legacy",
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "diagnose_openai_export_path",
+        lambda _root: SimpleNamespace(inventory=inventory),
+    )
+
+    def _import_openai(_root, **kwargs):
+        kwargs["on_batch_committed"](
+            {
+                "conversation_ids": ["c-1"],
+                "conversation_counts": [
+                    {"conversation_id": "c-1", "message_count": 1}
+                ],
+                "threads_imported": 1,
+                "messages_imported": 1,
+            }
+        )
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=1,
+            conversations_accepted=1,
+            conversations_skipped_title=0,
+            conversations_skipped_limit=0,
+            conversations_skipped_duplicate=0,
+            conversations_skipped_checkpoint=0,
+            conversations_failed=0,
+            text_import_complete=True,
+        )
+
+    def _openai_guard(*_args, **_kwargs):
+        raise AssertionError(
+            "OpenAI dispatch must not invoke the Anthropic adapter."
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_openai_export_conversations",
+        _import_openai,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_anthropic_export_conversations",
+        _openai_guard,
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "build_openai_export_image_evidence_index",
+        lambda _inventory: {},
+    )
+    monkeypatch.setattr(
+        account_import_worker,
+        "resolve_openai_export_image_evidence",
+        lambda _path, _index: OpenAIExportImageEvidence(source_tag="unclassified"),
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {
+            "type": TASK_TYPE,
+            "job_id": "job-openai",
+            "user_id": "account-a",
+        },
+        service=service,
+    )
+
+    assert result is True
+    # OpenAI dispatch continues to record conversation batch commits and
+    # source summary as it did before the Anthropic allow-list was added.
+    assert any(name == "conversation-batch" for name, _ in service.calls)
+    assert any(name == "source-summary" for name, _ in service.calls)
+    assert any(name == "complete" for name, _ in service.calls)
+
+
+def test_worker_anthropic_dispatch_fails_closed_on_adapter_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    service = FakeAnthropicService(source_system="anthropic")
+
+    def _import_anthropic(_root, **kwargs):
+        return SimpleNamespace(
+            errors=["chat_messages payload was missing"],
+            conversations_discovered=0,
+            conversations_imported=0,
+            conversations_failed=0,
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_anthropic_export_conversations",
+        _import_anthropic,
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {
+            "type": TASK_TYPE,
+            "job_id": "job-anthropic-fail",
+            "user_id": "account-a",
+        },
+        service=service,
+    )
+
+    assert result is False
+    failed = [payload for name, payload in service.calls if name == "failed"]
+    assert failed == [
+        {
+            "job_id": "job-anthropic-fail",
+            "user_id": "account-a",
+            "code": "account_import_worker_failed",
+            "message": "chat_messages payload was missing",
+        }
+    ]

@@ -252,6 +252,12 @@ class OpenAIAccountImportService:
             )
         return job
 
+    # Source-system tokens accepted by the durable account-import intake.
+    # Adding a new family here requires a worker dispatch branch in
+    # ``guardian.workers.account_import_worker``; the service layer is
+    # source-system-agnostic beyond the allow-list.
+    _SUPPORTED_SOURCE_SYSTEMS = frozenset({"openai", "anthropic"})
+
     def create_job(
         self,
         *,
@@ -272,9 +278,10 @@ class OpenAIAccountImportService:
                 "Declared import byte count is outside configured limits.",
                 code="total_size_limit_exceeded",
             )
-        if str(source_system).strip().lower() != "openai":
+        normalized_source_system = str(source_system).strip().lower()
+        if normalized_source_system not in self._SUPPORTED_SOURCE_SYSTEMS:
             raise AccountImportError(
-                "Only OpenAI account exports are supported by this intake.",
+                "Only OpenAI and Anthropic account exports are supported by this intake.",
                 code="unsupported_source_system",
             )
         job_id = str(uuid.uuid4())
@@ -283,7 +290,7 @@ class OpenAIAccountImportService:
         job = OpenAIAccountImportJob(
             id=job_id,
             user_id=str(user_id),
-            source_system="openai",
+            source_system=normalized_source_system,
             status=AccountImportStatus.RECEIVING.value,
             staging_locator=locator,
             total_file_count=count,
