@@ -17,15 +17,15 @@
   ],
   "lifecycle_state": "active",
   "freshness": {
-    "state": "stale",
-    "verified_at": "2026-08-11T00:41:16Z",
-    "verified_commit": "99304b68947af4c74f4c3c549f6dad9de8743844",
+    "state": "current",
+    "verified_at": "2026-08-14T23:27:22Z",
+    "verified_commit": "f4fece599e9e081154a7a7a96e1923f7f5c205b5",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
-    "reason": "ADR Index source and ADR corpus changed during the human-approved Orthogonal UI canonicalization from ADR-055 to ADR-064 and require committed-revision semantic re-verification."
+    "reason": "Re-verified the ADR Index after the human-approved ADR-069 Beta Runtime Support Boundary registration; ADR-068 remains reserved for the separate ADR-067 reconciliation and the source hash is synchronized."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -77,7 +77,7 @@
     "created_at": "2026-04-14T20:56:05Z",
     "effective_from": "2026-04-14T20:56:05Z"
   },
-  "content_hash": "20679761fa980daa223aea33e740dfa2d81a77bd1fdc8696efb8dd25dd072c36",
+  "content_hash": "06fc0213e20e2f2617ea1ae795d3335eb55b633456cef07cd6060abadde37fb7",
   "relations": [],
   "governing_adr_posture": "not_applicable"
 }

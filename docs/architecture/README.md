@@ -25,6 +25,18 @@ Source anchors:
 
 Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture. It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
+## How to answer "What is currently in Codexify Beta?"
+
+Read in this order:
+
+1. [`00-current-state.md`](./00-current-state.md) — the human-readable current release interpretation and active blocker surface.
+2. [`ADR-069: Codexify Beta Runtime Support Boundary`](./adr/069-codexify-beta-runtime-support-boundary.md) — the canonical Beta doctrine, the five release classes (Beta Supported, Beta Bounded / Conditional, Internal, Qualification Pending, Out of Beta), and the evidence-vs-support separation doctrine.
+3. Canonical Product Architecture Assertions at [`docs/knowledge-graph/assertions/codexify-beta-support-posture.v1.json`](../../knowledge-graph/assertions/codexify-beta-support-posture.v1.json) for machine-readable posture.
+4. The active supported profile under [`config/supported_profiles/`](../../../config/supported_profiles/) for runtime / topology / provider / route constraints.
+5. [`tests/architecture/test_beta_release_boundary.py`](../../../tests/architecture/test_beta_release_boundary.py) and proofs under [`docs/architecture/proofs/`](../../architecture/proofs/) for evidence maturity and qualification detail.
+
+These five sources together form the canonical Beta boundary. If they appear to disagree, follow ADR-069's authority hierarchy and surface the conflict.
+
 ## What Codexify Is
 
 Codexify is a local-first chat and knowledge workspace built around a FastAPI backend, a React frontend, Postgres-backed state, Redis-backed background work, optional Neo4j graph features, and a growing command bus/tooling layer. The core loop today is thread-based chat: the frontend writes messages, the backend enqueues completion work, workers assemble context from messages plus retrieval layers, and results stream back through task events and durable domain events.
@@ -44,7 +56,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 - [Axis Node](../axis-node/README.md): repo-native shared reasoning infrastructure for source authority, evidence-backed task generation, and human collaboration. It is docs/context infrastructure only; it does not implement a runtime agent or widen the supported beta surface. Route any future Axis harness work through [ADR-046](./adr/046-axis-node-portable-reasoning-interface-contract.md) and the relevant Guardian/Pi execution contracts.
 - [ADR-064: Orthogonal UI Material Personalization](./adr/064-orthogonal-ui-material-personalization.md): governing decision for additive UI material axes, cross-theme Surface Temperature, light-only Paper Tone, separate persistence responsibilities, and accessibility-bounded personalization. It records future material semantics and does not implement the restored Temperature control.
 - [Document Lifecycle Graph Contract](./document-lifecycle-graph-contract.md): accepted docs/control-plane architecture under [ADR-056](./adr/056-document-lifecycle-graph-control-plane.md) for stable document identities, orthogonal lifecycle metadata, typed relationships, and bounded Agent Reading Packets. No corpus migration, DLG tooling, automatic retrieval, runtime ingestion, database projection, or agent authority is implemented; `00-current-state.md` remains release truth and Axis Node remains an interface rather than a parallel truth store.
-- [Product Lanes and Boundaries](./product-lanes-and-boundaries.md): accepted docs/control-plane Product Architecture Ontology under [ADR-057](./adr/057-product-architecture-ontology-dlg-integration.md) defining stable product-program, capability, client-surface, and adapter-family identities, typed relationship predicates, dependency-direction doctrine, and evidence-backed posture/relationship assertion semantics. The ontology extends the DLG without duplicating it; it defines vocabulary and assertion semantics, not current relationship instances. No accepted assertion corpus, repository-wide classification, product-lane registry, runtime implementation, or release support is implied.
+- [Product Lanes and Boundaries](./product-lanes-and-boundaries.md): accepted docs/control-plane Product Architecture Ontology under [ADR-057](./adr/057-product-architecture-ontology-dlg-integration.md) defining stable product-program, capability, client-surface, and adapter-family identities, typed relationship predicates, dependency-direction doctrine, and evidence-backed posture/relationship assertion semantics. The ontology extends the DLG without duplicating it; it defines vocabulary and assertion semantics, not current relationship instances. A bounded canonical Beta posture assertion corpus now exists at [`docs/knowledge-graph/assertions/codexify-beta-support-posture.v1.json`](../../knowledge-graph/assertions/codexify-beta-support-posture.v1.json); its release interpretation is governed by [ADR-069](./adr/069-codexify-beta-runtime-support-boundary.md). This corpus does not imply a complete repository-wide source-subsystem inventory or relationship assertion corpus; generated projections remain derived, not independently canonical.
 
 ## Start Here
 

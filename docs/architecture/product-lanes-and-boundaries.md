@@ -18,6 +18,7 @@ The ontology answers "what stable part of Codexify is this?" and "what architect
 | Platform-program, shared-capability, client-surface, adapter-family vocabulary | Product Architecture Ontology |
 | Product-architecture relation vocabulary and dependency direction doctrine | Product Architecture Ontology |
 | Current posture (support, runtime, ownership, strategy, integration) | Product Architecture Assertions |
+| Current Beta support interpretation (Beta Supported / Beta Bounded / Conditional / Internal / Qualification Pending / Out of Beta) | Product Architecture Assertions + ADR-069 + `00-current-state.md` |
 | Current architecture relationship instances | Product Architecture Assertions |
 | Short-horizon release truth and active blockers | `00-current-state.md` |
 | Accepted architectural decisions | Governing ADRs |
@@ -523,6 +524,6 @@ graph TD
 
 The ontology is **accepted docs/control-plane architecture** under ADR-057. Its vocabulary and assertion semantics are accepted; it is not a runtime implementation, release claim, repository inventory, or parallel DLG. Semantic IDs are not filesystem paths. Graph paths are relational trails assembled for a question.
 
-The ontology defines relationship vocabulary. Assertions record actual relationship claims, but no canonical assertion corpus exists yet. No source-subsystem inventory exists, no source directories have been moved or classified, no runtime resolver or dependency enforcement exists, and no generated product-lane projection exists yet.
+The ontology defines relationship vocabulary. Assertions record actual relationship claims. ADR-069 activates a bounded canonical Beta posture assertion corpus at `docs/knowledge-graph/assertions/codexify-beta-support-posture.v1.json`; its release interpretation is governed by [ADR-069](./adr/069-codexify-beta-runtime-support-boundary.md). This is the first accepted support-posture assertion set on top of the vocabulary ADR-057 already accepted; it does **not** imply a complete repository-wide Product Architecture Assertion inventory, source-subsystem inventory, or relationship assertion corpus. No source directories have been moved or classified, no runtime resolver or dependency enforcement exists, and no generated product-lane projection exists yet. Generated projections, when built, remain derived and rebuildable from ontology, posture assertions, authority documents, and current-state truth. Current release interpretation remains governed by ADR-069 plus `00-current-state.md`.
 
 `00-current-state.md` remains current release truth. Accepted ADRs govern architectural decisions. ADRs and contracts are referenced by DLG document identity. Product posture is temporal. Architecture relationships may be temporal. Product identity is stable. DLG lifecycle and product posture are different axes.

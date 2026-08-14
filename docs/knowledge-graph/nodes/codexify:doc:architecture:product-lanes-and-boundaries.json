@@ -17,14 +17,14 @@
   "lifecycle_state": "active",
   "freshness": {
     "state": "current",
-    "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "verified_at": "2026-08-14T23:27:22Z",
+    "verified_commit": "f4fece599e9e081154a7a7a96e1923f7f5c205b5",
     "triggers": [
       "ADR-057 is superseded or its accepted scope changes",
       "the canonical ontology concepts or relationship vocabulary change",
       "the Product Architecture Assertion schemas or dependency doctrine change"
     ],
-    "reason": "Verified against accepted ADR-057, the canonical ontology, and assertion schema at the Phase 1 base."
+    "reason": "Re-verified against accepted ADR-057, the canonical ontology, assertion schema, and the bounded ADR-069 Beta posture corpus; no complete source-subsystem or relationship inventory is implied."
   },
   "disposition": "accepted",
   "evidence_class": "documented-contract",
@@ -93,7 +93,7 @@
     "created_at": "2026-08-07T16:00:01Z",
     "effective_from": "2026-08-07T00:00:00Z"
   },
-  "content_hash": "12ce5c58ed63efcad55363695344fc92a2f3f2a0b278e9212209dc785b21a8e2",
+  "content_hash": "c52e8f2c8741fe275627d5125f6154f1c7d02ae13bff9593c4a85c7986fe25c9",
   "relations": [
     {
       "relation_type": "governed_by",
