@@ -42,7 +42,9 @@ def atomic_write_json(directory: Path, filename: str, payload: Any) -> Path:
     """
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / filename
-    fd, temp_name = tempfile.mkstemp(prefix=f".{filename}.", suffix=".tmp", dir=directory)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{filename}.", suffix=".tmp", dir=directory
+    )
     temp_path = Path(temp_name)
     try:
         with os.fdopen(fd, "wb") as handle:

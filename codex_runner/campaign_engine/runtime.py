@@ -103,7 +103,9 @@ def run_provider_free_campaign(
     source_record: SourceContextRecord | None = None
     if source_context_path is not None:
         source_payload = parse_json_strict(Path(source_context_path))
-        source_record = validate_source_context(source_payload, str(source_context_path))
+        source_record = validate_source_context(
+            source_payload, str(source_context_path)
+        )
         lineage_token = sha256_canonical(source_record.as_artifact())
     else:
         lineage_token = _LINEAGE_ABSENT_TOKEN
@@ -367,11 +369,15 @@ def _verify_published_artifacts(
 
     # Exact byte-for-record agreement for each generated entity.
     if read("tasks" + f"/{result.task_id}/task-state.json") != final_task:
-        raise CampaignArtifactError("written task-state.json differs from generated task")
+        raise CampaignArtifactError(
+            "written task-state.json differs from generated task"
+        )
     if read(f"attempts/{attempt['attempt_id']}.json") != attempt:
         raise CampaignArtifactError("written attempt differs from generated attempt")
     if read(f"evaluations/{evaluation['evaluation_id']}.json") != evaluation:
-        raise CampaignArtifactError("written evaluation differs from generated evaluation")
+        raise CampaignArtifactError(
+            "written evaluation differs from generated evaluation"
+        )
     if read(f"receipts/{receipt['receipt_id']}.json") != receipt:
         raise CampaignArtifactError("written receipt differs from generated receipt")
     if read("campaign-state.json") != final_campaign_state:
@@ -382,7 +388,10 @@ def _verify_published_artifacts(
         raise CampaignArtifactError("written campaign-input.json differs from input")
     if read("bindings.json") != {"role_bindings": document["role_bindings"]}:
         raise CampaignArtifactError("written bindings.json differs from input bindings")
-    if source_record is not None and read("source-context.json") != source_record.as_artifact():
+    if (
+        source_record is not None
+        and read("source-context.json") != source_record.as_artifact()
+    ):
         raise CampaignArtifactError("written source-context.json differs from fixture")
     if read("run-result.json") != result.to_dict():
         raise CampaignArtifactError("written run-result.json differs from result")
@@ -410,12 +419,18 @@ def _verify_published_artifacts(
     if source_record is not None:
         recomputed = sha256_canonical(source_record.as_artifact())
         if recomputed != result.hashes["source_context_hash"]:
-            raise CampaignArtifactError("source-context lineage hash drifted after write")
+            raise CampaignArtifactError(
+                "source-context lineage hash drifted after write"
+            )
     if result.provider_calls != 0:
         raise CampaignArtifactError("provider call count is nonzero")
     if result.source_mutations != 0:
         raise CampaignArtifactError("source mutation count is nonzero")
     if result.decision_gates_opened != 0:
         raise CampaignArtifactError("a decision gate is open")
-    if result.commit_performed or result.merge_performed or result.durable_ingestion_performed:
+    if (
+        result.commit_performed
+        or result.merge_performed
+        or result.durable_ingestion_performed
+    ):
         raise CampaignArtifactError("commit/merge/durable-ingestion claim became true")

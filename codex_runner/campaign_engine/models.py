@@ -43,7 +43,7 @@ class FixedClock:
 
 
 def clock_iso(clock: CampaignClock) -> str:
-    """Render the clock instant in the fixture-consistent RFC 3339 form (UTC, Z suffix)."""
+    """Render the clock instant in fixture-consistent RFC 3339 form (UTC, Z suffix)."""
     instant = clock.now()
     if instant.tzinfo is None:
         instant = instant.replace(tzinfo=timezone.utc)

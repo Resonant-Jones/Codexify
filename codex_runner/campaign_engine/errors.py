@@ -35,7 +35,7 @@ class CampaignSourceContextError(CampaignEngineError):
 
 
 class CampaignArtifactError(CampaignEngineError):
-    """Artifact publication failed: unsafe path, atomic-write failure, or promotion failure."""
+    """Artifact publication failure: unsafe path, atomic write, or promotion."""
 
 
 class CampaignOutputExistsError(CampaignArtifactError):

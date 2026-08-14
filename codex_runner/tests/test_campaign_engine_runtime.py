@@ -157,7 +157,9 @@ def assert_seam_untouched(
     monkeypatch.setattr(subprocess, "Popen", _forbidden("subprocess.Popen"))
     monkeypatch.setattr(os, "system", _forbidden("os.system"))
     monkeypatch.setattr(socket, "socket", _forbidden("socket.socket"))
-    monkeypatch.setattr(socket, "create_connection", _forbidden("socket.create_connection"))
+    monkeypatch.setattr(
+        socket, "create_connection", _forbidden("socket.create_connection")
+    )
     result = run_ok(fresh_output_root(tmp_path, "seam"), source_context=source_context)
     assert result.provider_calls == 0
     assert result.source_mutations == 0
@@ -674,8 +676,12 @@ def test_repeated_identical_runs_are_deterministic(tmp_path: Path) -> None:
     # run-result.json differs only in its root-specific output_dir path.
     first_snapshot = run_snapshot(first_root)
     second_snapshot = run_snapshot(second_root)
-    first_result_path = first_root / "campaign-provider-free-runtime-001" / "run-result.json"
-    second_result_path = second_root / "campaign-provider-free-runtime-001" / "run-result.json"
+    first_result_path = (
+        first_root / "campaign-provider-free-runtime-001" / "run-result.json"
+    )
+    second_result_path = (
+        second_root / "campaign-provider-free-runtime-001" / "run-result.json"
+    )
     first_snapshot.pop("campaign-provider-free-runtime-001/run-result.json")
     second_snapshot.pop("campaign-provider-free-runtime-001/run-result.json")
     assert first_snapshot == second_snapshot
@@ -781,7 +787,9 @@ def test_no_provider_adapter_invocation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert_seam_untouched(
-        monkeypatch, ["guardian.providers", "guardian.providers.deepseek_adapter"], tmp_path
+        monkeypatch,
+        ["guardian.providers", "guardian.providers.deepseek_adapter"],
+        tmp_path,
     )
 
 

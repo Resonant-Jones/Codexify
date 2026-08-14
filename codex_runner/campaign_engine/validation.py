@@ -111,11 +111,15 @@ def parse_json_strict(path: Path) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise CampaignValidationError(f"campaign file not found: {path}") from exc
     except UnicodeDecodeError as exc:
-        raise CampaignValidationError(f"campaign file must be UTF-8 text: {path}") from exc
+        raise CampaignValidationError(
+            f"campaign file must be UTF-8 text: {path}"
+        ) from exc
     try:
         payload = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
     except ValueError as exc:
-        raise CampaignValidationError(f"invalid campaign JSON in {path}: {exc}") from exc
+        raise CampaignValidationError(
+            f"invalid campaign JSON in {path}: {exc}"
+        ) from exc
     if not isinstance(payload, dict):
         raise CampaignValidationError(f"expected a JSON object at {path}")
     return payload
@@ -164,7 +168,9 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
         prior = bindings.get(binding["binding_id"])
         if prior is not None:
             prior_identity = tuple(prior[field] for field in IMMUTABLE_BINDING_FIELDS)
-            current_identity = tuple(binding[field] for field in IMMUTABLE_BINDING_FIELDS)
+            current_identity = tuple(
+                binding[field] for field in IMMUTABLE_BINDING_FIELDS
+            )
             if prior_identity != current_identity:
                 errors.append(
                     "duplicate binding identity has conflicting "
@@ -225,7 +231,9 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
             errors.append("runtime rebinding is forbidden by campaign policy")
         replaced = bindings.get(replaces_id)
         if replaced is None:
-            errors.append(f"binding {binding['binding_id']} replaces an undeclared binding")
+            errors.append(
+                f"binding {binding['binding_id']} replaces an undeclared binding"
+            )
             continue
         if binding["binding_id"] == replaces_id:
             errors.append("rebinding must create a new binding identity")
@@ -236,7 +244,9 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
 
     for attempt in attempts.values():
         if attempt["task_id"] not in tasks:
-            errors.append(f"attempt {attempt['attempt_id']} references an undeclared task")
+            errors.append(
+                f"attempt {attempt['attempt_id']} references an undeclared task"
+            )
         if attempt["role_binding_id"] not in bindings:
             errors.append(
                 f"attempt {attempt['attempt_id']} references an undeclared role binding"
@@ -245,11 +255,13 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
     for evaluation in evaluations.values():
         if evaluation["task_id"] not in tasks:
             errors.append(
-                f"evaluation {evaluation['evaluation_id']} references an undeclared task"
+                f"evaluation {evaluation['evaluation_id']} references an "
+                "undeclared task"
             )
         if evaluation["evaluated_attempt_id"] not in attempts:
             errors.append(
-                f"evaluation {evaluation['evaluation_id']} references an undeclared attempt"
+                f"evaluation {evaluation['evaluation_id']} references an "
+                "undeclared attempt"
             )
         evaluator_binding = bindings.get(evaluation["evaluator_binding_id"])
         if evaluator_binding is None:
@@ -271,28 +283,36 @@ def cross_object_errors(document: dict[str, Any]) -> list[str]:
     for receipt in receipts.values():
         subject = receipt["subject"]
         subject_type = subject["subject_type"]
-        if subject_type != "action" and subject["subject_id"] not in subject_indexes[subject_type]:
+        if (
+            subject_type != "action"
+            and subject["subject_id"] not in subject_indexes[subject_type]
+        ):
             errors.append(
                 f"receipt {receipt['receipt_id']} references an undeclared subject"
             )
 
     for gate in decision_gates.values():
         if gate["campaign_id"] != campaign["campaign_id"]:
-            errors.append(f"decision gate {gate['decision_gate_id']} belongs to another campaign")
+            errors.append(
+                f"decision gate {gate['decision_gate_id']} belongs to "
+                "another campaign"
+            )
         if "task_id" in gate and gate["task_id"] not in tasks:
             errors.append(
-                f"decision gate {gate['decision_gate_id']} references an undeclared task"
+                f"decision gate {gate['decision_gate_id']} references an "
+                "undeclared task"
             )
         if "attempt_id" in gate and gate["attempt_id"] not in attempts:
             errors.append(
-                f"decision gate {gate['decision_gate_id']} references an undeclared attempt"
+                f"decision gate {gate['decision_gate_id']} references an "
+                "undeclared attempt"
             )
 
     return errors
 
 
 def validate_campaign_document(document: dict[str, Any], source: str) -> None:
-    """Schema-validate every entity and cross-validate the document; raise on failure."""
+    """Schema-validate each entity and cross-validate the document; raise on failure."""
     issues: list[str] = []
     missing = [key for key in TOP_LEVEL_KEYS if key not in document]
     if missing:
@@ -300,11 +320,15 @@ def validate_campaign_document(document: dict[str, Any], source: str) -> None:
 
     issues.extend(validate_entity("campaign", document.get("campaign", {}), "campaign"))
     issues.extend(
-        validate_entity("campaign_state", document.get("campaign_state", {}), "campaign_state")
+        validate_entity(
+            "campaign_state", document.get("campaign_state", {}), "campaign_state"
+        )
     )
     for collection, schema_name in COLLECTION_SCHEMAS.items():
         for index, entity in enumerate(document.get(collection, [])):
-            issues.extend(validate_entity(schema_name, entity, f"{collection}[{index}]"))
+            issues.extend(
+                validate_entity(schema_name, entity, f"{collection}[{index}]")
+            )
 
     if not missing:
         issues.extend(cross_object_errors(document))
@@ -317,8 +341,10 @@ def validate_campaign_document(document: dict[str, Any], source: str) -> None:
         )
 
 
-def validate_role_binding_semantics(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return role -> binding for the campaign's declared bindings; raise on violation."""
+def validate_role_binding_semantics(
+    document: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return role -> binding for the campaign bindings; raise on violation."""
     campaign = document["campaign"]
     bindings = {binding["binding_id"]: binding for binding in document["role_bindings"]}
     by_role: dict[str, dict[str, Any]] = {}
@@ -335,7 +361,8 @@ def validate_role_binding_semantics(document: dict[str, Any]) -> dict[str, dict[
     for role, count in counts.items():
         if count != 1:
             raise CampaignValidationError(
-                f"campaign must declare exactly one active {role!r} binding; found {count}"
+                f"campaign must declare exactly one active {role!r} "
+                f"binding; found {count}"
             )
     for binding in by_role.values():
         if binding["binding_state"] != "locked":
@@ -373,7 +400,9 @@ def validate_path_component(value: str, label: str) -> None:
         )
 
 
-def validate_source_context(payload: dict[str, Any], source: str) -> SourceContextRecord:
+def validate_source_context(
+    payload: dict[str, Any], source: str
+) -> SourceContextRecord:
     """Validate the minimum lineage shape ADR-066 requires; preserve the rest.
 
     This is NOT full Agent Reading Packet validation: the runtime does not
