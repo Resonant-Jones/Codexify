@@ -78,6 +78,36 @@ def _server_default_compare(
     return None  # Use Alembic's default comparison
 
 
+def normalize_alembic_database_url(url: str) -> str:
+    """
+    Normalize a driver-neutral PostgreSQL URL to the canonical psycopg v3
+    SQLAlchemy dialect.
+
+    SQLAlchemy resolves a bare ``postgresql://`` URL through its default
+    PostgreSQL driver selection (psycopg2). Codexify's canonical Postgres
+    driver is psycopg v3 (``psycopg[binary]`` in the backend runtime
+    manifest), so the Alembic environment rewrites the bare scheme to
+    ``postgresql+psycopg://`` before SQLAlchemy engine construction.
+
+    Only the scheme prefix is rewritten; every byte after it is preserved.
+    Explicit driver selections (``postgresql+psycopg://``,
+    ``postgresql+psycopg2://``, ...) are preserved unchanged. The
+    process-wide ``DATABASE_URL`` environment contract is never modified.
+    """
+    if not isinstance(url, str):
+        # Defensive guard: keep downstream errors descriptive rather than
+        # masked by an unexpected coercion.
+        return url
+
+    bare_scheme = "postgresql://"
+    if url.startswith(bare_scheme):
+        return "postgresql+psycopg://" + url[len(bare_scheme):]
+
+    # Explicit driver selections (psycopg, psycopg2, asyncpg, ...) are
+    # preserved exactly. No silent override of an explicitly selected driver.
+    return url
+
+
 def _get_database_url() -> str:
     """
     Get database URL with environment override support.
@@ -85,6 +115,13 @@ def _get_database_url() -> str:
     Priority:
     1. DATABASE_URL environment variable (Docker/prod)
     2. alembic.ini sqlalchemy.url setting (local dev)
+
+    A driver-neutral ``postgresql://`` URL is normalized to the canonical
+    ``postgresql+psycopg://`` SQLAlchemy dialect before engine construction
+    so the resolved DBAPI driver matches the psycopg v3 runtime dependency.
+    Explicit driver selections are preserved unchanged. The ``DATABASE_URL``
+    environment variable itself is never modified, so seed/runtime consumers
+    keep the original external contract.
     """
     env_url = os.getenv("DATABASE_URL")
     if env_url:
@@ -94,9 +131,10 @@ def _get_database_url() -> str:
                 f"Codexify requires Postgres. Got: {env_url[:30]}...\n"
                 f"Set DATABASE_URL to a postgresql:// URL"
             )
+        normalized = normalize_alembic_database_url(env_url)
         logger.info("Using DATABASE_URL from environment")
-        config.set_main_option("sqlalchemy.url", env_url)
-        return env_url
+        config.set_main_option("sqlalchemy.url", normalized)
+        return normalized
 
     url = config.get_main_option("sqlalchemy.url")
     if not url:
@@ -110,7 +148,9 @@ def _get_database_url() -> str:
             f"Codexify requires Postgres. Check alembic.ini: {url[:30]}..."
         )
 
-    return url
+    normalized = normalize_alembic_database_url(url)
+    config.set_main_option("sqlalchemy.url", normalized)
+    return normalized
 
 
 def run_migrations_offline() -> None:
