@@ -51,6 +51,7 @@ class _FakeChatLogDB:
         summary,
         project_id=None,
         metadata=None,
+        origin_system=None,
     ):
         return {
             "id": 4242,
@@ -59,6 +60,7 @@ class _FakeChatLogDB:
             "summary": summary,
             "project_id": project_id,
             "metadata": metadata,
+            "origin_system": origin_system,
         }
 
     def write_audit_log(self, *args, **kwargs):

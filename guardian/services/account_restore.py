@@ -27,7 +27,7 @@ from guardian.services.account_export import (
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_SCHEMA_VERSIONS = {MANIFEST_SCHEMA_VERSION}
+SUPPORTED_SCHEMA_VERSIONS = {MANIFEST_SCHEMA_VERSION, "account-export.v1"}
 
 # Restore order is dependency-safe for the current schema. It differs from the
 # export order because `chat_threads` must exist before any row that points at a

@@ -710,6 +710,15 @@ class ChatThread(Base):
     modeling_excluded: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Canonical conversation-origin registry. Set at canonical creation only;
+    # immutable under ordinary thread mutation. See
+    # ``guardian.conversation_origin`` for the bounded value registry.
+    origin_system: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="codexify",
+        server_default="codexify",
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -737,6 +746,18 @@ class ChatThread(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+    __table_args__ = (
+        CheckConstraint(
+            "origin_system IN ('codexify', 'openai', 'anthropic')",
+            name="ck_chat_threads_origin_system_canonical",
+        ),
+        Index(
+            "ix_chat_threads_user_origin",
+            "user_id",
+            "origin_system",
+        ),
+    )
 
 
 class ChatMessage(Base):

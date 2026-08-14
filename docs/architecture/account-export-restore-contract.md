@@ -141,6 +141,24 @@ Imported ChatGPT material, and any future Claude or Claude Code material, become
 
 Source provenance must survive re-export and restore cycles. Normalization must not erase the fact that the record came from elsewhere.
 
+### Canonical Conversation Origin
+
+Every canonical `chat_threads` row carries exactly one canonical conversation-origin token in the dedicated `origin_system` column. The canonical registry is bounded to exactly three values:
+
+- `codexify` — the conversation was originally created inside Codexify.
+- `openai` — the conversation was originally created in ChatGPT or another OpenAI surface.
+- `anthropic` — the conversation was originally created in Claude or another Anthropic surface.
+
+`origin_system` answers one question: "Where was this conversation originally created?". It does not answer which provider or model later executes completions inside the conversation, which project currently owns the thread, which persona is active, or which account-import adapter most recently touched it. Provider execution and conversation origin are independent axes.
+
+`origin_system` is immutable under ordinary thread mutation. Title changes, summary changes, project moves, archival, unarchival, persona assignment, retrieval configuration changes, provider switches, and ordinary chat completion activity must never alter `origin_system`. Restore and import internals may set the canonical value at initial canonical creation; every later mutation treats it as lineage.
+
+Filter surfaces, audit surfaces, and export/restore surfaces must use `origin_system` as the authoritative conversation-origin truth surface. The bounded registry is enforced at the storage layer by a CHECK constraint; unsupported canonical values cannot be stored or filtered accidentally. The column is indexed for owner-scoped filtering.
+
+Imported-source product metadata (`import_source`, `import_profile`, `source_thread_id`, source-message identifiers, raw import envelopes) remains subordinate provenance for audit and backward compatibility. It must not be used as the authoritative conversation-origin filter after this invariant is established.
+
+Legacy product names (`chatgpt`, `claude`, `gpt`, `open_ai`, `anthropic_claude`) are recognized only at the migration / import-compatibility boundary. They are mapped onto the canonical bounded registry by the deterministic rule: ChatGPT/OpenAI tokens become `openai`; Claude/Anthropic tokens become `anthropic`; any thread without explicit historical import provenance becomes `codexify`. Free-form strings are never canonical values; unknown external systems must fail closed rather than being silently mapped.
+
 ## Relationship and Lineage Contract
 
 The restoreable export must explicitly preserve:
@@ -182,6 +200,7 @@ Required behavior:
 - Incompatible-version handling must fail closed unless the archive declares a supported migration path that the restore engine explicitly implements.
 - Partial restore failure must be explicit. If partial restore is allowed, the report must enumerate every skipped, repaired, or failed entity and relationship by stable ID.
 - Restore must produce an explicit report output. The report must include counts, migrated items, duplicate hits, missing blobs, warnings, failures, and any export-ID to local-ID mapping if remapping occurs.
+- Restore must preserve the canonical `chat_threads.origin_system` exactly as declared by the export. Older archives that pre-date the canonical column must derive origin deterministically from explicit historical import provenance (ChatGPT/OpenAI → `openai`, Claude/Anthropic → `anthropic`, anything else → `codexify`); derivation must not consult runtime model/provider metadata. Archives that declare an unsupported `origin_system` must fail closed rather than silently rewriting it.
 - Restore must preserve user profile metadata and the owning account mapping. If local persistence IDs are remapped, profile rows must follow the canonical owner and must not be reassigned by display label.
 
 Restore must never produce silent corruption.
