@@ -16,7 +16,12 @@ Providers (Codex, DeepSeek, etc.) are execution substrates only and do not own o
 
 ## Governing Decision
 
-This contract is governed by [ADR-066: Campaign Engine Runtime Recovery Contract](./adr/066-campaign-engine-runtime-recovery-contract.md), accepted 2026-08-13. ADR-066 fixes the current Campaign Engine placement:
+This contract is governed by two accepted decisions:
+
+- [ADR-066: Campaign Engine Runtime Recovery Contract](./adr/066-campaign-engine-runtime-recovery-contract.md), accepted 2026-08-13, fixes the current Campaign Engine placement between DLG/ARP source-selection lineage (lineage only) and Guardian-authorized bounded execution seams.
+- [ADR-068: Campaign Engine Live Role Execution Contract](./adr/068-campaign-engine-live-role-execution-contract.md), accepted 2026-08-14, authorizes exactly one bounded live Campaign Engine role-execution lifecycle under Guardian permission resolution and fail-closed identity verification, with backward-compatible conditional live-mode branches added to RoleBinding, Attempt, Evaluation, and Receipt. (Allocated ADR-068 because canonical Operator-Approved Derived Chroma Retirement already owns ADR-067 on `main`; this allocation does not supersede ADR-067 or change its content.)
+
+The current Campaign Engine placement (ADR-066):
 
 ```text
 DLG / Agent Reading Packet
@@ -39,6 +44,17 @@ Attempt -> Evaluation -> Receipt
 ```
 
 Reading: DLG/ARP supplies source-selection lineage only and grants no execution authority; Campaign Engine owns campaign/task/role orchestration; Guardian remains the authority and policy boundary; Pi, Coding Loop, and tool-capability seams provide authorized bounded execution; Attempt -> Evaluation -> Receipt carries execution evidence.
+
+---
+
+## Execution Modes
+
+Campaign Engine operates in two bounded execution modes, both under the same Guardian authority boundary:
+
+1. **Provider-free mode** (current implementation, merged via PR #709): every Attempt, Evaluation, and Receipt is a synthetic record; zero provider calls, zero source mutations, zero decision gates. The `execution_mode` discriminator on Attempt and the `evaluation_mode` discriminator on Evaluation default to `provider_free` if absent; all provider-free fixtures validate unchanged.
+2. **Authorized live mode** (authorized by ADR-068, not yet implemented): one bounded live Executor invocation through an approved execution seam under Guardian permission resolution; one bounded live Evaluator invocation; exact binding-to-provider/model identity verification; fail-closed on identity mismatch, capability ineligibility, target-path escape, mutation outside allowed paths, unauthorized Evaluator mutation, malformed provider result, harness transport failure, or secret leakage.
+
+Campaign Engine never bypasses Guardian authority or policy. Campaign Engine may request; Guardian grants or denies. Mode selection is operator/Guardian policy, never a Campaign Engine self-decision.
 
 ---
 
