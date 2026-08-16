@@ -23,6 +23,16 @@ Source anchors:
 
 # Codexify Architecture KB
 
+## Browser episodic context and recall routing
+
+For chat-backed browser continuity and future browser-history recall, read the
+[Browser Episodic Context and Recall Contract](./browser-episodic-context-and-recall-contract.md)
+and [ADR-070](./adr/070-browser-episodic-context-and-recall.md). ADR-054 still
+owns Browser Host technology, topology, repository incubation, and release
+ownership; ADR-070 owns Browser Episode and Browser Recall semantics. Neither
+document proves shipped browser functionality, and
+docs/architecture/00-current-state.md remains release truth.
+
 Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture. It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 ## How to answer "What is currently in Codexify Beta?"

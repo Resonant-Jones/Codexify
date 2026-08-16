@@ -9,6 +9,9 @@
   side-panel client's authentication, credential storage, and transport modes.
 - Future boundary: this contract constrains any later Browser Host, page
   observation, context capture, attachment, or persistence implementation.
+- Episodic/recall boundary: ADR-070 and the Browser Episodic Context and Recall
+  Contract define the later chat-backed Browser Episode and separately opt-in
+  Browser Recall semantics; they do not prove implementation.
 
 ## Purpose
 
@@ -18,6 +21,12 @@ command, persistence, or browser-action authority. It separates Guardian
 connectivity from page observation, makes capture user-initiated and bounded,
 and preserves provenance across ephemeral attachment and explicitly authorized
 durable persistence.
+
+Ordinary page capture remains ephemeral by default. A clearly labeled,
+chat-backed Ambient Browser Turn is a narrower future exception governed by
+ADR-070: the user action may authorize a normal durable chat turn and bounded
+Browser Episode evidence, but never the rest of the page or raw DOM. Browser
+Recall is a distinct authority domain and is not implied by page observation.
 
 The contract is host-neutral. Repository presence, documentation, or the
 current side-panel client does not prove that capture, a Browser Host, browser
@@ -127,6 +136,20 @@ permission domains. Implementations MUST NOT conflate them, infer either one
 from the other, or present one grant as satisfying both. This separation is
 host-neutral and does not mandate a Chrome API, extension permission, IPC
 mechanism, renderer model, or repository topology.
+
+### Browser Recall authority
+
+Browser Recall authority is a separate, explicit opt-in permission for
+minimized browser-history metadata and derived Browser Recall records. It is
+independently disableable, revocable, deletable, correctable, and retention
+governed. Page observation authority MUST NOT imply Browser Recall authority,
+and Browser Recall authority MUST NOT imply page-body capture, screenshot
+capture, identity/memory mutation, or browser action authority.
+
+The raw history source remains browser/Browser Host profile state rather than
+IDDB or personal memory. Derived Browser Recall records remain rebuildable
+retrieval material and must preserve source provenance. The full semantic and
+ownership boundary is governed by ADR-070.
 
 ## Browser Content Doctrine
 
@@ -298,6 +321,12 @@ These are separate operations:
   ownership checks, export/restore, deletion, and correction behavior. Saved
   records preserve source URL, origin, title, capture time, source kind,
   content hash, extractor version, truncation, and omitted-material status.
+- **Chat-backed Browser Episode persistence** is the narrower future rule in
+  ADR-070. A clearly labeled Ambient Browser Turn may authorize a normal
+  durable user turn and the bounded Semantic Page Payload needed to preserve
+  what the interaction addressed. It does not authorize whole-page/raw-DOM
+  persistence, Browser Recall, or identity/memory mutation. The current v1
+  Browser Host attachment remains ephemeral and not_persisted.
 - **Identity or memory mutation** is outside this contract and requires the
   governing identity/memory write contract, separate consent, and separate
   proof. Capture or persistence does not mutate IDDB, Identity Mirror, persona
@@ -519,8 +548,10 @@ Canonical source remains `frontend/chrome-extension/`; generated output remains
 | Page-context envelope | Not implemented. | Conceptual schema and validation requirements only. |
 | Ephemeral browser-context attachment | Not implemented under this contract. | Documentation only. |
 | Durable browser-artifact persistence | Not implemented or authorized by attachment. | Requires a separately accepted implementation and proof task. |
+| Browser Episode persistence | Not implemented. | ADR-070 defines future semantics only; no runtime write or schema exists. |
+| Browser Recall | Not implemented. | Requires separate opt-in history authority, adapter, retention, deletion, and rebuild proof. |
 | Browser actions | Not implemented and prohibited under this contract. | Requires a later normative contract and implementation proof. |
-| Browser Host | Not implemented or selected. | Chrome, Tauri, Electron, Chromium, or another host remains undecided. |
+| Browser Host | Not implemented or release-qualified. | ADR-054 selects the future bundled_chromium_electron family; the host remains outside current release truth. |
 
 `docs/architecture/00-current-state.md` remains the short-horizon release truth
 and is not changed by this contract.
@@ -554,12 +585,15 @@ and is not changed by this contract.
 - ADR-003 remains relevant to keeping user/message identity distinct from
   request and capture correlation.
 - ADR-005 remains relevant to backend-owned account and identity boundaries.
-- This contract makes no ADR decision about Browser Host technology,
-  repository topology, cross-repository protocol ownership, signing, or release
-  ownership. Stage 03 must evaluate and record that decision separately and
-  reference this contract rather than silently replace it.
+- ADR-054 governs Browser Host technology, repository topology, protocol
+  ownership, signing, and release ownership.
+- ADR-070 governs chat-backed Browser Episode evidence, Browser Recall
+  authority, continuity, retention, deletion, provenance, and export/restore
+  boundaries. It narrows the durable-evidence interpretation of this contract
+  without changing the current ephemeral attachment wire contract.
 
-No ADR is created or modified by this task.
+This contract remains host-neutral and does not by itself authorize Browser
+Episode or Browser Recall implementation.
 
 ## Exit Criteria
 
@@ -592,4 +626,6 @@ This documentation task is complete only when:
 - [`runtime-protocol-token-contract.md`](./runtime-protocol-token-contract.md)
 - [`account-export-restore-contract.md`](./account-export-restore-contract.md)
 - [Stage 01 Browser extension inventory proof](./proofs/2026-07-30-codexify-browser-extension-repository-inventory.md)
+- Companion contract: docs/architecture/browser-episodic-context-and-recall-contract.md
+- Governing decision: docs/architecture/adr/070-browser-episodic-context-and-recall.md
 - [`CODEXIFY_BROWSER_CAMPAIGN.md`](../Campaign/CODEXIFY_BROWSER_CAMPAIGN.md)
