@@ -615,6 +615,104 @@ REMOTE_RECALL_TRACE_EVENTS: frozenset[str] = frozenset(
     {event.value for event in RemoteRecallTraceEvent}
 )
 
+
+class ConnectionCategory(str, Enum):
+    """Canonical Connections catalog categories.
+
+    These are the only categories the Settings Connections bay presents.
+    They are catalog-visibility buckets, never runtime ownership domains.
+    """
+
+    MESSAGING = "messaging"
+    WEB = "web"
+    INFERENCE = "inference"
+
+
+class ConnectionImplementationState(str, Enum):
+    """Whether a real Codexify runtime adapter currently exists for an entry.
+
+    Catalog visibility never implies implementation. An entry listed in the
+    catalog with ``unimplemented`` has no executable runtime behind it.
+    """
+
+    IMPLEMENTED = "implemented"
+    PARTIAL = "partial"
+    UNIMPLEMENTED = "unimplemented"
+    EXPERIMENTAL = "experimental"
+
+
+class ConnectionSetupState(str, Enum):
+    """Per-user setup/configuration state projected into the Connections bay.
+
+    Setup state is distinct from implementation state, runtime
+    authorization, and live connection health. ``configured`` means
+    credential/configuration presence is derivable for the current user;
+    it does not prove authorization, and neither proves live health.
+    ``connected`` is only ever derived from an explicit persisted
+    connection status (e.g. an oauth_connections row), never from
+    credential presence alone.
+    """
+
+    AVAILABLE = "available"
+    NEEDS_SETUP = "needs_setup"
+    AUTHENTICATING = "authenticating"
+    CONFIGURED = "configured"
+    CONNECTED = "connected"
+    DEGRADED = "degraded"
+    ERROR = "error"
+    UNAVAILABLE = "unavailable"
+
+
+class ConnectionAuthMethod(str, Enum):
+    """Supported setup/authentication method vocabulary.
+
+    Listing a method in an entry's ``auth_methods`` describes how a future
+    setup could authenticate. It is not a claim that a backend handler for
+    that method exists: OAuth actions stay disabled until
+    ``oauth_backend_handler_exists`` is true for that entry.
+    """
+
+    OAUTH_BROWSER = "oauth_browser"
+    OAUTH_DEVICE = "oauth_device"
+    API_KEY = "api_key"
+    TOKEN = "token"
+    SERVICE_CREDENTIALS = "service_credentials"
+    LOCAL_ENDPOINT = "local_endpoint"
+    NONE = "none"
+
+
+class ConnectionCapability(str, Enum):
+    """Capabilities a Connections entry describes.
+
+    Search and extract are distinct web capabilities. A messaging entry
+    advertises messaging direction; an inference entry advertises chat
+    completion; the legacy sync connector advertises sync ingestion.
+    """
+
+    SEARCH = "search"
+    EXTRACT = "extract"
+    CHAT_COMPLETION = "chat_completion"
+    OUTBOUND_MESSAGING = "outbound_messaging"
+    INBOUND_MESSAGING = "inbound_messaging"
+    SYNC_INGEST = "sync_ingest"
+
+
+CONNECTION_CATEGORIES: frozenset[str] = frozenset(
+    {category.value for category in ConnectionCategory}
+)
+CONNECTION_IMPLEMENTATION_STATES: frozenset[str] = frozenset(
+    {state.value for state in ConnectionImplementationState}
+)
+CONNECTION_SETUP_STATES: frozenset[str] = frozenset(
+    {state.value for state in ConnectionSetupState}
+)
+CONNECTION_AUTH_METHODS: frozenset[str] = frozenset(
+    {method.value for method in ConnectionAuthMethod}
+)
+CONNECTION_CAPABILITIES: frozenset[str] = frozenset(
+    {capability.value for capability in ConnectionCapability}
+)
+
 __all__ = [
     "AcceptanceStatus",
     "GuardianDelegationInteractionMode",
@@ -717,4 +815,14 @@ __all__ = [
     "WEB_EVIDENCE_GATE_DECISIONS",
     "REMOTE_RECALL_FAILURE_REASONS",
     "REMOTE_RECALL_TRACE_EVENTS",
+    "ConnectionCategory",
+    "ConnectionImplementationState",
+    "ConnectionSetupState",
+    "ConnectionAuthMethod",
+    "ConnectionCapability",
+    "CONNECTION_CATEGORIES",
+    "CONNECTION_IMPLEMENTATION_STATES",
+    "CONNECTION_SETUP_STATES",
+    "CONNECTION_AUTH_METHODS",
+    "CONNECTION_CAPABILITIES",
 ]
