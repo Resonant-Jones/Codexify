@@ -48,6 +48,12 @@ from guardian.context.context_directive_resolver import (
     resolve_context_request_plans,
     serialize_context_request_plans,
 )
+from guardian.conversation_origin import (
+    CANONICAL_ORIGIN_SYSTEMS,
+    DEFAULT_ORIGIN_SYSTEM,
+    ConversationOriginSystem,
+    resolve_canonical_origin,
+)
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
@@ -1125,6 +1131,7 @@ def _persist_message_to_thread(
             user_id=str(owner),
             title="New Chat",
             summary="",
+            origin_system=DEFAULT_ORIGIN_SYSTEM,
         )
     except Exception as exc:
         logger.exception(
@@ -2285,6 +2292,7 @@ def chat_create_thread(
             summary=summary,
             project_id=normalized_project,
             metadata=metadata,
+            origin_system=DEFAULT_ORIGIN_SYSTEM,
         )
         _persist_thread_config_snapshot(int(record["id"]), thread_config)
         if isinstance(record, dict):
@@ -2324,17 +2332,39 @@ def chat_list_threads(
     offset: int = Query(default=0, ge=0),
     user_id: Optional[str] = Query(default=None),
     project_id: Optional[int] = Query(default=None),
+    origin_system: Optional[str] = Query(
+        default=None,
+        description=(
+            "Filter threads by canonical conversation origin "
+            "(``codexify``, ``openai``, ``anthropic``). Unsupported values "
+            "fail closed rather than silently widening the query."
+        ),
+    ),
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
-    """Return the list of persisted chat threads."""
+    """Return the list of persisted chat threads.
+
+    When ``origin_system`` is supplied, the result is restricted to threads
+    whose canonical origin matches the requested registry value. The filter
+    is exact-match and operates on the dedicated ``chat_threads.origin_system``
+    column; it does not inspect project names, legacy ``import_source``
+    metadata, or message content.
+    """
     scoped_user_id = _scope_query_user_id(user_id, request_user_scope)
+    canonical_origin: str | None = None
+    if origin_system is not None:
+        try:
+            canonical_origin = resolve_canonical_origin(origin_system)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         threads = chatlog_db.list_chat_threads(
             limit=limit,
             offset=offset,
             user_id=scoped_user_id,
             project_id=project_id,
+            origin_system=canonical_origin,
         )
         return {
             "ok": True,
@@ -2539,6 +2569,7 @@ def chat_post_message_create_on_send(
                 summary=summary,
                 project_id=normalized_project,
                 metadata=metadata or None,
+                origin_system=DEFAULT_ORIGIN_SYSTEM,
             )
             created_thread_id = int(thread_record["id"])
             requested_thread_id = created_thread_id
@@ -3372,6 +3403,7 @@ def branch_thread(
         summary=summary,
         project_id=project_id,
         parent_id=parent["id"],
+        origin_system=DEFAULT_ORIGIN_SYSTEM,
     )
 
     chatlog_db.write_audit_log(
@@ -5166,6 +5198,7 @@ def api_chat_list_threads(
     offset: int = Query(default=0, ge=0),
     user_id: Optional[str] = Query(default=None),
     project_id: Optional[int] = Query(default=None),
+    origin_system: Optional[str] = Query(default=None),
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -5175,6 +5208,7 @@ def api_chat_list_threads(
         offset=offset,
         user_id=user_id,
         project_id=project_id,
+        origin_system=origin_system,
         api_key=api_key,
         request_user_scope=request_user_scope,
     )

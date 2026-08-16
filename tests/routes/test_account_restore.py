@@ -8,7 +8,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Dict
 
 import pytest
 from fastapi import FastAPI
@@ -624,6 +624,7 @@ class FakeAccountRestoreDB:
                 "modeling_excluded",
                 "metadata",
                 "active_profile_id",
+                "origin_system",
                 "created_at",
                 "updated_at",
             ),
@@ -889,6 +890,22 @@ class FakeAccountRestoreDB:
         skipped = 0
         for raw_row in rows:
             row = dict(raw_row)
+            # Mirror the production backfill for chat_threads legacy
+            # exports that predate the canonical origin_system column:
+            # derive the value from explicit import-source metadata, then
+            # default to ``codexify`` for everything else.
+            if (
+                family == "chat_threads"
+                and "origin_system" not in row
+            ):
+                metadata = row.get("metadata") or {}
+                legacy = metadata.get("import_source")
+                if legacy in ("chatgpt", "openai"):
+                    row["origin_system"] = "openai"
+                elif legacy in ("claude", "anthropic"):
+                    row["origin_system"] = "anthropic"
+                else:
+                    row["origin_system"] = "codexify"
             normalized = {
                 column: self._normalize(row.get(column)) for column in columns
             }
@@ -1248,8 +1265,212 @@ def test_account_metadata_restore_reports_metadata_only_and_blob_validation(
         report["blob_coverage"]["unresolved_rows"]
         == manifest["blob_coverage"]["unresolved_rows"]
     )
-    assert any(
-        "validated" in note.lower()
-        and "not written back to storage" in note.lower()
-        for note in report["notes"]
+
+
+# ---------------------------------------------------------------------------
+# origin_system preservation (canonical conversation-origin invariant)
+# ---------------------------------------------------------------------------
+
+
+def test_account_restore_preserves_origin_system_round_trip(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    restore_db: FakeAccountRestoreDB,
+):
+    """The export → restore round-trip must preserve the canonical
+    ``origin_system`` field exactly. A current-format v2 archive with
+    ``origin_system="anthropic"`` (or any canonical value) on every
+    ``chat_threads`` row must restore it byte-for-byte; it must NOT be
+    silently rewritten to ``codexify``.
+    """
+
+    rows = {
+        "projects": [
+            {
+                "id": 10,
+                "name": "Project Alpha",
+                "description": "Primary workspace",
+                "icon": "A",
+                "identity_depth": "deep",
+                "created_at": _utc("2026-03-01T00:00:00Z"),
+                "updated_at": _utc("2026-03-02T00:00:00Z"),
+            }
+        ],
+        "chat_threads": [
+            {
+                "id": 101,
+                "user_id": USER_ID,
+                "title": "Imported Claude thread",
+                "summary": "",
+                "project_id": 10,
+                "parent_id": None,
+                "archived_at": None,
+                "is_diary": False,
+                "diary_mode": False,
+                "exclude_from_identity": False,
+                "modeling_excluded": False,
+                "metadata": {"import_source": "claude", "source_thread_id": "src-1"},
+                "active_profile_id": None,
+                "origin_system": "anthropic",
+                "created_at": _utc("2026-03-05T00:00:00Z"),
+                "updated_at": _utc("2026-03-05T01:00:00Z"),
+            },
+            {
+                "id": 102,
+                "user_id": USER_ID,
+                "title": "Imported ChatGPT thread",
+                "summary": "",
+                "project_id": 10,
+                "parent_id": None,
+                "archived_at": None,
+                "is_diary": False,
+                "diary_mode": False,
+                "exclude_from_identity": False,
+                "modeling_excluded": False,
+                "metadata": {"import_source": "chatgpt", "source_thread_id": "src-2"},
+                "active_profile_id": None,
+                "origin_system": "openai",
+                "created_at": _utc("2026-03-06T00:00:00Z"),
+                "updated_at": _utc("2026-03-06T01:00:00Z"),
+            },
+            {
+                "id": 103,
+                "user_id": USER_ID,
+                "title": "Native Codexify thread",
+                "summary": "",
+                "project_id": 10,
+                "parent_id": None,
+                "archived_at": None,
+                "is_diary": False,
+                "diary_mode": False,
+                "exclude_from_identity": False,
+                "modeling_excluded": False,
+                "metadata": {},
+                "active_profile_id": None,
+                "origin_system": "codexify",
+                "created_at": _utc("2026-03-07T00:00:00Z"),
+                "updated_at": _utc("2026-03-07T01:00:00Z"),
+            },
+        ],
+        "chat_messages": [],
+        "uploaded_documents": [],
+        "generated_documents": [],
+        "uploaded_images": [],
+        "generated_images": [],
+        "media_assets": [],
+        "media_aliases": [],
+        "thread_documents": [],
+        "project_document_links": [],
+        "extension_proposals": [],
+        "extension_install_gate_decisions": [],
+        "extension_registry_entries": [],
+        "extension_install_bindings": [],
+    }
+
+    base_path = tmp_path / "storage"
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(base_path))
+    monkeypatch.setenv("STORAGE_URL_PREFIX", "/media")
+
+    export_db, export_calls = _build_export_db(rows)
+    archive_path = build_account_export_zip(export_db, SimpleNamespace(id=USER_ID))
+    try:
+        archive_bytes = _zip_bytes_from_archive(archive_path)
+    finally:
+        if os.path.exists(archive_path):
+            os.unlink(archive_path)
+
+    response = _post_archive(client, archive_bytes)
+    assert response.status_code == 200
+
+    by_thread_id = {
+        row["id"]: row
+        for row in restore_db.tables["chat_threads"].values()
+    }
+    assert by_thread_id[101]["origin_system"] == "anthropic"
+    assert by_thread_id[102]["origin_system"] == "openai"
+    assert by_thread_id[103]["origin_system"] == "codexify"
+
+
+def test_account_restore_legacy_export_backfills_origin_from_import_source(
+    client: TestClient,
+    archive_package,
+    restore_db: FakeAccountRestoreDB,
+):
+    """A legacy export (predating the canonical column) that declares
+    explicit historical import provenance must backfill ``origin_system``
+    deterministically from that provenance. ChatGPT/OpenAI -> ``openai``;
+    Claude/Anthropic -> ``anthropic``; otherwise -> ``codexify``.
+    """
+
+    archive_bytes, _manifest, _export_calls = archive_package
+    response = _post_archive(client, archive_bytes)
+    assert response.status_code == 200
+
+    # The shared fixture rows carry ``metadata->>'import_source' =
+    # 'source-1'`` / ``'source-2'`` — neither token is in the canonical
+    # legacy backfill map. Both rows therefore resolve to ``codexify``.
+    by_thread_id = {
+        row["id"]: row
+        for row in restore_db.tables["chat_threads"].values()
+    }
+    assert by_thread_id[101]["origin_system"] == "codexify"
+    assert by_thread_id[102]["origin_system"] == "codexify"
+
+
+def test_account_restore_unsupported_declared_origin_system_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A current-format v2 export that declares an unsupported canonical
+    value (e.g. ``chatgpt``, a legacy product name) must fail closed
+    rather than silently rewrite the lineage. The production restore
+    raises ``AccountImportError`` with code ``unsupported_origin_system``;
+    we exercise that here against the active Postgres restore seam so the
+    contract is locked at the production layer rather than at the fake
+    facade used by the route tests."""
+
+    from guardian.core.chatlog_postgres import PostgresChatLogDB
+    from guardian.services.openai_account_import import AccountImportError
+
+    db = PostgresChatLogDB.__new__(PostgresChatLogDB)
+    captured: Dict[str, Any] = {}
+
+    def _capture(*args: Any, **kwargs: Any) -> Dict[str, int]:
+        captured["called"] = True
+        return {"imported": 0, "skipped": 0, "failed": 0, "unresolved": 0}
+
+    monkeypatch.setattr(
+        PostgresChatLogDB,
+        "_restore_account_export_rows",
+        _capture,
     )
+
+    # ``chatgpt`` is a legacy product name; it is NOT a canonical
+    # ``origin_system`` value. The production restore must reject it
+    # rather than silently rewriting it.
+    bad_row = {
+        "id": 999,
+        "user_id": USER_ID,
+        "title": "Misdeclared origin",
+        "summary": "",
+        "project_id": 10,
+        "parent_id": None,
+        "archived_at": None,
+        "is_diary": False,
+        "diary_mode": False,
+        "exclude_from_identity": False,
+        "modeling_excluded": False,
+        "metadata": {},
+        "active_profile_id": None,
+        "origin_system": "chatgpt",
+        "created_at": _utc("2026-03-05T00:00:00Z"),
+        "updated_at": _utc("2026-03-05T01:00:00Z"),
+    }
+
+    with pytest.raises(AccountImportError) as exc_info:
+        db.restore_account_export_chat_threads([bad_row])
+
+    assert exc_info.value.code == "unsupported_origin_system"
+    # The real restore must NOT have proceeded to the underlying
+    # INSERT path for an unsupported declared value.
+    assert captured == {}

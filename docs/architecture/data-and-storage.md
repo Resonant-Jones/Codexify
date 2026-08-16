@@ -46,7 +46,7 @@ The vector store is a derived retrieval/index artefact, not canonical applicatio
 | Entity | Why it matters | Key invariants |
 |---|---|---|
 | `projects` | Top-level ownership and grouping boundary for threads and documents | `identity_depth` constrained to `light` or `deep` |
-| `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile |
+| `chat_threads` | Primary conversation container | can be archived, nested via `parent_id`, and tied to a project/profile; carries one immutable canonical `origin_system` token (`codexify` / `openai` / `anthropic`) recorded at canonical creation |
 | `chat_messages` | Ordered conversation state | hard-linked to thread by FK with cascade delete; assistant rows may carry durable completion breadcrumbs in `extra_meta` |
 | `memory_entries` | Stored episodic/semantic memory | `silo` constraint and retrieval policy dependence |
 | `personal_facts` | Higher-level fact memory | confidence/status constraints drive fact lifecycle |
@@ -134,6 +134,42 @@ must fail closed with bounded evidence. Schema/history reconciliation still
 occurs through normal Alembic execution and version advancement. Stamping,
 direct `alembic_version` edits, and manual schema repair are not substitutes
 for migration execution.
+
+### Canonical conversation-origin column
+
+`chat_threads.origin_system` is the authoritative conversation-origin truth
+surface for every canonical thread. The bounded registry is defined in
+`guardian.conversation_origin` and is enforced at the storage layer by a
+CHECK constraint on `chat_threads`. The canonical values are exactly:
+
+- `codexify` — the conversation was originally created inside Codexify.
+- `openai` — the conversation was originally created in ChatGPT or another
+  OpenAI surface.
+- `anthropic` — the conversation was originally created in Claude or another
+  Anthropic surface.
+
+`origin_system` is set at canonical creation only and is immutable under
+ordinary thread mutation. Title change, summary change, project move,
+archive, unarchive, persona assignment, retrieval configuration change,
+provider switch, and ordinary completion activity must never alter
+`origin_system`. The column is the canonical filter surface for owner-scoped
+thread queries (for example, the `GET /api/chat/threads?origin_system=...`
+route). A composite index on `(user_id, origin_system)` backs that filter.
+
+Legacy product labels — `chatgpt`, `openai`, `claude`, `anthropic`,
+`gpt`, `open_ai`, `anthropic_claude` — are not canonical `origin_system`
+values and are recognized only at the migration / import-compatibility
+boundary. They map deterministically onto the canonical registry:
+ChatGPT/OpenAI tokens become `openai`; Claude/Anthropic tokens become
+`anthropic`; any thread without explicit historical import provenance
+becomes `codexify`. Free-form strings are never canonical values; unknown
+external systems must fail closed rather than being silently mapped.
+
+Imported-source product metadata — `import_source`, `import_profile`,
+`source_thread_id`, source-message identifiers, raw import envelopes —
+remains subordinate provenance for audit and backward compatibility and
+must not be used as the authoritative conversation-origin filter after this
+invariant is established.
 
 ### Documents, media, and generated artifacts
 

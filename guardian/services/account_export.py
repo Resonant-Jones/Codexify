@@ -23,7 +23,7 @@ from guardian.core.storage import StorageError, create_storage_from_env
 
 logger = logging.getLogger(__name__)
 
-MANIFEST_SCHEMA_VERSION = "account-export.v1"
+MANIFEST_SCHEMA_VERSION = "account-export.v2"
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (

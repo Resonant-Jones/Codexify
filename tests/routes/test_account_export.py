@@ -554,7 +554,9 @@ def test_account_export_zip_returns_truthful_manifest(
         assert path in names
 
     manifest = _load_json(archive, "manifest.json")
-    assert manifest["schema_version"] == "account-export.v1"
+    # Schema v2 introduces the canonical ``origin_system`` field on
+    # ``chat_threads``; legacy v1 archives remain supported by restore.
+    assert manifest["schema_version"] == "account-export.v2"
     assert manifest["app_version"] == "0.1.0"
     assert manifest["export_kind"] == "full_account"
     assert manifest["user_id"] == USER_ID

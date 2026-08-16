@@ -21,6 +21,9 @@ from backend.rag.openai_export_adapter import (
 from backend.rag.openai_export_conversation_import import (
     import_openai_export_conversations,
 )
+from backend.rag.anthropic_export_adapter import (
+    import_anthropic_export_path as import_anthropic_export_conversations,
+)
 from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core import event_bus
 from guardian.core.chatlog_postgres import PostgresChatLogDB
@@ -179,8 +182,6 @@ def process_account_import_task(
             export_root = _resolve_export_root(
                 staged_root, service=service, workspace=workspace
             )
-            report = diagnose_openai_export_path(export_root)
-            inventory = report.inventory
             checkpoint = dict(snapshot.get("checkpoint") or {})
             source_summary: dict[str, int | bool] = {
                 "conversations_discovered": 0,
@@ -190,6 +191,44 @@ def process_account_import_task(
                 "conversation_transactions_committed": False,
             }
 
+            job_source_system = (
+                str(snapshot.get("source_system") or "").strip().lower()
+            )
+
+            if job_source_system == "anthropic":
+                anthropic_result = import_anthropic_export_conversations(
+                    export_root,
+                    user_id=user_id,
+                )
+                if anthropic_result.errors:
+                    raise RuntimeError(
+                        "; ".join(anthropic_result.errors[:5])
+                    )
+                source_summary = {
+                    "conversations_discovered": anthropic_result.conversations_discovered,
+                    "conversations_accepted": anthropic_result.conversations_discovered,
+                    "conversations_skipped": 0,
+                    "conversations_failed": anthropic_result.conversations_failed,
+                    "conversation_transactions_committed": (
+                        anthropic_result.conversations_imported > 0
+                    ),
+                }
+                service.record_source_summary(
+                    job_id=job_id,
+                    user_id=user_id,
+                    summary=source_summary,
+                )
+                # Anthropic corpus only writes chat thread/message rows; the
+                # existing account-import contract treats media ingestion as
+                # an OpenAI-specific flow. Per source-family policy, the
+                # adapter never ingests media bytes for Anthropic exports
+                # (file references carry no recoverable binaries in the
+                # inspected export), so we skip the image path entirely.
+                service.complete_job(job_id=job_id, user_id=user_id)
+                return True
+
+            report = diagnose_openai_export_path(export_root)
+            inventory = report.inventory
             if inventory.legacy_detected or inventory.sharded_detected:
                 diagnostics = import_openai_export_conversations(
                     export_root,

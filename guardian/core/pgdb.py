@@ -41,6 +41,7 @@ from .default_project import (
     canonicalize_default_project,
     resolve_project_id_or_default,
 )
+from guardian.services.openai_account_import import AccountImportError
 
 _DEFAULT_USER_ID = "local"
 
@@ -490,12 +491,20 @@ class PgDB(ChatDB):
         modeling_excluded: bool | None = None,
         metadata: dict | None = None,
         active_profile_id: str | None = None,
+        origin_system: str = "codexify",
     ) -> dict[str, Any]:
         """Manifest a new conversation thread in the distributed consciousness.
 
         Each thread becomes a living archive of conversational moments. The optional
         project_id and parent_id parameters link this thread to larger organizational
-        consciousness and hierarchical conversation flows."""
+        consciousness and hierarchical conversation flows.
+
+        ``origin_system`` is the canonical conversation-origin token (see
+        ``guardian.conversation_origin``). It MUST be one of the bounded
+        registry values. The default is ``codexify`` because every native
+        Codexify thread begins life as a Codexify-native conversation,
+        regardless of the inference provider currently selected.
+        """
         metadata = metadata or {}
         diary_flag = bool(is_diary if diary_mode is None else diary_mode)
         modeling_flag = bool(
@@ -503,6 +512,11 @@ class PgDB(ChatDB):
             if modeling_excluded is None
             else modeling_excluded
         )
+        # Validate the canonical origin token before any DB write so unsupported
+        # values cannot reach the persistence layer.
+        from guardian.conversation_origin import resolve_canonical_origin
+
+        canonical_origin = resolve_canonical_origin(origin_system)
         project_id = resolve_project_id_or_default(
             self, project_id, logger=logging.getLogger(__name__)
         )
@@ -514,13 +528,14 @@ class PgDB(ChatDB):
                         INSERT INTO chat_threads (
                             user_id, title, summary, project_id, parent_id,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id
+                            metadata, active_profile_id, origin_system
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, thread_config, created_at, updated_at
+                            metadata, active_profile_id, origin_system, thread_config,
+                            created_at, updated_at
                         """,
                         (
                             user_id,
@@ -534,12 +549,13 @@ class PgDB(ChatDB):
                             modeling_flag,
                             _to_json(metadata),
                             active_profile_id,
+                            canonical_origin,
                         ),
                     )
                     row = cur.fetchone()
             except pg_errors.UndefinedColumn:
                 # Backward-compatible insert for older schemas that do not yet
-                # include parent/archival/metadata columns.
+                # include parent/archival/metadata/origin_system columns.
                 conn.rollback()
                 with conn.cursor() as cur:
                     cur.execute(
@@ -586,6 +602,7 @@ class PgDB(ChatDB):
         modeling_excluded: bool | None = None,
         metadata: dict | None = None,
         active_profile_id: str | None = None,
+        origin_system: str = "codexify",
     ) -> dict[str, Any]:
         metadata = metadata or {}
         diary_flag = bool(is_diary if diary_mode is None else diary_mode)
@@ -594,6 +611,9 @@ class PgDB(ChatDB):
             if modeling_excluded is None
             else modeling_excluded
         )
+        from guardian.conversation_origin import resolve_canonical_origin
+
+        canonical_origin = resolve_canonical_origin(origin_system)
         raw_project_id = project_id
         resolved_project_id = resolve_project_id_or_default(
             self, raw_project_id, logger=logging.getLogger(__name__)
@@ -609,14 +629,15 @@ class PgDB(ChatDB):
                         INSERT INTO chat_threads (
                             id, user_id, title, summary, project_id, parent_id,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id
+                            metadata, active_profile_id, origin_system
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, thread_config, created_at, updated_at
+                            metadata, active_profile_id, origin_system, thread_config,
+                            created_at, updated_at
                         """,
                         (
                             thread_id,
@@ -631,6 +652,7 @@ class PgDB(ChatDB):
                             modeling_flag,
                             _to_json(metadata),
                             active_profile_id,
+                            canonical_origin,
                         ),
                     )
                     row = cur.fetchone()
@@ -681,7 +703,7 @@ class PgDB(ChatDB):
                             p.name AS project_name, ct.last_interaction_at, ct.parent_id,
                             ct.archived_at, ct.is_diary, ct.diary_mode,
                             ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
-                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.active_profile_id, ct.origin_system, ct.thread_config, ct.created_at,
                             ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -740,7 +762,7 @@ class PgDB(ChatDB):
                             p.name AS project_name, ct.last_interaction_at, ct.parent_id,
                             ct.archived_at, ct.is_diary, ct.diary_mode,
                             ct.exclude_from_identity, ct.modeling_excluded, ct.metadata,
-                            ct.active_profile_id, ct.thread_config, ct.created_at,
+                            ct.active_profile_id, ct.origin_system, ct.thread_config, ct.created_at,
                             ct.updated_at
                         FROM chat_threads ct
                         LEFT JOIN projects p ON p.id = ct.project_id
@@ -775,8 +797,15 @@ class PgDB(ChatDB):
         offset: int = 0,
         user_id: str | None = None,
         project_id: int | None = None,
+        origin_system: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return a list of thread rows, newest first, with optional filters."""
+        """Return a list of thread rows, newest first, with optional filters.
+
+        ``origin_system`` is an exact-match filter against the canonical
+        conversation-origin registry. Unsupported values are rejected by the
+        caller (chat-route filter parameter); this method does not silently
+        widen the query.
+        """
         clauses: list[str] = []
         params: list[Any] = []
         if user_id is not None:
@@ -785,20 +814,24 @@ class PgDB(ChatDB):
         if project_id is not None:
             clauses.append("project_id = %s")
             params.append(project_id)
+        if origin_system is not None:
+            clauses.append("origin_system = %s")
+            params.append(origin_system)
 
         query = (
             "SELECT "
             "ct.id, ct.user_id, ct.title, ct.summary, ct.project_id, "
             "p.name AS project_name, ct.last_interaction_at, ct.parent_id, ct.archived_at, "
             "ct.is_diary, ct.diary_mode, ct.exclude_from_identity, ct.modeling_excluded, "
-            "ct.metadata, ct.active_profile_id, ct.thread_config, ct.created_at, ct.updated_at "
+            "ct.metadata, ct.active_profile_id, ct.origin_system, ct.thread_config, "
+            "ct.created_at, ct.updated_at "
             "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
         )
         if clauses:
             query += " WHERE " + " AND ".join(
                 clause.replace("project_id", "ct.project_id").replace(
                     "user_id", "ct.user_id"
-                )
+                ).replace("origin_system", "ct.origin_system")
                 for clause in clauses
             )
         query += (
@@ -822,6 +855,10 @@ class PgDB(ChatDB):
                     "FROM chat_threads ct LEFT JOIN projects p ON p.id = ct.project_id"
                 )
                 if clauses:
+                    # When origin_system column is missing we cannot safely
+                    # honour that filter, so reject it at the SQL seam.
+                    if origin_system is not None:
+                        raise
                     query += " WHERE " + " AND ".join(
                         clause.replace("project_id", "ct.project_id").replace(
                             "user_id", "ct.user_id"
@@ -3092,6 +3129,46 @@ class PgDB(ChatDB):
         *,
         conn: psycopg.Connection | None = None,
     ) -> dict[str, int]:
+        # Deterministic legacy backfill: archives exported before
+        # ``origin_system`` existed do not carry the field. We derive the
+        # canonical value from explicit historical import provenance only;
+        # unknown sources default to ``codexify`` (native), never a guess
+        # at an external system. A current-format export that declares an
+        # unsupported ``origin_system`` (e.g. a legacy product label like
+        # ``chatgpt``) fails closed here rather than being silently mapped.
+        from guardian.conversation_origin import (
+            CANONICAL_ORIGIN_SYSTEMS,
+            ConversationOriginSystem,
+            normalize_legacy_import_source,
+            resolve_canonical_origin,
+        )
+
+        normalized_rows: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            if "origin_system" not in data or data["origin_system"] is None:
+                legacy_import_source = (
+                    data.get("metadata", {}) or {}
+                ).get("import_source")
+                legacy = normalize_legacy_import_source(legacy_import_source)
+                canonical = (
+                    legacy
+                    if legacy is not None
+                    else ConversationOriginSystem.CODEXIFY.value
+                )
+            else:
+                raw = str(data["origin_system"]).strip()
+                if raw.lower() not in CANONICAL_ORIGIN_SYSTEMS:
+                    raise AccountImportError(
+                        "Account restore received an unsupported "
+                        f"chat_threads.origin_system={raw!r}; canonical "
+                        f"values are {sorted(CANONICAL_ORIGIN_SYSTEMS)}.",
+                        code="unsupported_origin_system",
+                    )
+                canonical = resolve_canonical_origin(raw)
+            data["origin_system"] = canonical
+            normalized_rows.append(data)
+
         return self._restore_account_export_rows(
             table_name="chat_threads",
             pk_column="id",
@@ -3109,10 +3186,11 @@ class PgDB(ChatDB):
                 "modeling_excluded",
                 "metadata",
                 "active_profile_id",
+                "origin_system",
                 "created_at",
                 "updated_at",
             ),
-            rows=rows,
+            rows=normalized_rows,
             conn=conn,
             json_columns=("metadata",),
             sequence_column="id",
@@ -4025,6 +4103,7 @@ def fetch_account_export_chat_threads_for_user(
                     modeling_excluded,
                     metadata,
                     active_profile_id,
+                    origin_system,
                     created_at,
                     updated_at
                 FROM chat_threads

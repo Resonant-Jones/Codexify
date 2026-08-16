@@ -447,7 +447,29 @@ def _ingest_canonical_messages(
     conversation_level_candidates: List[Dict[str, Any]] | None = None,
     embedding_mode: str = "enqueue",
     disable_personal_facts: bool = False,
+    origin_system: str | None = None,
 ) -> Tuple[int, int]:
+    # Resolve the canonical conversation-origin token. The import_source
+    # token is the legacy product label (e.g. ``"chatgpt"``, ``"claude"``);
+    # ``origin_system`` is the bounded registry value used as the
+    # authoritative filter surface on ``chat_threads``. Unknown external
+    # systems fail closed here rather than being silently mapped to
+    # ``codexify`` — that would erase provenance.
+    from guardian.conversation_origin import normalize_legacy_import_source
+
+    if origin_system is not None:
+        canonical_origin = origin_system
+    else:
+        legacy = normalize_legacy_import_source(import_source)
+        if legacy is None:
+            raise ValueError(
+                f"_ingest_canonical_messages: unknown import_source={import_source!r}; "
+                "only legacy 'chatgpt'/'openai'/'claude'/'anthropic' tokens are "
+                "recognized, or pass origin_system explicitly. New external "
+                "systems must extend the canonical registry."
+            )
+        canonical_origin = legacy
+
     thread_id = _find_existing_thread_for_source(
         chatlog_db, user_id=user_id, source_thread_id=source_thread_id
     )
@@ -475,6 +497,7 @@ def _ingest_canonical_messages(
                 summary=thread_summary,
                 project_id=imports_project_id,
                 metadata=thread_updates,
+                origin_system=canonical_origin,
             )
         except TypeError:
             thread_record = chatlog_db.create_chat_thread(
