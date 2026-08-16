@@ -139,8 +139,11 @@ no third-party private credentials were introduced by this slice.
 
 ## Runtime-binding ownership
 
-- Messaging entries with adapters bind to `guardian.channels` and the
-  existing channel configuration surface (`/api/channels/configs`).
+- Messaging entries with adapters bind to `guardian.channels`, but the
+  Connections bay does not collect or persist their runtime credentials.
+  These adapters currently read server-managed environment credentials; the
+  generic `/api/channels/configs` JSON route is not advertised as a
+  Connections setup action.
 - Inference entries bind to `guardian.core.provider_registry`; the
   registry, not the catalog, decides authorization. The catalog does not
   add providers to the registry.
@@ -157,12 +160,13 @@ The three implemented messaging entries reflect real code:
 
 | Entry | Adapter | Runtime credential |
 | --- | --- | --- |
-| Slack | `guardian.channels.adapters.slack.SlackAdapter` | server env bot token |
-| Discord | `guardian.channels.adapters.discord.DiscordAdapter` | server env webhook URL |
-| Telegram | `guardian.channels.adapters.telegram.TelegramAdapter` | server env bot token |
+| Slack | `guardian.channels.adapters.slack.SlackAdapter` | server-managed env bot token; no Connections setup action |
+| Discord | `guardian.channels.adapters.discord.DiscordAdapter` | server-managed env webhook URL; no Connections setup action |
+| Telegram | `guardian.channels.adapters.telegram.TelegramAdapter` | server-managed env bot token; no Connections setup action |
 
 Per-user channel configuration, allowlists, pairing, and message audit
-remain owned by `guardian/routes/channels.py`. All other requested
+remain owned by `guardian/routes/channels.py`; they are not entered through
+this Connections setup action. All other requested
 messaging platforms (Google Chat, WhatsApp, Signal, Mattermost, Matrix,
 BlueBubbles/iMessage, Home Assistant, Email, SMS/Twilio, DingTalk,
 Feishu/Lark, WeCom, Weixin/WeChat, QQ Bot, Yuanbao, Microsoft Teams, LINE,

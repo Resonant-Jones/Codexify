@@ -95,7 +95,10 @@ def test_slack_discord_telegram_reflect_real_adapter_truth() -> None:
         binding = entry.runtime_binding
         assert binding.subsystem == "guardian.channels"
         assert binding.adapter == adapter
-        assert binding.setup_route == "/api/channels/configs"
+        assert binding.setup_route is None
+        assert entry.required_fields == ()
+        assert entry.capabilities == frozenset({"outbound_messaging"})
+        assert entry.default_setup_state == "unavailable"
 
 
 def test_non_implemented_messaging_entries_are_unimplemented() -> None:

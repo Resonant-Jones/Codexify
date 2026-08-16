@@ -43,7 +43,6 @@ _SEARCH = ConnectionCapability.SEARCH.value
 _EXTRACT = ConnectionCapability.EXTRACT.value
 _CHAT = ConnectionCapability.CHAT_COMPLETION.value
 _OUTBOUND = ConnectionCapability.OUTBOUND_MESSAGING.value
-_INBOUND = ConnectionCapability.INBOUND_MESSAGING.value
 
 _IMPLEMENTED = ConnectionImplementationState.IMPLEMENTED.value
 _PARTIAL = ConnectionImplementationState.PARTIAL.value
@@ -51,8 +50,6 @@ _UNIMPLEMENTED = ConnectionImplementationState.UNIMPLEMENTED.value
 
 _NEEDS_SETUP = ConnectionSetupState.NEEDS_SETUP.value
 _UNAVAILABLE = ConnectionSetupState.UNAVAILABLE.value
-
-CHANNELS_CONFIG_ROUTE = "/api/channels/configs"
 
 _MESSAGING_UNIMPLEMENTED_HELP = (
     "No Codexify messaging adapter exists for this platform yet. This "
@@ -159,7 +156,6 @@ def _messaging_adapter_entry(
     description: str,
     *,
     adapter_class: str,
-    fields: tuple[ConnectionFieldSpec, ...],
 ) -> ConnectionCatalogEntry:
     return ConnectionCatalogEntry(
         id=entry_id,
@@ -167,20 +163,21 @@ def _messaging_adapter_entry(
         category=ConnectionCategory.MESSAGING.value,
         description=description,
         auth_methods=(_TOKEN,),
-        capabilities=frozenset({_OUTBOUND, _INBOUND}),
+        capabilities=frozenset({_OUTBOUND}),
         implementation_state=_IMPLEMENTED,
-        default_setup_state=_NEEDS_SETUP,
+        # These adapters currently consume server-managed environment
+        # credentials. Do not turn the generic ChannelConfig JSON route into
+        # a browser-facing secret persistence path.
+        default_setup_state=_UNAVAILABLE,
         runtime_binding=ConnectionRuntimeBinding(
             subsystem="guardian.channels",
             adapter=adapter_class,
-            setup_route=CHANNELS_CONFIG_ROUTE,
         ),
-        required_fields=fields,
         setup_help=(
-            "Configuration is stored per-user through the channels API and "
-            "delivery is performed by the existing channel adapter. A stored "
-            "configuration is not a live connection: adapter delivery "
-            "credentials remain server-owned."
+            "The adapter is available for server-managed runtime wiring, but "
+            "the Connections bay does not collect or persist its credentials. "
+            "Configure the server-owned environment credential through the "
+            "channel runtime's operator path."
         ),
     )
 
@@ -292,10 +289,6 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             "adapter, with per-user configuration, allowlist, and pairing "
             "surfaces.",
             adapter_class="guardian.channels.adapters.slack.SlackAdapter",
-            fields=(
-                ConnectionFieldSpec("bot_token", "Bot token", "password", True),
-                ConnectionFieldSpec("default_channel", "Default channel"),
-            ),
         )
     )
     entries.append(
@@ -306,11 +299,6 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             "adapter (webhook-based), with per-user configuration, "
             "allowlist, and pairing surfaces.",
             adapter_class="guardian.channels.adapters.discord.DiscordAdapter",
-            fields=(
-                ConnectionFieldSpec(
-                    "webhook_url", "Webhook URL", "password", True
-                ),
-            ),
         )
     )
     entries.append(
@@ -321,9 +309,6 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             "channel adapter, with per-user configuration, allowlist, and "
             "pairing surfaces.",
             adapter_class="guardian.channels.adapters.telegram.TelegramAdapter",
-            fields=(
-                ConnectionFieldSpec("bot_token", "Bot token", "password", True),
-            ),
         )
     )
     entries.extend(
@@ -735,7 +720,6 @@ __all__ = [
     "ConnectionCatalogEntry",
     "ConnectionFieldSpec",
     "ConnectionRuntimeBinding",
-    "CHANNELS_CONFIG_ROUTE",
     "connections_by_category",
     "get_catalog",
     "get_connection",
