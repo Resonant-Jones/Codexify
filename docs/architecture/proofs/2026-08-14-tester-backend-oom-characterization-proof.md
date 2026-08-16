@@ -53,9 +53,10 @@ ADR-067 Operator-Approved Derived Chroma Retirement
 
 ## 5. Previous ADR-067 execution handoff
 
-- Previous proof commit: `eaaeecfe648037818accbd30ac633b5447f6c948`
-  (parent `d0d3463675b746d6bb4d21f219f624419c497d31` — canonical ADR-067
-  merge, verified with `git rev-parse`).
+- Committed previous proof: `a48ce2009ab52693e9c1912cd87e42483f0bba1b`
+  (`docs: prove ADR-067 Chroma retirement startup`). Its parent is
+  `7a6cc844e032b583390f85de45193bf313240462`, whose parent is the canonical
+  ADR-067 merge `d0d3463675b746d6bb4d21f219f624419c497d31`.
 - Previous proof branch: `proof/adr067-chroma-retirement-startup-20260814`.
 - Handoff result: historical Chroma preserved and retired; fresh stock
   `chromadb==1.0.15` store initialized (migration generation 9/5/2); no
@@ -65,16 +66,17 @@ ADR-067 Operator-Approved Derived Chroma Retirement
   backend subsequently exited 137 with `OOMKilled=true`; authenticated
   Tester viability not reached.
 - The execution proof file at
-  `docs/architecture/proofs/2026-08-14-adr067-chroma-retirement-tester-requalification-proof.md`
-  was located via `git show --name-only eaaeecfe...` and read as the handoff
-  source.
+  `docs/architecture/proofs/2026-08-14-adr067-chroma-retirement-tester-startup-proof.md`
+  is present in commit `a48ce2009ab52693e9c1912cd87e42483f0bba1b` and is the
+  durable handoff source.
 
 ## 6. Task base HEAD
 
-`eaaeecfe648037818accbd30ac633b5447f6c948` (branch
-`proof/tester-backend-oom-characterization`, created with
-`git switch -c` from the prerequisite commit; `git rev-parse HEAD` verified
-equal before work began).
+Durable committed equivalent:
+`a48ce2009ab52693e9c1912cd87e42483f0bba1b`. The task branch
+`proof/tester-backend-oom-characterization` was created from the prerequisite
+proof before its squash; the committed SHA above is the repository-verifiable
+handoff reference.
 
 ## 7. Observed origin/main
 
