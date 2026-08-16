@@ -42,8 +42,6 @@ _NONE = ConnectionAuthMethod.NONE.value
 _SEARCH = ConnectionCapability.SEARCH.value
 _EXTRACT = ConnectionCapability.EXTRACT.value
 _CHAT = ConnectionCapability.CHAT_COMPLETION.value
-_OUTBOUND = ConnectionCapability.OUTBOUND_MESSAGING.value
-
 _IMPLEMENTED = ConnectionImplementationState.IMPLEMENTED.value
 _PARTIAL = ConnectionImplementationState.PARTIAL.value
 _UNIMPLEMENTED = ConnectionImplementationState.UNIMPLEMENTED.value
@@ -163,8 +161,11 @@ def _messaging_adapter_entry(
         category=ConnectionCategory.MESSAGING.value,
         description=description,
         auth_methods=(_TOKEN,),
-        capabilities=frozenset({_OUTBOUND}),
-        implementation_state=_IMPLEMENTED,
+        # Adapter classes exist, but production startup does not register or
+        # mount a channel router that can execute them. Do not advertise an
+        # executable messaging capability until that runtime path is wired.
+        capabilities=frozenset(),
+        implementation_state=_PARTIAL,
         # These adapters currently consume server-managed environment
         # credentials. Do not turn the generic ChannelConfig JSON route into
         # a browser-facing secret persistence path.
@@ -174,10 +175,11 @@ def _messaging_adapter_entry(
             adapter=adapter_class,
         ),
         setup_help=(
-            "The adapter is available for server-managed runtime wiring, but "
-            "the Connections bay does not collect or persist its credentials. "
+            "An adapter class exists, but no production runtime path currently "
+            "registers or executes it. The Connections bay does not collect "
+            "or persist its credentials. "
             "Configure the server-owned environment credential through the "
-            "channel runtime's operator path."
+            "channel runtime's operator path only after that runtime is wired."
         ),
     )
 
