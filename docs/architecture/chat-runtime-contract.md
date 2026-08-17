@@ -29,6 +29,48 @@ The ordinary HTTP completion route and the shared completion acceptance operatio
 
 Request identity, task identity, authored message identity, and turn-lock identity remain distinct. A new completion caller must reuse the shared acceptance operation and must not implement a parallel queue, lock, or task-event sequence. Hosted Room owner and guest invocation routes construct the bounded `ChatCompletionTask.hosted_room_invocation` context only after route-specific authority checks, then use the same shared acceptance operation. Ordinary tasks bypass Hosted Room validation and persistence provenance.
 
+### Optional acceptance participant
+
+`enqueue_chat_completion` may coordinate one optional typed acceptance
+participant without transferring ownership of the acceptance transaction. No
+current route opts into this participant, and the participant object is never
+serialized into `ChatCompletionTask` or sent to a worker.
+
+The canonical order is:
+
+```text
+turn lock acquired
+-> optional participant prepare
+-> queue enqueue
+-> optional participant commit
+-> best-effort task.created
+```
+
+Preparation runs only after the service owns the turn lock and before task
+serialization or enqueue. If preparation fails, the task is not enqueued, the
+service releases the lock, and the failure remains pre-acceptance. If enqueue
+fails after successful preparation, the participant receives one best-effort
+rollback before the service performs its existing lock reconciliation. A
+rollback failure is recorded separately and cannot replace the authoritative
+enqueue failure.
+
+Successful enqueue is irreversible acceptance from this service's perspective.
+The participant commit attempt therefore runs after enqueue and before
+`task.created`. Commit failure never rolls the participant back, releases the
+accepted task's turn lock, retries enqueue, or masquerades as queue
+non-acceptance. It reuses the existing `accepted_degraded` result and
+content-free acceptance-warning mechanism while `task.created` is still
+attempted independently. The warning is
+`acceptance_participant_commit_failed`; participant-commit and task-event
+visibility failures remain separately observable when both occur.
+
+The participant may validate bounded feature-specific ephemeral state and may
+mutate only the already-constructed in-memory task during preparation. It must
+not enqueue, publish events, manipulate locks, execute providers, bypass route
+authorization, or persist messages. This seam is orchestration capability only;
+it does not implement a Browser Context reference, store, or Chrome-sidebar
+binding.
+
 ### Completion task identity context
 
 The optional bounded task context keeps these identities distinct for future
