@@ -1,6 +1,6 @@
 # Workspace Baseline Convergence Campaign Sweep
 
-**Status:** Proposed for provisional freeze
+**Status:** G0 truth freeze completed — `CAMPAIGN_SWEEP_FROZEN`
 **Campaign class:** Architecture-impact
 **Primary program:** `codexify:program:digital-cognitive-workspace`
 **Supporting program:** `codexify:program:node-runtime`
@@ -57,11 +57,19 @@ provider families
 
 ### Freeze posture
 
-This sweep freezes the **dependency structure and admission rules**, but not yet the final atomic task inventory.
+G0 reconciled this sweep at `eb6bdc530245fdffeff23589c98389be4102b564`
+(`origin/main`). The canonical findings, per-capability evidence labels,
+admission decisions, deferred register, dependency order, and singular next
+Task Spec candidate are now in [the capability ledger](./capability-ledger.md)
+and [deferred-capabilities register](./deferred-capabilities.md).
 
-The source pack contains mixed evidence vintages: the DeepSeek reconnaissance was a static comparison against a specific repository snapshot, while the attached current-state authority records a different audited `main` tip. Therefore, the first Campaign stage must reconcile every proposed capability against the actual live repository before any new runtime primitive is created.
-
-That is deliberate. We are not building a second event system because another harness had a nice one.
+The reconciliation removed the false premise that Codexify lacks durable
+execution records. It has domain-owned chat, Command Bus, delegation/agent,
+and Campaign Engine records; it does not have one universal execution ledger.
+Existing seams must be correlated and extended before any new durable primitive
+is considered. Current-tip supported runtime closure, complete model-context
+provenance, frozen authority snapshots, persistent process ownership, and
+provider-account instances remain genuine gaps or proof gates.
 
 ---
 
@@ -109,9 +117,13 @@ The existing Command Bus already persists runs and ordered events, enforces poli
 
 ---
 
-# 4. Provisional Capability Baseline
+# 4. Reconciled Capability Baseline
 
-The statuses below are **Campaign hypotheses**, not current-main findings. WBC-0 must verify them.
+WBC-0 reconciled the hypotheses below at `eb6bdc5`. The canonical current-main
+classification, evidence posture, owner, disposition, prerequisites, and proof
+requirements are in [the capability ledger](./capability-ledger.md). The
+historical table remains only to preserve the original Campaign input; it must
+not be used as current truth.
 
 | Capability                                      | Baseline class                     |                         Provisional posture | Campaign disposition                     |
 | ----------------------------------------------- | ---------------------------------- | ------------------------------------------: | ---------------------------------------- |
@@ -204,6 +216,9 @@ These rules apply to every phase and every atomic Task Spec.
 # 6. Dependency-Ordered Campaign Sweep
 
 ## WBC-0 — Freeze Current Truth and the Capability Ledger
+
+**Result:** Completed at `eb6bdc5` as `CAMPAIGN_SWEEP_FROZEN`. The canonical
+record is [the capability ledger](./capability-ledger.md).
 
 ### Objective
 
@@ -1013,65 +1028,57 @@ Runtime maturity does not mean Codexify contains everything. It means adding the
 
 # 12. Sole Next Task
 
-## **WBC-0A — Reconcile and freeze the Workspace Baseline capability ledger against current main**
+## **WBC-1A — Capture current-tip supported-Compose runtime closure evidence**
 
 **Execution lane:** Architecture-impact
-**Task kind:** Proof / architecture reconciliation
-**Evidence posture:** Mixed documented contract, code-path evidence, historical proof, and current runtime claims requiring revalidation
+**Task kind:** Proof
+**Evidence posture:** Current-tip supported-path live-runtime proof needed
 
 ### Bounded outcome
 
-Create the canonical Campaign directory and reconcile every capability in this sweep against current repository truth.
+Exercise the supported local Compose profile at the reconciled current tip and
+record independent evidence for health, model inventory, queue acceptance and
+dequeue, turn locking, terminal completion, assistant persistence, source-thread
+readback, and the configuration values actually consumed.
 
 ### Proposed owned artifacts
 
-```text
-docs/Campaign/workspace-baseline-convergence/README.md
-docs/Campaign/workspace-baseline-convergence/capability-ledger.md
-docs/Campaign/workspace-baseline-convergence/deferred-capabilities.md
-```
-
-The task may inspect code, tests, ADRs, schemas, and proofs broadly, but may modify only the Campaign artifacts and directly required Campaign index entry.
+The ledger is the governing Campaign reconciliation record. This proof task
+must not create a new ledger, terminal abstraction, provider-account schema, or
+release claim merely because an acceptance route or focused test passes.
 
 ### It must answer
 
-1. Does Codexify already have a canonical execution ledger under another name?
-2. Which existing records can enclose Turn, Step, ToolCall, Job, and Result semantics?
-3. Is “model-visible means logged” currently enforceable or merely observable after the fact?
-4. Which capability and permission snapshots already exist?
-5. What persistent terminal/process abstraction actually exists today?
-6. Which result-return paths are implemented, and which are supported-path proven?
-7. Can provider state already represent more than one account per provider and auth mode?
-8. Are connectors currently general, messaging-specific, ingestion-specific, or duplicated?
-9. What exactly drives the Connector Bay’s empty state?
-10. Which proposed Campaign items are already satisfied and should be removed?
-11. Which remaining gaps are true prerequisites for the golden path?
-12. What is the final frozen atomic task order?
+1. Does the supported profile start and report healthy with its intended local model inventory?
+2. Does one chat completion separately prove enqueue, dequeue, turn-lock
+   handling, terminal evidence, durable assistant persistence, and independent
+   source-thread readback?
+3. Which canonical and legacy configuration values were actually consumed, and
+   do they agree?
+4. Which observed failures are configuration, queue/worker, provider,
+   persistence, or readback failures rather than a collapsed "chat failed" claim?
 
 ### Non-goals
 
-* No runtime implementation.
-* No migration.
-* No new event table.
-* No provider-account schema.
-* No connector implementation.
-* No UI change.
-* No ADR unless reconciliation proves the Campaign itself changes accepted architecture and a separate Task Spec is then authorized.
-* No release claim update.
+* No new runtime feature, migration, event table, provider-account schema,
+  connector, UI behavior, ADR, or release-claim update.
+* No Coding Loop qualification unless the task is separately expanded after the
+  ordinary supported path has current-tip evidence.
 
-### WBC-0A completion result
+### WBC-1A proof result
 
-The closeout must produce one of:
-
-* `CAMPAIGN_SWEEP_FROZEN`
-* `CAMPAIGN_SWEEP_REORDER_REQUIRED`
-* `CAMPAIGN_SWEEP_BLOCKED_BY_TRUTH_CONFLICT`
-
-Only `CAMPAIGN_SWEEP_FROZEN` authorizes the first runtime implementation Task Spec.
+The closeout must record a bounded G1 result and update current-state release
+truth only through a separately authorized documentation task if the evidence
+supports a change.
 
 ---
 
 ## Final Campaign Posture
+
+**G0 outcome:** `CAMPAIGN_SWEEP_FROZEN`. The next candidate is
+**WBC-1A current-tip supported-Compose runtime closure evidence**. See the
+[capability ledger](./capability-ledger.md) for the frozen admission set and
+dependency order.
 
 **Admit:** runtime closure, execution spine, capability authority, approvals, persistent execution, result return, recovery, bounded delegation, provider connection instances, integration registry, Connector Bay, and onboarding.
 

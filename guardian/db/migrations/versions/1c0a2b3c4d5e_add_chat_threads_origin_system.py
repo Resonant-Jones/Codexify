@@ -109,9 +109,8 @@ def upgrade() -> None:
     # The CASE expression uses JSONB ``->>`` text extraction which returns
     # NULL when the key is absent; the COALESCE ensures the canonical
     # ``codexify`` default applies to those rows.
-    bind.execute(
-        sa.text(
-            """
+    backfill_statement = sa.text(
+        """
             UPDATE chat_threads
             SET origin_system = CASE
                 WHEN metadata->>'import_source' IN :openai_tokens THEN 'openai'
@@ -121,10 +120,16 @@ def upgrade() -> None:
             WHERE origin_system = 'codexify'
               AND metadata->>'import_source' IS NOT NULL
             """
-        ).bindparams(
-            openai_tokens=tuple(LEGACY_OPENAI_TOKENS),
-            anthropic_tokens=tuple(LEGACY_ANTHROPIC_TOKENS),
-        )
+    ).bindparams(
+        sa.bindparam("openai_tokens", expanding=True),
+        sa.bindparam("anthropic_tokens", expanding=True),
+    )
+    bind.execute(
+        backfill_statement,
+        {
+            "openai_tokens": LEGACY_OPENAI_TOKENS,
+            "anthropic_tokens": LEGACY_ANTHROPIC_TOKENS,
+        },
     )
 
     # 3) Enforce the bounded registry via a CHECK constraint.
