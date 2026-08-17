@@ -155,12 +155,17 @@ def healthy_bodies() -> dict[str, bytes]:
         ).encode(),
         "/api/health/llm": json.dumps(
             {
-                "status": "online",
-                "ok": True,
-                "models_available": True,
-                "provider_runtime": {"enabled": True},
+                "status": "ok",
+                "service": "llm",
+                "details": {
+                    "status": "online",
+                    "ok": True,
+                    "models_available": True,
+                    "provider_runtime": {"enabled": True},
+                    "release_hold": False,
+                    "supported_profile": profile,
+                },
                 "release_hold": False,
-                "supported_profile": profile,
             }
         ).encode(),
         "/": b"<!doctype html><title>Codexify</title>",
@@ -519,7 +524,7 @@ def _mutated_transport(
         ),
         (
             "/api/health/llm",
-            lambda value: value.update({"models_available": False}),
+            lambda value: value["details"].update({"models_available": False}),
             None,
             "llm_models_unavailable",
         ),
@@ -535,6 +540,133 @@ def test_observed_health_failures_are_fail_not_blocked(
     assert result["result"] == "fail"
     assert result["receipt"]["execution_outcome"] == "FAIL"
     assert reason in result["reason_codes"]
+
+
+def _llm_probe(result: dict[str, Any]) -> dict[str, Any]:
+    return next(
+        probe
+        for probe in result["receipt"]["probes"]
+        if probe["probe_id"] == "api_health_llm"
+    )
+
+
+def test_current_nested_llm_health_projection_passes(tmp_path: Path) -> None:
+    result = collect(tmp_path)
+    probe = _llm_probe(result)
+
+    assert result["result"] == "pass"
+    assert result["receipt"]["execution_outcome"] == "PASS"
+    assert probe["projection"]["models_available"] is True
+    assert probe["projection"]["provider_runtime_available"] is True
+    assert "llm_models_unavailable" not in result["reason_codes"]
+    assert "provider_runtime_unavailable" not in result["reason_codes"]
+
+
+def test_current_nested_llm_models_unavailable_is_fail(tmp_path: Path) -> None:
+    result = collect(
+        tmp_path,
+        transport=_mutated_transport(
+            "/api/health/llm",
+            lambda value: value["details"].update({"models_available": False}),
+        ),
+    )
+
+    assert result["result"] == "fail"
+    assert "llm_models_unavailable" in result["reason_codes"]
+
+
+def test_current_nested_llm_provider_runtime_unavailable_is_fail(
+    tmp_path: Path,
+) -> None:
+    result = collect(
+        tmp_path,
+        transport=_mutated_transport(
+            "/api/health/llm",
+            lambda value: value["details"]["provider_runtime"].update(
+                {"enabled": False}
+            ),
+        ),
+    )
+
+    assert result["result"] == "fail"
+    assert "provider_runtime_unavailable" in result["reason_codes"]
+
+
+def test_legacy_top_level_llm_health_shape_is_not_accepted(tmp_path: Path) -> None:
+    bodies = healthy_bodies()
+    payload = json.loads(bodies["/api/health/llm"])
+    details = payload.pop("details")
+    payload.update(
+        {
+            "status": "online",
+            "ok": details["ok"],
+            "models_available": details["models_available"],
+            "provider_runtime": details["provider_runtime"],
+            "supported_profile": details["supported_profile"],
+        }
+    )
+    bodies["/api/health/llm"] = json.dumps(payload).encode()
+
+    result = collect(tmp_path, transport=FakeTransport(bodies=bodies))
+
+    assert result["result"] == "fail"
+    assert "llm_health_projection_invalid" in result["reason_codes"]
+    assert "llm_models_unavailable" not in result["reason_codes"]
+    assert "provider_runtime_unavailable" not in result["reason_codes"]
+
+
+@pytest.mark.parametrize(
+    ("current_value", "legacy_value", "reason"),
+    [
+        (False, True, "llm_models_unavailable"),
+        (True, False, None),
+    ],
+)
+def test_current_llm_fields_are_not_overridden_by_conflicting_legacy_mirrors(
+    tmp_path: Path,
+    current_value: bool,
+    legacy_value: bool,
+    reason: str | None,
+) -> None:
+    result = collect(
+        tmp_path,
+        transport=_mutated_transport(
+            "/api/health/llm",
+            lambda value: value["details"].update({"models_available": current_value})
+            or value.update({"models_available": legacy_value}),
+        ),
+    )
+    probe = _llm_probe(result)
+
+    assert result["result"] == "fail"
+    assert probe["projection"]["models_available"] is current_value
+    assert "llm_health_projection_ambiguous" in result["reason_codes"]
+    if reason is not None:
+        assert reason in result["reason_codes"]
+    else:
+        assert "llm_models_unavailable" not in result["reason_codes"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda value: value.update({"details": []}),
+        lambda value: value["details"].update({"models_available": "yes"}),
+        lambda value: value["details"].update({"provider_runtime": []}),
+    ],
+)
+def test_malformed_current_llm_health_projection_fails_closed(
+    tmp_path: Path, change: Any
+) -> None:
+    result = collect(
+        tmp_path,
+        transport=_mutated_transport("/api/health/llm", change),
+    )
+
+    assert result["result"] == "fail"
+    assert "llm_health_projection_invalid" in result["reason_codes"]
+    assert "llm_models_unavailable" not in result["reason_codes"]
+    assert "provider_runtime_unavailable" not in result["reason_codes"]
 
 
 def test_timeout_and_malformed_json_are_error(tmp_path: Path) -> None:
