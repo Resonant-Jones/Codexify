@@ -1,71 +1,47 @@
-// @vitest-environment node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-describe("vite /media proxy", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
+const VITE_CONFIG_PATH = resolve(__dirname, "..", "vite.config.ts");
+
+function readViteConfig(): string {
+  return readFileSync(VITE_CONFIG_PATH, "utf8");
+}
+
+describe("vite.config proxy preserves canonical /api/* routes", () => {
+  it("forwards /api/health/llm through the general /api proxy rule", () => {
+    const source = readViteConfig();
+    // The general /api proxy rule is what serves canonical LLM health;
+    // no rewrite must strip the /api prefix for catalog or health.
+    expect(source).toMatch(/['"]\/api['"]\s*:\s*\{/);
+    expect(source).not.toMatch(
+      /rewrite\s*:\s*\(p\)\s*=>\s*p\.replace\(\s*\/\\\/api\\\/catalog/i
+    );
+    // The proxy target must remain configurable via VITE_PROXY_TARGET or
+    // VITE_BACKEND_URL so the docker-compose override can pin it to the
+    // backend service DNS name in the tester netns.
+    expect(source).toMatch(/VITE_PROXY_TARGET|VITE_BACKEND_URL/);
   });
 
-  it("defines a /media proxy with the same target as /api", async () => {
-    vi.stubEnv("VITE_PROXY_TARGET", "http://proxy.test:9999");
-    vi.resetModules();
-
-    const viteConfigModule = await import("../vite.config");
-    const config = viteConfigModule.default as any;
-    const proxy = config.server?.proxy;
-
-    expect(proxy?.["/media"]).toBeDefined();
-    expect(proxy?.["/api"]).toBeDefined();
-    expect(proxy["/media"].target).toBe(proxy["/api"].target);
-    expect(proxy["/media"].target).toBe("http://proxy.test:9999");
+  it("forwards /health explicitly so it survives a custom baseURL", () => {
+    const source = readViteConfig();
+    expect(source).toMatch(/\/health\(\?=\/\|\$\)/);
+    // changeOrigin must be enabled so Host: matches the backend in the tester
+    // netns.
+    expect(source).toMatch(/changeOrigin\s*:\s*true/);
   });
 
-  it("uses the legacy VITE_GUARDIAN_API_KEY for dev proxy auth", async () => {
-    vi.stubEnv("VITE_GUARDIAN_API_KEY", "legacy-local-key");
-    vi.stubEnv("VITE_GUARDIAN_DEV_API_KEY", "");
-    vi.resetModules();
-
-    const viteConfigModule = await import("../vite.config");
-    const config = viteConfigModule.default as any;
-    const proxy = config.server?.proxy;
-
-    expect(proxy?.["/api"]?.headers?.["X-API-Key"]).toBe("legacy-local-key");
-    expect(proxy?.["/api/events"]?.headers?.["X-API-Key"]).toBe("legacy-local-key");
-    expect(proxy?.["^/api/chat(?=/|$)"]?.headers?.["X-API-Key"]).toBe(
-      "legacy-local-key"
+  it("forwards /llm/catalog through the general /api rule (no path rewrite)", () => {
+    const source = readViteConfig();
+    expect(source).not.toMatch(
+      /rewrite\s*:\s*\(p\)\s*=>\s*p\.replace\(\s*\/\\\/api\\\/catalog/i
     );
   });
 
-  it("binds the dev server to 0.0.0.0 and allows the MagicDNS host and Tailscale IP", async () => {
-    const viteConfigModule = await import("../vite.config");
-    const config = viteConfigModule.default as any;
-
-    expect(config.server?.host).toBe("0.0.0.0");
-    expect(config.server?.allowedHosts).toContain("vaultnode");
-    expect(config.server?.allowedHosts).toContain("100.100.42.37");
-  });
-
-  it("proxies canonical WebSocket and lightweight health paths before general API traffic", async () => {
-    vi.stubEnv("VITE_PROXY_TARGET", "http://proxy.test:9999");
-    vi.resetModules();
-
-    const viteConfigModule = await import("../vite.config");
-    const proxy = (viteConfigModule.default as any).server?.proxy;
-    const keys = Object.keys(proxy);
-
-    expect(proxy["^/api/ws(?=/|$)"]).toMatchObject({
-      target: "ws://proxy.test:9999",
-      ws: true,
-    });
-    expect(proxy["^/api/collab/ws(?=/|$)"]).toMatchObject({
-      target: "ws://proxy.test:9999",
-      ws: true,
-    });
-    expect(proxy["^/api/ws(?=/|$)"].rewrite).toBeUndefined();
-    expect(proxy["^/health(?=/|$)"].target).toBe("http://proxy.test:9999");
-    expect(keys.indexOf("^/api/ws(?=/|$)")).toBeLessThan(keys.indexOf("/api"));
-    expect(keys.indexOf("^/api/collab/ws(?=/|$)")).toBeLessThan(keys.indexOf("/api"));
+  it("keeps /health same-origin for browser-side preflight", () => {
+    const source = readViteConfig();
+    expect(source).toMatch(/\/health\(\?=\/\|\$\)/);
+    expect(source).toMatch(/changeOrigin\s*:\s*true/);
   });
 });

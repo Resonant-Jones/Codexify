@@ -1097,7 +1097,31 @@ function computeBackendOutageDelayMs(failures: number): number {
 
 function shouldApplyBackendOutageFuse(url: unknown): boolean {
   if (typeof url !== "string") return true;
-  return !/\/assets\/|\.hot-update/i.test(url);
+  // Canonical health and catalog probes must always reach the backend, even
+  // while a backend-outage fuse is latched. The fuse is intended to throttle
+  // chat/asset traffic during a transient outage; if it also blocks the
+  // canonical health surface, the system has no way to observe the backend
+  // recovering and the outage state can never clear until the backoff window
+  // expires naturally. A successful canonical health response already clears
+  // the fuse via the response interceptor, so exempting these paths here
+  // restores the recovered-backend signal without disabling outage throttling
+  // for the routes that the fuse was designed to protect.
+  if (/\/health(?:\/chat)?(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/api\/health\/llm(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/llm\/catalog(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/assets\/|\.hot-update/i.test(url)) return false;
+  return true;
+}
+
+// Exported only for the targeted regression tests that pin this seam.
+export function shouldClassifyBackendOutageExemptionForTests(
+  url: unknown
+): boolean {
+  return shouldApplyBackendOutageFuse(url);
+}
+
+export function isBackendOutageActiveForTests(now = Date.now()): boolean {
+  return isBackendOutageActive(now);
 }
 
 function applyBackendOutage(reason: string): void {
@@ -1432,7 +1456,13 @@ api.interceptors.response.use(
         inFlightCompletionTurnByThread.set(completionMeta.threadId, returnedTurnId);
       }
     }
-    clearBackendOutage();
+    // Only canonical health/catalog responses prove the Guardian backend is
+    // healthy enough to lift a latched outage fuse. A successful chat or asset
+    // response does not — those routes can succeed while the canonical
+    // surfaces are still in transport-failure recovery.
+    if (shouldApplyBackendOutageFuse(response?.config?.url)) {
+      clearBackendOutage();
+    }
     return response;
   },
   (error) => {
@@ -1448,8 +1478,14 @@ api.interceptors.response.use(
       applyBackendOutage("transport");
     } else if (isBackendProxyOutageResponse(error)) {
       applyBackendOutage(`proxy:${Number(error?.response?.status ?? 0)}`);
-    } else if (error?.response) {
-      // Any server response (even 4xx/5xx) means transport path is reachable.
+    } else if (
+      error?.response &&
+      shouldApplyBackendOutageFuse(error?.config?.url)
+    ) {
+      // A server response to a non-canonical route only proves that route is
+      // reachable. It is not authoritative evidence that the Guardian backend
+      // itself is healthy; do not let it clear a fuse latched by canonical
+      // health or catalog transport failures.
       clearBackendOutage();
     }
 
