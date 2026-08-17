@@ -2,6 +2,7 @@
 
 from .base import (
     AgentAdapter,
+    AgentExecutionIdentity,
     AgentExecutionRequest,
     AgentRunEnvelope,
     AgentRunStatus,
@@ -18,6 +19,7 @@ ADAPTERS = {
 __all__ = [
     "ADAPTERS",
     "AgentAdapter",
+    "AgentExecutionIdentity",
     "AgentExecutionRequest",
     "AgentRunEnvelope",
     "AgentRunStatus",

@@ -912,6 +912,72 @@ def validate_pi_invocation_policy_decision(
     return _result(reasons=reasons, metadata=metadata)
 
 
+def validate_policy_decision_against_envelope(
+    envelope: PiInvocationEnvelope,
+    decision: PiInvocationPolicyDecision,
+) -> PiInvocationValidationResult:
+    """Validate that Guardian authorized exactly the prepared invocation.
+
+    The policy decision deliberately does not duplicate provider/model values.
+    It authorizes the immutable envelope by matching its invocation, lineage,
+    Guardian boundary, harness, and exact permission posture.  Callers must
+    validate this relationship before deriving the envelope's explicit provider
+    and model as the authorized execution identity.
+    """
+    envelope_result = validate_invocation_envelope(envelope)
+    decision_result = validate_pi_invocation_policy_decision(decision)
+    reasons = list(envelope_result.failure_reasons)
+    reasons.extend(decision_result.failure_reasons)
+
+    if envelope.invocation_id != decision.invocation_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if envelope.source_thread_id != decision.source_thread_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if envelope.source_message_id != decision.source_message_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if envelope.harness_id != decision.harness_id:
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    if (
+        envelope.guardian_boundary.to_payload()
+        != decision.guardian_boundary.to_payload()
+    ):
+        reasons.append(
+            _invalid_reason(PiValidationFailureReason.POLICY_ENVELOPE_MISMATCH)
+        )
+    _compare_signature_sets(
+        expected=envelope.requested_permissions,
+        observed=decision.requested_permissions,
+        reasons=reasons,
+    )
+    _compare_signature_sets(
+        expected=envelope.granted_permissions,
+        observed=decision.granted_permissions,
+        reasons=reasons,
+    )
+
+    metadata = {
+        "validator": "policy_decision_against_envelope",
+        "envelope_validation": envelope_result.to_payload(),
+        "policy_validation": decision_result.to_payload(),
+        "comparison": {
+            "invocation_id": decision.invocation_id,
+            "source_thread_id": decision.source_thread_id,
+            "source_message_id": decision.source_message_id,
+            "harness_id": decision.harness_id,
+            "decision": decision.decision,
+        },
+    }
+    return _result(reasons=reasons, metadata=metadata)
+
+
 def validate_pi_invocation_result_return(
     result_return: PiInvocationResultReturn,
 ) -> PiInvocationValidationResult:
@@ -1026,6 +1092,7 @@ __all__ = [
     "validate_receipt_against_envelope",
     "validate_harness_result_against_receipt",
     "validate_pi_invocation_policy_decision",
+    "validate_policy_decision_against_envelope",
     "validate_pi_invocation_result_return",
     "validate_pi_invocation_operator_evidence",
 ]

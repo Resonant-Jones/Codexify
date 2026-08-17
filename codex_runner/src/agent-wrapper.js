@@ -15,12 +15,15 @@
  */
 
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Parse command line args
 const args = process.argv.slice(2);
 const mode = args[0] || "help";
 const prompt = args.slice(1).join(" ");
+const guardianAuthorizedMode = mode === "guardian-authorized-task";
+const ACTUAL_HARNESS_ID = "pi-coding-agent";
 
 const OPTIONS = {
 	cwd: process.cwd(),
@@ -85,6 +88,9 @@ async function loadPiSdk() {
 	const piAi = await import(
 		pathToFileURL(path.join(nodeModulesRoot, "@mariozechner/pi-ai/dist/index.js")).href
 	);
+	const packageMetadata = JSON.parse(
+		await readFile(path.join(packageRoot, "package.json"), "utf8")
+	);
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
@@ -92,7 +98,22 @@ async function loadPiSdk() {
 		ModelRegistry: codingAgent.ModelRegistry,
 		createCodingTools: codingAgent.createCodingTools,
 		getModel: piAi.getModel,
+		harnessId: ACTUAL_HARNESS_ID,
+		harnessVersion: String(packageMetadata.version || ""),
 	};
+}
+
+function requireGuardianAuthorizedIdentity() {
+	const identity = {
+		providerId: String(process.env.PI_PROVIDER || "").trim(),
+		modelId: String(process.env.PI_MODEL || "").trim(),
+		harnessId: String(process.env.PI_GUARDIAN_HARNESS_ID || "").trim(),
+		harnessVersion: String(process.env.PI_GUARDIAN_HARNESS_VERSION || "").trim(),
+	};
+	if (process.env.PI_GUARDIAN_AUTHORIZED !== "1" || Object.values(identity).some(value => !value)) {
+		throw new Error("guardian_authorized_identity_missing");
+	}
+	return identity;
 }
 
 async function checkReadiness() {
@@ -143,6 +164,10 @@ async function runAgent() {
 	let createCodingTools;
 	let getModel;
 
+	const authorizedIdentity = guardianAuthorizedMode
+		? requireGuardianAuthorizedIdentity()
+		: null;
+
 	try {
 		({
 			createAgentSession,
@@ -151,6 +176,8 @@ async function runAgent() {
 			ModelRegistry,
 			createCodingTools,
 			getModel,
+			harnessId,
+			harnessVersion,
 		} = await loadPiSdk());
 	} catch (error) {
 		if (isModuleResolutionError(error)) {
@@ -163,7 +190,12 @@ async function runAgent() {
 		throw error;
 	}
 
-	const resolvedModelId = resolveModel(OPTIONS.model, getModel);
+	const resolvedModelId = guardianAuthorizedMode
+		? authorizedIdentity.modelId
+		: resolveModel(OPTIONS.model, getModel);
+	const resolvedProviderId = guardianAuthorizedMode
+		? authorizedIdentity.providerId
+		: OPTIONS.provider;
 
 	// Set up auth and model registry
 	const authStorage = AuthStorage.create();
@@ -172,7 +204,7 @@ async function runAgent() {
 	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
 
 	// Get model
-	const model = getModel(OPTIONS.provider, resolvedModelId);
+	const model = getModel(resolvedProviderId, resolvedModelId);
 	if (!model) {
 		console.error(`Model not found: ${resolvedModelId}`);
 		console.error("Available models:");
@@ -185,6 +217,23 @@ async function runAgent() {
 		console.error("  PI_PROVIDER=google PI_MODEL=gemini-2.5-pro");
 		process.exit(1);
 	}
+	if (guardianAuthorizedMode && (
+		authorizedIdentity.harnessId !== harnessId ||
+		authorizedIdentity.harnessVersion !== harnessVersion ||
+		model.provider !== authorizedIdentity.providerId ||
+		model.id !== authorizedIdentity.modelId
+	)) {
+		console.error("Guardian-authorized identity does not match the resolved Pi runtime.");
+		process.exit(1);
+	}
+	const actualRuntimeIdentity = guardianAuthorizedMode
+		? {
+			actual_provider_id: model.provider,
+			actual_model_id: model.id,
+			actual_harness_id: harnessId,
+			actual_harness_version: harnessVersion,
+		}
+		: null;
 
 	// Check API key availability
 	try {
@@ -251,6 +300,22 @@ async function runAgent() {
 	const messages = session.agent.state.messages;
 
 	// Print final output
+	if (guardianAuthorizedMode) {
+		const response = extractJsonResponse(messages);
+		console.log(JSON.stringify({
+			status: "ok",
+			summary: "Guardian-authorized Pi task completed",
+			actual_runtime_identity: actualRuntimeIdentity,
+			execution_result: {
+				status: "completed",
+				result_kind: response && Object.prototype.hasOwnProperty.call(response, "text")
+					? "text"
+					: "structured",
+				content_omitted: true,
+			},
+		}));
+		return;
+	}
 	if (mode === "audit" || mode === "compile" || mode === "task") {
 		const response = extractJsonResponse(messages);
 		if (response) {
@@ -267,6 +332,8 @@ function buildPrompt(mode, userPrompt) {
 			return userPrompt || "Compile the audit results into a campaign set JSON.";
 		case "task":
 			return userPrompt || "Execute the task and output results as JSON.";
+		case "guardian-authorized-task":
+			return userPrompt || "Execute the authorized task and return bounded evidence.";
 		case "help":
 		default:
 			return null;
@@ -339,6 +406,7 @@ Modes:
   audit    - Run audit analysis on the repository
   compile  - Compile audit results into campaign set
   task     - Execute a single task
+  guardian-authorized-task - Execute one explicitly authorized task with identity attestation
   readiness - Check adapter and credential posture without executing a prompt
   help     - Show this help
 

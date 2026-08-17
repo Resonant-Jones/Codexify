@@ -25,6 +25,10 @@ class AgentRunEnvelope(BaseModel):
     spec_alignment_ok: bool = True
     schema_valid: bool = True
     model_self_confidence: float | None = None
+    actual_provider_id: str | None = None
+    actual_model_id: str | None = None
+    actual_harness_id: str | None = None
+    actual_harness_version: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -35,6 +39,16 @@ class AgentExecutionRequest:
     cwd: str | None = None
     timeout_seconds: int = 120
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AgentExecutionIdentity:
+    """Explicit identity frozen by a Guardian-authorized invocation."""
+
+    provider_id: str
+    model_id: str
+    harness_id: str
+    harness_version: str
 
 
 class AgentAdapter(Protocol):
