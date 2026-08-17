@@ -15,12 +15,32 @@ import {
   subscribeAccountImportCoordinator,
 } from "@/features/imports/accountImportCoordinator";
 import api, {
+  isAccountImportSourceSystem,
   normalizeChatGptImportStats,
   normalizeImportRuntimeError,
   preflightBackendAvailability,
+  type AccountImportSourceSystem,
   type ChatGptImportStats,
 } from "@/lib/api";
 import type { AccountImportBrowserFile } from "@/lib/api";
+
+const SOURCE_OPTIONS: ReadonlyArray<{
+  value: AccountImportSourceSystem;
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: "openai",
+    label: "OpenAI (ChatGPT)",
+    helper: "Choose this for a complete OpenAI ChatGPT account export.",
+  },
+  {
+    value: "anthropic",
+    label: "Anthropic (Claude)",
+    helper:
+      "Choose this for an Anthropic Claude account export. Only conversation data is currently supported.",
+  },
+];
 
 interface ChatGPTImportModalProps {
   open: boolean;
@@ -175,6 +195,11 @@ export function ChatGPTImportModal({
   const [stats, setStats] = useState<MigrationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [sourceSystem, setSourceSystem] =
+    useState<AccountImportSourceSystem>("openai");
+  const [sourceValidationError, setSourceValidationError] = useState<
+    string | null
+  >(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const folderRef = useRef<HTMLInputElement | null>(null);
   const accountImport = useSyncExternalStore(
@@ -206,6 +231,7 @@ export function ChatGPTImportModal({
     setError(null);
     setErrorDetail(null);
     setStats(null);
+    setSourceValidationError(null);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -222,7 +248,14 @@ export function ChatGPTImportModal({
     setError(null);
     setErrorDetail(null);
     setStats(null);
-    void startOpenAIAccountImport(files, userName).catch(() => {
+    setSourceValidationError(null);
+    if (!isAccountImportSourceSystem(sourceSystem)) {
+      setSourceValidationError(
+        "Select a supported account source before submitting."
+      );
+      return;
+    }
+    void startOpenAIAccountImport(files, userName, sourceSystem).catch(() => {
       // The module-level coordinator owns and exposes the durable error state.
     });
   };
@@ -298,6 +331,20 @@ export function ChatGPTImportModal({
 
     setError(null);
     setErrorDetail(null);
+    setSourceValidationError(null);
+
+    if (!isAccountImportSourceSystem(sourceSystem)) {
+      setSourceValidationError(
+        "Select a supported account source before submitting."
+      );
+      return;
+    }
+    if (sourceSystem !== "openai") {
+      setSourceValidationError(
+        "Single-file OpenAI imports use the legacy ChatGPT export endpoint. For Anthropic, drop a complete export folder or ZIP archive."
+      );
+      return;
+    }
 
     const availability = await preflightBackendAvailability();
     if (!availability.ok) {
@@ -375,16 +422,80 @@ export function ChatGPTImportModal({
         }}
       >
         <div>
-          <h2 className="text-lg font-semibold">Import from ChatGPT</h2>
+          <h2 className="text-lg font-semibold">Import account data</h2>
           <p
             className="text-sm mt-1 opacity-70"
             style={{ color: "var(--muted)" }}
           >
-            Drop or select a complete OpenAI account export folder. Legacy
-            single JSON and modern OpenAI .dat conversation files remain
-            supported.
+            Choose the account source that produced your export, then drop
+            or select the export. The same canonical account-import
+            lifecycle is used for every supported source.
           </p>
         </div>
+
+        <fieldset
+          aria-label="Account import source"
+          className="rounded-xl border p-3 text-sm"
+          style={{
+            borderColor: "var(--panel-border)",
+            background: "color-mix(in oklab, var(--panel-sheet) 92%, transparent)",
+          }}
+        >
+          <legend className="px-1 text-xs font-semibold opacity-80">
+            Account source
+          </legend>
+          <div className="mt-2 grid gap-2" role="radiogroup">
+            {SOURCE_OPTIONS.map((option) => {
+              const checked = sourceSystem === option.value;
+              return (
+                <label
+                  key={option.value}
+                  className="flex items-start gap-3 rounded-lg border p-2 cursor-pointer"
+                  style={{
+                    borderColor: checked
+                      ? "rgba(34, 197, 94, 0.6)"
+                      : "var(--panel-border)",
+                    background: checked
+                      ? "rgba(34, 197, 94, 0.08)"
+                      : "transparent",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="account-import-source"
+                    value={option.value}
+                    checked={checked}
+                    disabled={
+                      status === "uploading" || accountImportInProgress
+                    }
+                    onChange={() => {
+                      setSourceSystem(option.value);
+                      setSourceValidationError(null);
+                    }}
+                    className="mt-1"
+                    data-testid={`account-import-source-${option.value}`}
+                  />
+                  <span className="flex flex-col">
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-xs opacity-70">
+                      {option.helper}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {sourceValidationError && (
+            <div
+              className="mt-2 text-xs"
+              style={{ color: "rgb(252, 165, 165)" }}
+              role="alert"
+              data-testid="account-import-source-error"
+            >
+              {sourceValidationError}
+            </div>
+          )}
+        </fieldset>
 
         <div className="space-y-3">
           <div

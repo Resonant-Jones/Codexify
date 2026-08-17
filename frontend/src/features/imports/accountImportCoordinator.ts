@@ -7,6 +7,7 @@ import {
   uploadOpenAIAccountImportBatch,
   type AccountImportBrowserFile,
   type AccountImportJob,
+  type AccountImportSourceSystem,
 } from "@/lib/api";
 
 export type AccountImportCoordinatorPhase =
@@ -68,6 +69,7 @@ function persist(next: AccountImportCoordinatorSnapshot): void {
         v: 1,
         jobId: next.job.job_id,
         status: next.job.status,
+        sourceSystem: next.job.source_system,
         updatedAt: next.job.updated_at || null,
       })
     );
@@ -183,8 +185,26 @@ function restorePersistedJob(): void {
       v?: number;
       jobId?: string;
       status?: AccountImportJob["status"];
+      sourceSystem?: unknown;
     };
     if (parsed.v !== 1 || !parsed.jobId) return;
+    // Fail-closed: only accept canonical source-system tokens. If the
+    // persisted source is unknown, force the canonical server fetch to
+    // re-establish the source-of-truth snapshot instead of carrying a
+    // noncanonical value forward.
+    if (
+      parsed.sourceSystem !== undefined &&
+      parsed.sourceSystem !== "openai" &&
+      parsed.sourceSystem !== "anthropic"
+    ) {
+      snapshot = {
+        ...EMPTY_SNAPSHOT,
+        phase: "transferring",
+        job: null,
+      };
+      void refreshJob(parsed.jobId, true);
+      return;
+    }
     snapshot = {
       ...EMPTY_SNAPSHOT,
       phase:
@@ -201,7 +221,7 @@ function restorePersistedJob(): void {
                   : "accepted",
       job: {
         job_id: parsed.jobId,
-        source_system: "openai",
+        source_system: parsed.sourceSystem ?? "openai",
         status: parsed.status || "queued",
         total_file_count: 0,
         total_byte_count: 0,
@@ -289,7 +309,8 @@ function uploadBatches(
 
 export async function startOpenAIAccountImport(
   selectedFiles: AccountImportBrowserFile[],
-  userId?: string
+  userId?: string,
+  sourceSystem: AccountImportSourceSystem = "openai"
 ): Promise<AccountImportJob> {
   ensureInitialized();
   const normalizedFiles = selectedFiles.map((item) => ({
@@ -304,6 +325,11 @@ export async function startOpenAIAccountImport(
       snapshot.phase
     )
   ) {
+    if (snapshot.job && snapshot.job.source_system !== sourceSystem) {
+      throw new Error(
+        `An account export import is already active for ${snapshot.job.source_system}; finish or cancel it before starting a ${sourceSystem} import.`
+      );
+    }
     throw new Error("An account export import is already active.");
   }
 
@@ -333,6 +359,7 @@ export async function startOpenAIAccountImport(
       {
         total_file_count: normalizedFiles.length,
         total_byte_count: selectedByteCount,
+        source_system: sourceSystem,
       },
       userId
     );
