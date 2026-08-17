@@ -25,6 +25,7 @@ from guardian.pi.contracts import (
     PiProviderLane,
 )
 from guardian.pi.tokens import (
+    PiAuthorizedFailureClass,
     PiHarnessResultClass,
     PiInvocationReceiptStatus,
     PiValidationFailureReason,
@@ -59,6 +60,26 @@ _SENSITIVE_KEY_NAMES = frozenset(
     }
 )
 _GIT_TIMEOUT_SECONDS = 5
+_AUTHORIZED_FAILURE_STAGES = frozenset(
+    {
+        "adapter_execution",
+        "authorization",
+        "identity_attestation",
+        "identity_verification",
+        "model_availability",
+        "model_resolution",
+        "oauth_readiness",
+        "preflight",
+        "provider_request",
+        "provider_resolution",
+        "provider_transport",
+        "runtime_load",
+        "session_initialization",
+        "target_posture",
+        "wrapper_launch",
+        "wrapper_protocol",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +116,13 @@ class PiHarnessRuntimeEvidence:
     actual_model_id: str | None
     actual_harness_id: str | None
     actual_harness_version: str | None
+    failure_classification: str | None = None
+    failure_stage: str | None = None
+    return_code: int | None = None
+    runtime_identity_established: bool = False
+    session_initialized: bool | None = None
+    provider_request_started: bool | None = None
+    oauth_available: bool | None = None
 
 
 PiAuthorizedHarnessRunner = Callable[
@@ -111,9 +139,34 @@ class PiLiveInvocationOutcome:
     runner_call_count: int
     retry_count: int
     fallback_count: int
+    diagnostic_class: str | None = None
+    diagnostic_stage: str | None = None
+    return_code: int | None = None
+    runtime_identity_established: bool = False
+    session_initialized: bool | None = None
+    provider_request_started: bool | None = None
+    oauth_available: bool | None = None
     receipt: PiInvocationReceipt | None = None
     harness_result: PiHarnessResult | None = None
     actual_identity: PiAuthorizedExecutionIdentity | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PiAuthorizedPreflightOutcome:
+    """Non-inference result for the authorized Pi setup/readiness boundary."""
+
+    ok: bool
+    failure_class: str | None
+    failure_stage: str | None
+    deepest_stage: str | None
+    preflight_call_count: int
+    retry_count: int
+    fallback_count: int
+    actual_identity: PiAuthorizedExecutionIdentity | None = None
+    runtime_identity_established: bool = False
+    oauth_available: bool | None = None
+    session_initialized: bool = False
+    provider_request_started: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,25 +246,45 @@ def invoke_guardian_authorized_pi(
         write_roots=write_roots,
     )
     if state_failure is not None:
-        return _blocked(state_failure, runner_call_count=1)
-    if runner_failed or evidence is None:
         return _blocked(
+            state_failure,
+            runner_call_count=1,
+            diagnostic_class=PiAuthorizedFailureClass.TARGET_POSTURE_VIOLATION.value,
+            diagnostic_stage="target_posture",
+        )
+    if runner_failed or evidence is None:
+        return _adapter_blocked(
             PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            diagnostic_class=PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value,
             runner_call_count=1,
         )
     if str(evidence.status).strip().lower() not in _SUCCESS_STATUSES:
-        return _blocked(
+        return _adapter_blocked(
             PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE,
+            diagnostic_class=_safe_failure_class(evidence.failure_classification),
+            diagnostic_stage=evidence.failure_stage,
+            return_code=evidence.return_code,
+            runtime_identity_established=evidence.runtime_identity_established,
+            session_initialized=evidence.session_initialized,
+            provider_request_started=evidence.provider_request_started,
             runner_call_count=1,
         )
 
     actual_identity, actual_failure = _actual_identity(evidence)
     if actual_failure is not None:
-        return _blocked(actual_failure, runner_call_count=1)
+        return _blocked(
+            actual_failure,
+            runner_call_count=1,
+            diagnostic_class=PiAuthorizedFailureClass.ACTUAL_IDENTITY_MISSING.value,
+        )
     assert actual_identity is not None
     identity_failure = _validate_actual_identity(identity, actual_identity)
     if identity_failure is not None:
-        return _blocked(identity_failure, runner_call_count=1)
+        return _blocked(
+            identity_failure,
+            runner_call_count=1,
+            diagnostic_class=PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+        )
 
     artifact_ref = f"pi://guardian-authorized/{envelope.invocation_id}/result"
     receipt = PiInvocationReceipt(
@@ -283,6 +356,10 @@ def invoke_guardian_authorized_pi(
         runner_call_count=1,
         retry_count=0,
         fallback_count=0,
+        runtime_identity_established=True,
+        session_initialized=evidence.session_initialized,
+        provider_request_started=evidence.provider_request_started,
+        oauth_available=evidence.oauth_available,
         receipt=receipt,
         harness_result=harness_result,
         actual_identity=actual_identity,
@@ -319,6 +396,147 @@ def _run_with_pi_adapter(
         actual_model_id=result.actual_model_id,
         actual_harness_id=result.actual_harness_id,
         actual_harness_version=result.actual_harness_version,
+        failure_classification=result.failure_classification,
+        failure_stage=result.failure_stage,
+        return_code=result.return_code,
+        runtime_identity_established=result.runtime_identity_established,
+        session_initialized=result.session_initialized,
+        provider_request_started=result.provider_request_started,
+        oauth_available=result.oauth_available,
+    )
+
+
+def preflight_guardian_authorized_pi(
+    *,
+    envelope: PiInvocationEnvelope,
+    decision: PiInvocationPolicyDecision,
+    cwd: str | Path,
+    timeout_seconds: int,
+    preflight_runner: PiAuthorizedHarnessRunner | None = None,
+) -> PiAuthorizedPreflightOutcome:
+    """Exercise authorized runtime/provider/model/auth setup without prompting."""
+    authorization = validate_policy_decision_against_envelope(envelope, decision)
+    if not authorization.ok or decision.decision != "allowed":
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value
+            if authorization.ok
+            else PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value,
+            stage="authorization",
+        )
+    if _contains_sensitive_keys(envelope.to_payload()) or _contains_sensitive_keys(
+        decision.to_payload()
+    ):
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+            stage="authorization",
+        )
+    identity, identity_failure = _authorized_identity(envelope)
+    if identity_failure is not None or identity is None:
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+            stage="authorization",
+        )
+    target = Path(cwd).expanduser().resolve(strict=False)
+    if not target.is_dir():
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.TARGET_POSTURE_VIOLATION.value,
+            stage="target_posture",
+        )
+
+    request = PiAuthorizedHarnessRequest(
+        prompt="",
+        cwd=target,
+        timeout_seconds=max(1, int(timeout_seconds)),
+        identity=identity,
+        read_only=True,
+    )
+    runner = preflight_runner or _run_preflight_with_pi_adapter
+    try:
+        evidence = runner(request)
+    except Exception:
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value,
+            stage="preflight",
+        )
+    if str(evidence.status).strip().lower() not in _SUCCESS_STATUSES:
+        return _preflight_blocked(
+            _safe_failure_class(evidence.failure_classification),
+            stage=_safe_stage(evidence.failure_stage) or "preflight",
+            actual_identity=_identity_from_evidence(evidence),
+            runtime_identity_established=evidence.runtime_identity_established,
+            oauth_available=evidence.oauth_available,
+        )
+    actual_identity = _identity_from_evidence(evidence)
+    if actual_identity is None:
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.ACTUAL_IDENTITY_MISSING.value,
+            stage="identity_attestation",
+            runtime_identity_established=False,
+            oauth_available=evidence.oauth_available,
+        )
+    identity_failure = _validate_actual_identity(identity, actual_identity)
+    if identity_failure is not None:
+        return _preflight_blocked(
+            PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value,
+            stage="identity_verification",
+            actual_identity=actual_identity,
+            runtime_identity_established=True,
+            oauth_available=evidence.oauth_available,
+        )
+    deepest_stage = "identity_verified"
+    if evidence.oauth_available:
+        deepest_stage = "auth_available"
+    return PiAuthorizedPreflightOutcome(
+        ok=True,
+        failure_class=None,
+        failure_stage=None,
+        deepest_stage=deepest_stage,
+        preflight_call_count=1,
+        retry_count=0,
+        fallback_count=0,
+        actual_identity=actual_identity,
+        runtime_identity_established=True,
+        oauth_available=evidence.oauth_available,
+        session_initialized=False,
+        provider_request_started=False,
+    )
+
+
+def _run_preflight_with_pi_adapter(
+    request: PiAuthorizedHarnessRequest,
+) -> PiHarnessRuntimeEvidence:
+    from guardian.agents.adapters.base import (
+        AgentExecutionIdentity,
+        AgentExecutionRequest,
+    )
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    result = PiCodexRunnerAdapter().preflight_authorized(
+        AgentExecutionRequest(
+            prompt="",
+            cwd=str(request.cwd),
+            timeout_seconds=request.timeout_seconds,
+        ),
+        AgentExecutionIdentity(
+            provider_id=request.identity.provider_id,
+            model_id=request.identity.model_id,
+            harness_id=request.identity.harness_id,
+            harness_version=request.identity.harness_version,
+        ),
+    )
+    return PiHarnessRuntimeEvidence(
+        status=result.status,
+        actual_provider_id=result.actual_provider_id,
+        actual_model_id=result.actual_model_id,
+        actual_harness_id=result.actual_harness_id,
+        actual_harness_version=result.actual_harness_version,
+        failure_classification=result.failure_classification,
+        failure_stage=result.failure_stage,
+        return_code=result.return_code,
+        runtime_identity_established=result.runtime_identity_established,
+        session_initialized=result.session_initialized,
+        provider_request_started=result.provider_request_started,
+        oauth_available=result.oauth_available,
     )
 
 
@@ -366,6 +584,13 @@ def _actual_identity(
         ),
         None,
     )
+
+
+def _identity_from_evidence(
+    evidence: PiHarnessRuntimeEvidence,
+) -> PiAuthorizedExecutionIdentity | None:
+    identity, _failure = _actual_identity(evidence)
+    return identity
 
 
 def _validate_actual_identity(
@@ -513,6 +738,12 @@ def _blocked(
     reason: PiValidationFailureReason,
     *,
     runner_call_count: int,
+    diagnostic_class: str | None = None,
+    diagnostic_stage: str | None = None,
+    return_code: int | None = None,
+    runtime_identity_established: bool = False,
+    session_initialized: bool | None = None,
+    provider_request_started: bool | None = None,
 ) -> PiLiveInvocationOutcome:
     return PiLiveInvocationOutcome(
         ok=False,
@@ -520,7 +751,80 @@ def _blocked(
         runner_call_count=runner_call_count,
         retry_count=0,
         fallback_count=0,
+        diagnostic_class=diagnostic_class,
+        diagnostic_stage=diagnostic_stage,
+        return_code=return_code,
+        runtime_identity_established=runtime_identity_established,
+        session_initialized=session_initialized,
+        provider_request_started=provider_request_started,
     )
+
+
+def _preflight_blocked(
+    failure_class: str,
+    *,
+    stage: str,
+    actual_identity: PiAuthorizedExecutionIdentity | None = None,
+    runtime_identity_established: bool = False,
+    oauth_available: bool | None = None,
+) -> PiAuthorizedPreflightOutcome:
+    return PiAuthorizedPreflightOutcome(
+        ok=False,
+        failure_class=_safe_failure_class(failure_class),
+        failure_stage=_safe_stage(stage),
+        deepest_stage=(
+            "auth_available"
+            if oauth_available
+            else "identity_verified"
+            if runtime_identity_established
+            else None
+        ),
+        preflight_call_count=1,
+        retry_count=0,
+        fallback_count=0,
+        actual_identity=actual_identity,
+        runtime_identity_established=runtime_identity_established,
+        oauth_available=oauth_available,
+        session_initialized=False,
+        provider_request_started=False,
+    )
+
+
+def _adapter_blocked(
+    reason: PiValidationFailureReason,
+    *,
+    diagnostic_class: str,
+    runner_call_count: int,
+    diagnostic_stage: str | None = None,
+    return_code: int | None = None,
+    runtime_identity_established: bool = False,
+    session_initialized: bool | None = None,
+    provider_request_started: bool | None = None,
+) -> PiLiveInvocationOutcome:
+    return _blocked(
+        reason,
+        runner_call_count=runner_call_count,
+        diagnostic_class=_safe_failure_class(diagnostic_class),
+        diagnostic_stage=_safe_stage(diagnostic_stage),
+        return_code=return_code,
+        runtime_identity_established=runtime_identity_established,
+        session_initialized=session_initialized,
+        provider_request_started=provider_request_started,
+    )
+
+
+def _safe_failure_class(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    return (
+        candidate
+        if candidate in {item.value for item in PiAuthorizedFailureClass}
+        else PiAuthorizedFailureClass.UNKNOWN_ADAPTER_FAILURE.value
+    )
+
+
+def _safe_stage(value: str | None) -> str | None:
+    candidate = str(value or "").strip()
+    return candidate if candidate in _AUTHORIZED_FAILURE_STAGES else None
 
 
 __all__ = [
@@ -529,5 +833,7 @@ __all__ = [
     "PiAuthorizedHarnessRunner",
     "PiHarnessRuntimeEvidence",
     "PiLiveInvocationOutcome",
+    "PiAuthorizedPreflightOutcome",
     "invoke_guardian_authorized_pi",
+    "preflight_guardian_authorized_pi",
 ]

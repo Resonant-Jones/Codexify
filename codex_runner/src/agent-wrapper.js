@@ -23,7 +23,25 @@ const args = process.argv.slice(2);
 const mode = args[0] || "help";
 const prompt = args.slice(1).join(" ");
 const guardianAuthorizedMode = mode === "guardian-authorized-task";
+const guardianAuthorizedReadinessMode = mode === "guardian-authorized-readiness";
 const ACTUAL_HARNESS_ID = "pi-coding-agent";
+
+const AUTHORIZED_FAILURE_CLASSES = new Set([
+	"adapter_timeout",
+	"wrapper_unavailable",
+	"runtime_module_unavailable",
+	"authorized_identity_rejected",
+	"provider_unresolved",
+	"model_unresolved",
+	"oauth_auth_unavailable",
+	"session_initialization_failed",
+	"provider_request_failed",
+	"provider_transport_failed",
+	"wrapper_protocol_failed",
+	"actual_identity_missing",
+	"target_posture_violation",
+	"unknown_adapter_failure",
+]);
 
 const OPTIONS = {
 	cwd: process.cwd(),
@@ -76,6 +94,49 @@ function isModuleResolutionError(error) {
 	return message.includes("Cannot find package") || message.includes("Cannot find module");
 }
 
+function boundedFailureClass(value) {
+	return AUTHORIZED_FAILURE_CLASSES.has(value)
+		? value
+		: "unknown_adapter_failure";
+}
+
+function classifyAuthorizedError(error) {
+	const message = error instanceof Error ? error.message : String(error);
+	const text = message.toLowerCase();
+	if (text.includes("cannot find package") || text.includes("cannot find module")) {
+		return "runtime_module_unavailable";
+	}
+	if (text.includes("guardian_authorized_identity_missing") || text.includes("identity does not match")) {
+		return "authorized_identity_rejected";
+	}
+	if (text.includes("timeout") || text.includes("timed out")) {
+		return "adapter_timeout";
+	}
+	if (text.includes("econn") || text.includes("fetch failed") || text.includes("network") || text.includes("socket")) {
+		return "provider_transport_failed";
+	}
+	if (text.includes("401") || text.includes("403") || text.includes("429") || text.includes("provider request") || text.includes("response")) {
+		return "provider_request_failed";
+	}
+	if (text.includes("auth") || text.includes("oauth") || text.includes("credential") || text.includes("api key")) {
+		return "oauth_auth_unavailable";
+	}
+	return "unknown_adapter_failure";
+}
+
+function emitAuthorizedFailure(failureClass, failureStage, details = {}) {
+	const payload = {
+		status: "error",
+		failure_class: boundedFailureClass(failureClass),
+		failure_stage: String(failureStage || "adapter_execution"),
+		actual_runtime_identity: details.actual_runtime_identity || null,
+		runtime_identity_established: details.runtime_identity_established === true,
+		session_initialized: details.session_initialized === true,
+		provider_request_started: details.provider_request_started === true,
+	};
+	console.log(JSON.stringify(payload));
+}
+
 async function loadPiSdk() {
 	const wrapperDirectory = path.dirname(fileURLToPath(import.meta.url));
 	const packageRoot = process.env.PI_CODING_AGENT_PACKAGE_ROOT
@@ -98,9 +159,98 @@ async function loadPiSdk() {
 		ModelRegistry: codingAgent.ModelRegistry,
 		createCodingTools: codingAgent.createCodingTools,
 		getModel: piAi.getModel,
+		getProviders: piAi.getProviders,
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
+}
+
+async function checkGuardianAuthorizedReadiness() {
+	let identity;
+	try {
+		identity = requireGuardianAuthorizedIdentity();
+	} catch (_error) {
+		emitAuthorizedFailure("authorized_identity_rejected", "authorization");
+		return;
+	}
+
+	let runtime;
+	try {
+		runtime = await loadPiSdk();
+	} catch (error) {
+		emitAuthorizedFailure(
+			isModuleResolutionError(error) ? "runtime_module_unavailable" : "wrapper_unavailable",
+			"runtime_load",
+		);
+		return;
+	}
+
+	const { AuthStorage, ModelRegistry, getModel, getProviders, harnessId, harnessVersion } = runtime;
+	const providerIds = getProviders().map((provider) =>
+		typeof provider === "string" ? provider : provider?.id,
+	);
+	if (!providerIds.includes(identity.providerId)) {
+		emitAuthorizedFailure("provider_unresolved", "provider_resolution");
+		return;
+	}
+	const model = getModel(identity.providerId, identity.modelId);
+	if (!model) {
+		emitAuthorizedFailure("model_unresolved", "model_resolution");
+		return;
+	}
+	const actualRuntimeIdentity = {
+		actual_provider_id: model.provider,
+		actual_model_id: model.id,
+		actual_harness_id: harnessId,
+		actual_harness_version: harnessVersion,
+	};
+	const identityMatches =
+		model.provider === identity.providerId &&
+		model.id === identity.modelId &&
+		harnessId === identity.harnessId &&
+		harnessVersion === identity.harnessVersion;
+	if (!identityMatches) {
+		emitAuthorizedFailure("authorized_identity_rejected", "identity_verification", {
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+		});
+		return;
+	}
+
+	try {
+		const authStorage = AuthStorage.create();
+		const modelRegistry = ModelRegistry.create(authStorage);
+		if (!authStorage.hasAuth(model.provider)) {
+			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+			});
+			return;
+		}
+		const available = await modelRegistry.getAvailable();
+		if (!available.some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) {
+			emitAuthorizedFailure("model_unresolved", "model_availability", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+			});
+			return;
+		}
+		console.log(JSON.stringify({
+			status: "ok",
+			failure_class: null,
+			failure_stage: "oauth_readiness",
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+			session_initialized: false,
+			provider_request_started: false,
+			oauth_available: true,
+		}));
+	} catch (_error) {
+		emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
+			actual_runtime_identity: actualRuntimeIdentity,
+			runtime_identity_established: true,
+		});
+	}
 }
 
 function requireGuardianAuthorizedIdentity() {
@@ -163,6 +313,7 @@ async function runAgent() {
 	let ModelRegistry;
 	let createCodingTools;
 	let getModel;
+	let getProviders;
 
 	const authorizedIdentity = guardianAuthorizedMode
 		? requireGuardianAuthorizedIdentity()
@@ -176,10 +327,18 @@ async function runAgent() {
 			ModelRegistry,
 			createCodingTools,
 			getModel,
+			getProviders,
 			harnessId,
 			harnessVersion,
 		} = await loadPiSdk());
 	} catch (error) {
+		if (guardianAuthorizedMode) {
+			emitAuthorizedFailure(
+				isModuleResolutionError(error) ? "runtime_module_unavailable" : "wrapper_unavailable",
+				"runtime_load",
+			);
+			return;
+		}
 		if (isModuleResolutionError(error)) {
 			console.error("Pi SDK dependencies are not available in this Node environment.");
 			console.error("The coding-worker image supplies the pinned SDK through its configured runtime path.");
@@ -198,14 +357,34 @@ async function runAgent() {
 		: OPTIONS.provider;
 
 	// Set up auth and model registry
-	const authStorage = AuthStorage.create();
-	const modelRegistry = ModelRegistry.create(authStorage);
+	let authStorage;
+	let modelRegistry;
+	try {
+		authStorage = AuthStorage.create();
+		modelRegistry = ModelRegistry.create(authStorage);
+	} catch (error) {
+		if (guardianAuthorizedMode) {
+			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness");
+			return;
+		}
+		throw error;
+	}
 
 	const tools = OPTIONS.disableTools ? [] : createCodingTools(OPTIONS.cwd);
 
 	// Get model
 	const model = getModel(resolvedProviderId, resolvedModelId);
 	if (!model) {
+		if (guardianAuthorizedMode) {
+			const providerIds = getProviders().map((provider) =>
+				typeof provider === "string" ? provider : provider?.id,
+			);
+			emitAuthorizedFailure(
+				providerIds.includes(resolvedProviderId) ? "model_unresolved" : "provider_unresolved",
+				providerIds.includes(resolvedProviderId) ? "model_resolution" : "provider_resolution",
+			);
+			return;
+		}
 		console.error(`Model not found: ${resolvedModelId}`);
 		console.error("Available models:");
 		console.error("  - claude-sonnet-4-20250514 (Claude Sonnet 4)");
@@ -223,8 +402,8 @@ async function runAgent() {
 		model.provider !== authorizedIdentity.providerId ||
 		model.id !== authorizedIdentity.modelId
 	)) {
-		console.error("Guardian-authorized identity does not match the resolved Pi runtime.");
-		process.exit(1);
+		emitAuthorizedFailure("authorized_identity_rejected", "identity_verification");
+		return;
 	}
 	const actualRuntimeIdentity = guardianAuthorizedMode
 		? {
@@ -238,8 +417,17 @@ async function runAgent() {
 	// Check API key availability
 	try {
 		const available = await modelRegistry.getAvailable();
-		const hasModel = available.some(m => m.id === model.id);
+		const hasModel = available.some(
+			m => m.provider === model.provider && m.id === model.id,
+		);
 		if (!hasModel) {
+			if (guardianAuthorizedMode) {
+				emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+				});
+				return;
+			}
 			console.error(`\nNo API key configured for ${OPTIONS.provider}.`);
 			console.error("\nThis wrapper reads the shared Pi auth store at ~/.pi/agent/auth.json.");
 			console.error("If you already logged into Pi for this user, make sure Codexify sees the same HOME directory.");
@@ -252,6 +440,13 @@ async function runAgent() {
 		}
 	} catch (err) {
 		if (err.message?.includes("No API key")) {
+			if (guardianAuthorizedMode) {
+				emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
+					actual_runtime_identity: actualRuntimeIdentity,
+					runtime_identity_established: true,
+				});
+				return;
+			}
 			console.error(`\nNo API key configured for ${OPTIONS.provider}.`);
 			console.error("\nThis wrapper reads the shared Pi auth store at ~/.pi/agent/auth.json.");
 			console.error("If you already logged into Pi for this user, make sure Codexify sees the same HOME directory.");
@@ -262,18 +457,38 @@ async function runAgent() {
 			console.error("\nSee: ~/.pi/agent/auth.json for stored credentials");
 			process.exit(1);
 		}
+		if (guardianAuthorizedMode) {
+			emitAuthorizedFailure("oauth_auth_unavailable", "oauth_readiness", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+			});
+			return;
+		}
+		throw err;
 	}
 
 	// Create session
-	const result = await createAgentSession({
-		cwd: OPTIONS.cwd,
-		model,
-		thinkingLevel: OPTIONS.thinking,
-		authStorage,
-		modelRegistry,
-		tools,
-		sessionManager: SessionManager.inMemory(),
-	});
+	let result;
+	try {
+		result = await createAgentSession({
+			cwd: OPTIONS.cwd,
+			model,
+			thinkingLevel: OPTIONS.thinking,
+			authStorage,
+			modelRegistry,
+			tools,
+			sessionManager: SessionManager.inMemory(),
+		});
+	} catch (error) {
+		if (guardianAuthorizedMode) {
+			emitAuthorizedFailure("session_initialization_failed", "session_initialization", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+			});
+			return;
+		}
+		throw error;
+	}
 
 	session = result.session;
 
@@ -294,7 +509,20 @@ async function runAgent() {
 
 	// Run the prompt
 	const fullPrompt = buildPrompt(mode, prompt);
-	await session.prompt(fullPrompt);
+	try {
+		await session.prompt(fullPrompt);
+	} catch (error) {
+		if (guardianAuthorizedMode) {
+			emitAuthorizedFailure(classifyAuthorizedError(error), "provider_request", {
+				actual_runtime_identity: actualRuntimeIdentity,
+				runtime_identity_established: true,
+				session_initialized: true,
+				provider_request_started: true,
+			});
+			return;
+		}
+		throw error;
+	}
 
 	// Get messages and extract JSON
 	const messages = session.agent.state.messages;
@@ -394,6 +622,10 @@ if (mode === "readiness") {
 			effective_model: OPTIONS.model,
 			reason: "adapter_initialization_failed",
 		})));
+} else if (guardianAuthorizedReadinessMode) {
+	checkGuardianAuthorizedReadiness().catch(() => {
+		emitAuthorizedFailure("unknown_adapter_failure", "preflight");
+	});
 } else if (mode === "help" || !prompt) {
 	console.log(`
 Pi Agent Wrapper for Campaign Runner
@@ -406,7 +638,8 @@ Modes:
   audit    - Run audit analysis on the repository
   compile  - Compile audit results into campaign set
   task     - Execute a single task
-  guardian-authorized-task - Execute one explicitly authorized task with identity attestation
+	  guardian-authorized-task - Execute one explicitly authorized task with identity attestation
+	  guardian-authorized-readiness - Verify authorized runtime/provider/model/auth without a prompt
   readiness - Check adapter and credential posture without executing a prompt
   help     - Show this help
 
@@ -448,6 +681,10 @@ Examples:
 } else {
 	// Run
 	runAgent().catch(err => {
+		if (guardianAuthorizedMode || guardianAuthorizedReadinessMode) {
+			emitAuthorizedFailure(classifyAuthorizedError(err), "adapter_execution");
+			return;
+		}
 		console.error("Error:", err.message);
 		process.exit(1);
 	});
