@@ -5,6 +5,7 @@ export const SUPPORTED_PROFILE_ROUTE_LABELS = {
   CONNECTORS: "connectors",
   CODEX: "codex",
   UI_SESSION: "ui_session",
+  VOICE: "voice",
   AGENT_ORCHESTRATION_CHAT: "agent_orchestration_chat",
 } as const;
 
