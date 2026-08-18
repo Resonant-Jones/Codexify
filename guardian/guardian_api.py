@@ -616,6 +616,11 @@ async def app_lifespan(app: FastAPI):
         logger.error("[startup] Config coherence check failed: %s", exc)
         raise
 
+    # Publish the route inventory before health endpoints are first served.
+    # The frontend uses this mounted-route truth to avoid probing optional
+    # surfaces that the active supported profile intentionally quarantines.
+    _refresh_supported_profile_state(app, settings)
+
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
     else:

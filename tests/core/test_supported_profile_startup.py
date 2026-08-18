@@ -234,6 +234,8 @@ def test_supported_profile_health_loads_during_startup(monkeypatch) -> None:
             assert supported_profile["name"] == "v1-local-core-web-mcp"
             assert supported_profile["valid"] is True
             assert supported_profile["release_hold"] is False
+            assert "chat" in supported_profile["routes"]["mounted"]
+            assert "voice" not in supported_profile["routes"]["mounted"]
             assert details["provider_truth"]["supported_profile_name"] == (
                 "v1-local-core-web-mcp"
             )
