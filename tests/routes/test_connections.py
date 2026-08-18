@@ -260,6 +260,9 @@ def test_inference_entries_project_registry_authorization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     test_client, _ = client
+    # This assertion exercises cloud-provider registry projection in
+    # isolation; the supported local profile contract is covered separately.
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "")
     monkeypatch.setenv("ALLOW_CLOUD_PROVIDERS", "true")
     monkeypatch.setenv("CODEXIFY_LOCAL_ONLY_MODE", "false")
     monkeypatch.setenv("CODEXIFY_EGRESS_ALLOWLIST", "deepseek")
@@ -336,3 +339,17 @@ def test_runtime_binding_reports_real_adapters_only(
     assert items["deepseek"]["runtime_binding"]["registry_provider_id"] == (
         "deepseek"
     )
+
+
+def test_connections_router_is_read_only(
+    client: tuple[TestClient, _TestDB],
+) -> None:
+    paths = {
+        route.path: set(route.methods or ())
+        for route in connections.router.routes
+    }
+
+    assert paths == {
+        "/api/connections": {"GET"},
+        "/api/connections/{connection_id}": {"GET"},
+    }

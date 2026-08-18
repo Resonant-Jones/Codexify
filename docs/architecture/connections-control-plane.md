@@ -233,11 +233,15 @@ authoritative mutation surfaces: `/api/channels/*` for channels,
 plus provider-registry policy for inference. The Connections API creates
 no duplicate mutation routes.
 
-The router is registered in `guardian_api.py` under the existing
-`connectors` supported-profile label and the existing
-`CODEXIFY_ENABLE_CONNECTOR_ROUTES` flag, so the bay and its data source
-stay gated together. Without a configured database, the API degrades to
-the static catalog (no user state) rather than failing.
+`guardian_api.py` registers the read-only Connections router under the
+distinct `connections` supported-profile route identity and the
+`CODEXIFY_ENABLE_CONNECTIONS_ROUTES` flag. The legacy sync connector router
+remains under the separate `connectors` identity and
+`CODEXIFY_ENABLE_CONNECTOR_ROUTES` flag. The supported local Web profile
+enables the former while quarantining the latter, so exposing
+`/api/connections` does not expose `/api/connectors` or its mutation/sync
+authority. Without a configured database, the API degrades to the static
+catalog (no user state) rather than failing.
 
 ## Setup/configuration versus authorization versus health
 
