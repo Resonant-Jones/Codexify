@@ -17,9 +17,10 @@ consumed and `MemFree` at ~91 MB before the backend even started.
 
 The supported backend's own working set is small (~0.5 GiB combined Chroma +
 embedder + FastAPI startup). It is killed because the 6 GiB Docker Desktop VM
-already hosts ~3.6 GiB of other containers (three Compose projects, ~103
-containers, including 96 `codexify_account_observability_norm_*` replicas and
-the Tester's own ~1.7 GiB of embedder-loaded workers) and its 2 GiB swap is
+already hosts a ~3.5 GiB all-container aggregate (three Compose projects, ~103
+containers), of which ~1.8 GiB is attributable to non-Tester containers,
+including 96 `codexify_account_observability_norm_*` replicas, and ~1.7 GiB
+to the Tester's own embedder-loaded workers; its 2 GiB swap is
 exhausted, leaving no headroom for the backend's ~0.5 GiB startup allocation
 spike. macOS host evidence (32 GiB physical, 39% free system-wide) rules out
 host memory pressure.
@@ -548,8 +549,9 @@ sampler gap), which does not change the classification.
 **DOCKER_DESKTOP_MEMORY_ALLOCATION_ADJUSTMENT**
 
 Reconcile the supported Tester profile with the proven Docker VM memory
-budget (6 GiB RAM + 2 GiB swap hosting ~3.6 GiB of concurrent non-Tester
-workload). Do not change Docker Desktop settings automatically; operator
+budget (6 GiB RAM + 2 GiB swap hosting a 3,582.7 MiB all-container aggregate,
+including ~1.8 GiB attributable to concurrent non-Tester workloads). Do not
+change Docker Desktop settings automatically; operator
 authorization is required. No Chroma-generation change and no historical
 restoration is recommended or authorized.
 
@@ -650,8 +652,9 @@ proof).
 Create exactly one operator/runtime task:
 
 "Reconcile the supported Tester profile with the proven Docker VM memory
-budget (6 GiB RAM + 2 GiB swap; ~3.6 GiB concurrent non-Tester workload
-already resident; swap exhausted at rest). Operator-authorized options
+budget (6 GiB RAM + 2 GiB swap; 3,582.7 MiB all-container aggregate before
+backend start, including ~1.8 GiB attributable to concurrent non-Tester
+workloads; swap exhausted at rest). Operator-authorized options
 include raising the Docker Desktop VM memory allocation and/or relocating
 or bounding non-Tester tenants. Do not change Docker Desktop settings
 automatically. After reconciliation, rerun backend stability plus the

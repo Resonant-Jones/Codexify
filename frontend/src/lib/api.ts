@@ -916,6 +916,30 @@ export interface ChatGptImportStats {
   embedding_coverage_degraded: boolean;
 }
 
+/**
+ * Canonical account-import source-system tokens.
+ *
+ * The closed union mirrors the bounded allow-list enforced by the durable
+ * intake (`guardian/services/openai_account_import.py`); the Web client must
+ * never serialize display names like ``chatgpt`` / ``claude`` or any other
+ * free-form value. ``origin_system`` is intentionally absent from this
+ * surface — it is durable conversation lineage owned by the backend
+ * importer/persistence authority (see `guardian/conversation_origin.py`).
+ */
+export type AccountImportSourceSystem = "openai" | "anthropic";
+
+export const ACCOUNT_IMPORT_SOURCE_SYSTEMS: readonly AccountImportSourceSystem[] =
+  Object.freeze(["openai", "anthropic"]);
+
+export function isAccountImportSourceSystem(
+  value: unknown
+): value is AccountImportSourceSystem {
+  return (
+    typeof value === "string" &&
+    (ACCOUNT_IMPORT_SOURCE_SYSTEMS as readonly string[]).includes(value)
+  );
+}
+
 export type AccountImportStatus =
   | "receiving"
   | "queued"
@@ -926,7 +950,7 @@ export type AccountImportStatus =
 
 export interface AccountImportJob {
   job_id: string;
-  source_system: string;
+  source_system: AccountImportSourceSystem;
   source_export_fingerprint?: string | null;
   status: AccountImportStatus;
   total_file_count: number;
@@ -970,14 +994,40 @@ function accountImportHeaders(userId?: string): Record<string, string> | undefin
 }
 
 export async function createOpenAIAccountImport(
-  declaration: { total_file_count: number; total_byte_count: number },
+  declaration: {
+    total_file_count: number;
+    total_byte_count: number;
+    source_system: AccountImportSourceSystem;
+  },
   userId?: string
 ): Promise<AccountImportJob> {
+  if (!isAccountImportSourceSystem(declaration.source_system)) {
+    throw new Error(
+      `Account import requires an explicit canonical source_system; received ${JSON.stringify(
+        declaration.source_system
+      )}`
+    );
+  }
   const response = await api.post<AccountImportJob>(
     ACCOUNT_IMPORT_BASE_PATH,
-    { ...declaration, source_system: "openai" },
+    {
+      total_file_count: declaration.total_file_count,
+      total_byte_count: declaration.total_byte_count,
+      source_system: declaration.source_system,
+    },
     { headers: accountImportHeaders(userId) }
   );
+  // Provenance boundary: the Web client must never assign or accept
+  // canonical conversation origin. If the server were ever to return one
+  // here, refuse to surface it.
+  const payload = response.data as AccountImportJob & {
+    origin_system?: unknown;
+  };
+  if (payload && "origin_system" in payload && payload.origin_system !== undefined) {
+    throw new Error(
+      "Account import response leaked origin_system; the Web client does not own conversation provenance."
+    );
+  }
   return response.data;
 }
 
@@ -1097,7 +1147,31 @@ function computeBackendOutageDelayMs(failures: number): number {
 
 function shouldApplyBackendOutageFuse(url: unknown): boolean {
   if (typeof url !== "string") return true;
-  return !/\/assets\/|\.hot-update/i.test(url);
+  // Canonical health and catalog probes must always reach the backend, even
+  // while a backend-outage fuse is latched. The fuse is intended to throttle
+  // chat/asset traffic during a transient outage; if it also blocks the
+  // canonical health surface, the system has no way to observe the backend
+  // recovering and the outage state can never clear until the backoff window
+  // expires naturally. A successful canonical health response already clears
+  // the fuse via the response interceptor, so exempting these paths here
+  // restores the recovered-backend signal without disabling outage throttling
+  // for the routes that the fuse was designed to protect.
+  if (/\/health(?:\/chat)?(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/api\/health\/llm(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/llm\/catalog(?:[/?#]|$)/i.test(url)) return false;
+  if (/\/assets\/|\.hot-update/i.test(url)) return false;
+  return true;
+}
+
+// Exported only for the targeted regression tests that pin this seam.
+export function shouldClassifyBackendOutageExemptionForTests(
+  url: unknown
+): boolean {
+  return shouldApplyBackendOutageFuse(url);
+}
+
+export function isBackendOutageActiveForTests(now = Date.now()): boolean {
+  return isBackendOutageActive(now);
 }
 
 function applyBackendOutage(reason: string): void {
@@ -1432,7 +1506,13 @@ api.interceptors.response.use(
         inFlightCompletionTurnByThread.set(completionMeta.threadId, returnedTurnId);
       }
     }
-    clearBackendOutage();
+    // Only canonical health/catalog responses prove the Guardian backend is
+    // healthy enough to lift a latched outage fuse. A successful chat or asset
+    // response does not — those routes can succeed while the canonical
+    // surfaces are still in transport-failure recovery.
+    if (shouldApplyBackendOutageFuse(response?.config?.url)) {
+      clearBackendOutage();
+    }
     return response;
   },
   (error) => {
@@ -1448,8 +1528,14 @@ api.interceptors.response.use(
       applyBackendOutage("transport");
     } else if (isBackendProxyOutageResponse(error)) {
       applyBackendOutage(`proxy:${Number(error?.response?.status ?? 0)}`);
-    } else if (error?.response) {
-      // Any server response (even 4xx/5xx) means transport path is reachable.
+    } else if (
+      error?.response &&
+      shouldApplyBackendOutageFuse(error?.config?.url)
+    ) {
+      // A server response to a non-canonical route only proves that route is
+      // reachable. It is not authoritative evidence that the Guardian backend
+      // itself is healthy; do not let it clear a fuse latched by canonical
+      // health or catalog transport failures.
       clearBackendOutage();
     }
 
