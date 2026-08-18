@@ -757,6 +757,104 @@ def _release_hold(
     return value if isinstance(value, bool) else None
 
 
+def _normalize_llm_health_projection(
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Normalize the current LLM health envelope into receipt-safe facts.
+
+    ``/api/health/llm`` keeps envelope status at the top level and exposes
+    provider/model facts beneath ``details``. Historical top-level LLM fields
+    are not a standalone accepted shape, but matching mirrors remain harmless
+    and conflicting mirrors fail closed.
+    """
+    details = payload.get("details")
+    if not isinstance(details, Mapping):
+        return {
+            "profile": {},
+            "release_hold": None,
+            "models_available": None,
+            "provider_runtime_available": None,
+            "ok": None,
+        }, ["llm_health_projection_invalid"]
+
+    reasons: set[str] = set()
+    profile = details.get("supported_profile")
+    if not isinstance(profile, Mapping):
+        profile = {}
+        reasons.add("llm_health_projection_invalid")
+
+    models_available = details.get("models_available")
+    if not isinstance(models_available, bool):
+        models_available = None
+        reasons.add("llm_health_projection_invalid")
+
+    provider_runtime = details.get("provider_runtime")
+    runtime_available = (
+        provider_runtime.get("enabled")
+        if isinstance(provider_runtime, Mapping)
+        and isinstance(provider_runtime.get("enabled"), bool)
+        else None
+    )
+    if runtime_available is None:
+        reasons.add("llm_health_projection_invalid")
+
+    details_ok = details.get("ok")
+    if not isinstance(details_ok, bool):
+        details_ok = None
+        reasons.add("llm_health_projection_invalid")
+
+    release_values = [
+        value
+        for value in (
+            payload.get("release_hold"),
+            details.get("release_hold"),
+            profile.get("release_hold"),
+        )
+        if value is not None
+    ]
+    if not release_values or not all(
+        isinstance(value, bool) for value in release_values
+    ):
+        release_hold = None
+        reasons.add("llm_health_projection_invalid")
+    else:
+        release_hold = release_values[0]
+        if any(value != release_hold for value in release_values[1:]):
+            reasons.add("llm_health_projection_ambiguous")
+
+    legacy_models_available = payload.get("models_available")
+    if legacy_models_available is not None and (
+        not isinstance(legacy_models_available, bool)
+        or legacy_models_available != models_available
+    ):
+        reasons.add("llm_health_projection_ambiguous")
+
+    legacy_runtime = payload.get("provider_runtime")
+    if legacy_runtime is not None:
+        legacy_runtime_available = (
+            legacy_runtime.get("enabled")
+            if isinstance(legacy_runtime, Mapping)
+            and isinstance(legacy_runtime.get("enabled"), bool)
+            else None
+        )
+        if legacy_runtime_available != runtime_available:
+            reasons.add("llm_health_projection_ambiguous")
+
+    legacy_profile = payload.get("supported_profile")
+    if legacy_profile is not None and (
+        not isinstance(legacy_profile, Mapping) or legacy_profile != profile
+    ):
+        reasons.add("llm_health_projection_ambiguous")
+
+    return {
+        "profile": profile,
+        "release_hold": release_hold,
+        "models_available": models_available,
+        "provider_runtime_available": runtime_available,
+        "ok": details_ok,
+    }, sorted(reasons)
+
+
 def _safe_profile_projection(profile: Mapping[str, Any]) -> dict[str, Any]:
     raw_mismatches = profile.get("mismatches")
     mismatches: list[str] = []
@@ -853,21 +951,14 @@ def _probe_projection_and_reasons(
         if safe_completion["worker_heartbeat_status"] != "fresh":
             reasons.add("chat_worker_heartbeat_not_fresh")
     elif probe_id == "api_health_llm":
-        profile = _profile_payload(payload)
+        normalized, normalization_reasons = _normalize_llm_health_projection(payload)
+        reasons.update(normalization_reasons)
+        profile = normalized["profile"]
         safe_profile = _safe_profile_projection(profile)
-        release_hold = _release_hold(payload, profile)
-        provider_runtime = payload.get("provider_runtime")
-        runtime_available = (
-            provider_runtime.get("enabled")
-            if isinstance(provider_runtime, Mapping)
-            and isinstance(provider_runtime.get("enabled"), bool)
-            else None
-        )
-        models_available = (
-            payload.get("models_available")
-            if isinstance(payload.get("models_available"), bool)
-            else None
-        )
+        release_hold = normalized["release_hold"]
+        runtime_available = normalized["provider_runtime_available"]
+        models_available = normalized["models_available"]
+        projection["ok"] = normalized["ok"]
         projection.update(
             {
                 "release_hold": release_hold,
@@ -878,9 +969,9 @@ def _probe_projection_and_reasons(
         )
         if status not in HEALTHY_STATUSES:
             reasons.add("llm_status_unhealthy")
-        if models_available is not True:
+        if models_available is False:
             reasons.add("llm_models_unavailable")
-        if runtime_available is not True:
+        if runtime_available is False:
             reasons.add("provider_runtime_unavailable")
         if safe_profile["name"] != supported_profile:
             reasons.add("supported_profile_mismatch")

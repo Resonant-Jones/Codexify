@@ -60,6 +60,19 @@ class PiValidationFailureReason(str, Enum):
     MISSING_HARNESS_RESULT_ID = "missing_harness_result_id"
     MISSING_ARTIFACT_REFERENCE = "missing_artifact_reference"
     MALFORMED_COMMAND_BUS_LINKAGE = "malformed_command_bus_linkage"
+    AUTHORIZATION_DENIED = "authorization_denied"
+    POLICY_ENVELOPE_MISMATCH = "policy_envelope_mismatch"
+    MISSING_PROVIDER_ID = "missing_provider_id"
+    MISSING_MODEL_ID = "missing_model_id"
+    ACTUAL_IDENTITY_MISSING = "actual_identity_missing"
+    PROVIDER_IDENTITY_MISMATCH = "provider_identity_mismatch"
+    MODEL_IDENTITY_MISMATCH = "model_identity_mismatch"
+    HARNESS_IDENTITY_MISMATCH = "harness_identity_mismatch"
+    MUTATION_SCOPE_VIOLATION = "mutation_scope_violation"
+    GIT_MUTATION_VIOLATION = "git_mutation_violation"
+    READ_ONLY_VIOLATION = "read_only_violation"
+    ADAPTER_EXECUTION_FAILURE = "adapter_execution_failure"
+    CREDENTIAL_MATERIAL_REJECTED = "credential_material_rejected"
 
 
 PI_INVOCATION_ENVELOPE_STATUSES: frozenset[str] = frozenset(

@@ -155,8 +155,8 @@ def test_channel_config_presence_marks_entry_configured(
 
     assert items["telegram"]["setup_state"] == "configured"
     # foreign user's config must never leak into this user's projection
-    assert items["slack"]["setup_state"] == "needs_setup"
-    assert items["discord"]["setup_state"] == "needs_setup"
+    assert items["slack"]["setup_state"] == "unavailable"
+    assert items["discord"]["setup_state"] == "unavailable"
 
 
 def test_unimplemented_entries_report_unavailable(

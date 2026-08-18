@@ -429,6 +429,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   const [fields, setFields] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [saveSucceeded, setSaveSucceeded] = useState(false);
 
   const steps = useMemo(() => buildSetupSteps(connection), [connection]);
   const step = steps[Math.min(stepIndex, steps.length - 1)];
@@ -440,6 +441,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     setMethod(null);
     setFields({});
     setMessage(null);
+    setSaveSucceeded(false);
   }, [open, connection.id]);
 
   if (!open) return null;
@@ -453,6 +455,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     setMethod(null);
     setFields({});
     setMessage(null);
+    setSaveSucceeded(false);
     onClose();
   }
 
@@ -465,6 +468,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   async function handleSave() {
     setLoading(true);
     setMessage(null);
+    setSaveSucceeded(false);
     try {
       const route = connection.runtime_binding.setup_route;
       if (!route) {
@@ -480,6 +484,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
       const res = await api.post(route, body);
       if (res?.data && !res.data.error) {
         setMessage("Settings saved.");
+        setSaveSucceeded(true);
         onChanged();
       } else {
         setMessage(res?.data?.error || "Save failed");
@@ -507,7 +512,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     if (step === "overview") return true;
     if (step === "method") return Boolean(method);
     if (step === "fields") return canNextFields;
-    if (step === "save") return !loading;
+    if (step === "save") return !loading && saveSucceeded;
     return true;
   }
 

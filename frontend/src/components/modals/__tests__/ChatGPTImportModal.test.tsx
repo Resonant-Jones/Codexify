@@ -117,6 +117,114 @@ describe("ChatGPTImportModal account export intake", () => {
     apiMocks.post.mockReset();
   });
 
+  it("renders both canonical source choices and defaults to OpenAI", () => {
+    render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+    expect(
+      screen.getByTestId("account-import-source-openai")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("account-import-source-anthropic")
+    ).toBeInTheDocument();
+    expect(screen.getByText("OpenAI (ChatGPT)")).toBeInTheDocument();
+    expect(screen.getByText("Anthropic (Claude)")).toBeInTheDocument();
+    expect(
+      (screen.getByTestId("account-import-source-openai") as HTMLInputElement)
+        .checked
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("account-import-source-anthropic") as HTMLInputElement)
+        .checked
+    ).toBe(false);
+  });
+
+  it("sends source_system=anthropic when Anthropic is selected and a folder is dropped", async () => {
+    const user = userEvent.setup();
+    const json = new File(["[]"], "conversations.json");
+    const root = directoryEntry("/export", [
+      [fileEntry("/export/conversations.json", json)],
+    ]);
+    render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+
+    await user.click(
+      screen.getByTestId("account-import-source-anthropic")
+    );
+
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      }
+    );
+
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    expect(coordinator.start).toHaveBeenCalledWith(
+      expect.any(Array),
+      "account-a",
+      "anthropic"
+    );
+  });
+
+  it("sends source_system=openai when OpenAI is selected and a folder is dropped", async () => {
+    const user = userEvent.setup();
+    const json = new File(["[]"], "conversations.json");
+    const root = directoryEntry("/export", [
+      [fileEntry("/export/conversations.json", json)],
+    ]);
+    render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+
+    await user.click(
+      screen.getByTestId("account-import-source-openai")
+    );
+
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      }
+    );
+
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    expect(coordinator.start).toHaveBeenCalledWith(
+      expect.any(Array),
+      "account-a",
+      "openai"
+    );
+  });
+
+  it("only ever serializes canonical source values when a folder is dropped", async () => {
+    const json = new File(["[]"], "conversations.json");
+    const root = directoryEntry("/export", [
+      [fileEntry("/export/conversations.json", json)],
+    ]);
+    render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      }
+    );
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    const sourceSystem = coordinator.start.mock.calls[0][2];
+    expect(["openai", "anthropic"]).toContain(sourceSystem);
+  });
+
   it("recursively drains directory-reader pages and preserves nested paths", async () => {
     const conversations = new File(["[]"], "conversations.json", {
       type: "application/json",

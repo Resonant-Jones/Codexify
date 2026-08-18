@@ -23,6 +23,16 @@ Source anchors:
 
 # Codexify Architecture KB
 
+## Browser episodic context and recall routing
+
+For chat-backed browser continuity and future browser-history recall, read the
+[Browser Episodic Context and Recall Contract](./browser-episodic-context-and-recall-contract.md)
+and [ADR-070](./adr/070-browser-episodic-context-and-recall.md). ADR-054 still
+owns Browser Host technology, topology, repository incubation, and release
+ownership; ADR-070 owns Browser Episode and Browser Recall semantics. Neither
+document proves shipped browser functionality, and
+docs/architecture/00-current-state.md remains release truth.
+
 Start here: read [`00-current-state.md`](./00-current-state.md) first when you need current-state interpretation rather than structural architecture. It is the live operational truth layer for release readiness, supported install path, active blockers, and short-horizon priorities.
 
 ## How to answer "What is currently in Codexify Beta?"
@@ -50,6 +60,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 - [`browser-host-guardian-contract.md`](./browser-host-guardian-contract.md): normative versioned Browser Host/Guardian hello, negotiation, Browser Context Envelope, attachment, receipt, error, token, redaction, grant, and conformance boundary; its pure Guardian seam, explicitly gated development negotiation and attachment HTTP adapters, and development Browser Host clients are test-proven, while live Electron qualification, production Guardian authentication, and supported release remain unproven.
 - [`browser-host-comparative-proof-harness-spec.md`](./browser-host-comparative-proof-harness-spec.md): normative comparative proof methodology for Browser Host candidates; it defines common fixtures, isolation and capture cases, proof packets, and regression/reconsideration evidence. ADR-054 accepts the `bundled_chromium_electron` family for future implementation, but the specification is not runtime or release proof, and [`00-current-state.md`](./00-current-state.md) remains supported-release truth.
 - [`ADR-054: Codexify Browser Host Topology and Release Ownership`](./adr/054-browser-host-topology-and-release-ownership.md): accepted future architecture for the Electron/bundled-Chromium Browser Host, monorepo-first isolated package, trusted Tauri shell, Tier 0 extension continuity, Guardian authority, and release/extraction ownership. It does not implement or release a Browser Host.
+- [`ADR-067: Operator-Approved Derived Chroma Retirement`](./adr/067-operator-approved-derived-chroma-retirement.md): accepted governance decision for operator-approved preserve-retire-rebuild handling of derived Chroma indexes that the supported `chromadb==1.0.15` runtime cannot consume; Postgres remains the sole canonical data authority, and restoration of the historical store requires a separate ADR-gated task. It records governance only and performs no runtime mutation.
+- [`ADR-071: Connections Control Plane Boundary`](./adr/071-connections-control-plane-boundary.md): accepted decision establishing the Settings Connectors bay as one canonical Connections control plane over Messaging, Web, and Inference. See [`Connections Control Plane`](./connections-control-plane.md) for the catalog contract: aggregation without execution ownership, configuration distinct from authorization, authorization distinct from runtime health, catalog visibility distinct from implementation, and server-owned user-scoped credentials. It does not implement provider-specific OAuth, missing adapters, or release widening.
 - [`Browser Host decision recommendation`](./proofs/browser-host/2026-07-31-browser-host-decision-recommendation.md): singular pre-ADR rationale and decision input.
 - [`Browser Host comparative summary`](./proofs/browser-host/2026-07-31-browser-host-comparative-summary.md): committed evidence synthesis for the two terminal candidate packets.
 - [`canonical-live-proof-receipt-contract.md`](./canonical-live-proof-receipt-contract.md): subordinate contract for the bounded read-only supported-Compose live observation receipt; not manifest acceptance, trusted `latest`, or release approval.
@@ -92,6 +104,8 @@ If you are working on a cross-surface Guardian intent spine for chat, voice, aut
 If you are working on the pre-model turn-intake seam for intent typing, authority posture, retrieval scope, context policy, or actionability classification, start with [`Turn Intake Compiler Contract`](./turn-intake-compiler-contract.md). For representative expected classifications before runtime implementation, also read [`Turn Intake Fixture Pack`](./turn-intake-fixture-pack.md). For candidate canonical promotion of repeated turn-intake vocabulary, read [`Turn Intake Token Domain Proposal`](./turn-intake-token-domain-proposal.md). For the docs/proof-only machine-readable projection of the fixture pack, read [`Turn Intake Machine-Readable Fixture Projection`](./fixtures/turn-intake-fixtures.v1.json). All four are docs-only and do not implement runtime behavior.
 
 If you are working on slash-command connector invocation, active connector semantics, Obsidian context commands, GitHub/Discord/Drive-style connector context, or MCP connector/tool invocation boundaries, start with [`ADR-024: Context Command and Active Connector Semantics`](./adr/024-context-command-active-connector-semantics.md). That ADR defines the turn-scoped connector doctrine without claiming any specific connector runtime is already implemented.
+
+If you are working on the Settings Connections bay, its catalog, setup-state projection, or provider setup UX, start with [`Connections Control Plane`](./connections-control-plane.md) and [`ADR-071: Connections Control Plane Boundary`](./adr/071-connections-control-plane-boundary.md). The bay is an aggregation/control-plane surface: catalog visibility never implies an adapter, configuration never implies authorization, and authorization never implies runtime health.
 
 If you are working on Flow Builder, delegation/specification workflows, tacit-knowledge extraction, or workflow authoring semantics, start with [`ADR-006: Flow Builder Elicitation Lane`](./adr/006-flow-builder-elicitation-lane.md) first. That ADR defines the upstream `interview -> extract -> normalize -> validate -> compile -> execute` lane and the boundary between elicitation and runnable execution.
 

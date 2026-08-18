@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ConnectionConfigModal } from "@/features/connectors/ConnectorConfigModal";
 import SettingsView from "@/features/settings/SettingsView";
 
 const catalogPayload = {
@@ -19,19 +20,19 @@ const catalogPayload = {
       category: "messaging",
       description: "Outbound Slack channel delivery through the existing channel adapter.",
       auth_methods: ["token"],
-      capabilities: ["outbound_messaging", "inbound_messaging"],
+      capabilities: ["outbound_messaging"],
       implementation_state: "implemented",
-      setup_state: "needs_setup",
+      setup_state: "unavailable",
       runtime_binding: {
         subsystem: "guardian.channels",
         adapter: "guardian.channels.adapters.slack.SlackAdapter",
-        setup_route: "/api/channels/configs",
+        setup_route: null,
         registry_provider_id: null,
         oauth_backend_handler_exists: false,
       },
-      required_fields: [{ key: "bot_token", label: "Bot token", type: "password", secret: true }],
+      required_fields: [],
       scopes: [],
-      setup_help: "Configuration is stored per-user through the channels API.",
+      setup_help: "The adapter uses a server-managed environment credential.",
       oauth: null,
       authorization: null,
     },
@@ -278,7 +279,7 @@ describe("Connections catalog bay", () => {
     }
   });
 
-  it("shows implemented messaging entries with an enabled configure action", async () => {
+  it("does not advertise a browser setup flow for server-managed messaging credentials", async () => {
     await openConnectorsTab();
 
     const slackRow = screen.getByTestId("connection-row-slack");
@@ -286,7 +287,52 @@ describe("Connections catalog bay", () => {
     const configure = within(slackRow).getByRole("button", {
       name: /^configure$/i,
     });
-    expect(configure).not.toBeDisabled();
+    expect(configure).toBeDisabled();
+  });
+
+  it("keeps the setup wizard on the save step after a failed save", async () => {
+    mockedApi.post.mockResolvedValueOnce({ data: { error: "save failed" } });
+    const connection = {
+      id: "test-connection",
+      display_name: "Test connection",
+      category: "inference",
+      description: "A launchable test connection.",
+      auth_methods: ["api_key"],
+      capabilities: ["chat_completion"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "test",
+        adapter: null,
+        setup_route: "/api/test-connections",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [],
+      scopes: [],
+      setup_help: "Test setup.",
+      oauth: null,
+      authorization: null,
+    };
+
+    render(
+      <ConnectionConfigModal
+        connection={connection}
+        open
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("save failed")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Configuration saved.")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^continue$/i })
+    ).toBeDisabled();
   });
 
   it("marks unsupported entries as not implemented and disables setup", async () => {

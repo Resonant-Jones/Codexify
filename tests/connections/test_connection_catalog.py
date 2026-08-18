@@ -83,7 +83,7 @@ def test_every_requested_messaging_entry_is_present() -> None:
     assert MESSAGING_IDS <= catalog_ids
 
 
-def test_slack_discord_telegram_reflect_real_adapter_truth() -> None:
+def test_slack_discord_telegram_do_not_claim_unwired_runtime_capability() -> None:
     for entry_id, adapter in (
         ("slack", "guardian.channels.adapters.slack.SlackAdapter"),
         ("discord", "guardian.channels.adapters.discord.DiscordAdapter"),
@@ -91,19 +91,23 @@ def test_slack_discord_telegram_reflect_real_adapter_truth() -> None:
     ):
         entry = get_connection(entry_id)
         assert entry is not None
-        assert entry.implementation_state == "implemented"
+        assert entry.implementation_state == "partial"
         binding = entry.runtime_binding
         assert binding.subsystem == "guardian.channels"
         assert binding.adapter == adapter
-        assert binding.setup_route == "/api/channels/configs"
+        assert binding.setup_route is None
+        assert entry.required_fields == ()
+        assert entry.capabilities == frozenset()
+        assert entry.default_setup_state == "unavailable"
+        assert "no production runtime path" in entry.setup_help
 
 
 def test_non_implemented_messaging_entries_are_unimplemented() -> None:
-    implemented = {"slack", "discord", "telegram"}
+    partial = {"slack", "discord", "telegram"}
     for entry in get_catalog():
         if entry.category != "messaging":
             continue
-        if entry.id in implemented:
+        if entry.id in partial:
             continue
         assert entry.implementation_state == "unimplemented", entry.id
         assert entry.default_setup_state == "unavailable", entry.id

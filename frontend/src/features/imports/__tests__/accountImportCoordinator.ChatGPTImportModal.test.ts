@@ -42,18 +42,35 @@ function job(status: "receiving" | "queued" = "receiving") {
   };
 }
 
+function jobForSource(sourceSystem: "openai" | "anthropic") {
+  return {
+    ...job(),
+    source_system: sourceSystem,
+  };
+}
+
 describe("account import coordinator continuity", () => {
   beforeEach(() => {
     vi.resetModules();
     window.localStorage.clear();
     apiMocks.preflight.mockReset().mockResolvedValue({ ok: true });
-    apiMocks.create.mockReset().mockResolvedValue(job());
-    apiMocks.upload.mockReset().mockResolvedValue({
+    apiMocks.create.mockReset().mockImplementation((declaration: {
+      source_system?: "openai" | "anthropic";
+    }) =>
+      jobForSource(
+        declaration?.source_system === "anthropic" ? "anthropic" : "openai"
+      )
+    );
+    apiMocks.upload.mockReset().mockImplementation((jobId: string) => ({
       ...job(),
+      job_id: jobId,
       uploaded_file_count: 2,
       uploaded_byte_count: 5,
-    });
-    apiMocks.commit.mockReset().mockResolvedValue(job("queued"));
+    }));
+    apiMocks.commit.mockReset().mockImplementation((jobId: string) => ({
+      ...job("queued"),
+      job_id: jobId,
+    }));
     apiMocks.fetch.mockReset().mockResolvedValue(job("queued"));
   });
 
@@ -69,7 +86,11 @@ describe("account import coordinator continuity", () => {
     await coordinator.startOpenAIAccountImport(files, "account-a");
 
     expect(apiMocks.create).toHaveBeenCalledWith(
-      { total_file_count: 2, total_byte_count: 5 },
+      {
+        total_file_count: 2,
+        total_byte_count: 5,
+        source_system: "openai",
+      },
       "account-a"
     );
     expect(apiMocks.upload).toHaveBeenCalledWith(
@@ -81,6 +102,129 @@ describe("account import coordinator continuity", () => {
     expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe(
       "accepted"
     );
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("explicitly serializes source_system=anthropic when requested", async () => {
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+    const files = [
+      { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
+    ];
+
+    await coordinator.startOpenAIAccountImport(files, "account-anthropic", "anthropic");
+
+    expect(apiMocks.create).toHaveBeenCalledWith(
+      {
+        total_file_count: 1,
+        total_byte_count: 2,
+        source_system: "anthropic",
+      },
+      "account-anthropic"
+    );
+    expect(apiMocks.upload).toHaveBeenCalledWith(
+      "job-restore",
+      files,
+      "account-anthropic"
+    );
+    expect(apiMocks.commit).toHaveBeenCalledWith("job-restore", "account-anthropic");
+    // The request contract is the authoritative surface for this test: the
+    // create call must explicitly serialize source_system="anthropic".
+    const createCall = apiMocks.create.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(createCall?.source_system).toBe("anthropic");
+    expect("origin_system" in createCall).toBe(false);
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("refuses to start a different source while another is active", async () => {
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+    const files = [
+      { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
+    ];
+
+    await coordinator.startOpenAIAccountImport(files, "account-a", "openai");
+
+    await expect(
+      coordinator.startOpenAIAccountImport(files, "account-a", "anthropic")
+    ).rejects.toThrow(/already active for openai/);
+    expect(apiMocks.create).toHaveBeenCalledTimes(1);
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("restores the persisted source_system across transient UI states", async () => {
+    window.localStorage.setItem(
+      "cfy.accountImport:v1",
+      JSON.stringify({
+        v: 1,
+        jobId: "anthropic-restore",
+        status: "queued",
+        sourceSystem: "anthropic",
+      })
+    );
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+
+    expect(
+      coordinator.getAccountImportCoordinatorSnapshot().job?.source_system
+    ).toBe("anthropic");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("rejects a noncanonical persisted source without surfacing it", async () => {
+    window.localStorage.setItem(
+      "cfy.accountImport:v1",
+      JSON.stringify({
+        v: 1,
+        jobId: "legacy-source",
+        status: "queued",
+        sourceSystem: "claude",
+      })
+    );
+    apiMocks.fetch.mockResolvedValue({
+      ...job("queued"),
+      job_id: "legacy-source",
+      source_system: "anthropic",
+    });
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+
+    const initialSnapshot = coordinator.getAccountImportCoordinatorSnapshot();
+    expect(initialSnapshot.job?.source_system).toBeUndefined();
+    // Server fetch re-establishes canonical source-of-truth.
+    await waitFor(() =>
+      expect(coordinator.getAccountImportCoordinatorSnapshot().job?.source_system).toBe(
+        "anthropic"
+      )
+    );
+    expect(apiMocks.fetch).toHaveBeenCalledWith(
+      "legacy-source",
+      undefined
+    );
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("does not assign canonical conversation origin_system on the Web", async () => {
+    const coordinator = await import(
+      "@/features/imports/accountImportCoordinator"
+    );
+    const files = [
+      { file: new File(["[]"], "conversations.json"), relativePath: "export/conversations.json" },
+    ];
+    await coordinator.startOpenAIAccountImport(files, "account-a", "anthropic");
+    const call = apiMocks.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(call).toBeDefined();
+    expect("origin_system" in call).toBe(false);
+    // The coordinator itself must not invent an origin_system either.
+    const snapshot = coordinator.getAccountImportCoordinatorSnapshot();
+    expect("origin_system" in (snapshot.job as object)).toBe(false);
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
