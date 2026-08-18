@@ -130,6 +130,7 @@ jobs:
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           lfs: true
 
       - name: Verify tracked paths are valid
