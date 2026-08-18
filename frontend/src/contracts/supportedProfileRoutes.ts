@@ -3,6 +3,7 @@ export const SUPPORTED_PROFILE_ROUTE_LABELS = {
   SYSTEM_PROMPT: "system_prompt",
   SYSTEM_DOCS: "system_docs",
   CONNECTORS: "connectors",
+  CONNECTIONS: "connections",
   CODEX: "codex",
   UI_SESSION: "ui_session",
   AGENT_ORCHESTRATION_CHAT: "agent_orchestration_chat",

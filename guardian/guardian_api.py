@@ -557,6 +557,7 @@ from guardian.routes.chat import simple_chat_router
 from guardian.routes.codex import router as codex_router
 from guardian.routes.connectors import _connector_worker
 from guardian.routes.connectors import router as connectors_router
+from guardian.routes.connections import router as connections_router
 from guardian.routes.core_loop_proof import router as core_loop_proof_router
 from guardian.routes.flows import router as flows_router
 from guardian.routes.iddb import router as iddb_router
@@ -613,6 +614,11 @@ async def app_lifespan(app: FastAPI):
     except ConfigCoherenceError as exc:
         logger.error("[startup] Config coherence check failed: %s", exc)
         raise
+
+    # Publish the effective supported-profile route inventory before health
+    # can be read. Frontend capability gates must consume mounted runtime
+    # truth rather than falling back to speculative optional-route probes.
+    _refresh_supported_profile_state(app, settings)
 
     if getattr(settings, "GUARDIAN_ENABLE_GRAPH_CONTEXT", False):
         logger.info("[graph] Knowledge graph context: ENABLED (Neo4j)")
@@ -1276,6 +1282,11 @@ _include_router(
     label="connectors",
     flag_name="CODEXIFY_ENABLE_CONNECTOR_ROUTES",
     include_fn=lambda: app.include_router(connectors_router),
+)
+_include_router(
+    label="connections",
+    flag_name="CODEXIFY_ENABLE_CONNECTION_ROUTES",
+    include_fn=lambda: app.include_router(connections_router),
 )
 _include_router(
     label="google_connect",

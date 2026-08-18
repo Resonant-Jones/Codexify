@@ -1,0 +1,358 @@
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import SettingsView from "@/features/settings/SettingsView";
+
+const catalogPayload = {
+  categories: ["messaging", "web", "inference"],
+  items: [
+    {
+      id: "slack",
+      display_name: "Slack",
+      category: "messaging",
+      description: "Outbound Slack channel delivery through the existing channel adapter.",
+      auth_methods: ["token"],
+      capabilities: ["outbound_messaging", "inbound_messaging"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.channels",
+        adapter: "guardian.channels.adapters.slack.SlackAdapter",
+        setup_route: "/api/channels/configs",
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [{ key: "bot_token", label: "Bot token", type: "password", secret: true }],
+      scopes: [],
+      setup_help: "Configuration is stored per-user through the channels API.",
+      oauth: null,
+      authorization: null,
+    },
+    {
+      id: "whatsapp",
+      display_name: "WhatsApp",
+      category: "messaging",
+      description: "WhatsApp messaging. No Codexify adapter exists yet.",
+      auth_methods: [],
+      capabilities: [],
+      implementation_state: "unimplemented",
+      setup_state: "unavailable",
+      runtime_binding: {
+        subsystem: null,
+        adapter: null,
+        setup_route: null,
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [],
+      scopes: [],
+      setup_help: "No Codexify messaging adapter exists for this platform yet.",
+      oauth: null,
+      authorization: null,
+    },
+    {
+      id: "deepseek",
+      display_name: "DeepSeek",
+      category: "inference",
+      description: "DeepSeek chat through the existing adapter.",
+      auth_methods: ["api_key"],
+      capabilities: ["chat_completion"],
+      implementation_state: "implemented",
+      setup_state: "needs_setup",
+      runtime_binding: {
+        subsystem: "guardian.core.provider_registry",
+        adapter: null,
+        setup_route: null,
+        registry_provider_id: "deepseek",
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [{ key: "api_key", label: "API key", type: "password", secret: true }],
+      scopes: [],
+      setup_help: "Inference provider configuration is server-owned.",
+      oauth: null,
+      authorization: {
+        registered: true,
+        registry_provider_id: "deepseek",
+        governance_classification: "static_authorized",
+        authorized: false,
+        available: false,
+        enabled: false,
+        disabled_reason: "Missing provider credentials",
+      },
+    },
+    {
+      id: "firecrawl",
+      display_name: "Firecrawl",
+      category: "web",
+      description: "Web search and page extraction through Firecrawl.",
+      auth_methods: ["api_key"],
+      capabilities: ["search", "extract"],
+      implementation_state: "unimplemented",
+      setup_state: "unavailable",
+      runtime_binding: {
+        subsystem: null,
+        adapter: null,
+        setup_route: null,
+        registry_provider_id: null,
+        oauth_backend_handler_exists: false,
+      },
+      required_fields: [],
+      scopes: [],
+      setup_help: "No Codexify web adapter exists for this provider yet.",
+      oauth: null,
+      authorization: null,
+    },
+  ],
+};
+
+const mockedApi = vi.hoisted(() => ({
+  get: vi.fn(async (url: string) => {
+    if (url === "/api/connections") return { data: catalogPayload };
+    return { data: [] };
+  }),
+  post: vi.fn(async () => ({ data: {} })),
+  patch: vi.fn(async () => ({ data: {} })),
+  delete: vi.fn(async () => ({ data: {} })),
+  interceptors: {
+    request: { use: vi.fn(() => 1), eject: vi.fn() },
+    response: { use: vi.fn(() => 2), eject: vi.fn() },
+  },
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: (props: Record<string, unknown>) => (
+    <button {...props}>{props.children as string}</button>
+  ),
+}));
+
+vi.mock("@/components/ui/input", () => ({
+  Input: (props: Record<string, unknown>) => <input {...props} />,
+}));
+
+vi.mock("@/components/ui/textarea", () => ({
+  Textarea: (props: Record<string, unknown>) => <textarea {...props} />,
+}));
+
+vi.mock("@/components/controls/SegmentedThemeControl", () => ({
+  default: () => <div data-testid="segmented-theme-control" />,
+}));
+
+vi.mock("@/features/connectors/useConnectors", () => ({
+  useConnectors: () => ({
+    connectors: [],
+    updateConnector: vi.fn(),
+    loading: false,
+    error: null,
+    authorizeOAuth: vi.fn(),
+    testConnector: vi.fn(),
+    syncConnector: vi.fn(),
+  }),
+}));
+
+vi.mock("@/features/connectors/ConnectorCard", () => ({
+  ConnectorCard: () => null,
+}));
+
+vi.mock("@/components/modals/ChatGPTImportModal", () => ({
+  ChatGPTImportModal: () => null,
+}));
+
+vi.mock("@/lib/runtimeConfig", () => ({
+  getDesktopConnectionSettings: vi.fn(() => ({
+    backendBaseUrl: "",
+    sharePublicBaseUrl: "",
+  })),
+  initRuntimeConfig: vi.fn(async () => ({
+    mode: "web",
+    backendBaseUrl: "",
+    apiBaseUrl: "/api",
+    sseUrl: "/api/events",
+    sharePublicBaseUrl: "",
+    authMode: "local",
+  })),
+  invokeTauriCommand: vi.fn(),
+  isTauriRuntime: vi.fn(() => false),
+  openExternalUrl: vi.fn(async () => true),
+  resolveBackendUrl: vi.fn((path: string) => path),
+  saveDesktopConnectionSettings: vi.fn(async () => ({
+    mode: "web",
+    backendBaseUrl: "",
+    apiBaseUrl: "/api",
+    sseUrl: "/api/events",
+    sharePublicBaseUrl: "",
+    authMode: "local",
+  })),
+}));
+
+vi.mock("@/lib/api", () => ({
+  default: mockedApi,
+  clearRuntimeApiKey: vi.fn(),
+  getAuthToken: vi.fn(() => null),
+  getDevApiKey: vi.fn(() => ""),
+  readRuntimeApiKey: vi.fn(() => ""),
+  refreshApiBaseUrl: vi.fn(),
+  setRuntimeApiKey: vi.fn(),
+}));
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  ensureRuntimeRouteCapabilitiesLoaded: vi.fn(),
+  getRuntimeRouteCapabilityState: vi.fn(() => "available"),
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(),
+  useRuntimeRouteCapabilities: () => ({
+    ready: true,
+    states: { imprint: "available", connectors: "available" },
+  }),
+}));
+
+vi.mock("@/features/settings/api/persona", () => ({
+  updatePersonaSettings: vi.fn(),
+}));
+
+function renderSettingsView() {
+  return render(
+    <SettingsView
+      mode="light"
+      setMode={vi.fn()}
+      guardianName="Guardian"
+      setGuardianName={vi.fn()}
+      userName="User"
+      setUserName={vi.fn()}
+      role="Builder"
+      setRole={vi.fn()}
+      notes="Notes"
+      setNotes={vi.fn()}
+      baseColor="#111827"
+      setBaseColor={vi.fn()}
+      depth={0.3}
+      setDepth={vi.fn()}
+      fade={0.2}
+      setFade={vi.fn()}
+      resolved="light"
+      systemPrompt="System prompt"
+      setSystemPrompt={vi.fn()}
+      wallpaper={null}
+      setWallpaper={vi.fn()}
+      extColors={{} as any}
+      setExtColors={vi.fn()}
+      dashboardThreadRows={2}
+      setDashboardThreadRows={vi.fn()}
+      surfaceDepth={0}
+      setSurfaceDepth={vi.fn()}
+      surfaceWarmth={0}
+      setSurfaceWarmth={vi.fn()}
+    />
+  );
+}
+
+async function openConnectorsTab() {
+  renderSettingsView();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("tab", { name: /^connectors$/i }));
+  });
+  await waitFor(() => {
+    expect(screen.getByTestId("connections-bay")).toBeInTheDocument();
+  });
+}
+
+describe("Connections catalog bay", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  it("renders category navigation for Messaging, Web, and Inference", async () => {
+    await openConnectorsTab();
+
+    for (const category of ["all", "messaging", "web", "inference"]) {
+      expect(
+        screen.getByTestId(`connections-category-${category}`)
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("shows implemented messaging entries with an enabled configure action", async () => {
+    await openConnectorsTab();
+
+    const slackRow = screen.getByTestId("connection-row-slack");
+    expect(within(slackRow).getByText("Implemented")).toBeInTheDocument();
+    const configure = within(slackRow).getByRole("button", {
+      name: /^configure$/i,
+    });
+    expect(configure).not.toBeDisabled();
+  });
+
+  it("marks unsupported entries as not implemented and disables setup", async () => {
+    await openConnectorsTab();
+
+    const whatsappRow = screen.getByTestId("connection-row-whatsapp");
+    expect(
+      within(whatsappRow).getByText("Not implemented")
+    ).toBeInTheDocument();
+    const configure = within(whatsappRow).getByRole("button", {
+      name: /^configure$/i,
+    });
+    expect(configure).toBeDisabled();
+
+    fireEvent.click(
+      within(whatsappRow).getByRole("button", {
+        name: /show whatsapp details/i,
+      })
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("connection-setup-unavailable")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Setup is not yet available for this connection\./)
+    ).toBeInTheDocument();
+  });
+
+  it("shows DeepSeek as API-key only, never OAuth", async () => {
+    await openConnectorsTab();
+
+    const deepseekRow = screen.getByTestId("connection-row-deepseek");
+    fireEvent.click(
+      within(deepseekRow).getByRole("button", {
+        name: /show deepseek details/i,
+      })
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("connection-detail")).toBeInTheDocument();
+    });
+    const detail = screen.getByTestId("connection-detail");
+    expect(within(detail).getByText(/API key/)).toBeInTheDocument();
+    expect(within(detail).queryByText(/OAuth/)).not.toBeInTheDocument();
+    expect(within(detail).getByText("not authorized")).toBeInTheDocument();
+  });
+
+  it("filters rows by search", async () => {
+    await openConnectorsTab();
+
+    fireEvent.change(screen.getByLabelText("Search connections"), {
+      target: { value: "whatsapp" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("connection-row-slack")
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("connection-row-whatsapp")).toBeInTheDocument();
+  });
+
+  it("does not merge adapter, setup, and registry truth into one dot", async () => {
+    await openConnectorsTab();
+
+    const deepseekRow = screen.getByTestId("connection-row-deepseek");
+    expect(within(deepseekRow).getByText("Adapter")).toBeInTheDocument();
+    expect(within(deepseekRow).getByText("Setup")).toBeInTheDocument();
+    expect(within(deepseekRow).getByText("Registry")).toBeInTheDocument();
+  });
+});
