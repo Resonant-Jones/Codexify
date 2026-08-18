@@ -81,6 +81,10 @@ The canonical human-facing release classification uses five classes. The corresp
 - Obsidian / local workspace ingestion and retrieval.
 - Bounded verified personal-facts / personalization behavior already used by ordinary chat.
 - Core settings that configure currently supported runtime behavior.
+- The read-only Connections catalog/control-plane is available through the
+  existing core Settings Connectors bay on the supported local profile. This
+  exposes catalog and safe state projection only; it does not expose generic
+  connector execution or mutation.
 
 **Identity and ownership**
 
@@ -132,6 +136,9 @@ The canonical human-facing release classification uses five classes. The corresp
 - Public Command Bus exposure.
 - Generic cron / unattended automation.
 - Generic connectors without separate qualification.
+- Provider-specific OAuth, messaging setup, web-provider execution, and
+  generic sync connector support remain Out of Beta/quarantined. Read-only
+  Connections catalog exposure does not promote any of those capabilities.
 - Graph-write / Neo4j-derived-write behavior where the supported path remains flagged off or quarantined.
 - Remote / multi-user repository execution not covered by a separately accepted authority contract and live proof.
 

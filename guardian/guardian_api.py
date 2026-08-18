@@ -601,6 +601,7 @@ async def app_lifespan(app: FastAPI):
     ensure_system_dirs()
 
     settings = get_settings()
+    _refresh_supported_profile_state(app, settings)
     if getattr(app.state, "browser_host_attachment_adapter_enabled", False):
         logger.info(
             "[browser-host] development attachment adapter enabled prefix=/dev/browser-host/v1"
@@ -1279,8 +1280,8 @@ _include_router(
     include_fn=lambda: app.include_router(connectors_router),
 )
 _include_router(
-    label="connectors",
-    flag_name="CODEXIFY_ENABLE_CONNECTOR_ROUTES",
+    label="connections",
+    flag_name="CODEXIFY_ENABLE_CONNECTIONS_ROUTES",
     include_fn=lambda: app.include_router(connections_router),
 )
 _include_router(

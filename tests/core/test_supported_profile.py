@@ -34,6 +34,8 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.route_status("obsidian") == "enabled"
     assert manifest.route_status("agent_orchestration") == "enabled"
     assert manifest.route_status("agent_orchestration_chat") == "enabled"
+    assert manifest.route_status("connections") == "enabled"
+    assert manifest.route_status("connectors") == "quarantined"
 
 
 # ---------------------------------------------------------------------------

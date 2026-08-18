@@ -38,6 +38,7 @@ route_posture:
     - obsidian
     - agent_orchestration
     - agent_orchestration_chat
+    - connections
   internal_only:
     - coding_work_orders
     - command_bus

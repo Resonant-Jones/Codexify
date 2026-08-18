@@ -2,6 +2,7 @@ export const SUPPORTED_PROFILE_ROUTE_LABELS = {
   IMPRINT: "imprint",
   SYSTEM_PROMPT: "system_prompt",
   SYSTEM_DOCS: "system_docs",
+  CONNECTIONS: "connections",
   CONNECTORS: "connectors",
   CODEX: "codex",
   UI_SESSION: "ui_session",

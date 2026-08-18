@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
+from guardian.connections.catalog import get_catalog
+
 
 @contextmanager
 def _build_supported_profile_client(monkeypatch):
@@ -195,6 +197,39 @@ def test_unrelated_quarantined_routes_remain_unavailable(
         assert client.get("/api/tools/manifest", headers=headers).status_code == 404
         assert client.get("/api/connectors", headers=headers).status_code == 404
         assert client.get("/api/federation/ping", headers=headers).status_code == 404
+
+
+def test_supported_profile_exposes_read_only_connections_without_legacy_connectors(
+    monkeypatch,
+) -> None:
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        listing = client.get("/api/connections", headers=headers)
+        assert listing.status_code == 200
+        payload = listing.json()
+        assert payload["categories"] == ["inference", "messaging", "web"]
+        assert len(payload["items"]) == len(get_catalog())
+        assert len(payload["items"]) > 0
+
+        detail = client.get("/api/connections/deepseek", headers=headers)
+        assert detail.status_code == 200
+        assert detail.json()["id"] == "deepseek"
+        assert (
+            client.get(
+                "/api/connections/does_not_exist", headers=headers
+            ).status_code
+            == 404
+        )
+
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        paths = client.get("/openapi.json").json().get("paths", {})
+        assert "/api/connections" in paths
+        assert "/api/connections/{connection_id}" in paths
+        assert "/api/connectors" not in paths
+        assert set(paths["/api/connections"]) == {"get"}
+        assert set(paths["/api/connections/{connection_id}"]) == {"get"}
 
 
 def test_agent_orchestration_chat_readback_enforced(

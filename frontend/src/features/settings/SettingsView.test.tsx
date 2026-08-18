@@ -16,6 +16,18 @@ const mockedApi = vi.hoisted(() => ({
 }));
 
 const mockedUpdatePersonaSettings = vi.hoisted(() => vi.fn());
+const mockedUseConnectors = vi.hoisted(() =>
+  vi.fn(() => ({
+    connectors: [],
+    updateConnector: vi.fn(),
+    loading: false,
+    error: null,
+    authorizeOAuth: vi.fn(),
+    testConnector: vi.fn(),
+    syncConnector: vi.fn(),
+  }))
+);
+const mockedUseConnections = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: Record<string, unknown>) => (
@@ -36,15 +48,28 @@ vi.mock("@/components/controls/SegmentedThemeControl", () => ({
 }));
 
 vi.mock("@/features/connectors/useConnectors", () => ({
-  useConnectors: () => ({
-    connectors: [],
-    updateConnector: vi.fn(),
-    loading: false,
-    error: null,
-    authorizeOAuth: vi.fn(),
-    testConnector: vi.fn(),
-    syncConnector: vi.fn(),
-  }),
+  useConnectors: mockedUseConnectors,
+}));
+
+vi.mock("@/features/connectors/connectionCatalog", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/features/connectors/connectionCatalog")
+  >("@/features/connectors/connectionCatalog");
+  return { ...actual, useConnections: mockedUseConnections };
+});
+
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  ensureRuntimeRouteCapabilitiesLoaded: vi.fn(async () => undefined),
+  getRuntimeRouteCapabilityState: vi.fn(() => "available"),
+  markRuntimeRouteUnavailableIfNotFound: vi.fn(),
+  useRuntimeRouteCapabilities: vi.fn(() => ({
+    ready: true,
+    states: {
+      imprint: "available",
+      connections: "available",
+      connectors: "unavailable",
+    },
+  })),
 }));
 
 vi.mock("@/features/connectors/ConnectorCard", () => ({
@@ -134,6 +159,15 @@ function renderSettingsView(
 describe("SettingsView save flow", () => {
   beforeEach(() => {
     mockedUpdatePersonaSettings.mockReset();
+    mockedUseConnectors.mockClear();
+    mockedUseConnections.mockReset();
+    mockedUseConnections.mockReturnValue({
+      connections: [],
+      categories: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
     mockedApi.get.mockClear();
     mockedApi.post.mockClear();
     mockedApi.delete.mockClear();
@@ -181,6 +215,58 @@ describe("SettingsView save flow", () => {
     ).not.toBeInTheDocument();
 
     expect(setSystemPrompt).toHaveBeenCalledWith("Updated system prompt");
+  });
+
+  it("renders Connections while legacy sync connectors remain unavailable", async () => {
+    mockedUseConnections.mockReturnValue({
+      connections: [
+        {
+          id: "deepseek",
+          display_name: "DeepSeek",
+          category: "inference",
+          description: "DeepSeek inference provider.",
+          auth_methods: ["api_key"],
+          capabilities: ["chat_completion"],
+          implementation_state: "implemented",
+          setup_state: "needs_setup",
+          runtime_binding: {
+            subsystem: "provider_registry",
+            adapter: null,
+            setup_route: null,
+            registry_provider_id: "deepseek",
+            oauth_backend_handler_exists: false,
+          },
+          required_fields: [],
+          scopes: [],
+          setup_help: "Use an API key.",
+          oauth: null,
+          authorization: null,
+        },
+      ],
+      categories: ["inference"],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    renderSettingsView();
+    mockedUseConnectors.mockClear();
+    fireEvent.click(screen.getByRole("tab", { name: /^connectors$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("connections-bay")).toBeInTheDocument();
+      expect(screen.getByText("DeepSeek")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Sync connectors are unavailable in this runtime profile."
+        )
+      ).toBeInTheDocument();
+    });
+    expect(mockedUseConnectors).toHaveBeenLastCalledWith({ enabled: false });
+    expect(mockedApi.get).not.toHaveBeenCalledWith(
+      "/api/connectors",
+      expect.anything()
+    );
   });
 
   it("moves the settings rail with arrow keys", () => {
