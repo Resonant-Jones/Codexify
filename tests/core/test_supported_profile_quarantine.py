@@ -99,6 +99,37 @@ def test_supported_profile_mounts_obsidian_routes_without_widening_quarantine(
         assert client.get("/api/connectors", headers=headers).status_code == 404
 
 
+def test_supported_profile_promotes_bounded_settings_and_connections_only(
+    monkeypatch,
+) -> None:
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        openapi = client.get("/openapi.json").json()
+        paths = openapi.get("paths", {})
+
+        assert "/api/imprint/status" in paths
+        assert "/api/imprint/proposal" in paths
+        assert "/api/system_prompt/summary" in paths
+        assert "/api/system_docs" in paths
+        assert "/api/connections" in paths
+        assert "/api/connectors" not in paths
+
+        assert client.get("/api/connections", headers=headers).status_code == 200
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        wrong_headers = {"X-API-Key": "wrong-key"}
+        assert (
+            client.get("/api/imprint/status", headers=wrong_headers).status_code
+            in {401, 403}
+        )
+        assert (
+            client.get(
+                "/api/system_prompt/summary", headers=wrong_headers
+            ).status_code
+            in {401, 403}
+        )
+
+
 def test_coding_loop_execute_route_mounted_in_local_profile(
     monkeypatch,
 ) -> None:
