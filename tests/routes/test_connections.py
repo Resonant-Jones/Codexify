@@ -172,8 +172,18 @@ def test_unimplemented_entries_report_unavailable(
 
 def test_oauth_rows_project_only_safe_fields(
     client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     test_client, db = client
+    # Force a clean, unconfigured state regardless of env leaked from
+    # earlier tests in the run.
+    for env_var in (
+        "MINIMAX_OAUTH_CLIENT_ID",
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "MINIMAX_OAUTH_TOKEN_URL",
+        "MINIMAX_OAUTH_ALLOWED_HOSTS",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
     expires = datetime.datetime(
         2026, 9, 1, 12, 0, 0, tzinfo=datetime.timezone.utc
     )
@@ -191,12 +201,15 @@ def test_oauth_rows_project_only_safe_fields(
     )
     assert response.status_code == 200
     item = response.json()
-    # No Codexify OAuth flow exists for this entry, so setup stays
-    # unavailable even though a safe oauth_connections row is projected.
+    # The MiniMax OAuth backend handler is now implemented, so setup is
+    # launchable only when the node has legitimate configuration.
+    # Without node config the entry remains visibly unavailable even
+    # though a safe oauth_connections row is projected.
     assert item["setup_state"] == "unavailable"
     oauth = item["oauth"]
-    assert oauth["backend_handler_exists"] is False
-    assert oauth["supported"] is False
+    assert oauth["backend_handler_exists"] is True
+    assert oauth["launchable"] is False
+    assert oauth["node_configured"] is False
     connection_row = oauth["connection"]
     assert connection_row["provider"] == "minimax_oauth"
     assert connection_row["status"] == "connected"
@@ -214,8 +227,27 @@ def test_oauth_rows_project_only_safe_fields(
 
 def test_oauth_error_is_sanitized_classification_only(
     client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     test_client, db = client
+    # Make sure no prior test leaked node OAuth config into the env.
+    for env_var in (
+        "MINIMAX_OAUTH_CLIENT_ID",
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "MINIMAX_OAUTH_TOKEN_URL",
+        "MINIMAX_OAUTH_ALLOWED_HOSTS",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
     db.add_oauth_connection(
         oauth_id=1,
         user_id=_SERVER_USER_ID,
@@ -227,7 +259,7 @@ def test_oauth_error_is_sanitized_classification_only(
         "/api/connections/minimax_oauth", headers=_headers()
     )
     item = response.json()
-    assert item["setup_state"] == "unavailable"
+    assert item["setup_state"] == "error"
     connection_row = item["oauth"]["connection"]
     assert connection_row["error_kind"] == "provider_error"
     # Raw error text must never be serialized.
@@ -353,3 +385,243 @@ def test_connections_router_is_read_only(
         "/api/connections": {"GET"},
         "/api/connections/{connection_id}": {"GET"},
     }
+
+
+def test_minimax_oauth_node_unconfigured_reports_unavailable(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without legitimate MiniMax OAuth node configuration, the entry
+    must surface unavailable even though a backend handler exists, with
+    no secrets serialized."""
+
+    test_client, _ = client
+    for env_var in (
+        "MINIMAX_OAUTH_CLIENT_ID",
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "MINIMAX_OAUTH_TOKEN_URL",
+        "MINIMAX_OAUTH_ALLOWED_HOSTS",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+
+    response = test_client.get(
+        "/api/connections/minimax_oauth", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["oauth"]["backend_handler_exists"] is True
+    assert item["oauth"]["launchable"] is False
+    assert item["oauth"]["node_configured"] is False
+    # Node unconfigured => unavailable, even with a handler in code.
+    assert item["setup_state"] == "unavailable"
+    # Provider registry still reports blocked-by-default posture.
+    assert item["authorization"]["registered"] is True
+    assert item["authorization"]["authorized"] is False
+    # No secrets appear in any projection field.
+    body = response.text
+    for forbidden in (
+        "encrypted_access_token",
+        "encrypted_refresh_token",
+        "access_token",
+        "refresh_token",
+        "client_id",
+        "client_secret",
+        "pkce",
+        "verifier",
+    ):
+        assert forbidden not in body, forbidden
+
+
+def test_minimax_oauth_node_configured_reports_needs_setup(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With legitimate node configuration, the entry surfaces needs_setup
+    until the user has authenticated."""
+
+    test_client, _ = client
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
+
+    response = test_client.get(
+        "/api/connections/minimax_oauth", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["oauth"]["backend_handler_exists"] is True
+    assert item["oauth"]["launchable"] is True
+    assert item["oauth"]["node_configured"] is True
+    # No persisted row => needs_setup, NOT connected.
+    assert item["setup_state"] == "needs_setup"
+    assert item["oauth"]["connection"] is None
+
+
+def test_minimax_oauth_pending_row_projects_authenticating(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending oauth_connections row projects authenticating, NOT
+    connected."""
+
+    test_client, db = client
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
+    db.add_oauth_connection(
+        oauth_id=11,
+        user_id=_SERVER_USER_ID,
+        provider="minimax_oauth",
+        status="pending",
+    )
+
+    response = test_client.get(
+        "/api/connections/minimax_oauth", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["setup_state"] == "authenticating"
+
+
+def test_minimax_oauth_error_row_projects_error(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An error oauth_connections row projects error."""
+
+    test_client, db = client
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
+    db.add_oauth_connection(
+        oauth_id=12,
+        user_id=_SERVER_USER_ID,
+        provider="minimax_oauth",
+        status="error",
+        last_error="access_denied",
+    )
+
+    response = test_client.get(
+        "/api/connections/minimax_oauth", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["setup_state"] == "error"
+    # Provider error text never appears in the projection.
+    assert "access_denied" not in response.text
+    # But the bounded error_kind classification IS serialized.
+    assert item["oauth"]["connection"]["error_kind"] == "provider_error"
+
+
+def test_minimax_oauth_connected_row_projects_connected(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connected oauth_connections row projects connected. The registry
+    authorization remains NOT authorized under the supported profile.
+    """
+
+    test_client, db = client
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
+    db.add_oauth_connection(
+        oauth_id=13,
+        user_id=_SERVER_USER_ID,
+        provider="minimax_oauth",
+        status="connected",
+    )
+
+    response = test_client.get(
+        "/api/connections/minimax_oauth", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["setup_state"] == "connected"
+    # Provider-registry authorization remains unchanged: not authorized
+    # under the supported profile. OAuth credentials are NOT executable.
+    assert item["authorization"]["registered"] is True
+    assert item["authorization"]["authorized"] is False
+
+
+def test_minimax_api_relationship_to_oauth_is_unchanged(
+    client: tuple[TestClient, _TestDB],
+) -> None:
+    """The MiniMax API-key entry remains separate from MiniMax OAuth."""
+
+    test_client, _ = client
+    response = test_client.get(
+        "/api/connections/minimax_api", headers=_headers()
+    )
+    assert response.status_code == 200
+    item = response.json()
+    assert item["id"] == "minimax_api"
+    assert item["auth_methods"] == ["api_key"]
+    assert item["oauth"] is None
+    assert item["implementation_state"] == "implemented"
+
+
+def test_setup_launchability_gate_does_not_enable_other_oauth_entries(
+    client: tuple[TestClient, _TestDB],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The launchability gate is minimax-specific. Other OAuth entries
+    must remain disabled even if the node happens to have OAuth
+    configuration."""
+
+    test_client, _ = client
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_CLIENT_ID", "codexify-minimax-oauth-client"
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_AUTHORIZE_URL",
+        "https://api.minimax.io/oauth/authorize",
+    )
+    monkeypatch.setenv(
+        "MINIMAX_OAUTH_TOKEN_URL", "https://api.minimax.io/oauth/token"
+    )
+
+    response = test_client.get("/api/connections", headers=_headers())
+    assert response.status_code == 200
+    items = _items_by_id(response.json())
+    for entry_id in (
+        "codex_chatgpt",
+        "qwen_oauth",
+        "gemini_oauth",
+        "xai_oauth",
+        "nous_portal",
+        "github_copilot",
+        "anthropic_subscription",
+    ):
+        oauth = items[entry_id]["oauth"]
+        assert oauth["backend_handler_exists"] is False, entry_id
+        assert oauth["launchable"] is False, entry_id
+        assert items[entry_id]["setup_state"] == "unavailable", entry_id

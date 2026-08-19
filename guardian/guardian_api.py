@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connectors.google import router as google_connect_router
+from guardian.connectors.minimax import router as minimax_oauth_router
 
 # Import core dependencies module (contains shared helpers)
 from guardian.core import dependencies, event_bus, metrics
@@ -1293,6 +1294,14 @@ _include_router(
     label="google_connect",
     flag_name="CODEXIFY_ENABLE_GOOGLE_CONNECT_ROUTES",
     include_fn=lambda: app.include_router(google_connect_router),
+)
+_include_router(
+    label="minimax_oauth",
+    flag_name="CODEXIFY_ENABLE_MINIMAX_OAUTH_ROUTES",
+    include_fn=lambda: app.include_router(
+        minimax_oauth_router,
+        include_in_schema=_include_internal_only_schema("minimax_oauth"),
+    ),
 )
 _include_router(
     label="media",

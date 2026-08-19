@@ -38,6 +38,9 @@ def test_v1_supported_profile_manifest_loads() -> None:
     assert manifest.route_status("system_prompt") == "enabled"
     assert manifest.route_status("system_docs") == "enabled"
     assert manifest.route_status("connections") == "enabled"
+    # MiniMax OAuth provider-specific auth route is internal-only,
+    # not Beta-Supported and not quarantined.
+    assert manifest.route_status("minimax_oauth") == "internal_only"
     # The read-only catalog promotion must not expose legacy connector
     # mutation or sync routes.
     assert manifest.route_status("connectors") == "quarantined"

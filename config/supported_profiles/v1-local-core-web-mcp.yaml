@@ -45,6 +45,7 @@ route_posture:
   internal_only:
     - coding_work_orders
     - command_bus
+    - minimax_oauth
   quarantined:
     - neo
     - iddb

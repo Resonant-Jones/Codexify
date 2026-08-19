@@ -430,6 +430,12 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [minimaxFlow, setMinimaxFlow] = useState<{
+    flowId: string;
+    verificationUri: string;
+    userCode: string;
+    intervalSeconds: number;
+  } | null>(null);
 
   const steps = useMemo(() => buildSetupSteps(connection), [connection]);
   const step = steps[Math.min(stepIndex, steps.length - 1)];
@@ -442,6 +448,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     setFields({});
     setMessage(null);
     setSaveSucceeded(false);
+    setMinimaxFlow(null);
   }, [open, connection.id]);
 
   if (!open) return null;
@@ -456,6 +463,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
     setFields({});
     setMessage(null);
     setSaveSucceeded(false);
+    setMinimaxFlow(null);
     onClose();
   }
 
@@ -473,6 +481,16 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
       const route = connection.runtime_binding.setup_route;
       if (!route) {
         setMessage("Setup is not yet available for this connection.");
+        return;
+      }
+      // MiniMax OAuth uses the device / user-code flow shape: the backend
+      // returns a flow_id, verification URI, and user code; the browser
+      // polls only the backend poll route; tokens never reach the browser.
+      if (
+        connection.id === "minimax_oauth" &&
+        route === "/api/connect/minimax/start"
+      ) {
+        await handleMinimaxOAuthFlow();
         return;
       }
       let body: Record<string, unknown>;
@@ -498,6 +516,95 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleMinimaxOAuthFlow(): Promise<void> {
+    interface StartResponse {
+      provider: string;
+      flow_id: string;
+      verification_uri: string;
+      user_code: string;
+      expires_at: string;
+      poll_interval_seconds: number;
+    }
+    interface PollResponse {
+      provider: string;
+      flow_id: string;
+      status: "authenticating" | "connected" | "error";
+      kind?: string;
+    }
+    const startRes = await api.post<StartResponse>(
+      "/api/connect/minimax/start",
+      {}
+    );
+    const start = startRes?.data;
+    if (!start?.flow_id || !start.verification_uri) {
+      setMessage("Provider returned an unexpected response.");
+      return;
+    }
+    // Surface verification metadata in the modal itself so the user can
+    // complete the provider step without depending on popup blocking.
+    setMessage(
+      `Open ${start.verification_uri} and enter code ${start.user_code}.`
+    );
+    setMinimaxFlow({
+      flowId: start.flow_id,
+      verificationUri: start.verification_uri,
+      userCode: start.user_code,
+      intervalSeconds: Math.max(1, start.poll_interval_seconds ?? 2),
+    });
+    // Begin polling. Each poll MUST NOT trigger another /start; the backend
+    // enforces cadence. Browser never polls the upstream provider directly.
+    let stopped = false;
+    const startedAt = Date.now();
+    const maxWaitMs = 10 * 60 * 1000;
+    while (!stopped) {
+      await new Promise((r) => setTimeout(r, start.poll_interval_seconds ?? 2));
+      if (Date.now() - startedAt > maxWaitMs) {
+        setMessage("Timed out waiting for the provider.");
+        return;
+      }
+      try {
+        const pollRes = await api.post<PollResponse>(
+          "/api/connect/minimax/poll",
+          { flow_id: start.flow_id }
+        );
+        const status = pollRes?.data?.status;
+        if (status === "connected") {
+          stopped = true;
+          setSaveSucceeded(true);
+          setMessage("Setup: Connected.");
+          onChanged();
+          return;
+        }
+        if (status === "error") {
+          stopped = true;
+          setMessage(
+            pollRes?.data?.kind
+              ? `Provider reported: ${pollRes.data.kind}`
+              : "Setup failed."
+          );
+          return;
+        }
+      } catch (e: any) {
+        // 429 cadence guard: backend already throttles; continue waiting.
+        const status = e?.response?.status;
+        if (status === 410) {
+          stopped = true;
+          setMessage("OAuth flow has expired. Please try again.");
+          return;
+        }
+        if (status !== 429 && status !== 404) {
+          stopped = true;
+          setMessage(
+            e?.response?.data?.detail ||
+              e?.message ||
+              "Polling failed."
+          );
+          return;
+        }
+      }
     }
   }
 
@@ -645,6 +752,34 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           ? "Sign in with the provider to continue."
           : "Continue to save your settings."}
       </div>
+      {minimaxFlow && (
+        <div
+          className="rounded border p-2 text-xs"
+          data-testid="minimax-oauth-flow"
+        >
+          <div>
+            <span className="opacity-70">Verification URL:</span>{" "}
+            <span className="font-mono">
+              {minimaxFlow.verificationUri}
+            </span>
+          </div>
+          <div>
+            <span className="opacity-70">User code:</span>{" "}
+            <span className="font-mono">{minimaxFlow.userCode}</span>
+          </div>
+          <div className="mt-1 flex gap-2">
+            <a
+              href={minimaxFlow.verificationUri}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline"
+              data-testid="minimax-oauth-open-link"
+            >
+              Open verification page
+            </a>
+          </div>
+        </div>
+      )}
       {message && <div className="text-xs">{message}</div>}
       {loading && (
         <div className="flex items-center gap-2 text-sm opacity-80">

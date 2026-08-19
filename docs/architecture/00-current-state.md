@@ -159,6 +159,7 @@ TTS / voice and federation are intentionally **Out of Beta**, not qualification-
 - The Desktop / Tauri client, where present on `main`, is Beta Bounded / Conditional as a client of the supported local Guardian node; it is not packaged production distribution.
 - The default local profile mounts authenticated Imprint, system-prompt, and system-document routes plus the read-only `/api/connections` catalog. `/health` publishes the effective mounted route inventory used by frontend capability gates; this is code/test evidence, not fresh live Compose proof.
 - Coding Loop route registration, focused tests, worker readiness / guard evidence, and profile enablement are present; they do not prove a successful adapter turn or durable terminal result.
+- Connections control plane surfaces MiniMax OAuth setup as `partial` (authentication/setup only); the MiniMax OAuth provider-specific mutation routes are mounted as `internal_only` under the supported local profile. OAuth-to-inference credential binding is deliberately deferred. The MiniMax API-key lane remains separate and unchanged.
 - Architecture-contract, schema, DLG, and proof-validation tooling is present on `main`; it is not live-service proof.
 
 ## Not yet true / do not assume

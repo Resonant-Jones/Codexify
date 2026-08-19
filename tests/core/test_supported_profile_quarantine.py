@@ -263,6 +263,34 @@ def test_supported_profile_exposes_read_only_connections_without_legacy_connecto
         assert set(paths["/api/connections/{connection_id}"]) == {"get"}
 
 
+def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
+    monkeypatch,
+) -> None:
+    """MiniMax OAuth provider-specific auth routes must be mounted under
+    the supported local profile but hidden from public OpenAPI according
+    to current internal-only behavior. Connector-quarantine assertions
+    are not weakened.
+    """
+
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        # Connector quarantine is unchanged.
+        assert client.get("/api/connectors", headers=headers).status_code == 404
+
+        paths = client.get("/openapi.json").json().get("paths", {})
+        # MiniMax OAuth routes are intentionally hidden from public
+        # OpenAPI per the internal-only posture. Their handlers do
+        # exist; the supported profile simply suppresses schema
+        # visibility.
+        assert "/api/connect/minimax/start" not in paths
+        assert "/api/connect/minimax/poll" not in paths
+        assert "/api/connect/minimax/disconnect" not in paths
+        assert "/api/connect/minimax/status" not in paths
+        # Other OAuth/connector surfaces remain absent.
+        assert "/api/connect/google/start" not in paths
+
+
 def test_agent_orchestration_chat_readback_enforced(
     monkeypatch,
 ) -> None:
