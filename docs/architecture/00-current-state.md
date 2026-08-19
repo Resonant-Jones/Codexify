@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-13
+2026-08-18
 
 ## Interpretation rule
 
@@ -25,11 +25,12 @@ It is **not** a substitute for accepted ADRs or canonical Product Architecture A
 
 ## Current phase
 
-`main` is in local-first beta hardening at `f4fece599`. ADR-069 was accepted 2026-08-14 by Resonant Jones. ADR-069 canonizes the coherent local-first product surface that is intentionally shipped and supportable, without changing runtime behavior, the default supported profile, or the local-only provider posture. It does not by itself promote Coding Loop, Hosted Rooms, DeepSeek, or Browser Host to Beta. TTS / voice and federation remain Out of Beta.
+`main` is in local-first beta hardening. ADR-069 defines the coherent local-first product surface, and ADR-072 now promotes bounded identity/prompt settings routes plus the read-only Connections catalog in the default local profile. The local-only provider posture is unchanged. Coding Loop, Hosted Rooms, DeepSeek, and Browser Host remain outside the ordinary Beta support claim; TTS / voice and federation remain Out of Beta.
 
 ## What changed recently
 
 - Accepted **ADR-069: Codexify Beta Runtime Support Boundary** on 2026-08-14 (Resonant Jones). The canonical Beta support boundary, the five human-facing release classes, the evidence-vs-support separation doctrine, the canonical authority hierarchy, and the first bounded canonical posture assertion corpus for present Beta support are now canonically defined. No runtime code change accompanies this acceptance.
+- Accepted **ADR-072: Bounded Settings and Connections Route Promotion** on 2026-08-18 (Resonant Jones). The default local profile now admits authenticated identity/prompt settings routes and the read-only Connections catalog under separate route capabilities; generic connector mutation/sync routes remain quarantined. Fresh authenticated live proof is still required for runtime readiness claims.
 - Activated the first canonical Product Architecture Beta posture assertion corpus at `docs/knowledge-graph/assertions/codexify-beta-support-posture.v1.json`, recorded against the audited repository revision `f4fece599e9e081154a7a7a96e1923f7f5c205b5`. ADR-057's historical acceptance record is preserved; ADR-069 activates a bounded posture corpus on top of the vocabulary ADR-057 already accepted.
 - Added the bounded read-only `op::health_health_get` chat capability and advertised-subset authority gate; general tool use remains outside the release promise.
 - Added DeepSeek native transport translation / continuation coverage and a cross-provider semantic convergence proof; both remain non-live provider evidence.
@@ -108,6 +109,7 @@ The canonical human-facing release classification uses five classes. The corresp
 - **Bounded Guardian tool execution** — allowlisted, Guardian-authorized bounded tool execution for explicitly supported capabilities (at minimum: read-only health capability; bounded Project repository search where current eligibility / authority checks pass). Preserves the advertised-subset authority gate, Guardian-owned execution authority, exact capability eligibility, bounded command count, continuation / persistence semantics, and provider capability checks. Does not promote arbitrary tools, arbitrary write operations, generic shell / filesystem execution, recursive multi-command agents, public Command Bus HTTP, or generic `/tools` or `/api/tools` exposure.
 - **MCP / extensibility** — public MCP extension posture as a bounded extension interface. Does not claim that every MCP server is trusted, that every plugin is supported, that plugin SDK internals are public Beta API, that arbitrary plugin execution bypasses Guardian policy, or that a general plugin marketplace is released.
 - **Desktop / Tauri client** — if current `main` still contains the functioning local desktop / Tauri presentation layer, classified as Beta Bounded / Conditional when used as a client of the same supported local Guardian node. Packaged production desktop distribution, auto-update support, an independent desktop persistence / runtime authority, and any separate release topology not currently proven are not claimed.
+- **Identity, prompt, system-document, and Connections settings surfaces** — authenticated, local single-user settings routes and the read-only `/api/connections` catalog are Beta Bounded / Conditional. Connections catalog visibility does not imply provider implementation, setup, authorization, credential possession, or live health; generic `/api/connectors` mutation/sync behavior remains quarantined.
 
 ### Internal
 
@@ -135,10 +137,7 @@ The canonical human-facing release classification uses five classes. The corresp
 - Generic shell / filesystem execution through ordinary Beta chat.
 - Public Command Bus exposure.
 - Generic cron / unattended automation.
-- Generic connectors without separate qualification.
-- Provider-specific OAuth, messaging setup, web-provider execution, and
-  generic sync connector support remain Out of Beta/quarantined. Read-only
-  Connections catalog exposure does not promote any of those capabilities.
+- Generic connector mutation/sync behavior without separate qualification. The read-only Connections catalog is separately bounded under ADR-071/ADR-072.
 - Graph-write / Neo4j-derived-write behavior where the supported path remains flagged off or quarantined.
 - Remote / multi-user repository execution not covered by a separately accepted authority contract and live proof.
 
@@ -158,6 +157,7 @@ TTS / voice and federation are intentionally **Out of Beta**, not qualification-
 - Persona Studio core (profile create / edit / select / apply) is Beta Bounded / Conditional; TTS / voice remains Out of Beta.
 - Repository intelligence (discovery, import, binding, search, ordinary-chat exposure) is Beta Bounded / Conditional under ADR-065; multi-user / Hosted-Room authority is not in this Beta.
 - The Desktop / Tauri client, where present on `main`, is Beta Bounded / Conditional as a client of the supported local Guardian node; it is not packaged production distribution.
+- The default local profile mounts authenticated Imprint, system-prompt, and system-document routes plus the read-only `/api/connections` catalog. `/health` publishes the effective mounted route inventory used by frontend capability gates; this is code/test evidence, not fresh live Compose proof.
 - Coding Loop route registration, focused tests, worker readiness / guard evidence, and profile enablement are present; they do not prove a successful adapter turn or durable terminal result.
 - Architecture-contract, schema, DLG, and proof-validation tooling is present on `main`; it is not live-service proof.
 
@@ -178,6 +178,7 @@ TTS / voice and federation are intentionally **Out of Beta**, not qualification-
 - Do not assume tool-boundary tests or the Coding Loop proof packet establish provider execution, terminal persistence, or durable source-thread readback.
 - Do not count local branches, unmerged work, draft plans, origin-only commits, or proof from another checkout as shipped reality.
 - Do not assume that any present implementation seam, code path, or focused test by itself constitutes a Beta support claim. ADR-069's authority hierarchy requires canonical posture assertions plus supported-profile alignment plus `00-current-state.md` reconciliation for any release claim.
+- Do not assume Connections catalog visibility means an adapter, configured credential, authorization, or healthy runtime; those remain distinct signals owned by their existing subsystems.
 
 ## Active blockers
 

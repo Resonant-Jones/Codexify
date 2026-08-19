@@ -38,15 +38,15 @@ route_posture:
     - obsidian
     - agent_orchestration
     - agent_orchestration_chat
+    - imprint
+    - system_prompt
+    - system_docs
     - connections
   internal_only:
     - coding_work_orders
     - command_bus
   quarantined:
     - neo
-    - imprint
-    - system_prompt
-    - system_docs
     - iddb
     - backfill
     - memory
