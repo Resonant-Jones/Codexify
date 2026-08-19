@@ -536,6 +536,222 @@ def test_zero_committed_entities_cannot_be_classified_as_success(
 
 
 # ---------------------------------------------------------------------------
+# Provider-neutral committed-conversation-total accounting
+# ---------------------------------------------------------------------------
+
+
+def test_committed_conversation_totals_first_application_credits_durable_job(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a",
+        total_file_count=1,
+        total_byte_count=2,
+        source_system="anthropic",
+    )
+
+    credited = service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+
+    assert credited["imported_thread_count"] == 63
+    assert credited["imported_message_count"] == 784
+    assert credited["source_system"] == "anthropic"
+
+    # Durable readback through a separate serialization confirms persistence,
+    # including the durable accounting checkpoint entry.
+    reread = service.get_worker_job(job_id=job["job_id"], user_id="account-a")
+    assert reread["imported_thread_count"] == 63
+    assert reread["imported_message_count"] == 784
+    assert reread["checkpoint"]["committed_conversation_totals"] == [
+        {
+            "key": "anthropic_conversations",
+            "threads_imported": 63,
+            "messages_imported": 784,
+        }
+    ]
+
+
+def test_committed_conversation_totals_exact_replay_is_idempotent(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+
+    replay = service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+
+    assert replay["imported_thread_count"] == 63
+    assert replay["imported_message_count"] == 784
+    internal = service.get_worker_job(job_id=job["job_id"], user_id="account-a")
+    assert len(
+        internal["checkpoint"]["committed_conversation_totals"]
+    ) == 1
+
+
+def test_committed_conversation_totals_conflicting_replay_fails_closed(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+
+    with pytest.raises(AccountImportError) as conflict:
+        service.record_committed_conversation_totals(
+            job_id=job["job_id"],
+            user_id="account-a",
+            threads_imported=63,
+            messages_imported=785,
+            phase_key="anthropic_conversations",
+        )
+    assert conflict.value.code == "committed_totals_conflict"
+    assert conflict.value.status_code == 409
+
+    unchanged = service.get_worker_job(job_id=job["job_id"], user_id="account-a")
+    assert unchanged["imported_thread_count"] == 63
+    assert unchanged["imported_message_count"] == 784
+
+
+def test_committed_conversation_totals_positive_counts_satisfy_complete_job(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    service.record_source_summary(
+        job_id=job["job_id"],
+        user_id="account-a",
+        summary={
+            "conversations_discovered": 65,
+            "conversations_accepted": 65,
+            "conversations_skipped": 0,
+            "conversations_failed": 0,
+            "conversation_transactions_committed": True,
+        },
+    )
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+
+    completed = service.complete_job(job_id=job["job_id"], user_id="account-a")
+
+    assert completed["status"] == "completed"
+    assert completed["imported_thread_count"] == 63
+    assert completed["imported_message_count"] == 784
+    assert completed["source_summary"]["conversation_transactions_committed"] is True
+
+
+def test_committed_conversation_totals_zero_counts_do_not_bypass_guard(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.stage_files(
+        job_id=job["job_id"],
+        user_id="account-a",
+        files=[StagedImportFile("conversations.json", b"[]")],
+    )
+    service.finalize_job(job_id=job["job_id"], user_id="account-a")
+    service.mark_running(job_id=job["job_id"], user_id="account-a")
+    zero = service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=0,
+        messages_imported=0,
+        phase_key="anthropic_conversations",
+    )
+    assert zero["imported_thread_count"] == 0
+    assert zero["imported_message_count"] == 0
+    internal = service.get_worker_job(job_id=job["job_id"], user_id="account-a")
+    assert internal["checkpoint"].get("committed_conversation_totals") in (
+        None,
+        [],
+    )
+
+    with pytest.raises(AccountImportError) as exc_info:
+        service.complete_job(job_id=job["job_id"], user_id="account-a")
+    assert exc_info.value.code == AccountImportErrorCode.NO_COMMITTED_ENTITIES.value
+
+
+def test_committed_conversation_totals_phase_keys_accumulate_independently(
+    account_import_service,
+):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    job = service.create_job(
+        user_id="account-a", total_file_count=1, total_byte_count=2
+    )
+    service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+    second = service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=1,
+        messages_imported=1,
+        phase_key="another_source_conversations",
+    )
+    assert second["imported_thread_count"] == 64
+    assert second["imported_message_count"] == 785
+    internal = service.get_worker_job(job_id=job["job_id"], user_id="account-a")
+    assert len(internal["checkpoint"]["committed_conversation_totals"]) == 2
+
+    replay = service.record_committed_conversation_totals(
+        job_id=job["job_id"],
+        user_id="account-a",
+        threads_imported=63,
+        messages_imported=784,
+        phase_key="anthropic_conversations",
+    )
+    assert replay["imported_thread_count"] == 64
+    assert replay["imported_message_count"] == 785
+
+
+# ---------------------------------------------------------------------------
 # Retry seam service tests
 # ---------------------------------------------------------------------------
 

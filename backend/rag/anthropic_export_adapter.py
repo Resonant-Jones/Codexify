@@ -301,10 +301,19 @@ class AnthropicExtractedConversation:
 
 @dataclass
 class AnthropicImportResult:
-    """Bounded result returned by ``import_anthropic_export_path``."""
+    """Bounded result returned by ``import_anthropic_export_path``.
+
+    ``conversations_imported`` / ``messages_imported`` are the canonical
+    committed totals reported by the authoritative Claude writer
+    (``ingest_claude_export`` ``threads_imported`` / ``messages_imported``),
+    never source-discovery counts. Source discovery is reported separately as
+    ``conversations_discovered`` so durable job accounting can never confuse
+    discovered conversations with committed threads.
+    """
 
     conversations_discovered: int = 0
     conversations_imported: int = 0
+    messages_imported: int = 0
     conversations_failed: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -312,9 +321,19 @@ class AnthropicImportResult:
         return {
             "conversations_discovered": self.conversations_discovered,
             "conversations_imported": self.conversations_imported,
+            "messages_imported": self.messages_imported,
             "conversations_failed": self.conversations_failed,
             "errors": list(self.errors),
         }
+
+
+def _non_negative_int(value: Any) -> int:
+    """Safe non-negative integer normalization for writer-reported counts."""
+
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _normalize_conversation_record(
@@ -473,5 +492,8 @@ def import_anthropic_export_path(
         result.errors.append(f"ingest_claude_export_failed: {exc}")
         return result
 
-    result.conversations_imported = int(stats.get("threads_imported", 0))
+    result.conversations_imported = _non_negative_int(
+        stats.get("threads_imported", 0)
+    )
+    result.messages_imported = _non_negative_int(stats.get("messages_imported", 0))
     return result

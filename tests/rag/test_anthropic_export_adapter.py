@@ -593,6 +593,7 @@ def test_dispatch_path_calls_ingest_claude_export_with_normalized_records(
 
     assert result.conversations_discovered == 1
     assert result.conversations_imported == 1
+    assert result.messages_imported == 2
     assert result.conversations_failed == 0
     assert captured.user_id == "account-a"
 
@@ -606,6 +607,45 @@ def test_dispatch_path_calls_ingest_claude_export_with_normalized_records(
     # Sanity: the conversation passed through keeps its original message IDs.
     message_uuids = [m["uuid"] for m in payload[0]["chat_messages"]]
     assert message_uuids == ["m-1", "m-2"]
+
+
+def test_writer_committed_counts_are_normalized_non_negative(
+    monkeypatch, tmp_path: Path
+):
+    """Writer-reported totals must survive the adapter boundary as safe
+    non-negative integers; malformed values normalize to zero."""
+
+    captured = SimpleNamespace(blob=b"")
+
+    def _capture_ingest(content: bytes, *, user_id: str):  # type: ignore[no-untyped-def]
+        captured.blob = content
+        return {
+            "threads_imported": "3",
+            "messages_imported": None,
+            "projects_created": 0,
+            "projects_reused": 0,
+            "messages_filtered": 0,
+            "embedding_candidates": 0,
+            "embeddings_persisted": 0,
+            "embeddings_failed": 0,
+            "embedding_coverage_degraded": False,
+        }
+
+    monkeypatch.setattr(
+        "backend.rag.chatgpt_migration.ingest_claude_export", _capture_ingest
+    )
+
+    conv = _anthropic_conversation(
+        conv_uuid="c-normalize",
+        name="Normalize",
+        messages=[_anthropic_message(sender="human", text="hi")],
+    )
+    _write_anthropic_export(tmp_path, conversations=[conv])
+
+    result = import_anthropic_export_path(tmp_path, user_id="account-a")
+
+    assert result.conversations_imported == 3  # "3" normalizes to 3
+    assert result.messages_imported == 0  # None normalizes to 0
 
 
 def test_projects_users_memories_presence_does_not_fail_dispatch(
