@@ -145,13 +145,58 @@ def test_deepseek_is_api_key_only() -> None:
     assert entry.runtime_binding.oauth_backend_handler_exists is False
 
 
-def test_no_entry_claims_an_oauth_backend_handler_exists() -> None:
-    # No provider-specific OAuth exchange is implemented in this slice, so
-    # no entry may advertise one; OAuth UI must stay disabled.
-    for entry in get_catalog():
-        assert (
-            entry.runtime_binding.oauth_backend_handler_exists is False
-        ), entry.id
+def test_minimax_oauth_is_partial_with_real_backend_handler() -> None:
+    """MiniMax OAuth is the first provider-specific OAuth setup entry.
+
+    Authentication/setup code path exists; OAuth-to-inference credential
+    binding remains deliberately deferred. The MiniMax API-key lane is
+    registry-governed separately.
+    """
+
+    entry = get_connection("minimax_oauth")
+    assert entry is not None
+    assert entry.id == "minimax_oauth"
+    # MiniMax OAuth is distinct from MiniMax API-key.
+    assert entry.auth_methods == ("oauth_browser",)
+    assert entry.implementation_state == "partial"
+    assert entry.runtime_binding.setup_route == "/api/connect/minimax/start"
+    assert entry.runtime_binding.oauth_backend_handler_exists is True
+    assert entry.runtime_binding.registry_provider_id == "minimax"
+    # MiniMax API-key entry remains unchanged.
+    api_entry = get_connection("minimax_api")
+    assert api_entry is not None
+    assert api_entry.implementation_state == "implemented"
+    assert api_entry.auth_methods == ("api_key",)
+    assert api_entry.runtime_binding.oauth_backend_handler_exists is False
+    assert api_entry.runtime_binding.registry_provider_id == "minimax"
+    # Unrelated OAuth entries remain unimplemented.
+    for entry_id in (
+        "codex_chatgpt",
+        "qwen_oauth",
+        "gemini_oauth",
+        "xai_oauth",
+        "nous_portal",
+        "github_copilot",
+        "anthropic_subscription",
+    ):
+        other = get_connection(entry_id)
+        assert other is not None
+        assert other.runtime_binding.oauth_backend_handler_exists is False, entry_id
+
+
+def test_oauth_setup_route_uses_dedicated_provider_label() -> None:
+    """The MiniMax OAuth setup route is independent from the read-only
+    Connections surface and from the quarantined legacy connectors surface.
+    """
+
+    entry = get_connection("minimax_oauth")
+    assert entry is not None
+    setup_route = entry.runtime_binding.setup_route
+    assert setup_route is not None
+    # Not on the read-only Connections surface.
+    assert not setup_route.startswith("/api/connections")
+    # Not on the quarantined legacy connector surface.
+    assert not setup_route.startswith("/api/connectors")
 
 
 def test_inference_registry_mapping_matches_provider_registry() -> None:

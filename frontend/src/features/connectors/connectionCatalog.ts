@@ -65,6 +65,8 @@ export interface ConnectionOAuthProjection {
   supported: boolean;
   backend_handler_exists: boolean;
   connection: ConnectionOAuthRow | null;
+  launchable?: boolean;
+  node_configured?: boolean;
 }
 
 export interface ConnectionAuthorization {
@@ -151,9 +153,14 @@ export function canLaunchSetup(entry: ConnectionEntry): boolean {
   return Boolean(entry.runtime_binding.setup_route);
 }
 
-/** OAuth may launch only when a real backend authorization handler exists. */
+/** OAuth may launch only when a real backend authorization handler exists AND
+ *  the entry's setup can actually be launched on the current node (e.g.
+ *  the operator has provided the necessary application configuration).
+ */
 export function canLaunchOAuth(entry: ConnectionEntry): boolean {
-  return Boolean(entry.oauth?.backend_handler_exists);
+  if (!entry.oauth?.backend_handler_exists) return false;
+  if (entry.oauth.launchable === false) return false;
+  return true;
 }
 
 export function matchesSearch(entry: ConnectionEntry, query: string): boolean {

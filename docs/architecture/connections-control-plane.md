@@ -213,12 +213,39 @@ make any provider executable and does not modify
 
 The method vocabulary can represent `oauth_browser`, `oauth_device`,
 `api_key`, `token`, `service_credentials`, `local_endpoint`, and `none`.
-No backend OAuth authorization handler exists for any entry today, so
-every entry reports `oauth.backend_handler_exists = false`. The frontend
-may only enable an OAuth action when that flag is true. All
-provider-specific OAuth work (MiniMax, Codex/ChatGPT, Qwen, Gemini, xAI,
-Nous Portal, GitHub Copilot, Anthropic subscription) is deferred to later
-atomic tasks.
+The frontend may only enable an OAuth action when
+`oauth.backend_handler_exists` is true **and** the node's launchability gate
+(`oauth.launchable`) is true. The launchability gate is intentionally
+narrower than "a backend handler exists in code": for a future OAuth entry
+to become clickable, it must additionally expose a real
+`runtime_binding.setup_route`, and (where the protocol requires it) the
+node must supply the legitimate application-owned configuration. A node
+without legitimate Codexify-owned MiniMax OAuth client configuration
+therefore keeps the entry visibly unavailable, even though the backend
+handler is mounted.
+
+MiniMax OAuth is the first provider-specific OAuth setup slice. Its
+provider-specific mutation routes (`/api/connect/minimax/start`,
+`/api/connect/minimax/poll`, `/api/connect/minimax/disconnect`,
+`/api/connect/minimax/status`) live on a dedicated
+`minimax_oauth` route family, distinct from the read-only `connections`
+surface and the quarantined legacy `connectors` surface. The
+`v1-local-core-web-mcp` supported profile mounts these routes as
+`internal_only` (hidden from public OpenAPI) while leaving `connections =
+enabled` and `connectors = quarantined`. Authentication/setup is implemented;
+OAuth-to-inference credential binding is deliberately deferred to a
+separate task that must independently preserve provider-registry
+authority and prove an authenticated persisted MiniMax turn.
+
+Credentials are encrypted at rest through `guardian.connectors.oauth_crypto`
+and persisted under provider key `minimax_oauth`, mode `node_local`. The
+PKCE verifier, access tokens, refresh tokens, and any browser-visible
+flow metadata are kept server-side; the frontend polls only the backend
+poll route and never the upstream provider directly.
+
+All other provider-specific OAuth work (Codex/ChatGPT, Qwen, Gemini,
+xAI, Nous Portal, GitHub Copilot, Anthropic subscription) remains
+deferred. Their `oauth.backend_handler_exists` flag stays false.
 
 ## API surface
 
@@ -255,7 +282,8 @@ catalog (no user state) rather than failing.
 
 This slice does not:
 
-- implement any provider-specific OAuth exchange;
+- implement any other provider-specific OAuth exchange;
+- bind MiniMax OAuth credentials to the inference runtime (separate task);
 - implement missing messaging adapters;
 - implement web-search/extract adapters;
 - replace or extend `guardian/core/provider_registry.py`;
@@ -265,5 +293,6 @@ This slice does not:
 - create a new Settings section, AppShell view, or duplicate
   configuration surface.
 
-`docs/architecture/00-current-state.md` remains release truth and was not
-updated to claim any new provider, messaging, OAuth, or web support.
+`docs/architecture/00-current-state.md` remains release truth. MiniMax OAuth
+setup code exists under Connections but is intentionally not promoted to
+Beta-Supported; OAuth-to-inference credential binding remains Out of Beta.

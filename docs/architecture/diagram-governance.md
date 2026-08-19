@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-11 (ADR-064 Orthogonal UI identity-routing review; README reference-only change; no runtime diagram change)
+Diagram Review Marker: 2026-08-17 (MiniMax OAuth connection-setup; current-state reflects MiniMax OAuth setup as partial; no runtime diagram change)
 
 ## Scope
 
