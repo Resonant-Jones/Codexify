@@ -4426,7 +4426,6 @@ export function GuardianChat({
               }}
             >
               <GuardianThreadApprovalRail
-                className="mb-3"
                 onTellGuardianWhatToDoInstead={handleTellGuardianWhatToDoInstead}
                 reloadSignal={chatReloadVersion}
                 threadId={effectiveThreadId ?? undefined}
