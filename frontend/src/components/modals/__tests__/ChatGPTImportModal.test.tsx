@@ -32,12 +32,20 @@ vi.mock("@/features/imports/accountImportCoordinator", () => ({
   subscribeAccountImportCoordinator: coordinator.subscribe,
 }));
 
-vi.mock("@/lib/api", () => ({
-  default: { post: apiMocks.post },
-  normalizeChatGptImportStats: (payload: unknown) => payload,
-  normalizeImportRuntimeError: () => ({ message: "Import failed" }),
-  preflightBackendAvailability: apiMocks.preflight,
-}));
+// Use `importOriginal` so the real module exports are preserved. The modal
+// imports `isAccountImportSourceSystem` (and other helpers) from
+// `@/lib/api`; a partial mock that omits them prevents the component from
+// resolving the canonical source validator at submit time.
+vi.mock(import("@/lib/api"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    default: { post: apiMocks.post },
+    normalizeChatGptImportStats: (payload: unknown) => payload,
+    normalizeImportRuntimeError: () => ({ message: "Import failed" }),
+    preflightBackendAvailability: apiMocks.preflight,
+  };
+});
 
 import {
   ChatGPTImportModal,
@@ -149,9 +157,26 @@ describe("ChatGPTImportModal account export intake", () => {
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
 
-    await user.click(
-      screen.getByTestId("account-import-source-anthropic")
-    );
+    const openaiRadio = screen.getByTestId(
+      "account-import-source-openai"
+    ) as HTMLInputElement;
+    const anthropicRadio = screen.getByTestId(
+      "account-import-source-anthropic"
+    ) as HTMLInputElement;
+    expect(openaiRadio.checked).toBe(true);
+    expect(anthropicRadio.checked).toBe(false);
+
+    await user.click(anthropicRadio);
+
+    // Observable rendered selection: the Anthropic radio is now checked and
+    // the OpenAI radio is no longer checked. The styled label reinforces the
+    // selection but the `checked` attribute is the canonical, library-agnostic
+    // proof of active selection.
+    expect(anthropicRadio.checked).toBe(true);
+    expect(openaiRadio.checked).toBe(false);
+    expect(
+      screen.getByText("Anthropic (Claude)").closest("label")
+    ).toHaveAttribute("style", expect.stringContaining("rgba(34, 197, 94"));
 
     fireEvent.drop(
       screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
@@ -164,11 +189,25 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    // The submission crossed the existing import-submission seam with the
+    // canonical Anthropic source. No `origin_system` field is ever sent.
     expect(coordinator.start).toHaveBeenCalledWith(
       expect.any(Array),
       "account-a",
       "anthropic"
     );
+    const [
+      startFiles,
+      startUserId,
+      startSource,
+      startOptions,
+    ] = coordinator.start.mock.calls[0];
+    expect(startFiles).toEqual(expect.any(Array));
+    expect(startUserId).toBe("account-a");
+    expect(startSource).toBe("anthropic");
+    // Only the three documented arguments flow through the seam; any
+    // surfaced origin_system would appear here as a fourth argument.
+    expect(startOptions).toBeUndefined();
   });
 
   it("sends source_system=openai when OpenAI is selected and a folder is dropped", async () => {
@@ -181,9 +220,21 @@ describe("ChatGPTImportModal account export intake", () => {
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
 
-    await user.click(
-      screen.getByTestId("account-import-source-openai")
-    );
+    const openaiRadio = screen.getByTestId(
+      "account-import-source-openai"
+    ) as HTMLInputElement;
+    const anthropicRadio = screen.getByTestId(
+      "account-import-source-anthropic"
+    ) as HTMLInputElement;
+    expect(openaiRadio.checked).toBe(true);
+
+    // Selecting Anthropic then re-selecting OpenAI must round-trip through
+    // the rendered UI without leaking the previous selection.
+    await user.click(anthropicRadio);
+    expect(anthropicRadio.checked).toBe(true);
+    await user.click(openaiRadio);
+    expect(openaiRadio.checked).toBe(true);
+    expect(anthropicRadio.checked).toBe(false);
 
     fireEvent.drop(
       screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
@@ -201,6 +252,53 @@ describe("ChatGPTImportModal account export intake", () => {
       "account-a",
       "openai"
     );
+  });
+
+  it("routes both Anthropic and OpenAI through the same existing submission seam", async () => {
+    const user = userEvent.setup();
+    const json = new File(["[]"], "conversations.json");
+    const root = directoryEntry("/export", [
+      [fileEntry("/export/conversations.json", json)],
+    ]);
+    render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+
+    // Drive the Anthropic branch through the same modal, then the OpenAI
+    // branch. Both must call the same `startOpenAIAccountImport` from
+    // `@/features/imports/accountImportCoordinator` — the existing import
+    // submission seam — not a separate endpoint or component.
+    await user.click(screen.getByTestId("account-import-source-anthropic"));
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      }
+    );
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledTimes(1));
+    expect(coordinator.start.mock.calls[0][2]).toBe("anthropic");
+
+    // Reset and drive the OpenAI branch through the same modal.
+    coordinator.start.mockClear();
+    await user.click(screen.getByTestId("account-import-source-openai"));
+    fireEvent.drop(
+      screen.getByText(/Drop a conversation JSON/).closest("div.rounded-xl")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      }
+    );
+    await waitFor(() => expect(coordinator.start).toHaveBeenCalledTimes(1));
+    expect(coordinator.start.mock.calls[0][2]).toBe("openai");
+
+    // The legacy single-file ChatGPT endpoint must not be involved in
+    // either path through the rendered modal.
+    expect(apiMocks.post).not.toHaveBeenCalled();
   });
 
   it("only ever serializes canonical source values when a folder is dropped", async () => {
@@ -325,9 +423,12 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
+    // The default source is "openai" because the explicit selector defaults
+    // to OpenAI; the third argument must always be the canonical source.
     expect(coordinator.start).toHaveBeenCalledWith(
       [{ file: archive, relativePath: "openai-export.zip" }],
-      "account-a"
+      "account-a",
+      "openai"
     );
   });
 
