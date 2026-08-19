@@ -818,6 +818,113 @@ textarea:focus-visible {
   opacity: 0.6;
 }
 
+.intervention-card {
+  display: grid;
+  gap: calc(var(--card-pad) / 2);
+  margin-bottom: calc(var(--card-pad) / 2);
+  padding: var(--card-pad);
+  border: 1px solid color-mix(in oklab, var(--panel-border) 66%, var(--accent) 34%);
+  border-radius: var(--card-radius);
+  background: color-mix(in oklab, var(--panel-sheet) 90%, var(--accent-weak) 10%);
+}
+
+.intervention-eyebrow,
+.intervention-summary,
+.intervention-feedback {
+  margin: 0;
+}
+
+.intervention-eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.intervention-card h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.intervention-summary {
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.intervention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--card-pad) / 2);
+}
+
+.intervention-button {
+  min-height: calc(var(--card-pad) * 2.5);
+  padding: calc(var(--card-pad) / 2) var(--card-pad);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.intervention-button--approve {
+  border-color: color-mix(in oklab, var(--accent) 48%, var(--panel-border));
+  background: color-mix(in oklab, var(--accent-strong) 24%, var(--panel-sheet));
+  color: var(--text-on-accent);
+}
+
+.intervention-button--deny {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
+.intervention-button--quiet {
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.intervention-button--quiet:hover {
+  background: var(--surface-hover);
+}
+
+.intervention-context {
+  display: grid;
+  gap: calc(var(--card-pad) / 3);
+  margin: 0;
+  padding: calc(var(--card-pad) / 2) calc(var(--card-pad) * 1.75);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  background: var(--surface-soft);
+  color: var(--text-subtle);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.intervention-feedback {
+  padding: calc(var(--card-pad) / 2);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-micro);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.intervention-feedback--notice {
+  border-color: color-mix(in oklab, var(--accent) 34%, var(--panel-border));
+  background: color-mix(in oklab, var(--accent-weak) 18%, var(--panel-sheet));
+  color: var(--text);
+}
+
+.intervention-feedback--error {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
 .composer {
   min-height: 48px;
   gap: 8px;
@@ -1029,6 +1136,10 @@ textarea:focus-visible {
   .task-indicator--danger .task-dot {
     animation: none;
   }
+
+  .intervention-card {
+    animation: intervention-enter 150ms ease-out;
+  }
 }
 
 @keyframes drawer-enter {
@@ -1039,6 +1150,17 @@ textarea:focus-visible {
 @keyframes task-pulse {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
+}
+
+@keyframes intervention-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--card-pad) / 2));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Accent colour picker ─────────────────────────────────────────── */

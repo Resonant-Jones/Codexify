@@ -75,7 +75,10 @@ describe("GuardianThreadApprovalRail", () => {
   test("shows a compact rail when active thread has pending intervention", () => {
     useGuardianThreadApprovalRailMock.mockReturnValue(
       buildHookState({
-        intervention: buildIntervention(),
+        canSubmitDecision: true,
+        intervention: buildIntervention({
+          decision: { approvalId: 17, supported: true },
+        }),
         visible: true,
       })
     );
@@ -91,8 +94,12 @@ describe("GuardianThreadApprovalRail", () => {
         "A guarded action for this thread is waiting for explicit user approval."
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Approve Guardian request" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Deny Guardian request" })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Tell Guardian what to do instead" })
     ).toBeInTheDocument();
@@ -174,7 +181,7 @@ describe("GuardianThreadApprovalRail", () => {
     });
   });
 
-  test("keeps approve and deny disabled when mutation is unsupported", () => {
+  test("does not present fake approval actions when mutation is unsupported", () => {
     useGuardianThreadApprovalRailMock.mockReturnValue(
       buildHookState({
         canSubmitDecision: false,
@@ -187,12 +194,88 @@ describe("GuardianThreadApprovalRail", () => {
 
     render(<GuardianThreadApprovalRail threadId={42} />);
 
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Deny" })).toBeDisabled();
     expect(
-      screen.getByText(
-        "Direct approve/deny is unavailable for this thread intervention."
-      )
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /Approve Guardian request/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Deny Guardian request/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Tell Guardian what to do instead" })
+    ).toBeEnabled();
+  });
+
+  test("keeps diagnostic context collapsed until explicitly inspected", async () => {
+    const user = userEvent.setup();
+    useGuardianThreadApprovalRailMock.mockReturnValue(
+      buildHookState({
+        intervention: buildIntervention(),
+        visible: true,
+      })
+    );
+
+    render(<GuardianThreadApprovalRail threadId={42} />);
+
+    expect(screen.queryByText("Run: run_123")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Inspect context" }));
+    expect(screen.getByText("Run: run_123")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide context" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+  });
+
+  test("submits each explicit decision through the rail hook", async () => {
+    const user = userEvent.setup();
+    const approve = vi.fn().mockResolvedValue(true);
+    const deny = vi.fn().mockResolvedValue(true);
+    useGuardianThreadApprovalRailMock.mockReturnValue(
+      buildHookState({
+        approve,
+        canSubmitDecision: true,
+        deny,
+        intervention: buildIntervention({
+          decision: { approvalId: 17, supported: true },
+        }),
+        visible: true,
+      })
+    );
+
+    render(<GuardianThreadApprovalRail threadId={42} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Approve Guardian request" })
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Deny Guardian request" })
+    );
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(deny).toHaveBeenCalledTimes(1);
+  });
+
+  test("conveys the decision-busy state and prevents another choice", () => {
+    useGuardianThreadApprovalRailMock.mockReturnValue(
+      buildHookState({
+        canSubmitDecision: true,
+        intervention: buildIntervention({
+          decision: { approvalId: 17, supported: true },
+        }),
+        submittingAction: "approve",
+        visible: true,
+      })
+    );
+
+    render(<GuardianThreadApprovalRail threadId={42} />);
+
+    expect(screen.getByTestId("guardian-thread-approval-rail")).toHaveAttribute(
+      "aria-busy",
+      "true"
+    );
+    expect(
+      screen.getByRole("button", { name: "Approve Guardian request" })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Deny Guardian request" })
+    ).toBeDisabled();
   });
 });

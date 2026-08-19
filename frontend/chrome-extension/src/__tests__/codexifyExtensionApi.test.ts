@@ -111,6 +111,75 @@ describe("Codexify extension auth transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it("uses only X-API-Key for local approval reads and an exact approval decision", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get("X-API-Key")).toBe(localCredential())
+      expect(headers.get("Authorization")).toBeNull()
+      if (url.endsWith("/api/chat/7/agent-runs")) {
+        return new Response(JSON.stringify({
+          runs: [{ run_id: "run_7", status: "awaiting_approval", thread_id: 7 }],
+        }), { status: 200 })
+      }
+      if (url.endsWith("/api/browser/approvals?status_value=PENDING")) {
+        return new Response(JSON.stringify({
+          items: [{ id: 17, status: "PENDING", request_reason: "thread_id:7" }],
+        }), { status: 200 })
+      }
+      expect(url).toBe("http://127.0.0.1:8888/api/browser/approvals/17/approve")
+      expect(init?.method).toBe("POST")
+      expect(JSON.parse(String(init?.body))).toEqual({ reason: "Approved in test." })
+      return new Response(JSON.stringify({ id: 17, status: "APPROVED" }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createConnectionProfile({
+      backendBaseUrl: "http://127.0.0.1:8888",
+      apiKey: localCredential(),
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+    const api = createCodexifyExtensionApi(profile)
+
+    await expect(api.listAgentRuns(7)).resolves.toHaveLength(1)
+    await expect(api.listPendingApprovals()).resolves.toHaveLength(1)
+    await expect(
+      api.approveBrowserApproval(17, "Approved in test."),
+    ).resolves.toMatchObject({ approvalId: 17, status: "APPROVED" })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it("uses only Bearer auth for remote approval reads and an exact denial", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(headers.get("Authorization")).toBe(`Bearer ${remoteSession.token}`)
+      expect(headers.get("X-API-Key")).toBeNull()
+      if (url.endsWith("/api/browser/approvals?status_value=PENDING")) {
+        return new Response(JSON.stringify({
+          items: [{ id: 23, status: "PENDING", request_reason: "thread_id:7" }],
+        }), { status: 200 })
+      }
+      expect(url).toBe("https://codexify.test/api/browser/approvals/23/deny")
+      expect(init?.method).toBe("POST")
+      expect(JSON.parse(String(init?.body))).toEqual({ reason: "Denied in test." })
+      return new Response(JSON.stringify({ id: 23, status: "DENIED" }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const profile = createRemoteConnectionProfile({
+      backendBaseUrl: "https://codexify.test",
+      sessionUserId: remoteSession.userId,
+      sessionExpiresAt: remoteSession.expiresAt,
+      connectedAt: fixedTimestamp,
+      lastVerifiedAt: fixedTimestamp,
+    })
+    const api = createCodexifyExtensionApi(profile, remoteSession)
+
+    await expect(api.listPendingApprovals()).resolves.toHaveLength(1)
+    await expect(
+      api.denyBrowserApproval(23, "Denied in test."),
+    ).resolves.toMatchObject({ approvalId: 23, status: "DENIED" })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it("sends the accepted completion's root request and turn correlation", async () => {
     const requestId = "req-extension-test"
     const turnId = "turn-extension-test"

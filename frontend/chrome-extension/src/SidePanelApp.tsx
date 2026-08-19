@@ -11,6 +11,10 @@ import {
   type ChatRequestState,
 } from "../../src/contracts/runtimeTokens"
 import {
+  interpretGuardianThreadIntervention,
+  type GuardianThreadIntervention,
+} from "../../src/features/chat/approvals/threadIntervention"
+import {
   buildOriginPermissionPattern,
   chromeOriginPermissionClient,
   createConnectionProfile,
@@ -31,6 +35,7 @@ import {
   createCodexifyExtensionApi,
   loginRemoteSession,
   type CodexifyExtensionApi,
+  type CodexifyBrowserApproval,
   type CodexifyMessage,
   type CodexifyThread,
   type CompletionReceipt,
@@ -59,6 +64,7 @@ type CompletionViewState =
   | "cancellation_requested"
 type MessageLoadState = "idle" | "loading" | "ready" | "failed"
 type ProfileSyncState = "idle" | "loading" | "ready" | "failed"
+type InterventionDecisionAction = "approve" | "deny"
 
 export interface SidePanelAppProps {
   storage?: ConnectionStorage
@@ -192,6 +198,120 @@ function isWorkerProgressEvent(event: TaskLifecycleEvent): boolean {
 
 const currentIsoTimestamp = (): string => new Date().toISOString()
 
+interface SidePanelInterventionCardProps {
+  busyAction: InterventionDecisionAction | null
+  error: string | null
+  intervention: GuardianThreadIntervention
+  notice: string | null
+  onApprove(): void
+  onDeny(): void
+  onTellGuardian(): void
+}
+
+function SidePanelInterventionCard({
+  busyAction,
+  error,
+  intervention,
+  notice,
+  onApprove,
+  onDeny,
+  onTellGuardian,
+}: SidePanelInterventionCardProps): React.JSX.Element {
+  const [showContext, setShowContext] = useState(false)
+  const decisionBusy = busyAction !== null
+  const canDecide = intervention.decision.supported &&
+    typeof intervention.decision.approvalId === "number"
+  const contextId = `side-panel-intervention-${intervention.id.replace(
+    /[^a-zA-Z0-9_-]/gu,
+    "-",
+  )}`
+
+  useEffect(() => {
+    setShowContext(false)
+  }, [intervention.id])
+
+  return (
+    <section
+      className="intervention-card"
+      aria-busy={decisionBusy}
+      aria-labelledby={`${contextId}-title`}
+      data-testid="side-panel-intervention"
+    >
+      <p className="intervention-eyebrow">{intervention.statusLabel}</p>
+      <h2 id={`${contextId}-title`}>{intervention.title}</h2>
+      <p className="intervention-summary">{intervention.summary}</p>
+
+      <div className="intervention-actions">
+        {canDecide ? (
+          <>
+            <button
+              className="intervention-button intervention-button--approve"
+              type="button"
+              aria-label="Approve Guardian request"
+              disabled={decisionBusy}
+              onClick={onApprove}
+            >
+              {busyAction === "approve" ? "Approving…" : "Approve"}
+            </button>
+            <button
+              className="intervention-button intervention-button--deny"
+              type="button"
+              aria-label="Deny Guardian request"
+              disabled={decisionBusy}
+              onClick={onDeny}
+            >
+              {busyAction === "deny" ? "Denying…" : "Deny"}
+            </button>
+          </>
+        ) : null}
+        {intervention.details.length > 0 ? (
+          <button
+            className="intervention-button intervention-button--quiet"
+            type="button"
+            aria-controls={contextId}
+            aria-expanded={showContext}
+            onClick={() => setShowContext((current) => !current)}
+          >
+            {showContext ? "Hide context" : "Inspect context"}
+          </button>
+        ) : null}
+        {intervention.canRedirect ? (
+          <button
+            className={`intervention-button ${
+              canDecide
+                ? "intervention-button--quiet"
+                : "intervention-button--approve"
+            }`}
+            type="button"
+            onClick={onTellGuardian}
+          >
+            Tell Guardian what to do instead
+          </button>
+        ) : null}
+      </div>
+
+      {showContext && intervention.details.length > 0 ? (
+        <ul id={contextId} className="intervention-context">
+          {intervention.details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {notice ? (
+        <p className="intervention-feedback intervention-feedback--notice" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="intervention-feedback intervention-feedback--error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 export function SidePanelApp({
   storage = chromeConnectionStorage,
   permissionClient = chromeOriginPermissionClient,
@@ -223,12 +343,26 @@ export function SidePanelApp({
   const [accentPickerOpen, setAccentPickerOpen] = useState(false)
   const [accentSaveError, setAccentSaveError] = useState<string | null>(null)
   const [profileSyncState, setProfileSyncState] = useState<ProfileSyncState>("idle")
+  const [intervention, setIntervention] = useState<GuardianThreadIntervention | null>(null)
+  const [interventionLoading, setInterventionLoading] = useState(false)
+  const [interventionError, setInterventionError] = useState<string | null>(null)
+  const [interventionNotice, setInterventionNotice] = useState<string | null>(null)
+  const [interventionBusyAction, setInterventionBusyAction] =
+    useState<InterventionDecisionAction | null>(null)
 
   const apiRef = useRef<CodexifyExtensionApi | null>(null)
   const activeTaskStopRef = useRef<(() => void) | null>(null)
   const messageEndRef = useRef<HTMLDivElement | null>(null)
   const accentPickerRef = useRef<HTMLDivElement | null>(null)
   const lastConfirmedAccentRef = useRef<UserAccentToken>(DEFAULT_USER_ACCENT_TOKEN)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const interventionLoadVersionRef = useRef(0)
+  const interventionDecisionInFlightRef = useRef(false)
+  const selectedThreadIdRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    selectedThreadIdRef.current = selectedThreadId
+  }, [selectedThreadId])
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
@@ -273,6 +407,62 @@ export function SidePanelApp({
     }
   }, [recordConnectionFailure])
 
+  const loadIntervention = useCallback(async (
+    api: CodexifyExtensionApi,
+    threadId: number | null,
+    acknowledgement: string | null = null,
+  ): Promise<void> => {
+    const loadVersion = ++interventionLoadVersionRef.current
+    if (threadId === null) {
+      setIntervention(null)
+      setInterventionLoading(false)
+      setInterventionError(null)
+      setInterventionNotice(null)
+      return
+    }
+
+    setInterventionLoading(true)
+    setInterventionError(null)
+    if (!acknowledgement) setInterventionNotice(null)
+
+    try {
+      const agentRuns = await api.listAgentRuns(threadId)
+      const initialIntervention = interpretGuardianThreadIntervention({
+        agentRuns,
+        pendingApprovals: [],
+        threadId,
+      })
+      let pendingApprovals: CodexifyBrowserApproval[] = []
+      let warning: string | null = null
+
+      if (initialIntervention?.kind === "approval_required") {
+        try {
+          pendingApprovals = await api.listPendingApprovals()
+        } catch {
+          warning = "Approval decisions are temporarily unavailable."
+        }
+      }
+
+      if (interventionLoadVersionRef.current !== loadVersion) return
+      setIntervention(
+        interpretGuardianThreadIntervention({
+          agentRuns,
+          pendingApprovals,
+          threadId,
+        }),
+      )
+      setInterventionNotice(warning ?? acknowledgement)
+    } catch (error) {
+      if (interventionLoadVersionRef.current !== loadVersion) return
+      setIntervention(null)
+      setInterventionError(displayError(error))
+    } finally {
+      if (interventionLoadVersionRef.current === loadVersion) {
+        setInterventionLoading(false)
+      }
+    }
+  }, [])
+
   const rememberSelectedThread = useCallback(async (threadId: number | null): Promise<void> => {
     setProfile((current) => current ? { ...current, selectedThreadId: threadId } : current)
     await storage.updateSelectedThreadId(threadId)
@@ -295,15 +485,19 @@ export function SidePanelApp({
       if (nextSelectedThreadId === null) {
         setMessages([])
         setMessageLoadState("ready")
+        await loadIntervention(api, null)
       } else {
-        await loadMessages(api, nextSelectedThreadId)
+        await Promise.all([
+          loadMessages(api, nextSelectedThreadId),
+          loadIntervention(api, nextSelectedThreadId),
+        ])
       }
     } catch (error) {
       recordConnectionFailure(error)
     } finally {
       setThreadsLoading(false)
     }
-  }, [loadMessages, recordConnectionFailure, rememberSelectedThread])
+  }, [loadIntervention, loadMessages, recordConnectionFailure, rememberSelectedThread])
 
   useEffect(() => {
     let cancelled = false
@@ -624,6 +818,10 @@ export function SidePanelApp({
       setPasswordInput("")
       setCompletionState("idle")
       setCompletionReceipt(null)
+      setIntervention(null)
+      setInterventionError(null)
+      setInterventionNotice(null)
+      setInterventionBusyAction(null)
       setThreadDrawerOpen(false)
       setSurfaceError(null)
       setConnectionAttempt(null)
@@ -645,12 +843,19 @@ export function SidePanelApp({
     activeTaskStopRef.current = null
     setCompletionState("idle")
     setCompletionReceipt(null)
+    selectedThreadIdRef.current = threadId
     setSelectedThreadId(threadId)
     setMessages([])
+    setIntervention(null)
+    setInterventionError(null)
+    setInterventionNotice(null)
     setSurfaceError(null)
     setThreadDrawerOpen(false)
     await rememberSelectedThread(threadId)
-    await loadMessages(api, threadId)
+    await Promise.all([
+      loadMessages(api, threadId),
+      loadIntervention(api, threadId),
+    ])
   }
 
   const createNewThread = async (title = "New Chat"): Promise<CodexifyThread | null> => {
@@ -662,7 +867,11 @@ export function SidePanelApp({
       const thread = await api.createThread(title)
       setThreads((current) => [thread, ...current.filter((item) => item.id !== thread.id)])
       setSelectedThreadId(thread.id)
+      selectedThreadIdRef.current = thread.id
       setMessages([])
+      setIntervention(null)
+      setInterventionError(null)
+      setInterventionNotice(null)
       setMessageLoadState("ready")
       setCompletionState("idle")
       setCompletionReceipt(null)
@@ -684,12 +893,18 @@ export function SidePanelApp({
   ): Promise<void> => {
     activeTaskStopRef.current = null
     if (outcome === "completed") {
-      const refreshed = await loadMessages(api, receipt.threadId, receipt.messagesUrl)
+      const [refreshed] = await Promise.all([
+        loadMessages(api, receipt.threadId, receipt.messagesUrl),
+        loadIntervention(api, receipt.threadId),
+      ])
       setCompletionState(refreshed ? CHAT_REQUEST_STATES.COMPLETED : "connection_lost")
       return
     }
 
-    await loadMessages(api, receipt.threadId)
+    await Promise.all([
+      loadMessages(api, receipt.threadId),
+      loadIntervention(api, receipt.threadId),
+    ])
     setCompletionState(
       outcome === "cancelled"
         ? CHAT_REQUEST_STATES.CANCELLED
@@ -751,6 +966,63 @@ export function SidePanelApp({
     }
   }, [accentToken])
 
+  const handleInterventionDecision = async (
+    action: InterventionDecisionAction,
+  ): Promise<void> => {
+    const api = apiRef.current
+    const currentIntervention = intervention
+    const approvalId = currentIntervention?.decision.approvalId
+    if (
+      !api ||
+      !currentIntervention ||
+      typeof approvalId !== "number" ||
+      interventionDecisionInFlightRef.current
+    ) {
+      return
+    }
+
+    interventionDecisionInFlightRef.current = true
+    setInterventionBusyAction(action)
+    setInterventionError(null)
+    setInterventionNotice(null)
+    const acknowledgement = action === "approve" ? "Approved." : "Denied."
+
+    try {
+      if (action === "approve") {
+        await api.approveBrowserApproval(
+          approvalId,
+          `Approved from thread ${currentIntervention.threadId} side panel.`,
+        )
+      } else {
+        await api.denyBrowserApproval(
+          approvalId,
+          `Denied from thread ${currentIntervention.threadId} side panel.`,
+        )
+      }
+      if (selectedThreadIdRef.current === currentIntervention.threadId) {
+        setInterventionNotice(acknowledgement)
+        await loadIntervention(
+          api,
+          currentIntervention.threadId,
+          acknowledgement,
+        )
+      }
+    } catch (error) {
+      if (selectedThreadIdRef.current === currentIntervention.threadId) {
+        setInterventionError(displayError(error))
+      }
+    } finally {
+      interventionDecisionInFlightRef.current = false
+      setInterventionBusyAction(null)
+    }
+  }
+
+  const handleTellGuardianWhatToDoInstead = (): void => {
+    if (!intervention) return
+    setComposerValue(intervention.redirectPrompt)
+    composerRef.current?.focus()
+  }
+
   const handleSend = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     const content = composerValue.trim()
@@ -780,6 +1052,7 @@ export function SidePanelApp({
       receipt = await api.requestCompletion(threadId)
       setCompletionReceipt(receipt)
       setCompletionState(CHAT_REQUEST_STATES.AWAITING_ACK)
+      void loadIntervention(api, threadId)
     } catch (error) {
       recordConnectionFailure(error)
       setCompletionState(CHAT_REQUEST_STATES.FAILED_RETRYABLE)
@@ -798,6 +1071,7 @@ export function SidePanelApp({
           if (isWorkerProgressEvent(taskEvent)) {
             setCompletionState(CHAT_REQUEST_STATES.AWAITING_MODEL)
           }
+          void loadIntervention(api, receipt.threadId)
         },
         onConnectionLost: () => setCompletionState("connection_lost"),
         onUnauthorized: () => {
@@ -1164,7 +1438,7 @@ export function SidePanelApp({
         </section>
       </main>
 
-      <footer className="composer-dock">
+      <footer className="composer-dock" aria-busy={interventionLoading}>
         {completionState !== "idle" ? (
           <div
             className={`task-indicator task-indicator--${completionPresentation.tone}`}
@@ -1196,9 +1470,22 @@ export function SidePanelApp({
           </div>
         ) : null}
 
+        {intervention ? (
+          <SidePanelInterventionCard
+            busyAction={interventionBusyAction}
+            error={interventionError}
+            intervention={intervention}
+            notice={interventionNotice}
+            onApprove={() => void handleInterventionDecision("approve")}
+            onDeny={() => void handleInterventionDecision("deny")}
+            onTellGuardian={handleTellGuardianWhatToDoInstead}
+          />
+        ) : null}
+
         <form className="composer" onSubmit={handleSend}>
           <label className="sr-only" htmlFor="composer-input">Message Codexify</label>
           <textarea
+            ref={composerRef}
             id="composer-input"
             value={composerValue}
             onChange={(event) => setComposerValue(event.target.value)}
