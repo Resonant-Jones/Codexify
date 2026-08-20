@@ -204,7 +204,8 @@ def test_deepseek_catalog_stays_hidden_under_supported_local_only_posture(
         ALLOW_CLOUD_PROVIDERS=False,
         CODEXIFY_LOCAL_ONLY_MODE=True,
         CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_BASE_URL="http://100.127.148.28:8000/v1",
+        LOCAL_COMPAT_FIRST=True,
+        LOCAL_CHAT_MODEL=_LLAMA,
         DEEPSEEK_API_KEY="test-deepseek-key",
     )
 
