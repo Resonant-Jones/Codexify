@@ -25,13 +25,19 @@ export default function SettingsPanelDock({
       )}
       style={
         {
-          "--settings-nav-surface":
-            "color-mix(in srgb, var(--panel-bg) 86%, var(--text) 14%)",
-          "--pill-active-bg": "transparent",
+          // Active selector uses the canonical accent-backed translucent fill
+          // (matches SegmentedThemeControl). The color follows the resolved
+          // --accent / --accent-strong tokens — no hardcoded brand color.
+          "--pill-active-bg":
+            "color-mix(in oklab, var(--accent-strong) 86%, transparent)",
           "--pill-active-text": "var(--text)",
-          "--pill-active-border": "var(--accent)",
+          "--pill-active-border":
+            "color-mix(in oklab, var(--accent-strong) 40%, transparent)",
+          // Restrained layered accent glow — luminous but subordinate to
+          // the tab label. All values are derived from --accent-strong /
+          // --accent-weak; no raw color literals.
           "--pill-active-shadow":
-            "0 0 calc(var(--radius-micro) * 0.75) color-mix(in srgb, var(--accent-weak) 72%, transparent)",
+            "0 0 0 1px color-mix(in oklab, var(--accent-strong) 38%, transparent), 0 8px 22px color-mix(in oklab, var(--accent-strong) 28%, transparent), 0 0 calc(var(--radius-micro) * 1.25) color-mix(in oklab, var(--accent-weak) 60%, transparent)",
           position: "sticky",
           top: SETTINGS_DENSITY.edgeChrome,
           paddingInline: SETTINGS_DENSITY.edgeChrome,
@@ -39,10 +45,9 @@ export default function SettingsPanelDock({
       }
     >
       <div
-        className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
+        className="settings-panel-dock__glass glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
         style={
           {
-            background: "var(--settings-nav-surface)",
             "--pill-gap": SETTINGS_DENSITY.dockGap,
             "--pill-font": SETTINGS_DENSITY.dockFontSize,
             "--settings-dock-gap": SETTINGS_DENSITY.dockGap,

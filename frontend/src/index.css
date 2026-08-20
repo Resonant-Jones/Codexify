@@ -322,6 +322,61 @@ button.brand-tab,
   );
 }
 
+/* ─────────────────────────────────────────
+   Settings dock — bounded material specialization.
+   Scoped to the Settings nav rail only; does not affect other .glass-pill
+   consumers. Builds on the canonical glass-pill material rather than
+   replacing it.
+   • Light mode: clear glass body (canonical .glass-pill background is
+     preserved) + a subtle accent-tinted spectral fringe around the
+     perimeter (chromatic dispersion). Body stays transparent.
+   • Dark mode: the canonical .dark .glass-pill already provides the
+     smoked transparent shell; this hook only adds a cooler perimeter
+     fringe so the accent glow doesn't over-saturate the smoked pane.
+   • Active selector color follows the resolved --accent tokens via the
+     --pill-active-* overrides set on the <nav> wrapper.
+   ───────────────────────────────────────── */
+.settings-panel-dock__glass {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Perimeter-only chromatic fringe. A pseudo-element layers the spectral
+   edge on top of the canonical glass-pill material without disturbing
+   the canonical .glass-pill box-shadow stack. The pseudo-element is
+   pointer-events: none so it never intercepts clicks on the tabs. All
+   accent-derived values use --accent / --accent-strong / --accent-weak;
+   no raw component-level color literals are introduced. */
+.settings-panel-dock__glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent-weak) 35%, transparent),
+    0 0 18px -2px color-mix(in oklab, var(--accent) 22%, transparent),
+    0 0 28px -4px color-mix(in oklab, var(--accent-strong) 18%, transparent);
+}
+
+/* Dark mode: cool the perimeter fringe toward --accent-weak so the
+   accent glow doesn't over-saturate the smoked pane. */
+.dark .settings-panel-dock__glass::before {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent-weak) 28%, transparent),
+    0 0 20px -2px color-mix(in oklab, var(--accent) 18%, transparent),
+    0 0 32px -6px color-mix(in oklab, var(--accent-strong) 14%, transparent);
+}
+
+/* Bring the active tab above the chromatic fringe so the selected tab
+   reads as a luminous pill, not a glowing rail. */
+.settings-panel-dock__glass .pill-tab {
+  position: relative;
+}
+.settings-panel-dock__glass .pill-tab[data-state="active"] {
+  z-index: 1;
+}
+
 /* Session rail hierarchy: one layout rail, split visible islands */
 .session-rail {
   border-color: transparent;
