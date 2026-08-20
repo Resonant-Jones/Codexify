@@ -8,7 +8,7 @@ Source anchors:
 
 # Diagram Governance
 
-Diagram Review Marker: 2026-08-17 (MiniMax OAuth connection-setup; current-state reflects MiniMax OAuth setup as partial; no runtime diagram change)
+Diagram Review Marker: 2026-08-19 (Anthropic account-export conversation import canonized as Beta Bounded / Conditional in current-state release-boundary reconciliation; no runtime diagram change)
 
 ## Scope
 

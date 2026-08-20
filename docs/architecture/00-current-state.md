@@ -4,7 +4,7 @@ This file is Codexify's canonical short-form source of truth for current operati
 
 ## Last updated
 
-2026-08-18
+2026-08-19
 
 ## Interpretation rule
 
@@ -21,11 +21,11 @@ It is **not** a substitute for accepted ADRs or canonical Product Architecture A
 
 ## Audited repository revision
 
-`f4fece599e9e081154a7a7a96e1923f7f5c205b5` (pre-change audited HEAD for ADR-069; `Establish canonical conversation origin system`).
+`0f494b398b79f73c077322ef82456027e51d38f1` (pre-change audited HEAD for the Anthropic conversation-import Beta-boundary reconciliation; includes the successful 2026-08-19 Anthropic account-import supported-runtime proof R2).
 
 ## Current phase
 
-`main` is in local-first beta hardening. ADR-069 defines the coherent local-first product surface, and ADR-072 now promotes bounded identity/prompt settings routes plus the read-only Connections catalog in the default local profile. The local-only provider posture is unchanged. Coding Loop, Hosted Rooms, DeepSeek, and Browser Host remain outside the ordinary Beta support claim; TTS / voice and federation remain Out of Beta.
+`main` is in local-first beta hardening at `0f494b398`. ADR-069 was accepted 2026-08-14 by Resonant Jones. ADR-069 canonizes the coherent local-first product surface that is intentionally shipped and supportable, without changing runtime behavior, the default supported profile, or the local-only provider posture. It does not by itself promote Coding Loop, Hosted Rooms, DeepSeek, or Browser Host to Beta. TTS / voice and federation remain Out of Beta. Anthropic / Claude account-export conversation import was canonized as Beta Bounded / Conditional on 2026-08-19 following its successful supported-runtime proof R2.
 
 ## What changed recently
 
@@ -39,6 +39,7 @@ It is **not** a substitute for accepted ADRs or canonical Product Architecture A
 - Added a Doctrine of Legible Responsibility and related tool-loop contract updates; they clarify boundaries without proving runtime readiness.
 - Repaired the historical `d6f7a8b9c0d1` ThreadSpace migration lineage and the `b2c3d4e5f6a7` account-observability migration-content drift: `b2c3d4e5f6a7` was restored to its original applied body and a forward normalization migration (`9d4c2a7e1b6f`) converges clean, already-canonical, and backup-derived tester schemas onto one canonical ADR-049 shape at a single Alembic head. The preserved tester source remains unmodified and still requires a separate live upgrade / startup task; the canonical migrator psycopg driver compatibility is now landed and proven (see the 2026-08-13 driver-normalization proof); Hosted Room runtime proof remains pending; no release promise was widened.
 - Landed canonical Alembic psycopg v3 driver normalization (`guardian/db/migrations/env.py`): driver-neutral `postgresql://` Alembic URLs now resolve to the installed psycopg v3 dialect before SQLAlchemy engine construction, for both the `DATABASE_URL` environment and the `alembic.ini` `sqlalchemy.url` source, while the process-wide `DATABASE_URL` contract is preserved for `seed_defaults.py` and runtime consumers; proven on a disposable Compose project with the canonical migrator and no ephemeral URL override (`docs/architecture/proofs/2026-08-13-alembic-psycopg3-driver-normalization-proof.md`). Migration graph unchanged at a single head `9d4c2a7e1b6f`; no release promise was widened.
+- Canonized Anthropic / Claude account-export conversation import as **Beta Bounded / Conditional** under the existing ADR-069 doctrine (2026-08-19), following the successful supported-runtime proof R2: rendered Web UI → durable account-import job (`source_system="anthropic"`) → Redis → `worker-account-import` → Anthropic adapter → canonical Claude writer → PostgreSQL, with terminal job state `completed` and durable counters (63 threads / 784 messages) matching PostgreSQL readback exactly. The canonical continuity posture assertion advanced to `beta-continuity-v2` (v1 closed as a historical record). Anthropic Projects, `memories.json`, `users.json` persona/profile, binary media reconstruction, arbitrary export formats, and Anthropic inference remain excluded; the local-only provider contract is unchanged.
 
 ## Definition of Beta (ADR-069)
 
@@ -104,7 +105,7 @@ The canonical human-facing release classification uses five classes. The corresp
 ### Beta Bounded / Conditional
 
 - **Persona Studio core** — profile creation / editing, persistence, selection, and application of supported persona / profile configuration to ordinary chat. TTS / voice execution, unsupported permission authoring, unsupported retrieval-policy execution, the claim that preview UI equals enforcement, and any future Studio feature without a current implementation seam are not in this promotion. Persona Studio being Beta does not implicitly make every control visible in Studio Beta-supported.
-- **Import / continuity entry surfaces** — OpenAI / ChatGPT export import, Task Prompt Archive, owner-scoped retry / recovery behavior, and account export / restore only to the exact extent supported by the existing contract and implementation.
+- **Import / continuity entry surfaces** — OpenAI / ChatGPT export import; Anthropic / Claude account-export conversation import (bounded to the proven conversation-import path); Task Prompt Archive; owner-scoped retry / recovery behavior; and account export / restore only to the exact extent supported by the existing contract and implementation.
 - **Repository intelligence** — repository candidate discovery, explicit repository import, account / Project `RepositoryBinding`, direct Project-bound repository search, and ordinary-chat repository search exposure only when Guardian resolves exactly one valid active binding and existing authority checks pass (governed by ADR-065). The model must not gain authority from supplying Project ID, repository root, binding ID, account ID, cwd, mount path, credentials, or equivalent authority-bearing data.
 - **Bounded Guardian tool execution** — allowlisted, Guardian-authorized bounded tool execution for explicitly supported capabilities (at minimum: read-only health capability; bounded Project repository search where current eligibility / authority checks pass). Preserves the advertised-subset authority gate, Guardian-owned execution authority, exact capability eligibility, bounded command count, continuation / persistence semantics, and provider capability checks. Does not promote arbitrary tools, arbitrary write operations, generic shell / filesystem execution, recursive multi-command agents, public Command Bus HTTP, or generic `/tools` or `/api/tools` exposure.
 - **MCP / extensibility** — public MCP extension posture as a bounded extension interface. Does not claim that every MCP server is trusted, that every plugin is supported, that plugin SDK internals are public Beta API, that arbitrary plugin execution bypasses Guardian policy, or that a general plugin marketplace is released.
@@ -151,6 +152,7 @@ TTS / voice and federation are intentionally **Out of Beta**, not qualification-
 - Chat completion, upload → embed → readback, and workspace-local retrieval remain canonical supported Beta paths; the Beta envelope is not limited to these three.
 - `GET /health`, `GET /health/chat`, and `GET /api/health/llm` are the primary operator checks.
 - OpenAI export import, Task Prompt Archive, and owner-scoped retry of failed zero-write import jobs are present and Beta Bounded / Conditional.
+- Anthropic / Claude account-export conversation import is present and Beta Bounded / Conditional with a successful real supported-runtime proof: rendered Web UI → durable account-import job (`source_system="anthropic"`) → Redis → `worker-account-import` → Anthropic adapter → canonical Claude writer → PostgreSQL, with truthful terminal job accounting (`completed`; durable counters `imported_thread_count=63`, `imported_message_count=784` matched two independent PostgreSQL readbacks exactly; worker RestartCount=0; source export hashes unchanged). The proof also demonstrated the expected source-discovery / commit distinction — 65 source conversations discovered, 63 canonical threads committed — which is receipt evidence, not a product limit.
 - Linked email aliases are resolved as a fallback to the existing user identity; the username path remains first.
 - Bounded chat tool decisions pass through one advertised-subset authority gate. When `task.tools` is unset, ordinary chat may automatically expose exactly the read-only, zero-argument `op::health_health_get` (`GET /health`) capability to DeepSeek or to the exact Whoosh'd target when its current capability projection is eligible; explicit tool selections remain untouched, command visibility does not bypass execution authority, and this deterministic implementation does not widen release support.
 - A committed live strict-structured qualification receipt exists for the exact `gemma-4-12b-it-qat-4bit` Whoosh'd target, but this is not general model or release support.
@@ -176,6 +178,7 @@ TTS / voice and federation are intentionally **Out of Beta**, not qualification-
 - Do not assume Campaign Engine schemas provide scheduling, delegation, overnight execution, auto-merge, or auto-push.
 - Do not assume the tool-unification plan provides implementation approval, terminal execution, or Coding Loop completion.
 - Do not assume Browser Host, Chrome extension, Hosted Room, email, federation, graph writes, Continuity / Project Pulse, or P2P video are shipped Beta behavior.
+- Do not assume Anthropic / Claude conversation-import support implies Anthropic Projects import, `memories.json` import, `users.json` profile/persona import, binary media reconstruction from metadata-only file references, support for every future or historical Anthropic export shape, or Anthropic API / Claude cloud inference / provider routing. "Anthropic" names the account-export source format, not a provider execution lane; local-only provider posture is unchanged.
 - Do not assume tool-boundary tests or the Coding Loop proof packet establish provider execution, terminal persistence, or durable source-thread readback.
 - Do not count local branches, unmerged work, draft plans, origin-only commits, or proof from another checkout as shipped reality.
 - Do not assume that any present implementation seam, code path, or focused test by itself constitutes a Beta support claim. ADR-069's authority hierarchy requires canonical posture assertions plus supported-profile alignment plus `00-current-state.md` reconciliation for any release claim.

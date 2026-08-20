@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "document_node",
+  "document_id": "codexify:doc:proof:2026-08-19-anthropic-account-import-supported-runtime-proof-r2",
+  "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md",
+  "title": "Anthropic Account Import Supported Runtime Proof R2",
+  "kind": "proof",
+  "summary": "Successful supported-runtime receipt for Anthropic / Claude account-export conversation import on the supported local Web/runtime path: rendered Web UI -> durable account-import job with source system \"anthropic\" -> Redis -> worker-account-import -> Anthropic adapter -> canonical Claude writer -> PostgreSQL, terminal job state completed with durable counters matching PostgreSQL readback (63 threads / 784 messages; discovery 65 vs committed 63 kept distinct).",
+  "aliases": [],
+  "authority_class": "evidence_only",
+  "authority_scopes": [
+    "Anthropic / Claude account-export conversation import on the supported local Web/runtime path",
+    "durable account-import job accounting and PostgreSQL persistence for the proven import job",
+    "terminal completed state and the source-discovery vs commit distinction for the proven import"
+  ],
+  "lifecycle_state": "frozen",
+  "freshness": {
+    "state": "current",
+    "verified_at": "2026-08-20T00:03:57Z",
+    "verified_commit": "0f494b398b79f73c077322ef82456027e51d38f1",
+    "triggers": [
+      "the immutable receipt's source bytes change",
+      "a corrected replacement receipt supersedes this record"
+    ],
+    "reason": "Immutable supported-runtime receipt for Anthropic account-export conversation import, re-verified as current evidence at the R2 commit 0f494b398 during the 2026-08-19 Beta-boundary reconciliation."
+  },
+  "disposition": "accepted",
+  "evidence_class": "proven-live-runtime",
+  "owners": [
+    "Codexify proof maintainers"
+  ],
+  "source_anchors": [
+    {
+      "path": "docs/architecture/proofs/2026-08-19-anthropic-account-import-supported-runtime-proof-r2.md",
+      "anchor_type": "proof",
+      "invalidates_freshness": false
+    }
+  ],
+  "read_when": [
+    "answering whether Anthropic / Claude account-export conversation import reached a real supported runtime",
+    "checking durable job accounting and PostgreSQL readback evidence for the proven import job",
+    "bounding the Anthropic conversation-import release claim to the proven path"
+  ],
+  "must_not_prove": [
+    "unrestricted release support for Anthropic import or any other surface",
+    "Anthropic Projects, memories.json, users.json persona/profile, or binary media reconstruction import",
+    "Anthropic API, Claude cloud inference, provider routing, or cloud egress authorization",
+    "support for arbitrary or future Anthropic export formats",
+    "live runtime health at any revision other than the recorded proof revision"
+  ],
+  "retrieval_policy": {
+    "default_policy": "include",
+    "applicable_intents": [
+      "live_runtime_proof",
+      "proof_history",
+      "release_support"
+    ],
+    "excluded_intents": [
+      "current_head_proof"
+    ],
+    "priority": "primary",
+    "section_hints": [
+      "Result",
+      "Job lifecycle",
+      "Accounting evidence",
+      "Persistence evidence",
+      "Source-vs-commit distinction",
+      "Negative checks"
+    ],
+    "maximum_chunk_budget": 6
+  },
+  "temporal": {
+    "created_at": "2026-08-20T00:03:57Z",
+    "effective_from": "2026-08-19T00:00:00Z"
+  },
+  "content_hash": "7dd544e67dad176b1382562468644c968ea69b5e12cc665206e865602d25d4f8",
+  "relations": [],
+  "governing_adr_posture": "not_applicable"
+}
