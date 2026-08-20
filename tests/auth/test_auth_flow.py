@@ -120,6 +120,44 @@ def test_login_and_authenticated_request(monkeypatch):
         )
 
 
+def test_remote_registration_creates_a_canonical_guest_email_account(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "auth-flow-session-secret")
+    monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
+
+    auth_db = _AuthDb()
+    email = "tomepenn@gmail.com"
+    password = "tester-selected-password"
+
+    from guardian.routes import auth as auth_routes
+
+    with patch.object(
+        auth_routes, "load_guardian_db_from_env", return_value=auth_db
+    ):
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        client = TestClient(app)
+
+        registration = client.post(
+            "/auth/register", json={"username": email, "password": password}
+        )
+        login = client.post(
+            "/auth/login", json={"username": email, "password": password}
+        )
+
+    assert registration.status_code == 200
+    assert login.status_code == 200
+    assert login.json()["user_id"] == email
+    with auth_db.get_session() as session:
+        user = session.get(User, email)
+        assert user is not None
+        assert user.id == email
+        assert user.username == email
+        assert user.role == "guest"
+        assert verify_password(password, user.password_hash)
+
+
 def test_login_accepts_linked_email_without_mutating_canonical_identity(
     monkeypatch,
 ):

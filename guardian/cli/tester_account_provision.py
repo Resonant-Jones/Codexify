@@ -2,7 +2,7 @@
 
 This command targets the stabilized friends-and-family tester runtime
 (``codexify_tester``) which uses remote session authentication with the
-``local_safe`` exposure mode and the ``v1-friends-family-web`` supported
+``local_safe`` exposure mode and the ``v1-whooshd-deepseek-web`` supported
 profile. It is intentionally separate from
 :mod:`guardian.cli.private_preview_provision`, which belongs to the older
 allowlist-driven ``private_preview`` contract and must remain isolated.
@@ -29,7 +29,7 @@ from guardian.db.models import User
 
 # Canonical tokens reused from their existing homes. These mirror the values
 # enforced elsewhere; they are not a second role/mode-token domain.
-TESTER_PROFILE_NAME = "v1-friends-family-web"
+TESTER_PROFILE_NAME = "v1-whooshd-deepseek-web"
 REQUIRED_AUTH_MODE = "remote"
 REQUIRED_EXPOSURE_MODE = "local_safe"
 CANONICAL_ROLES = (ADMIN_ROLE, GUEST_ROLE)
@@ -39,7 +39,7 @@ _POSTURE_MESSAGE = (
     "requires the stabilized tester runtime: "
     "GUARDIAN_AUTH_MODE=remote, "
     "GUARDIAN_EXPOSURE_MODE=local_safe, "
-    "CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web"
+    "CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web"
 )
 
 
@@ -87,7 +87,7 @@ def runtime_posture_error() -> str | None:
     if exposure_mode.strip().lower() != REQUIRED_EXPOSURE_MODE:
         return "requires GUARDIAN_EXPOSURE_MODE=local_safe"
     if profile.strip() != TESTER_PROFILE_NAME:
-        return "requires CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web"
+        return "requires CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web"
     return None
 
 

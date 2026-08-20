@@ -2,8 +2,11 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 
 export default function RegisterPage() {
+  const remoteAuthMode = getRuntimeConfigSync().authMode === "remote";
+  const identityLabel = remoteAuthMode ? "Email address" : "Choose a username";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -57,14 +60,18 @@ export default function RegisterPage() {
         <form className="space-y-4" onSubmit={handleSubmit}>
           <label className="block space-y-1.5">
             <span className="text-sm font-medium text-[var(--text)]">
-              Choose a username
+              {identityLabel}
             </span>
             <input
               className="w-full rounded-[var(--radius-tile,19px)] border border-[var(--panel-border)] bg-[var(--chip-bg)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-subtle)]/50 outline-none transition focus:border-[var(--accent)]/60 focus:bg-[var(--chip-bg)] focus:ring-1 focus:ring-[var(--accent)]/30"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="e.g. resonant-jones"
-              autoComplete="username"
+              type={remoteAuthMode ? "email" : "text"}
+              inputMode={remoteAuthMode ? "email" : undefined}
+              placeholder={
+                remoteAuthMode ? "you@example.com" : "e.g. resonant-jones"
+              }
+              autoComplete={remoteAuthMode ? "email" : "username"}
             />
           </label>
           <label className="block space-y-1.5">

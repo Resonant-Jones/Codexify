@@ -22,7 +22,7 @@ from guardian.cli import tester_account_provision as tap
 from guardian.core.passwords import hash_password, verify_password
 from guardian.db.models import User
 
-TESTER_PROFILE = "v1-friends-family-web"
+TESTER_PROFILE = "v1-whooshd-deepseek-web"
 
 
 def _apply_tester_posture(monkeypatch) -> None:
@@ -157,13 +157,13 @@ def test_posture_rejects_exposure_mode_other_than_local_safe(monkeypatch):
     assert "GUARDIAN_EXPOSURE_MODE=local_safe" in err
 
 
-def test_posture_rejects_profile_other_than_friends_family(monkeypatch):
+def test_posture_rejects_profile_other_than_whooshd_deepseek(monkeypatch):
     monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
     monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
     monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
     err = tap.runtime_posture_error()
     assert err is not None
-    assert "CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web" in err
+    assert "CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web" in err
 
 
 def test_posture_rejects_missing_runtime_mode_variables(monkeypatch):
@@ -174,7 +174,7 @@ def test_posture_rejects_missing_runtime_mode_variables(monkeypatch):
     assert err is not None
     assert "GUARDIAN_AUTH_MODE=remote" in err
     assert "GUARDIAN_EXPOSURE_MODE=local_safe" in err
-    assert "CODEXIFY_SUPPORTED_PROFILE=v1-friends-family-web" in err
+    assert "CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web" in err
 
 
 def test_posture_accepts_exact_tester_runtime(monkeypatch):

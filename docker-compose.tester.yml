@@ -13,7 +13,7 @@
 #   - Binds operator-only health and database ports to loopback.
 #   - Gives the frontend a dedicated `codexify-test` Tailscale sidecar.
 #   - Serves the frontend over tailnet-only HTTPS on TCP 443.
-#   - Configures the backend to load the v1-friends-family-web supported profile.
+#   - Configures the backend to load the v1-whooshd-deepseek-web supported profile.
 #   - Sets auth-mode and exposure-mode for session/JWT auth.
 #   - Points the frontend at the tester backend base URL.
 #   - All values that carry secrets are read from the .env.tester file.
@@ -39,7 +39,7 @@ services:
       timeout: 5s
       retries: 30
     environment:
-      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-friends-family-web}"
+      CODEXIFY_SUPPORTED_PROFILE: "${CODEXIFY_SUPPORTED_PROFILE:-v1-whooshd-deepseek-web}"
       GUARDIAN_AUTH_MODE: "${GUARDIAN_AUTH_MODE:-remote}"
       GUARDIAN_EXPOSURE_MODE: "${GUARDIAN_EXPOSURE_MODE:-local_safe}"
       GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?GUARDIAN_SESSION_SECRET must be set in .env.tester}"
