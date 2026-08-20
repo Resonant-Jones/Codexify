@@ -184,14 +184,14 @@ def contract_and_adr() -> tuple[dict, dict]:
     return adr, contract
 
 
-def test_current_nine_node_corpus_validates() -> None:
+def test_current_canonical_node_corpus_validates() -> None:
     result = dlg.validate_repository(
         REPO_ROOT, current_repository_revision(), BASE_GENERATED_AT
     )
 
     assert not result.has_errors
-    assert result.schema_valid_node_count == 9
-    assert result.source_hash_match_count == 9
+    assert result.schema_valid_node_count == 10
+    assert result.source_hash_match_count == 10
 
 
 def test_current_relationship_baseline_and_target_resolution() -> None:
@@ -639,5 +639,5 @@ def test_validator_cli_runs_without_runtime_services() -> None:
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     summary = json.loads(completed.stdout)
-    assert summary["corpus"]["node_count"] == 9
+    assert summary["corpus"]["node_count"] == 10
     assert summary["corpus"]["edge_count"] == 8
