@@ -67,6 +67,10 @@ class FakeWorkerService:
         self.calls.append(("source-summary", kwargs["summary"]))
         return {}
 
+    def record_committed_conversation_totals(self, **kwargs):
+        self.calls.append(("committed-totals", kwargs))
+        return {}
+
     def import_image_record(self, **kwargs):
         path = kwargs["record"].path
         self.calls.append(("image", path))
@@ -355,6 +359,7 @@ def test_worker_dispatches_anthropic_source_to_anthropic_adapter(
             errors=[],
             conversations_discovered=2,
             conversations_imported=2,
+            messages_imported=2,
             conversations_failed=0,
         )
 
@@ -409,10 +414,73 @@ def test_worker_dispatches_anthropic_source_to_anthropic_adapter(
         for name, payload in service.calls
     )
     assert any(name == "complete" for name, _ in service.calls)
+    # The Anthropic branch credits durable committed totals before completion.
+    assert any(name == "committed-totals" for name, _ in service.calls)
     # Crucially: the OpenAI-only helpers were never called.
     assert not any(
         name in {"conversation-batch", "media-batch"} for name, _ in service.calls
     )
+
+
+def test_worker_anthropic_credits_writer_committed_totals_before_completion(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The Anthropic branch must credit the canonical writer's committed
+    thread/message totals onto the durable job BEFORE terminal classification,
+    in the order: adapter → source summary → committed-total accounting →
+    complete_job. Discovered totals must never be substituted for committed
+    totals (synthetic mismatch: 4 discovered, 3 threads, 12 messages)."""
+
+    service = FakeAnthropicService(source_system="anthropic")
+
+    def _import_anthropic(_root, **kwargs):
+        return SimpleNamespace(
+            errors=[],
+            conversations_discovered=4,
+            conversations_imported=3,
+            messages_imported=12,
+            conversations_failed=0,
+        )
+
+    monkeypatch.setattr(
+        account_import_worker,
+        "import_anthropic_export_conversations",
+        _import_anthropic,
+    )
+
+    result = account_import_worker.process_account_import_task(
+        {
+            "type": TASK_TYPE,
+            "job_id": "job-anthropic-totals",
+            "user_id": "account-a",
+        },
+        service=service,
+    )
+
+    assert result is True
+    names = [name for name, _ in service.calls]
+    assert (
+        names.index("source-summary")
+        < names.index("committed-totals")
+        < names.index("complete")
+    )
+    totals = [
+        payload
+        for name, payload in service.calls
+        if name == "committed-totals"
+    ]
+    assert totals == [
+        {
+            "job_id": "job-anthropic-totals",
+            "user_id": "account-a",
+            "threads_imported": 3,
+            "messages_imported": 12,
+            "phase_key": "anthropic_conversations",
+        }
+    ]
+    # Discovery (4) must never be credited as committed threads (3).
+    assert totals[0]["threads_imported"] == 3
+    assert totals[0]["threads_imported"] != 4
 
 
 def test_worker_keeps_openai_dispatch_unchanged(
@@ -510,6 +578,7 @@ def test_worker_anthropic_dispatch_fails_closed_on_adapter_error(
             errors=["chat_messages payload was missing"],
             conversations_discovered=0,
             conversations_imported=0,
+            messages_imported=0,
             conversations_failed=0,
         )
 

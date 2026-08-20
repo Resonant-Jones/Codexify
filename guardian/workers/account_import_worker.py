@@ -218,6 +218,19 @@ def process_account_import_task(
                     user_id=user_id,
                     summary=source_summary,
                 )
+                # Credit the canonical writer's authoritative committed totals
+                # onto the durable job BEFORE terminal classification. The
+                # adapter result carries writer-derived thread/message counts
+                # (never source-discovery totals); without this accounting,
+                # ``complete_job`` would reject the internally inconsistent
+                # zero-counter job even though persistence succeeded.
+                service.record_committed_conversation_totals(
+                    job_id=job_id,
+                    user_id=user_id,
+                    threads_imported=anthropic_result.conversations_imported,
+                    messages_imported=anthropic_result.messages_imported,
+                    phase_key="anthropic_conversations",
+                )
                 # Anthropic corpus only writes chat thread/message rows; the
                 # existing account-import contract treats media ingestion as
                 # an OpenAI-specific flow. Per source-family policy, the

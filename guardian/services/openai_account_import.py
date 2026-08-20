@@ -828,6 +828,87 @@ class OpenAIAccountImportService:
             session.refresh(job)
             return self.serialize_job(job)
 
+    def record_committed_conversation_totals(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        threads_imported: int,
+        messages_imported: int,
+        phase_key: str = "conversations",
+    ) -> dict[str, Any]:
+        """Durably credit canonical committed conversation totals onto the job.
+
+        Provider-neutral aggregate accounting for import sources whose
+        canonical writer returns authoritative committed thread/message totals
+        (for example the Anthropic/Claude lane) instead of per-conversation
+        batch checkpoints. The worker names the phase via ``phase_key``; the
+        durable accounting semantics are source-agnostic.
+
+        Idempotency is durable, not process-local: the first application
+        records the credited totals in ``checkpoint["committed_conversation_totals"]``
+        and increments the job counters; an exact replay of the same evidence
+        leaves the totals unchanged; a replay that attempts materially
+        different totals for the same phase fails closed with an explicit
+        accounting inconsistency instead of overwriting or incrementing again.
+
+        Zero totals record no checkpoint entry and credit nothing, so a
+        legitimate zero-commit result still fails the existing
+        no-committed-entities terminal guard and can be retried later.
+        """
+
+        threads = max(0, int(threads_imported))
+        messages = max(0, int(messages_imported))
+        normalized_key = str(phase_key or "").strip() or "conversations"
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id, for_update=True)
+            checkpoint = dict(job.checkpoint or {})
+            recorded = list(checkpoint.get("committed_conversation_totals") or [])
+            existing = next(
+                (
+                    entry
+                    for entry in recorded
+                    if str(entry.get("key")) == normalized_key
+                ),
+                None,
+            )
+            if existing is not None:
+                existing_threads = max(0, int(existing.get("threads_imported", 0)))
+                existing_messages = max(0, int(existing.get("messages_imported", 0)))
+                if (existing_threads, existing_messages) != (threads, messages):
+                    raise AccountImportError(
+                        "Committed conversation totals conflict with already "
+                        f"recorded accounting for phase={normalized_key!r} "
+                        f"(recorded {existing_threads} threads / "
+                        f"{existing_messages} messages; replay attempted "
+                        f"{threads} threads / {messages} messages).",
+                        code="committed_totals_conflict",
+                        status_code=409,
+                    )
+                session.refresh(job)
+                return self.serialize_job(job)
+            if threads or messages:
+                recorded.append(
+                    {
+                        "key": normalized_key,
+                        "threads_imported": threads,
+                        "messages_imported": messages,
+                    }
+                )
+                checkpoint["committed_conversation_totals"] = recorded
+                job.checkpoint = checkpoint
+                flag_modified(job, "checkpoint")
+                job.imported_thread_count = (
+                    int(job.imported_thread_count or 0) + threads
+                )
+                job.imported_message_count = (
+                    int(job.imported_message_count or 0) + messages
+                )
+                job.updated_at = _utcnow()
+                session.commit()
+                session.refresh(job)
+            return self.serialize_job(job)
+
     def _resolve_import_project(
         self, session: Session, *, user_id: str
     ) -> Project:
