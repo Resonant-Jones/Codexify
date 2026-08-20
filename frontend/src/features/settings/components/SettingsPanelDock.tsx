@@ -37,11 +37,6 @@ export default function SettingsPanelDock({
           paddingInline: SETTINGS_DENSITY.edgeChrome,
         } as CSSProperties
       }
-      style={{
-        position: "sticky",
-        top: SETTINGS_DENSITY.edgeChrome,
-        paddingInline: SETTINGS_DENSITY.edgeChrome,
-      }}
     >
       <div
         className="glass-pill isolate relative flex w-full min-w-0 items-stretch overflow-x-auto p-[var(--settings-dock-padding)]"
