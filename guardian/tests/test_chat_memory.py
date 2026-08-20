@@ -233,6 +233,12 @@ def test_route_message_write_enqueues_embed_task(monkeypatch):
 
 
 def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
+    from guardian.core.chat_completion_service import (
+        ChatCompletionEnqueueError,
+        ChatCompletionEnqueueResult,
+        ChatCompletionTaskCreatedEventResult,
+    )
+    from guardian.protocol_tokens import AcceptanceStatus
     from guardian.routes import chat as chat_routes
 
     class _StubChatlogDB:
@@ -243,59 +249,68 @@ def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
             _ = (limit, offset)
             return [{"id": 1, "role": "user", "content": "seed context"}]
 
-    thread_id = 558
-    held_locks: dict[int, str] = {}
-
-    def fake_acquire_turn_lock(
-        requested_thread_id: int,
-        owner: str,
-        *,
-        ttl_seconds: int | None = None,
-    ) -> bool:
-        _ = ttl_seconds
-        if requested_thread_id in held_locks:
-            return False
-        held_locks[requested_thread_id] = owner
-        return True
-
-    def fake_release_turn_lock(requested_thread_id: int, owner: str) -> bool:
-        if held_locks.get(requested_thread_id) != owner:
-            return False
-        del held_locks[requested_thread_id]
-        return True
-
     async def fake_doc_context_override(**_kwargs):
         return None
 
-    enqueued: list[object] = []
+    submissions: list[dict[str, object]] = []
 
-    def fake_enqueue(task, queue_name: str) -> None:
-        enqueued.append((task, queue_name))
+    def fake_enqueue_chat_completion(task, **kwargs):
+        submissions.append({"task": task, **kwargs})
+        if len(submissions) == 2:
+            raise ChatCompletionEnqueueError("turn_in_flight")
 
+        task_id = str(task.task_id or "task-accepted")
+        return ChatCompletionEnqueueResult(
+            task=task,
+            task_id=task_id,
+            acceptance_status=AcceptanceStatus.ACCEPTED.value,
+            acceptance_warnings=(),
+            queue_accepted=True,
+            degraded=False,
+            turn_lock_acquired=True,
+            turn_lock={},
+            task_created_event=ChatCompletionTaskCreatedEventResult(
+                ok=True,
+                task_id=task_id,
+                event_type="task.created",
+                event_id="event-accepted",
+                visibility_scope="task_creator",
+                terminal_visibility=False,
+                execution_continued=True,
+            ),
+        )
+
+    thread_id = 558
     monkeypatch.setattr(chat_routes, "chatlog_db", _StubChatlogDB())
-    monkeypatch.setattr(
-        chat_routes, "acquire_turn_lock", fake_acquire_turn_lock
-    )
-    monkeypatch.setattr(
-        chat_routes, "release_turn_lock", fake_release_turn_lock
-    )
     monkeypatch.setattr(
         chat_routes, "_build_doc_context_override", fake_doc_context_override
     )
-    monkeypatch.setattr(chat_routes, "enqueue", fake_enqueue)
+    monkeypatch.setattr(
+        chat_routes, "enqueue_chat_completion", fake_enqueue_chat_completion
+    )
+    monkeypatch.setattr(
+        chat_routes, "_persist_thread_latest_task_id", lambda *_a, **_k: None
+    )
     monkeypatch.setattr(
         chat_routes.task_events, "publish", lambda *_a, **_k: None
     )
 
     first = client.post(f"/api/chat/{thread_id}/complete", json={})
     assert first.status_code == 200
-    assert len(enqueued) == 1
-    assert enqueued[0][0].turn_lock_owner == enqueued[0][0].task_id
-    assert held_locks[thread_id] == enqueued[0][0].turn_lock_owner
+    assert first.json()["acceptance_status"] == AcceptanceStatus.ACCEPTED.value
+    assert len(submissions) == 1
+    accepted = submissions[0]
+    accepted_task = accepted["task"]
+    assert accepted["thread_id"] == thread_id
+    assert accepted["turn_id"] == getattr(accepted_task, "turn_id")
+    assert accepted["request_id"] == getattr(accepted_task, "request_id")
+    assert first.json()["task_id"] == getattr(accepted_task, "task_id")
 
     second = client.post(f"/api/chat/{thread_id}/complete", json={})
     assert second.status_code == 429
     assert second.json().get("detail") == "turn_in_flight"
+    assert len(submissions) == 2
+    assert submissions[1]["thread_id"] == thread_id
 
 
 def test_chat_complete_carries_browser_context_only_for_submitted_attempt(
